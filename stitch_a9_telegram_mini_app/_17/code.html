@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_tab" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { colors: { "tertiary-container": "#ffc3c4", "surface": "#0f131c", "inverse-on-surface": "#2c303a", "tertiary-fixed-dim": "#ffb3b4", "outline": "#849587", "on-tertiary": "#680017", "inverse-surface": "#dfe2ef", "on-secondary-fixed": "#001f28", "on-secondary-container": "#00566a", "primary-container": "#00f090", "on-background": "#dfe2ef", "on-secondary-fixed-variant": "#004e60", "surface-bright": "#353943", "tertiary-fixed": "#ffdada", "surface-tint": "#00e388", "on-primary": "#00391e", "on-error-container": "#ffdad6", "surface-container-high": "#262a34", "tertiary": "#ffe9e9", "error-container": "#93000a", "primary-fixed": "#58ffa5", "surface-variant": "#31353f", "primary": "#b4ffcb", "surface-container-low": "#181b25", "on-tertiary-container": "#b60030", "on-tertiary-fixed": "#40000b", "on-error": "#690005", "surface-container-highest": "#31353f", "surface-container": "#1c1f29", "surface-dim": "#0f131c", "background": "#0f131c", "surface-container-lowest": "#0a0e17", "inverse-primary": "#006d3e", "on-surface-variant": "#bacbbc", "secondary-fixed-dim": "#47d6ff", "on-primary-fixed": "#00210f", "secondary-container": "#00d2ff", "on-surface": "#dfe2ef", "on-primary-container": "#00683b", "secondary": "#a5e7ff", "primary-fixed-dim": "#00e388", "on-tertiary-fixed-variant": "#920024", "on-primary-fixed-variant": "#00522e", "on-secondary": "#003543", "outline-variant": "#3b4a3f", "error": "#ffb4ab", "secondary-fixed": "#b6ebff" }, borderRadius: { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, spacing: { "space-sm": "0.25rem", "gutter": "0.5rem", "gutter-desktop": "0.75rem", "space-md": "0.5rem", "margin": "0.75rem", "space-lg": "0.75rem", "space-xl": "1rem", "space-xs": "0.125rem", "margin-desktop": "1rem" }, fontFamily: { "label-numeric-md": ["JetBrains Mono"], "headline-md": ["Inter"], "label-caps": ["Inter"], "headline-lg": ["Inter"], "label-numeric-xs": ["JetBrains Mono"], "body-md": ["Inter"], "label-numeric-sm": ["JetBrains Mono"], "body-sm": ["Inter"], "headline-sm": ["Inter"], "body-lg": ["Inter"], "label-numeric-lg": ["JetBrains Mono"] }, fontSize: { "label-numeric-md": ["13px", { "lineHeight": "16px", "letterSpacing": "-0.02em", "fontWeight": "500" }], "headline-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "label-caps": ["10px", { "lineHeight": "12px", "letterSpacing": "0.06em", "fontWeight": "600" }], "headline-lg": ["24px", { "lineHeight": "30px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "label-numeric-xs": ["9px", { "lineHeight": "12px", "letterSpacing": "0.04em", "fontWeight": "600" }], "body-md": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "label-numeric-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0em", "fontWeight": "500" }], "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }], "headline-sm": ["15px", { "lineHeight": "20px", "fontWeight": "600" }], "body-lg": ["14px", { "lineHeight": "20px", "fontWeight": "400" }], "label-numeric-lg": ["18px", { "lineHeight": "22px", "letterSpacing": "-0.03em", "fontWeight": "700" }] } } } };</script><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-md text-on-surface flex flex-col min-h-screen"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/85 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.35)]"><div class="h-14 px-margin flex items-center justify-between"><div class="flex items-center gap-space-sm"><button aria-label="Back" class="w-11 h-11 flex items-center justify-center text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined text-[20px]">arrow_back</span></button><button aria-label="Close" class="w-11 h-11 flex items-center justify-center text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined text-[20px]">close</span></button></div><div class="flex flex-col items-center justify-center"><div class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-primary-container animate-pulse"></span><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight uppercase">A9 // Team</span></div><div class="flex items-center gap-space-xs"><span class="font-label-numeric-xs text-label-numeric-xs text-secondary-container uppercase tracking-wider">TON MAINNET</span><span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">•</span><span class="font-label-numeric-xs text-label-numeric-xs text-primary-container">SYNCED</span></div></div><div class="flex items-center gap-space-sm"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="flex flex-col relative w-full pt-14 pb-20 bg-surface flex-1"><div class="flex flex-col w-full px-margin py-space-md gap-space-lg text-on-surface">
+<!-- Terminal Protocol Subheader -->
+<div class="flex items-center justify-between px-space-md py-space-sm bg-surface-container-low rounded-lg shadow-sm">
+<div class="flex items-center gap-space-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary-container animate-pulse"></span>
+<span class="font-label-caps text-label-caps text-secondary-container tracking-wider uppercase">TEAM FORMATION PROTOCOL // A9 ALLIANCE</span>
+</div>
+<div class="flex items-center gap-space-xs font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">
+<span>EPOCH:</span>
+<span class="text-primary font-bold">#042-S2</span>
+</div>
+</div>
+<!-- Hero Card: Unjoined State & Incentive Pitch -->
+<div class="relative overflow-hidden rounded-xl bg-surface-container-high p-space-lg shadow-md flex flex-col gap-space-md">
+<div class="absolute -right-6 -bottom-6 w-32 h-32 bg-primary-container/10 rounded-full blur-2xl pointer-events-none"></div>
+<div class="absolute -left-6 -top-6 w-24 h-24 bg-secondary-container/10 rounded-full blur-xl pointer-events-none"></div>
+<div class="flex items-start gap-space-md">
+<div class="relative flex-shrink-0 w-12 h-12 rounded-xl bg-surface-container-lowest flex items-center justify-center shadow-inner">
+<span class="material-symbols-outlined text-primary-container text-[26px] drop-shadow-[0_0_8px_rgba(0,240,144,0.6)]" style="font-variation-settings: 'FILL' 1;">shield_with_heart</span>
+<div class="absolute inset-0 rounded-xl bg-primary-container/10 animate-ping pointer-events-none opacity-40"></div>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<span class="font-headline-sm text-headline-sm text-on-surface tracking-tight">尚未加入团队</span>
+<span class="font-label-numeric-xs text-label-numeric-xs px-1.5 py-0.5 rounded bg-surface-container-lowest text-on-surface-variant uppercase">NO TEAM</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1 leading-snug">
+          加入团队解锁最高 <span class="font-label-numeric-sm text-label-numeric-sm font-bold text-primary-container">+15% 团队收益加成</span>，内盘额度最高 <span class="font-label-numeric-sm text-label-numeric-sm font-bold text-secondary">+400 TON</span>，并参与每轮 <span class="font-label-numeric-sm text-label-numeric-sm font-bold text-primary">120,000,000 A9</span> 团队奖池！
+        </p>
+</div>
+</div>
+<!-- Quick Stats Metric Pills -->
+<div class="grid grid-cols-3 gap-space-sm pt-space-xs">
+<div class="flex flex-col p-space-sm rounded-lg bg-surface-container-lowest">
+<span class="font-label-caps text-label-caps text-on-surface-variant">SEASON POOL</span>
+<span class="font-label-numeric-sm text-label-numeric-sm text-primary font-bold">120M A9</span>
+</div>
+<div class="flex flex-col p-space-sm rounded-lg bg-surface-container-lowest">
+<span class="font-label-caps text-label-caps text-on-surface-variant">MAX YIELD BOOST</span>
+<span class="font-label-numeric-sm text-label-numeric-sm text-primary-container font-bold">+15.00%</span>
+</div>
+<div class="flex flex-col p-space-sm rounded-lg bg-surface-container-lowest">
+<span class="font-label-caps text-label-caps text-on-surface-variant">ALLOCATION CAP</span>
+<span class="font-label-numeric-sm text-label-numeric-sm text-secondary font-bold">+400 TON</span>
+</div>
+</div>
+</div>
+<!-- Action 1: Join via Team Invite Code -->
+<div class="flex flex-col p-space-lg rounded-xl bg-surface-container gap-space-md shadow-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[18px] text-primary-container">login</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">输入团队邀请码</span>
+</div>
+<span class="font-label-caps text-label-caps text-on-surface-variant tracking-wider">DIRECT ACCESS</span>
+</div>
+<div class="flex flex-col gap-space-sm">
+<div class="flex items-center bg-surface-container-lowest rounded-lg px-space-md py-1.5 focus-within:bg-surface-container-low transition-colors shadow-inner">
+<input class="bg-transparent border-0 outline-none w-full font-label-numeric-md text-label-numeric-md text-primary tracking-wider placeholder:text-outline-variant placeholder:font-body-sm" id="team-code-input" placeholder="输入 8 位邀请码 (例如: A9-88X9)" type="text"/>
+<button class="flex items-center gap-1 px-2 py-1 rounded bg-surface-container-high hover:bg-surface-variant active:scale-95 text-secondary-container transition-all flex-shrink-0" id="paste-btn" type="button">
+<span class="material-symbols-outlined text-[14px]">content_paste</span>
+<span class="font-label-caps text-label-caps">粘贴</span>
+</button>
+</div>
+<button class="w-full h-11 rounded-lg bg-primary-container hover:bg-primary-fixed-dim active:scale-[0.99] text-on-primary font-headline-sm text-headline-sm flex items-center justify-center gap-space-sm shadow-[0_0_12px_rgba(0,240,144,0.35)] transition-all" id="join-btn" type="button">
+<span>立即加入</span>
+<span class="material-symbols-outlined text-[18px] font-bold">arrow_forward</span>
+</button>
+</div>
+</div>
+<!-- Action 2: Create Team (Captain Protocol) -->
+<div class="relative overflow-hidden rounded-xl bg-surface-container-high p-space-lg shadow-sm flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[18px] text-secondary-container">add_moderator</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">创建属于你的战队</span>
+</div>
+<div class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-secondary-container/15 text-secondary-container">
+<span class="w-1 h-1 rounded-full bg-secondary-container"></span>
+<span class="font-label-numeric-xs text-label-numeric-xs uppercase font-bold">CAPTAIN PERK</span>
+</div>
+</div>
+<div class="flex flex-col gap-space-xs bg-surface-container-lowest p-space-md rounded-lg">
+<div class="flex items-start gap-space-sm">
+<span class="material-symbols-outlined text-primary-container text-[16px] mt-0.5">check_circle</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">门槛条件：需持有或质押 ≥ <strong class="font-label-numeric-sm text-label-numeric-sm text-on-surface font-semibold">500 TON</strong></span>
+</div>
+<div class="flex items-start gap-space-sm">
+<span class="material-symbols-outlined text-primary-container text-[16px] mt-0.5">check_circle</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">专属提成：享战队每轮全部本金 <strong class="font-label-numeric-sm text-label-numeric-sm text-primary-container font-semibold">1.0%</strong> 队长直接分红</span>
+</div>
+<div class="flex items-start gap-space-sm">
+<span class="material-symbols-outlined text-primary-container text-[16px] mt-0.5">check_circle</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">专属治理：战队专属门面展示、TG 交易群组直接绑定</span>
+</div>
+</div>
+<button class="w-full h-11 rounded-lg bg-secondary-container hover:bg-secondary active:scale-[0.99] text-on-secondary-container font-headline-sm text-headline-sm flex items-center justify-center gap-space-sm shadow-[0_0_12px_rgba(0,210,255,0.3)] transition-all" type="button">
+<span class="material-symbols-outlined text-[18px]">workspace_premium</span>
+<span>支付 500 TON 创建战队 (成为队长)</span>
+</button>
+</div>
+<!-- Alliance Tier Matrix (Matrix Card) -->
+<div class="flex flex-col p-space-lg rounded-xl bg-surface-container gap-space-md shadow-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[18px] text-primary-container">table_chart</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">战队等级权益矩阵</span>
+</div>
+<span class="font-label-caps text-label-caps text-on-surface-variant">TIER SYSTEM</span>
+</div>
+<!-- Tier Rows -->
+<div class="flex flex-col gap-space-xs">
+<!-- LV1 -->
+<div class="flex items-center justify-between p-space-sm bg-surface-container-lowest rounded-lg">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="font-label-numeric-xs text-label-numeric-xs px-2 py-0.5 rounded bg-surface-container-high text-on-surface font-bold">LV.1</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">5 人成团</span>
+</div>
+<div class="flex items-center gap-space-md font-label-numeric-sm text-label-numeric-sm">
+<span class="text-primary-container">+3.0% 加成</span>
+<span class="text-secondary">+50 TON 额度</span>
+</div>
+</div>
+<!-- LV2 (HOT) -->
+<div class="relative flex items-center justify-between p-space-sm bg-surface-container-high rounded-lg shadow-sm">
+<div class="absolute -top-2 right-2 px-1.5 py-0.2 rounded bg-tertiary text-on-tertiary font-label-caps text-label-caps font-bold shadow-sm">
+          HOT 最火爆
+        </div>
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="font-label-numeric-xs text-label-numeric-xs px-2 py-0.5 rounded bg-primary-container text-on-primary font-bold">LV.2</span>
+<span class="font-body-sm text-body-sm text-on-surface font-medium">20 人进阶</span>
+</div>
+<div class="flex items-center gap-space-md font-label-numeric-sm text-label-numeric-sm">
+<span class="text-primary-container font-semibold">+6.0% 加成</span>
+<span class="text-secondary font-semibold">+150 TON 额度</span>
+</div>
+</div>
+<!-- LV3 -->
+<div class="flex items-center justify-between p-space-sm bg-surface-container-lowest rounded-lg">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="font-label-numeric-xs text-label-numeric-xs px-2 py-0.5 rounded bg-surface-container-high text-on-surface font-bold">LV.3</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">100 人军团</span>
+</div>
+<div class="flex items-center gap-space-md font-label-numeric-sm text-label-numeric-sm">
+<span class="text-primary-container font-semibold">+10.0% 加成</span>
+<span class="text-secondary font-semibold">+400 TON 额度</span>
+</div>
+</div>
+<!-- LV4 (Apex) -->
+<div class="flex items-center justify-between p-space-sm bg-surface-container-lowest rounded-lg">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="font-label-numeric-xs text-label-numeric-xs px-2 py-0.5 rounded bg-surface-container-highest text-secondary-container font-bold">LV.4</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">500人 (至尊节点)</span>
+</div>
+<div class="flex items-center gap-space-md font-label-numeric-sm text-label-numeric-sm">
+<span class="text-primary-container font-bold">+15.0% 封顶</span>
+<span class="text-secondary font-bold">+400 TON 额度</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Recommended Public Teams -->
+<div class="flex flex-col gap-space-sm">
+<div class="flex items-center justify-between px-space-xs">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[18px] text-primary-container">groups</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">热门公开战队招募</span>
+</div>
+<button class="font-label-caps text-label-caps text-primary hover:underline uppercase flex items-center gap-0.5" type="button">
+<span>刷新列表</span>
+<span class="material-symbols-outlined text-[12px]">refresh</span>
+</button>
+</div>
+<!-- Public Team 1 -->
+<div class="flex flex-col p-space-md rounded-xl bg-surface-container gap-space-sm shadow-sm">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-space-sm min-w-0">
+<div class="w-9 h-9 rounded-lg bg-surface-container-high flex items-center justify-center font-label-numeric-sm text-label-numeric-sm font-bold text-primary">
+            AWS
+          </div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<span class="font-headline-sm text-headline-sm text-on-surface truncate">Alpha Whale Syndicate</span>
+<span class="font-label-numeric-xs text-label-numeric-xs px-1.5 py-0.5 rounded bg-primary-container/20 text-primary-container font-bold">Lv.3</span>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface-variant">队长: <span class="font-label-numeric-xs text-label-numeric-xs text-secondary-container">@ton_king</span></span>
+</div>
+</div>
+<button class="px-3 py-1.5 rounded-lg bg-surface-container-high hover:bg-surface-variant active:scale-95 text-primary-container font-label-caps text-label-caps font-bold transition-all shadow-sm" type="button">
+          申请加入
+        </button>
+</div>
+<!-- Capacity & Staked Bar -->
+<div class="flex flex-col gap-1 pt-space-xs">
+<div class="flex items-center justify-between font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">
+<span>成员载荷: <strong class="text-on-surface">88</strong> / 100 人</span>
+<span>本轮质押: <strong class="text-primary font-bold">42,000 TON</strong></span>
+</div>
+<div class="w-full h-1.5 bg-surface-container-lowest rounded-full overflow-hidden">
+<div class="h-full bg-primary-container rounded-full" style="width: 88%;"></div>
+</div>
+</div>
+</div>
+<!-- Public Team 2 -->
+<div class="flex flex-col p-space-md rounded-xl bg-surface-container gap-space-sm shadow-sm">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-space-sm min-w-0">
+<div class="w-9 h-9 rounded-lg bg-surface-container-high flex items-center justify-center font-label-numeric-sm text-label-numeric-sm font-bold text-secondary-container">
+            TMN
+          </div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<span class="font-headline-sm text-headline-sm text-on-surface truncate">TON Matrix Node</span>
+<span class="font-label-numeric-xs text-label-numeric-xs px-1.5 py-0.5 rounded bg-secondary-container/20 text-secondary-container font-bold">Lv.2</span>
+<span class="font-label-caps text-label-caps px-1 py-0.2 rounded bg-tertiary-container text-on-tertiary-container font-bold">仅剩1席</span>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface-variant">队长: <span class="font-label-numeric-xs text-label-numeric-xs text-secondary-container">@matrix_99</span></span>
+</div>
+</div>
+<button class="px-3 py-1.5 rounded-lg bg-primary-container hover:bg-primary-fixed-dim active:scale-95 text-on-primary font-label-caps text-label-caps font-bold transition-all shadow-sm" type="button">
+          立即加入
+        </button>
+</div>
+<!-- Capacity & Staked Bar -->
+<div class="flex flex-col gap-1 pt-space-xs">
+<div class="flex items-center justify-between font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">
+<span>成员载荷: <strong class="text-tertiary-fixed-dim">19</strong> / 20 人</span>
+<span>本轮质押: <strong class="text-primary font-bold">18,500 TON</strong></span>
+</div>
+<div class="w-full h-1.5 bg-surface-container-lowest rounded-full overflow-hidden">
+<div class="h-full bg-secondary-container rounded-full" style="width: 95%;"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Financial Rules Protocol Terminal Box -->
+<div class="flex items-start gap-space-sm p-space-md rounded-lg bg-surface-container-lowest text-on-surface-variant shadow-inner mb-space-sm">
+<span class="material-symbols-outlined text-[16px] text-outline mt-0.5">info</span>
+<p class="font-body-sm text-body-sm leading-relaxed">
+<strong class="text-on-surface font-medium">战队规约：</strong>每人仅限归属于一个团队；赛季周期内每个地址最多申请切换一次团队，申请将在下一轮 Epoch 开始时正式生效；队长身份绑定当前战队，不可主动退团。
+    </p>
+</div>
+</div>
+<script>
+  (function() {
+    const pasteBtn = document.getElementById('paste-btn');
+    const input = document.getElementById('team-code-input');
+    const joinBtn = document.getElementById('join-btn');
+
+    if (pasteBtn && input) {
+      pasteBtn.addEventListener('click', async () => {
+        try {
+          const text = await navigator.clipboard.readText();
+          if (text) {
+            input.value = text.trim();
+            input.focus();
+          }
+        } catch (e) {
+          input.value = 'A9-WHALE8';
+          input.focus();
+        }
+      });
+    }
+
+    if (joinBtn && input) {
+      joinBtn.addEventListener('click', () => {
+        const val = input.value.trim();
+        if (!val) {
+          input.placeholder = '请先输入战队邀请码！';
+          input.focus();
+          return;
+        }
+        joinBtn.innerHTML = '<span class="material-symbols-outlined text-[18px] animate-spin">sync</span> 验证入团中...';
+        setTimeout(() => {
+          joinBtn.innerHTML = '<span class="material-symbols-outlined text-[18px]">check_circle</span> 验证成功';
+          joinBtn.classList.remove('bg-primary-container', 'text-on-primary');
+          joinBtn.classList.add('bg-primary', 'text-on-primary');
+        }, 800);
+      });
+    }
+  })();
+</script></main><nav class="fixed bottom-0 w-full z-50 pb-safe bg-surface-container-lowest/90 backdrop-blur-xl shadow-[0_-1px_12px_rgba(0,0,0,0.5)]" data-active-classes="text-primary-container font-headline-sm drop-shadow-[0_0_8px_rgba(0,240,144,0.4)]"><div class="flex justify-around items-center h-16 px-gutter"><a class="flex flex-col items-center justify-center min-w-[54px] min-h-[44px] text-on-surface-variant hover:text-on-surface transition-colors" data-path="challenge" href="#"><span class="material-symbols-outlined text-[22px]">military_tech</span><span class="font-label-caps text-label-caps mt-space-xs uppercase tracking-wider">挑战</span></a><a aria-current="page" class="flex flex-col items-center justify-center min-w-[54px] min-h-[44px] relative transition-colors text-primary-container font-headline-sm drop-shadow-[0_0_8px_rgba(0,240,144,0.4)]" data-path="team" href="#"><div class="absolute -top-1.5 px-space-xs py-0.5 rounded-full bg-primary-container/20 border border-primary-container/40 flex items-center gap-space-xs shadow-[0_0_10px_rgba(0,240,144,0.35)]"><span class="w-1 h-1 rounded-full bg-primary-container"></span><span class="font-label-numeric-xs text-label-numeric-xs text-primary-container font-bold">PRO</span></div><span class="material-symbols-outlined text-[22px] mt-1">groups</span><span class="font-label-caps text-label-caps mt-space-xs uppercase tracking-wider">团队</span></a><a class="flex flex-col items-center justify-center min-w-[54px] min-h-[44px] text-on-surface-variant hover:text-on-surface transition-colors" data-path="leaderboard" href="#"><span class="material-symbols-outlined text-[22px]">leaderboard</span><span class="font-label-caps text-label-caps mt-space-xs uppercase tracking-wider">榜单</span></a><a class="flex flex-col items-center justify-center min-w-[54px] min-h-[44px] text-on-surface-variant hover:text-on-surface transition-colors" data-path="profile" href="#"><span class="material-symbols-outlined text-[22px]">account_balance_wallet</span><span class="font-label-caps text-label-caps mt-space-xs uppercase tracking-wider">我的</span></a></div></nav></body></html>

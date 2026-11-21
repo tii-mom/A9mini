@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { colors: { "on-primary": "#00391e", "inverse-on-surface": "#2c303a", "error-container": "#93000a", "surface": "#0f131c", "tertiary-fixed-dim": "#ffb3b4", "inverse-primary": "#006d3e", "surface-container": "#1c1f29", "on-tertiary-fixed-variant": "#920024", "on-primary-fixed": "#00210f", "surface-bright": "#353943", "on-tertiary-fixed": "#40000b", "on-tertiary-container": "#b60030", "surface-variant": "#31353f", "tertiary": "#ffe9e9", "surface-tint": "#00e388", "secondary": "#a5e7ff", "primary-fixed": "#58ffa5", "on-secondary-fixed-variant": "#004e60", "on-error": "#690005", "on-primary-container": "#00683b", "on-surface-variant": "#bacbbc", "error": "#ffb4ab", "on-tertiary": "#680017", "on-primary-fixed-variant": "#00522e", "on-secondary-container": "#00566a", "surface-dim": "#0f131c", "primary-fixed-dim": "#00e388", "secondary-fixed-dim": "#47d6ff", "surface-container-high": "#262a34", "tertiary-container": "#ffc3c4", "outline-variant": "#3b4a3f", "on-background": "#dfe2ef", "on-secondary-fixed": "#001f28", "secondary-container": "#00d2ff", "tertiary-fixed": "#ffdada", "primary-container": "#00f090", "on-secondary": "#003543", "secondary-fixed": "#b6ebff", "primary": "#b4ffcb", "surface-container-low": "#181b25", "inverse-surface": "#dfe2ef", "on-surface": "#dfe2ef", "background": "#0f131c", "surface-container-lowest": "#0a0e17", "on-error-container": "#ffdad6", "surface-container-highest": "#31353f", "outline": "#849587" }, borderRadius: { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, spacing: { "space-xs": "0.125rem", "space-sm": "0.25rem", "space-xl": "1rem", "gutter": "0.5rem", "gutter-desktop": "0.75rem", "space-md": "0.5rem", "space-lg": "0.75rem", "margin-desktop": "1rem", "margin": "0.75rem" }, fontFamily: { "headline-md": ["Inter"], "label-numeric-xs": ["JetBrains Mono"], "body-lg": ["Inter"], "body-sm": ["Inter"], "label-numeric-md": ["JetBrains Mono"], "label-caps": ["Inter"], "label-numeric-lg": ["JetBrains Mono"], "headline-lg": ["Inter"], "label-numeric-sm": ["JetBrains Mono"], "headline-sm": ["Inter"], "body-md": ["Inter"] }, fontSize: { "headline-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "label-numeric-xs": ["9px", { "lineHeight": "12px", "letterSpacing": "0.04em", "fontWeight": "600" }], "body-lg": ["14px", { "lineHeight": "20px", "fontWeight": "400" }], "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }], "label-numeric-md": ["13px", { "lineHeight": "16px", "letterSpacing": "-0.02em", "fontWeight": "500" }], "label-caps": ["10px", { "lineHeight": "12px", "letterSpacing": "0.06em", "fontWeight": "600" }], "label-numeric-lg": ["18px", { "lineHeight": "22px", "letterSpacing": "-0.03em", "fontWeight": "700" }], "headline-lg": ["24px", { "lineHeight": "30px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "label-numeric-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0em", "fontWeight": "500" }], "headline-sm": ["15px", { "lineHeight": "20px", "fontWeight": "600" }], "body-md": ["13px", { "lineHeight": "18px", "fontWeight": "400" }] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-md text-body-md text-on-surface antialiased flex flex-col min-h-screen selection:bg-primary-container selection:text-on-primary-container"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/85 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.3)]"><div class="h-14 px-margin flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-xs"><button aria-label="Back" class="w-9 h-9 flex items-center justify-center rounded-full text-on-surface hover:text-primary-container transition-colors -ml-space-xs" onclick="window.history.back()"><span class="material-symbols-outlined text-[20px]">arrow_back_ios_new</span></button><h1 class="font-headline-sm text-headline-sm text-on-surface tracking-tight truncate max-w-[160px]">Stake Certificate Detail</h1></div><div class="flex items-center gap-space-xs"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div><div class="flex items-center bg-surface-container-low rounded-full px-space-xs py-space-xs"><button aria-label="Menu" class="w-8 h-8 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[18px]">more_horiz</span></button><button aria-label="Close" class="w-8 h-8 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[18px]">close</span></button></div></div></div></header><main class="flex-1 w-full bg-surface pt-14 pb-safe"><div class="flex flex-col w-full pb-10">
+<!-- Top Ambient Glow Aura -->
+<div class="relative w-full overflow-hidden px-margin pt-space-md">
+<div class="absolute -top-12 left-1/2 -translate-x-1/2 w-64 h-32 bg-primary-container/10 blur-3xl pointer-events-none rounded-full"></div>
+<!-- 1. Institutional Security Certificate Hero Badge -->
+<div class="relative bg-surface-container rounded-xl p-space-md shadow-md overflow-hidden">
+<!-- Watermark Graphic Vector -->
+<div class="absolute -right-6 -bottom-6 opacity-5 pointer-events-none select-none text-primary-container">
+<span class="material-symbols-outlined text-[130px]" style="font-variation-settings: 'FILL' 1;">verified_user</span>
+</div>
+<!-- Live Certificate Header -->
+<div class="flex items-center justify-between gap-space-sm mb-space-sm">
+<div class="flex items-center gap-space-xs">
+<span class="inline-flex w-2 h-2 rounded-full bg-primary-container animate-pulse"></span>
+<span class="font-label-caps text-label-caps uppercase text-primary-fixed-dim">IMMUTABLE TON CERTIFICATE</span>
+</div>
+<div class="flex items-center gap-space-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary-fixed-dim">
+<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">lock</span>
+<span class="font-label-numeric-xs text-label-numeric-xs uppercase">ON-CHAIN VERIFIED</span>
+</div>
+</div>
+<!-- Certificate Stamp Number -->
+<div class="flex items-center justify-between bg-surface-container-low px-space-md py-space-sm rounded-lg mb-space-sm">
+<div class="flex flex-col min-w-0">
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant uppercase tracking-wider">CERTIFICATE SERIAL</span>
+<span class="font-label-numeric-md text-label-numeric-md text-on-surface truncate font-bold" id="cert-id">#A9-STAKE-R03-088921</span>
+</div>
+<button class="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center active:scale-95 transition-all text-on-surface-variant hover:text-on-surface" id="copy-btn" onclick="navigator.clipboard.writeText('A9-STAKE-R03-088921'); this.innerHTML='&lt;span class=\'material-symbols-outlined text-[16px] text-primary-container\'&gt;check&lt;/span&gt;'; setTimeout(() =&gt; this.innerHTML='&lt;span class=\'material-symbols-outlined text-[16px] text-on-surface-variant\'&gt;content_copy&lt;/span&gt;', 2000)" title="Copy Certificate ID">
+<span class="material-symbols-outlined text-[16px]">content_copy</span>
+</button>
+</div>
+<!-- Cryptographic Badges Matrix -->
+<div class="grid grid-cols-2 gap-space-xs">
+<div class="flex items-center gap-space-xs bg-surface-container-lowest/80 px-2 py-1.5 rounded">
+<span class="material-symbols-outlined text-secondary-container text-[14px]">terminal</span>
+<div class="flex flex-col min-w-0">
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">PROOF ENGINE</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-secondary-fixed font-bold truncate">SHA-256 HASHED</span>
+</div>
+</div>
+<div class="flex items-center gap-space-xs bg-surface-container-lowest/80 px-2 py-1.5 rounded">
+<span class="material-symbols-outlined text-primary-container text-[14px]">format_image_left</span>
+<div class="flex flex-col min-w-0">
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">TON VALIDATION</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-primary font-bold truncate">TVM AUDITED</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- 2. Core Position Specs Bento Panel -->
+<div class="px-margin mt-space-md">
+<div class="flex items-center justify-between mb-space-xs">
+<h2 class="font-label-caps text-label-caps uppercase text-on-surface-variant tracking-wider flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[14px] text-primary-container">layers</span>
+        持仓核心属性 / POSITION METRICS
+      </h2>
+<span class="font-label-numeric-xs text-label-numeric-xs text-secondary">早鸟特权生效中</span>
+</div>
+<div class="bg-surface-container rounded-xl p-space-md space-y-space-md shadow-sm">
+<!-- Top Primary Metrics Highlight -->
+<div class="grid grid-cols-2 gap-space-sm bg-surface-container-low p-space-md rounded-lg">
+<div class="flex flex-col">
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">参与本金规模 (PRINCIPAL)</span>
+<div class="flex items-baseline gap-1 mt-0.5">
+<span class="font-label-numeric-lg text-label-numeric-lg text-on-surface font-bold">500.00</span>
+<span class="font-label-caps text-label-caps text-secondary font-bold">TON</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">折算有效权积分数 (WEIGHT)</span>
+<div class="flex items-baseline gap-1 mt-0.5">
+<span class="font-label-numeric-lg text-label-numeric-lg text-primary-container font-bold">1,000.00</span>
+<span class="font-label-caps text-label-caps text-primary-fixed-dim font-bold">PWR</span>
+</div>
+</div>
+</div>
+<!-- Detailed Key-Value Specs Table -->
+<div class="space-y-2">
+<div class="flex items-center justify-between py-1 bg-surface-container-lowest/60 px-space-md rounded">
+<span class="font-body-sm text-body-sm text-on-surface-variant">所属执行轮次</span>
+<div class="flex items-center gap-1.5">
+<span class="px-1.5 py-0.5 rounded bg-secondary-container/10 text-secondary font-label-numeric-xs font-semibold">ROUND 03</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface">第 3 轮 / 共 10 轮</span>
+</div>
+</div>
+<div class="flex items-center justify-between py-1 bg-surface-container-lowest/60 px-space-md rounded">
+<span class="font-body-sm text-body-sm text-on-surface-variant">生效参与权重倍率</span>
+<div class="flex items-center gap-1.5">
+<span class="px-1.5 py-0.5 rounded bg-primary/10 text-primary-container font-label-numeric-xs font-bold">2.0x 极速加成</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">(0-12h 早期参与)</span>
+</div>
+</div>
+<div class="flex items-center justify-between py-1 bg-surface-container-lowest/60 px-space-md rounded">
+<span class="font-body-sm text-body-sm text-on-surface-variant">凭证铸造时间戳</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface">2025-05-18 14:28:05 UTC+8</span>
+</div>
+<div class="flex items-center justify-between py-1 bg-surface-container-lowest/60 px-space-md rounded">
+<span class="font-body-sm text-body-sm text-on-surface-variant">链上存证交易哈希</span>
+<a class="inline-flex items-center gap-1 text-secondary hover:text-secondary-fixed transition-colors font-label-numeric-xs font-mono" href="#">
+<span>EQB9...9F21e7d8</span>
+<span class="material-symbols-outlined text-[13px]">open_in_new</span>
+</a>
+</div>
+</div>
+</div>
+</div>
+<!-- 3. Round Real-time Status Radar -->
+<div class="px-margin mt-space-md">
+<div class="flex items-center justify-between mb-space-xs">
+<h2 class="font-label-caps text-label-caps uppercase text-on-surface-variant tracking-wider flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[14px] text-secondary-container">radar</span>
+        轮次实时监控走廊 / ROUND RADAR
+      </h2>
+<div class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary-container/10">
+<span class="inline-block w-1.5 h-1.5 rounded-full bg-secondary animate-ping"></span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-secondary-container">OBSERVATION WINDOW</span>
+</div>
+</div>
+<div class="bg-surface-container rounded-xl p-space-md shadow-sm">
+<!-- TWAP Metric & Target Target Header -->
+<div class="grid grid-cols-2 gap-space-sm pb-space-sm">
+<div class="bg-surface-container-lowest p-space-sm rounded-lg flex flex-col">
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">实时 TWAP 价格</span>
+<span class="font-label-numeric-md text-label-numeric-md text-primary-container font-bold mt-0.5">$0.1895 TON</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-primary mt-0.5">+2.43% 上浮走强</span>
+</div>
+<div class="bg-surface-container-lowest p-space-sm rounded-lg flex flex-col">
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">目标下限底价 (TARGET)</span>
+<span class="font-label-numeric-md text-label-numeric-md text-on-surface font-bold mt-0.5">$0.1850 TON</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant mt-0.5">安全边际: +0.0045</span>
+</div>
+</div>
+<!-- K-line Corridor Visual Step Track -->
+<div class="mt-space-sm bg-surface-container-low p-space-md rounded-lg">
+<div class="flex items-center justify-between mb-2">
+<span class="font-body-sm text-body-sm text-on-surface font-medium">小时K线达标走廊</span>
+<div class="flex items-baseline gap-1">
+<span class="font-label-numeric-md text-label-numeric-md text-primary-container font-bold">12</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">/ 16 根必须</span>
+</div>
+</div>
+<!-- 25-segment Hourly Horizon Tracker -->
+<div class="grid grid-cols-12 gap-1 mb-2">
+<!-- 12 Validated Segments -->
+<div class="h-3 rounded-xs bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="h-3 rounded-xs bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="h-3 rounded-xs bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="h-3 rounded-xs bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="h-3 rounded-xs bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="h-3 rounded-xs bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="h-3 rounded-xs bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="h-3 rounded-xs bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="h-3 rounded-xs bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="h-3 rounded-xs bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="h-3 rounded-xs bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="h-3 rounded-xs bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+</div>
+<div class="grid grid-cols-12 gap-1">
+<!-- 4 Required Remaining Segments -->
+<div class="h-3 rounded-xs bg-primary-container/30 border border-primary-container/60 animate-pulse"></div>
+<div class="h-3 rounded-xs bg-primary-container/30 border border-primary-container/60 animate-pulse"></div>
+<div class="h-3 rounded-xs bg-primary-container/30 border border-primary-container/60 animate-pulse"></div>
+<div class="h-3 rounded-xs bg-primary-container/30 border border-primary-container/60 animate-pulse"></div>
+<!-- 5 Buffer Remaining Segments -->
+<div class="h-3 rounded-xs bg-surface-container-highest"></div>
+<div class="h-3 rounded-xs bg-surface-container-highest"></div>
+<div class="h-3 rounded-xs bg-surface-container-highest"></div>
+<div class="h-3 rounded-xs bg-surface-container-highest"></div>
+<div class="h-3 rounded-xs bg-surface-container-highest"></div>
+<div class="h-3 rounded-xs opacity-0"></div>
+<div class="h-3 rounded-xs opacity-0"></div>
+<div class="h-3 rounded-xs opacity-0"></div>
+</div>
+<div class="flex items-center justify-between mt-2 pt-2 bg-surface-container-lowest/50 px-2 py-1 rounded">
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px] text-primary-container">info</span>
+            剩余 9 根小时窗口，仅需完成 4 根达标
+          </span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-primary-container font-bold">达标概率 94.2%</span>
+</div>
+</div>
+</div>
+</div>
+<!-- 4. Reward Split & Capital Settlement Policy Accordion-style Card -->
+<div class="px-margin mt-space-md">
+<div class="flex items-center justify-between mb-space-xs">
+<h2 class="font-label-caps text-label-caps uppercase text-on-surface-variant tracking-wider flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[14px] text-tertiary-container">account_balance_wallet</span>
+        奖励清算与本金处置机制 / SETTLEMENT POLICY
+      </h2>
+</div>
+<div class="bg-surface-container rounded-xl p-space-md shadow-sm space-y-space-md">
+<!-- Projected A9 Reward -->
+<div class="bg-surface-container-low p-space-md rounded-lg flex items-center justify-between">
+<div>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">本轮预计分润产出</span>
+<div class="font-label-numeric-lg text-label-numeric-lg text-primary font-bold tracking-tight">
+            65,000 ~ 75,000 <span class="font-label-caps text-label-caps text-on-surface">A9</span>
+</div>
+</div>
+<div class="text-right">
+<span class="font-label-numeric-xs text-label-numeric-xs text-secondary-container font-mono">20% TGE / 80% LINEAR</span>
+<div class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">即时到账 + 30天线性</div>
+</div>
+</div>
+<!-- Capital Fate Scenarios (Disposal Policy) -->
+<div class="space-y-space-xs">
+<span class="font-label-caps text-label-caps uppercase text-on-surface-variant px-1">本金处置状态协议 (TON GUARANTEE)</span>
+<!-- Scenario A: Success -->
+<div class="bg-surface-container-lowest/80 p-space-sm rounded-lg flex items-start gap-space-sm">
+<span class="material-symbols-outlined text-primary-container text-[18px] shrink-0 mt-0.5">check_circle</span>
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between">
+<span class="font-body-sm text-body-sm font-semibold text-primary">轮次达标结算 (≥ 16根K线)</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-primary-fixed-dim">本金安全赎回</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">本金 500 TON 安全解冻，支持原路 100% 提取至 TON 钱包或一键无缝复投下一轮。</p>
+</div>
+</div>
+<!-- Scenario B: Failed -->
+<div class="bg-surface-container-lowest/80 p-space-sm rounded-lg flex items-start gap-space-sm">
+<span class="material-symbols-outlined text-error text-[18px] shrink-0 mt-0.5">local_fire_department</span>
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between">
+<span class="font-body-sm text-body-sm font-semibold text-error">轮次未达标 (&lt; 16根K线)</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-error font-mono">BLACKHOLE BURN</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">参与本金 500 TON 将依约由链上黑洞合约彻底永久销毁不可逆，不予退还。</p>
+</div>
+</div>
+<!-- Scenario C: Force Abort -->
+<div class="bg-surface-container-lowest/80 p-space-sm rounded-lg flex items-start gap-space-sm">
+<span class="material-symbols-outlined text-secondary-container text-[18px] shrink-0 mt-0.5">replay</span>
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between">
+<span class="font-body-sm text-body-sm font-semibold text-secondary-container">极速技术异常中止</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-secondary-fixed">100% 全额原路返还</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">若遇不可抗力网络阻断或预言机异常，本金 500 TON 触发熔断保护，秒级全额退回原地址。</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- 5. Interactive Operation Controls -->
+<div class="px-margin mt-space-md space-y-space-sm">
+<!-- Auto Renewal Toggle Switch Card -->
+<div class="bg-surface-container rounded-xl p-space-md flex items-center justify-between shadow-sm">
+<div class="flex items-center gap-space-sm">
+<div class="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary-container text-[20px]">autorenew</span>
+</div>
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<span class="font-body-sm text-body-sm font-bold text-on-surface">下一轮极速自动续期</span>
+<span class="px-1.5 py-0.2 rounded bg-primary-container/20 text-primary-container font-label-numeric-xs font-bold">2.0x 权重特权</span>
+</div>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">若本轮达标，本金无需提取自动锁定下轮早鸟档</span>
+</div>
+</div>
+<!-- Tactical Toggle Element -->
+<label class="relative inline-flex items-center cursor-pointer select-none">
+<input checked="" class="sr-only peer" id="auto-renewal-toggle" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface peer-checked:bg-primary-container after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-on-primary-container peer-checked:after:bg-on-primary after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+</label>
+</div>
+<!-- Action Buttons Cluster -->
+<div class="grid grid-cols-2 gap-space-sm">
+<!-- Referral Booster Trigger -->
+<button class="flex items-center justify-center gap-1.5 h-11 bg-surface-container-high hover:bg-surface-bright active:scale-[0.98] transition-all rounded-lg text-on-surface font-body-sm font-semibold">
+<span class="material-symbols-outlined text-[18px] text-secondary">group_add</span>
+<span>邀请跟单 (+10%)</span>
+</button>
+<!-- View Contract Code Trigger -->
+<button class="flex items-center justify-center gap-1.5 h-11 bg-surface-container-high hover:bg-surface-bright active:scale-[0.98] transition-all rounded-lg text-on-surface font-body-sm font-semibold">
+<span class="material-symbols-outlined text-[18px] text-on-surface-variant">code</span>
+<span>核验合约代码</span>
+</button>
+</div>
+<!-- Main Telegram Execution CTA (Share Certificate Card) -->
+<button class="w-full h-12 bg-primary-container hover:bg-primary-fixed-dim text-on-primary font-headline-sm rounded-lg active:scale-[0.99] transition-all flex items-center justify-center gap-2 shadow-[0_0_16px_rgba(0,240,144,0.25)] font-bold">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">send</span>
+<span>同步凭证至 TELEGRAM 频道</span>
+</button>
+</div>
+</div>
+<script>
+  (function initStakeCertInteractivity() {
+    const renewalToggle = document.getElementById('auto-renewal-toggle');
+    if (renewalToggle) {
+      renewalToggle.addEventListener('change', function(e) {
+        const isChecked = e.target.checked;
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+          window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
+        }
+      });
+    }
+  })();
+</script></main></body></html>

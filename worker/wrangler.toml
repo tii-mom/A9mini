@@ -1,0 +1,40 @@
+name = "a9mini-v15-worker"
+main = "src/cf-worker.mjs"
+compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+A9_NETWORK = "testnet"
+A9_OBS_SECONDS = "86400"
+A9_PROMO_USER_FEE_NANO = "60000000"
+A9_PROMO_TRANSFER_GAS_NANO = "50000000"
+
+[env.testnet.vars]
+A9_NETWORK = "testnet"
+A9_OBS_SECONDS = "60"
+A9_JETTON_MASTER_ADDRESS = "kQCzAIXCKhfHughvMdreCWrkRpxNtHSVoXjm5V0eKbLWG2rC"
+A9_ROUND_CONTROLLER_ADDRESS = "kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18"
+A9_PROMO_HOT_WALLET_ADDRESS = "kQDNHik_ofaZns7ki5yuMYHMHODiRSs_lcTG9R5p2iyJwt4X"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "a9mini-v15-prod"
+database_id = "a4bb4edf-1f3c-44a2-94d7-ec73aac60bcd"
+
+[env.production.vars]
+A9_NETWORK = "mainnet"
+A9_OBS_SECONDS = "86400"
+TONCENTER_API_BASE = "https://toncenter.com/api/v2"
+A9_PROMO_USER_FEE_NANO = "60000000"
+A9_PROMO_TRANSFER_GAS_NANO = "50000000"
+A9_PRESALE_RATE_A9_PER_TON = "2002"
+A9_PRESALE_MIN_ORDER_TON = "5"
+A9_PRESALE_MAX_ORDER_TON = "200"
+# 发布前填写正式域名与 Telegram Bot 用户名。
+A9_PUBLIC_ORIGIN = ""
+A9_TG_BOT_HANDLE = ""
+# 主网部署后填写合约与热钱包地址。
+A9_JETTON_MASTER_ADDRESS = ""
+A9_ROUND_CONTROLLER_ADDRESS = ""
+A9_PROMO_HOT_WALLET_ADDRESS = ""
+A9_PRESALE_HOT_WALLET_ADDRESS = ""

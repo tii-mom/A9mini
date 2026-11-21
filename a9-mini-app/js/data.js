@@ -1,0 +1,382 @@
+/**
+ * 只读数据层：复用 BAM 的 API 契约 / 类型口径 / 焦点轮选择逻辑
+ *
+ * BAM 版本（对接记录）：见 config.js 的 BAM_SOURCE。
+ * 真实模式只读取 /api/config、/api/rounds、/api/rounds/:id：服务端状态 + 时间戳驱动
+ * 轮次阶段、倒计时、目标价、判定均价与达标时段；前端不再用本地随机数推演这些值。
+ * 演示模式返回 js/demo-data.js 中明确标识的测试数据，页面顶部会显示来源标记。
+ */
+
+import { config, apiUrl } from './config.js';
+import { demoFixture, demoPredictionRound, demoPredictionUser, demoPredictionBet, demoPredictionActivate } from './demo-data.js';
+import { A9TMA } from './tma.js';
+
+/** 与 A9mini/worker 后端契约保持一致的统一端点表。 */
+export const ENDPOINTS = Object.freeze({
+  health: '/api/health',
+  config: '/api/config',
+  rounds: '/api/rounds',
+  round: (id) => `/api/rounds/${id}`,
+  candles: (id) => `/api/rounds/${id}/candles`,
+  leaderboard: (id) => `/api/rounds/${id}/leaderboard`,
+  stats: '/api/stats',
+  rewardLedger: '/api/reward-ledger',
+  promoIntent: '/api/promo/intent',
+  promoClaim: (id) => `/api/promo/claim/${id}`,
+  promoBalance: (addr) => `/api/promo/balance/${encodeURIComponent(addr)}`,
+  predictionBet: '/api/prediction/bet',
+  predictionRound: (id) => `/api/prediction/round/${encodeURIComponent(id)}`,
+  predictionUser: (userId, roundId) => `/api/prediction/user/${encodeURIComponent(userId)}${roundId !== undefined && roundId !== null ? `?roundId=${encodeURIComponent(roundId)}` : ''}`,
+  predictionActivate: '/api/prediction/activate',
+  userProfile: (wallet) => `/api/user/${encodeURIComponent(wallet)}`,
+  presaleIntent: '/api/presale/intent',
+  warmupRegister: '/api/warmup/register',
+  warmupLeaderboard: '/api/warmup/leaderboard',
+  teamJoin: '/api/team/join',
+  teamBindTg: '/api/team/bind-tg'
+});
+
+export class ApiError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+  }
+}
+
+/** BAM ApiResponse<T> 信封：{ ok, data, ts } | { ok:false, error:{code,message} } */
+async function request(path, { timeoutMs = config.timeoutMs, method = 'GET', body: payload } = {}) {
+  // apiBase 为空表示同源（本地 dev-server 已把 /api/* 代理到 BAM worker），不是配置缺失。
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  try {
+    const init = { method, signal: controller.signal, credentials: 'same-origin' };
+    if (payload !== undefined) {
+      init.headers = { 'content-type': 'application/json' };
+      init.body = JSON.stringify(payload);
+    }
+    const res = await fetch(apiUrl(path), init);
+    let body;
+    try {
+      body = await res.json();
+    } catch (_) {
+      throw new ApiError('BAD_RESPONSE', `接口返回非 JSON（HTTP ${res.status}）`);
+    }
+    if (!body || typeof body !== 'object' || !('ok' in body)) {
+      throw new ApiError('BAD_RESPONSE', '接口返回格式错误');
+    }
+    if (!body.ok) throw new ApiError(body.error?.code || 'API_ERROR', body.error?.message || '接口返回错误');
+    return body.data;
+  } catch (e) {
+    if (timedOut) throw new ApiError('NETWORK', '请求超时，请重试');
+    if (e instanceof ApiError) throw e;
+    throw new ApiError('NETWORK', '网络异常或接口不可达，请重试');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 焦点轮：进行中最高轮 → 最近已开启轮 → 第一轮（与 BAM buildRoundDetail/focusRound 一致）。 */
+function pickFocusRound(rounds) {
+  const list = Array.isArray(rounds) ? rounds : [];
+  const opened = list.filter(r => r.state !== 'UNOPENED');
+  const active = opened.filter(r => ['STAKING_OPEN', 'STAKING_CLOSED', 'OBSERVING', 'ORACLE_PAUSED', 'SETTLING_SUCCESS', 'SETTLING_FAILURE'].includes(r.state));
+  if (active.length) return active[active.length - 1];
+  if (opened.length) return opened[opened.length - 1];
+  return list[0] || null;
+}
+
+let lastGoodSnapshot = null;
+let currentView = null;
+
+/** 读取只读快照。失败时保留上一次成功数据并标记 stale，交由页面提示重试。 */
+export async function loadSnapshot() {
+  if (config.isDemo) {
+    const fixture = demoFixture();
+    lastGoodSnapshot = fixture;
+    return fixture;
+  }
+
+  try {
+    const [protocolConfig, rounds] = await Promise.all([
+      request(ENDPOINTS.config),
+      request(ENDPOINTS.rounds)
+    ]);
+    const focus = pickFocusRound(rounds);
+    if (!focus) throw new ApiError('EMPTY_DATA', '接口未返回轮次数据');
+    const detail = await request(ENDPOINTS.round(focus.roundId));
+    const snapshot = {
+      source: 'api',
+      label: '实时数据',
+      fetchedAt: Date.now(),
+      config: protocolConfig,
+      rounds,
+      detail,
+      stale: false
+    };
+    lastGoodSnapshot = snapshot;
+    return snapshot;
+  } catch (error) {
+    if (lastGoodSnapshot) {
+      return { ...lastGoodSnapshot, stale: true, staleReason: error.message, error };
+    }
+    throw error;
+  }
+}
+
+/** USD_E8 → USD number。无效值或 0 返回 null，绝不能把 0 当成真实价格展示。 */
+export function e8ToUsd(raw) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n / 1e8;
+}
+
+/** raw（9 位精度）→ A9 数值，仅展示用。 */
+export function rawToA9(raw, decimals = 9) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  return n / Math.pow(10, decimals);
+}
+
+const STAGE_BY_STATE = {
+  UNOPENED: 'warmup',
+  STAKING_OPEN: 'participation',
+  STAKING_CLOSED: 'participation',
+  OBSERVING: 'observation',
+  ORACLE_PAUSED: 'observation',
+  SETTLING_SUCCESS: 'settlement_success',
+  SUCCEEDED: 'settlement_success',
+  SETTLING_FAILURE: 'settlement_burn',
+  FAILED_PERMANENT: 'settlement_burn',
+  TECHNICAL_ABORTED: 'halted'
+};
+
+/** BAM RoundDetail → a9mini 首页视图模型。服务端值优先，缺失值用 null（UI 显示明确状态）。 */
+export function mapRoundView(snapshot) {
+  const d = snapshot.detail || {};
+  const c = snapshot.config || {};
+  const decimals = c.token?.decimals ?? 9;
+  const candleCount = c.candleCount || 24;
+  const minQualified = c.minQualifiedCandles || 16;
+  const target = d.targetLocked === false ? null : e8ToUsd(d.targetPriceUsdE8);
+  const judgePrice = d.priceValid === false ? null : e8ToUsd(d.priceUsdE8);
+  const seen = Number(d.candlesSeen) || 0;
+  const confirmed = Array.isArray(d.candles) ? d.candles.length : seen;
+  const qualified = Number(d.qualifiedCandles) || 0;
+  const liveIndex = d.live ? Number(d.live.candleIndex) : (d.state === 'OBSERVING' ? seen : -1);
+  const livePrice = d.live ? e8ToUsd(d.live.twapPriceUsdE8) : judgePrice;
+
+  const confirmedMap = new Map(
+    (d.candles || []).map(x => [Number(x.candleIndex), {
+      index: Number(x.candleIndex) + 1,
+      status: 'closed',
+      confirmed: true,
+      bull: Boolean(x.qualified),
+      p: e8ToUsd(x.twapPriceUsdE8),
+      coverageBps: x.coverageBps,
+      digest: x.dataDigest
+    }])
+  );
+
+  const candles = [];
+  for (let i = 0; i < candleCount; i++) {
+    if (confirmedMap.has(i)) {
+      candles.push(confirmedMap.get(i));
+    } else if (i === liveIndex) {
+      candles.push({
+        index: i + 1,
+        status: 'active',
+        confirmed: false,
+        tentative: true,
+        bull: Boolean(d.live?.qualifiedTentative),
+        p: livePrice,
+        progressBps: Number(d.live?.progressBps) || 0
+      });
+    } else {
+      candles.push({ index: i + 1, status: 'pending', confirmed: false, bull: false, p: null });
+    }
+  }
+
+  const view = {
+    stage: STAGE_BY_STATE[d.state] || 'participation',
+    rawState: d.state || null,
+    currentRound: Number(d.roundId) || 1,
+    openEnded: c.openEnded !== false,
+    totalRounds: c.openEnded !== false ? null : (Number(c.roundCount) || null),
+    targetPrice: target,
+    twap24h: judgePrice,
+    livePrice: livePrice ?? judgePrice,
+    priceValid: d.priceValid !== false,
+    priceChangePct: null,
+    countdownSec: d.secondsRemaining === null || d.secondsRemaining === undefined ? null : Number(d.secondsRemaining),
+    nextState: d.nextState || null,
+    candlesSeen: seen,
+    candlesConfirmed: confirmed,
+    qualifiedCandles: qualified,
+    minQualifiedCandles: minQualified,
+    needMore: Math.max(0, minQualified - qualified),
+    candles,
+    activeCandleSec: liveIndex >= 0 && d.secondsRemaining !== null ? Math.max(0, Number(d.secondsRemaining)) : 0,
+    rewardBudgetRaw: d.rewardBudgetRaw || c.roundRewardRaw || null,
+    rewardBudgetA9: rawToA9(d.rewardBudgetRaw || c.roundRewardRaw, decimals) ?? 700000000,
+    totalStakedRaw: d.totalAcceptedStakeRaw || '0',
+    totalWeightRaw: d.totalWeightRaw || '0',
+    stakerCount: Number(d.stakerCount) || 0,
+    entryCount: Number(d.entryCount) || 0,
+    unlock: d.unlock || null,
+    poolState: c.poolState || null,
+    promoHotWallet: c.promoHotWallet || null,
+    result: d.result || null,
+    updatedAt: d.updatedAt || snapshot.fetchedAt,
+    source: snapshot.source,
+    sourceLabel: snapshot.label,
+    fetchedAt: snapshot.fetchedAt,
+    stale: Boolean(snapshot.stale),
+    stakingEnabled: Boolean(c.contracts?.stakingEnabled),
+    protocolConfig: c
+  };
+  currentView = view;
+  return view;
+}
+
+const LIVE_FUNDS_DISABLED_MSG = '当前真实模式处于只读验收阶段，资金订单与钱包交易暂未开放';
+
+function assertFundsAllowedInMode() {
+  if (!config.isDemo) {
+    throw new ApiError('LIVE_FUNDS_DISABLED', LIVE_FUNDS_DISABLED_MSG);
+  }
+}
+
+/** 请求生成推广奖励 0.06 TON 领奖单（live 只读阶段统一拦截，不发网络订单请求）。 */
+export async function requestPromoClaimIntent(walletAddress) {
+  assertFundsAllowedInMode();
+  return request(ENDPOINTS.promoIntent, {
+    method: 'POST',
+    body: { walletAddress }
+  });
+}
+
+/**
+ * 解析可用于预言局与推荐归因的真实用户 ID：
+ * - live 模式下：仅允许真实 Telegram initData userId 或已连接钱包地址；两者均无时返回 null（绝不使用假 ID 4402919）。
+ * - demo 模式下：允许使用 demo_user_01。
+ */
+export function getEffectiveUserId(user) {
+  const realTgUser = A9TMA.getRealTelegramUser();
+  if (realTgUser?.id) return String(realTgUser.id);
+  if (user?.connected && user?.address) return String(user.address);
+  if (config.isDemo) return 'demo_user_01';
+  return null;
+}
+
+/** 24H 生死预言局：读取本轮多空实时比例 */
+export async function fetchPredictionRound(roundId, stage = 'observation') {
+  if (config.isDemo) return demoPredictionRound(roundId, stage);
+  return request(ENDPOINTS.predictionRound(roundId));
+}
+
+/** 24H 生死预言局：读取当前用户本轮下注与待激活奖励 */
+export async function fetchPredictionUser(userId, roundId) {
+  if (!userId) return { userId: null, pendingActivationRaw: '0', activatedRaw: '0', currentBet: null };
+  if (config.isDemo) return demoPredictionUser(userId, roundId);
+  return request(ENDPOINTS.predictionUser(userId, roundId));
+}
+
+/** 24H 生死预言局：提交单轮多空预言（0 TON 参战） */
+export async function submitPredictionBet({ roundId, userId, side, guessSlots, referrerId }) {
+  if (!userId) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 内打开或先连接 TON 钱包后再提交预言');
+  if (config.isDemo) {
+    try {
+      return demoPredictionBet({ roundId, userId, side, guessSlots, referrerId });
+    } catch (e) {
+      throw new ApiError('DEMO_BET_ERR', e.message);
+    }
+  }
+  const payload = { roundId: Number(roundId), userId: String(userId), side };
+  if (guessSlots !== null && guessSlots !== undefined && guessSlots !== '') {
+    payload.guessSlots = Math.max(0, Math.min(24, Math.floor(Number(guessSlots))));
+  }
+  if (referrerId) payload.referrerId = String(referrerId);
+  return request(ENDPOINTS.predictionBet, { method: 'POST', body: payload });
+}
+
+/** 24H 生死预言局：激活待激活预言奖励到 promo_balances（live 只读阶段拦截） */
+export async function activatePredictionReward(userId, walletAddress) {
+  if (!userId) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 内打开或先连接 TON 钱包');
+  if (!walletAddress) throw new ApiError('WALLET_REQUIRED', '请先连接 TON 钱包以激活奖励');
+  if (config.isDemo) {
+    try {
+      return demoPredictionActivate(userId, walletAddress);
+    } catch (e) {
+      throw new ApiError('DEMO_ACTIVATE_ERR', e.message);
+    }
+  }
+  assertFundsAllowedInMode();
+  return request(ENDPOINTS.predictionActivate, {
+    method: 'POST',
+    body: { userId: String(userId), walletAddress: String(walletAddress) }
+  });
+}
+
+/** 全链路归因辅助：仅当 referrerId 非空时附加到请求体 */
+function withReferrer(body, referrerId) {
+  const clean = String(referrerId || '').trim();
+  return clean ? { ...body, referrerId: clean } : body;
+}
+
+/** 预热报名（透传 referrerId） */
+export async function registerWarmup({ walletAddress, userId, referrerId }) {
+  return request(ENDPOINTS.warmupRegister, {
+    method: 'POST',
+    body: withReferrer({ walletAddress: walletAddress || null, userId: userId || null }, referrerId)
+  });
+}
+
+/** 加入团队（透传 referrerId） */
+export async function joinTeam({ teamId, walletAddress, userId, referrerId }) {
+  return request(ENDPOINTS.teamJoin, {
+    method: 'POST',
+    body: withReferrer({ teamId: String(teamId), walletAddress: walletAddress || null, userId: userId || null }, referrerId)
+  });
+}
+
+/** 请求生成内盘买币支付单（live 只读阶段统一拦截，不发网络订单请求）。 */
+export async function requestPresaleIntent(walletAddress, tonAmount, referrerId = null) {
+  assertFundsAllowedInMode();
+  return request(ENDPOINTS.presaleIntent, {
+    method: 'POST',
+    body: withReferrer({ walletAddress, tonAmount }, referrerId)
+  });
+}
+
+/** 读取用户统一持仓与额度（A9 JettonWallet / 质押凭证 / 推广 / 内盘 / 团队）。 */
+export async function fetchUserPortfolio(walletAddress) {
+  return request(`/api/user/${encodeURIComponent(walletAddress)}`);
+}
+
+/**
+ * v15 口径奖励估算（非承诺）：
+ * 分可分奖励 = min(本轮预算, 全轮实缴本金 × 15)，个人按权重占比瓜分，结算后以实际为准。
+ * a9mini 现有界面以 TON 计质押，这里按 TON/USD 与判定均价折算为 A9；
+ * BAM 原生以 A9 raw 质押，此折算属于界面兼容口径，合约版本交付后需复核。
+ */
+export function estimateRewardA9(amountTon, view = currentView) {
+  if (!view || !amountTon || Number(amountTon) <= 0) return null;
+  const c = view.protocolConfig || {};
+  const decimals = c.token?.decimals ?? 9;
+  const tonUsd = e8ToUsd(c.tonUsdE8);
+  const a9Usd = view.livePrice || view.twap24h;
+  if (!tonUsd || !a9Usd || a9Usd <= 0) return null;
+
+  const amountA9 = Number(amountTon) * tonUsd / a9Usd;
+  const budget = rawToA9(view.rewardBudgetRaw, decimals) || 0;
+  const totalWeight = rawToA9(view.totalWeightRaw, decimals) || 0;
+  const totalStake = rawToA9(view.totalStakedRaw, decimals) || 0;
+  const capMultiplier = Number(c.maxRewardCapMultiplier) || 15;
+  const distributable = Math.min(budget, (totalStake + amountA9) * capMultiplier);
+  const denom = totalWeight + amountA9;
+  return denom > 0 ? (distributable * amountA9) / denom : 0;
+}

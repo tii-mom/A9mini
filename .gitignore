@@ -1,0 +1,38 @@
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets, Environment & Wallets
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.pem
+*.key
+*.p12
+*.keystore
+*wallets.toml
+
+# Dependencies & Build/Tooling Caches
+node_modules/
+.wrangler/
+worker/.wrangler/
+v15/.acton/
+v15/build/
+v15/gen/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+
+# Local Debug, Agent Memory & Temporary Acceptance Artifacts
+.playwright-cli/
+.workbuddy/
+output/
+a9-mini-app/output/
+ops/.acceptance/

@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_tab" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { colors: { "on-primary": "#00391e", "inverse-on-surface": "#2c303a", "error-container": "#93000a", "surface": "#0f131c", "tertiary-fixed-dim": "#ffb3b4", "inverse-primary": "#006d3e", "surface-container": "#1c1f29", "on-tertiary-fixed-variant": "#920024", "on-primary-fixed": "#00210f", "surface-bright": "#353943", "on-tertiary-fixed": "#40000b", "on-tertiary-container": "#b60030", "surface-variant": "#31353f", "tertiary": "#ffe9e9", "surface-tint": "#00e388", "secondary": "#a5e7ff", "primary-fixed": "#58ffa5", "on-secondary-fixed-variant": "#004e60", "on-error": "#690005", "on-primary-container": "#00683b", "on-surface-variant": "#bacbbc", "error": "#ffb4ab", "on-tertiary": "#680017", "on-primary-fixed-variant": "#00522e", "on-secondary-container": "#00566a", "surface-dim": "#0f131c", "primary-fixed-dim": "#00e388", "secondary-fixed-dim": "#47d6ff", "surface-container-high": "#262a34", "tertiary-container": "#ffc3c4", "outline-variant": "#3b4a3f", "on-background": "#dfe2ef", "on-secondary-fixed": "#001f28", "secondary-container": "#00d2ff", "tertiary-fixed": "#ffdada", "primary-container": "#00f090", "on-secondary": "#003543", "secondary-fixed": "#b6ebff", "primary": "#b4ffcb", "surface-container-low": "#181b25", "inverse-surface": "#dfe2ef", "on-surface": "#dfe2ef", "background": "#0f131c", "surface-container-lowest": "#0a0e17", "on-error-container": "#ffdad6", "surface-container-highest": "#31353f", "outline": "#849587" }, borderRadius: { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, spacing: { "space-xs": "0.125rem", "space-sm": "0.25rem", "space-xl": "1rem", "gutter": "0.5rem", "gutter-desktop": "0.75rem", "space-md": "0.5rem", "space-lg": "0.75rem", "margin-desktop": "1rem", "margin": "0.75rem" }, fontFamily: { "headline-md": ["Inter"], "label-numeric-xs": ["JetBrains Mono"], "body-lg": ["Inter"], "body-sm": ["Inter"], "label-numeric-md": ["JetBrains Mono"], "label-caps": ["Inter"], "label-numeric-lg": ["JetBrains Mono"], "headline-lg": ["Inter"], "label-numeric-sm": ["JetBrains Mono"], "headline-sm": ["Inter"], "body-md": ["Inter"] }, fontSize: { "headline-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "label-numeric-xs": ["9px", { "lineHeight": "12px", "letterSpacing": "0.04em", "fontWeight": "600" }], "body-lg": ["14px", { "lineHeight": "20px", "fontWeight": "400" }], "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }], "label-numeric-md": ["13px", { "lineHeight": "16px", "letterSpacing": "-0.02em", "fontWeight": "500" }], "label-caps": ["10px", { "lineHeight": "12px", "letterSpacing": "0.06em", "fontWeight": "600" }], "label-numeric-lg": ["18px", { "lineHeight": "22px", "letterSpacing": "-0.03em", "fontWeight": "700" }], "headline-lg": ["24px", { "lineHeight": "30px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "label-numeric-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0em", "fontWeight": "500" }], "headline-sm": ["15px", { "lineHeight": "20px", "fontWeight": "600" }], "body-md": ["13px", { "lineHeight": "18px", "fontWeight": "400" }] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-md text-body-md text-on-surface antialiased flex flex-col min-h-screen selection:bg-primary-container selection:text-on-primary-container"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.3)]"><div class="h-14 px-margin flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-sm"><div class="flex items-center gap-space-xs bg-surface-container-low px-space-sm py-space-xs rounded-full shadow-[0_0_8px_rgba(0,240,144,0.15)]"><span class="w-1.5 h-1.5 rounded-full bg-primary-container animate-pulse"></span><span class="font-label-numeric-xs text-label-numeric-xs uppercase text-primary-container font-semibold tracking-wider">TON MAINNET • SYNCED</span></div><div class="flex items-center gap-space-xs bg-surface-container px-space-sm py-space-xs rounded-full"><span class="material-symbols-outlined text-secondary-container text-[14px]">account_balance_wallet</span><span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">EQB4...89Af</span></div></div><div class="flex items-center gap-space-xs"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div><div class="flex items-center bg-surface-container-low rounded-full px-space-xs py-space-xs"><button aria-label="Menu" class="w-8 h-8 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[18px]">more_horiz</span></button><button aria-label="Close Mini App" class="w-8 h-8 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[18px]">close</span></button></div></div></div></header><main class="flex-1 w-full bg-surface pt-14 pb-20"><div class="flex flex-col w-full pb-6 px-margin gap-space-md">
+<!-- USER NODE HERO TELEMETRY -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-md relative overflow-hidden flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="relative w-11 h-11 rounded-full overflow-hidden bg-surface-container-high flex-shrink-0">
+<img class="w-full h-full object-cover" data-alt="Cyberpunk high-tech neon portrait of a crypto algorithmic node operator wearing futuristic optic glasses with neon mint green reflections and dark cybernetic background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA3NbvCxZfQfF5xzRyupFZxse-2UZcg-R8QBJePCyOTE7ShaL4Z7MU0aSBBQkBLemgZ88bBgubKErrgWl85dHro6ZJsot5qj_4fpiHB_Pi3g0K8qHmX7czmBTHAK87AgV59GViq2CUT6wgaYthQPZItPT2NXlYcuK6jumTbdVCohinug9gDwkC73MNphOTMcJdX5HfL05EK-lmAjp5dBIkLNdNjHvLBJ2_SOV04pB9_"/>
+<span class="absolute bottom-0 right-0 w-3 h-3 bg-primary-container rounded-full shadow-[0_0_8px_#00f090]"></span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<span class="font-headline-sm text-headline-sm text-on-surface truncate">@ton_whale_01</span>
+<span class="px-space-xs py-0.5 rounded bg-primary-container/15 text-primary-container font-label-numeric-xs text-label-numeric-xs uppercase tracking-wider flex items-center gap-0.5">
+<span class="material-symbols-outlined text-[10px]">verified</span>
+              TG BIND
+            </span>
+</div>
+<div class="flex items-center gap-space-xs text-on-surface-variant font-label-numeric-xs text-label-numeric-xs mt-0.5">
+<span class="text-secondary-container">UQ...489f</span>
+<button class="hover:text-primary-container transition-colors flex items-center" onclick="navigator.clipboard?.writeText('UQAf7983XkLm489f'); this.innerText='done'; setTimeout(()=&gt;this.innerText='content_copy', 1500)">
+<span class="material-symbols-outlined text-[12px]">content_copy</span>
+</button>
+<span class="text-outline-variant">|</span>
+<span class="text-on-surface">SHARD 0x07</span>
+</div>
+</div>
+</div>
+<!-- VIP Node Badge -->
+<div class="flex flex-col items-end gap-0.5">
+<div class="bg-surface-container-high px-space-sm py-1 rounded flex items-center gap-space-xs shadow-[inset_0_0_8px_rgba(0,210,255,0.15)]">
+<span class="material-symbols-outlined text-secondary-container text-[14px]">bolt</span>
+<span class="font-label-numeric-sm text-label-numeric-sm text-secondary-container font-bold tracking-tight">VIP LV.3 NODE</span>
+</div>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">WEIGHT 2.45x</span>
+</div>
+</div>
+<!-- Quick Metric Strip -->
+<div class="grid grid-cols-2 gap-space-xs pt-space-xs">
+<div class="bg-surface-container-low p-space-xs rounded flex flex-col">
+<span class="font-label-caps text-label-caps text-on-surface-variant">NODE STATUS</span>
+<span class="font-label-numeric-sm text-label-numeric-sm text-primary-container font-semibold flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container animate-pulse"></span>
+          RUNNING · POOL #03
+        </span>
+</div>
+<div class="bg-surface-container-low p-space-xs rounded flex flex-col">
+<span class="font-label-caps text-label-caps text-on-surface-variant">PROTOCOL SYNC</span>
+<span class="font-label-numeric-sm text-label-numeric-sm text-on-surface font-semibold">BLOCK #38,192,042</span>
+</div>
+</div>
+</div>
+<!-- PRIMARY ASSET MASTER TERMINAL -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-md flex flex-col gap-space-md relative overflow-hidden">
+<!-- Background Watermark Hologram Grid -->
+<div class="absolute -right-8 -top-8 w-44 h-44 rounded-full bg-primary-container/5 blur-2xl pointer-events-none"></div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="w-1.5 h-3 bg-primary-container rounded-sm"></span>
+<span class="font-label-caps text-label-caps uppercase tracking-wider text-on-surface-variant">ASSET TELEMETRY CORE</span>
+</div>
+<div class="flex items-center gap-space-xs bg-surface-container-low px-space-xs py-0.5 rounded text-primary-container font-label-numeric-xs text-label-numeric-xs">
+<span class="material-symbols-outlined text-[12px]">security</span>
+        AIR-GAP AUDITED
+      </div>
+</div>
+<!-- A9 Balance Overview -->
+<div class="flex flex-col gap-0.5">
+<span class="font-label-caps text-label-caps text-on-surface-variant">A9 AVAILABLE BALANCE</span>
+<div class="flex items-baseline gap-space-xs">
+<span class="font-label-numeric-lg text-[28px] leading-8 font-bold text-on-surface tracking-tight">350,200</span>
+<span class="font-label-numeric-md text-label-numeric-md text-primary-container font-semibold">A9</span>
+<span class="font-label-numeric-sm text-label-numeric-sm text-on-surface-variant ml-space-xs">≈ $68,000 USD</span>
+</div>
+</div>
+<!-- INTERACTIVE SLIDE-TO-CLAIM CARD -->
+<div class="bg-surface-container rounded-lg p-space-md shadow-lg flex flex-col gap-space-sm relative overflow-hidden">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary-container text-[18px]">verified</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">可立即领取奖励</span>
+</div>
+<span class="font-label-numeric-xs text-label-numeric-xs bg-primary-container/20 text-primary-container px-space-xs py-0.5 rounded font-bold animate-pulse">SETTLED</span>
+</div>
+<div class="flex items-baseline justify-between">
+<span class="font-label-numeric-lg text-[22px] leading-6 font-black text-primary-container tracking-tight">+252,000.00 A9</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">GAS EST. 0.05 TON</span>
+</div>
+<!-- Slide-to-Claim interactive Track -->
+<div class="relative w-full h-11 bg-surface-container-lowest rounded-full overflow-hidden flex items-center px-1 select-none shadow-[inset_0_1px_4px_rgba(0,0,0,0.6)] cursor-pointer" id="slider-track">
+<div class="absolute left-0 top-0 bottom-0 bg-primary-container/25 transition-all duration-75 w-11" id="slider-fill"></div>
+<span class="w-full text-center font-label-caps text-label-caps uppercase text-on-surface-variant tracking-wider pointer-events-none transition-opacity" id="slider-prompt">
+          滑动确认立即领取 &gt;&gt;&gt;
+        </span>
+<div class="absolute left-1 top-1 bottom-1 w-9 h-9 rounded-full bg-primary-container flex items-center justify-center text-surface-container-lowest shadow-[0_0_12px_#00f090] cursor-grab active:cursor-grabbing transition-transform" id="slider-thumb">
+<span class="material-symbols-outlined text-[20px] font-bold">arrow_forward</span>
+</div>
+</div>
+<div class="hidden text-center font-label-numeric-sm text-label-numeric-sm text-primary-container font-bold py-1" id="claim-success-msg">
+        ✓ 结算广播成功，等待 TON 确认 (Hash: 0x8a9f...)
+      </div>
+</div>
+<!-- PENDING VESTING PROGRESS -->
+<div class="bg-surface-container-low rounded-lg p-space-sm flex flex-col gap-space-xs">
+<div class="flex items-center justify-between font-label-numeric-xs text-label-numeric-xs">
+<span class="text-on-surface-variant">线性释放锁定 (80% 归属计划)</span>
+<span class="text-secondary-container font-bold">1,008,000 A9 待解锁</span>
+</div>
+<!-- Visual Segmented Bar -->
+<div class="w-full h-2 rounded-full bg-surface-container-high overflow-hidden flex">
+<div class="bg-secondary-container h-full rounded-full transition-all duration-500" style="width: 34.2%;"></div>
+</div>
+<div class="flex items-center justify-between text-on-surface-variant font-label-numeric-xs text-label-numeric-xs pt-0.5">
+<span>当前进度: <strong class="text-on-surface font-semibold">34.2%</strong></span>
+<span>周期: 120/360 天</span>
+<span>下次解锁: 18,200 A9 / 48H</span>
+</div>
+</div>
+<!-- CUMULATIVE STATS -->
+<div class="flex items-center justify-between pt-space-xs">
+<div class="flex items-center gap-space-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">history_edu</span>
+<span class="font-label-caps text-label-caps uppercase">历史累计奖励池</span>
+</div>
+<div class="flex items-baseline gap-1">
+<span class="font-label-numeric-md text-label-numeric-md font-bold text-on-surface">3,420,000</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">A9</span>
+</div>
+</div>
+</div>
+<!-- FUND BREAKDOWN LEDGER (资金拆分) -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-md flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="w-1.5 h-3 bg-secondary-container rounded-sm"></span>
+<span class="font-headline-sm text-headline-sm text-on-surface">资金结算账本拆分</span>
+</div>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">SMART VESTING 2:8</span>
+</div>
+<div class="grid grid-cols-3 gap-space-xs">
+<!-- 20% Settled -->
+<div class="bg-surface-container-low p-space-sm rounded-lg flex flex-col justify-between gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-caps text-label-caps text-on-surface-variant">即时到账 (20%)</span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
+</div>
+<div class="flex flex-col">
+<span class="font-label-numeric-md text-label-numeric-md font-bold text-primary-container">684,000</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">已完全结算</span>
+</div>
+</div>
+<!-- 80% Vesting -->
+<div class="bg-surface-container-low p-space-sm rounded-lg flex flex-col justify-between gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-caps text-label-caps text-on-surface-variant">待解锁 (80%)</span>
+<span class="w-1.5 h-1.5 rounded-full bg-secondary-container"></span>
+</div>
+<div class="flex flex-col">
+<span class="font-label-numeric-md text-label-numeric-md font-bold text-secondary-container">1,008,000</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">合约智能锁定</span>
+</div>
+</div>
+<!-- Withdrawn -->
+<div class="bg-surface-container-low p-space-sm rounded-lg flex flex-col justify-between gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-caps text-label-caps text-on-surface-variant">已提取完成</span>
+<span class="w-1.5 h-1.5 rounded-full bg-on-surface-variant"></span>
+</div>
+<div class="flex flex-col">
+<span class="font-label-numeric-md text-label-numeric-md font-bold text-on-surface">1,728,000</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">入账链上钱包</span>
+</div>
+</div>
+</div>
+</div>
+<!-- ACTIVE STAKE CERTIFICATES (质押凭证) -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-md flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="w-1.5 h-3 bg-primary-container rounded-sm"></span>
+<span class="font-headline-sm text-headline-sm text-on-surface">质押节点凭证 (NFT CERT)</span>
+</div>
+<span class="font-label-numeric-xs text-label-numeric-xs text-secondary-container">2 份活跃合约</span>
+</div>
+<!-- Certificate 1: Round 3 (Active observation) -->
+<div class="bg-surface-container rounded-lg p-space-md flex flex-col gap-space-xs shadow-sm relative overflow-hidden">
+<div class="absolute right-0 top-0 w-24 h-24 bg-primary-container/5 rounded-bl-full pointer-events-none"></div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="font-label-numeric-sm text-label-numeric-sm font-bold text-on-surface">#A9-STAKE-R03-088921</span>
+<span class="px-space-xs py-0.5 rounded bg-surface-container-high text-on-surface-variant font-label-numeric-xs text-label-numeric-xs">R03 轮次</span>
+</div>
+<div class="flex items-center gap-1 px-space-xs py-0.5 rounded bg-primary-container/15 text-primary-container font-label-numeric-xs text-label-numeric-xs font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container animate-pulse"></span>
+          观察中 12/16 根达标
+        </div>
+</div>
+<div class="grid grid-cols-3 gap-space-xs pt-space-xs">
+<div>
+<span class="font-label-caps text-label-caps text-on-surface-variant block">质押本金</span>
+<span class="font-label-numeric-md text-label-numeric-md text-on-surface font-semibold">500.00 TON</span>
+</div>
+<div>
+<span class="font-label-caps text-label-caps text-on-surface-variant block">早鸟加权</span>
+<span class="font-label-numeric-md text-label-numeric-md text-secondary-container font-bold">2.0x MULTI</span>
+</div>
+<div class="text-right">
+<span class="font-label-caps text-label-caps text-on-surface-variant block">预计总回报</span>
+<span class="font-label-numeric-md text-label-numeric-md text-primary-container font-bold">+184.2%</span>
+</div>
+</div>
+<!-- K-Line Bar Progress Metric -->
+<div class="pt-space-xs">
+<div class="w-full bg-surface-container-low h-1.5 rounded-full overflow-hidden flex">
+<div class="bg-primary-container h-full rounded-full" style="width: 75%;"></div>
+</div>
+<div class="flex justify-between items-center text-on-surface-variant font-label-numeric-xs text-label-numeric-xs mt-1">
+<span>K线目标状态: 差 4 根4H线收盘高位</span>
+<span>结算剩余 18:32:10</span>
+</div>
+</div>
+</div>
+<!-- Certificate 2: Round 2 (Matured & Settled) -->
+<div class="bg-surface-container-low rounded-lg p-space-md flex flex-col gap-space-xs shadow-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="font-label-numeric-sm text-label-numeric-sm font-semibold text-on-surface">#A9-STAKE-R02-044120</span>
+<span class="px-space-xs py-0.5 rounded bg-surface-container text-on-surface-variant font-label-numeric-xs text-label-numeric-xs">R02 轮次</span>
+</div>
+<span class="px-space-xs py-0.5 rounded bg-surface-container-high text-primary-container font-label-numeric-xs text-label-numeric-xs font-semibold">
+          ✓ 结算达标已发奖
+        </span>
+</div>
+<div class="grid grid-cols-3 gap-space-xs pt-space-xs">
+<div>
+<span class="font-label-caps text-label-caps text-on-surface-variant block">质押本金</span>
+<span class="font-label-numeric-md text-label-numeric-md text-on-surface">1,000.00 TON</span>
+</div>
+<div>
+<span class="font-label-caps text-label-caps text-on-surface-variant block">加权系数</span>
+<span class="font-label-numeric-md text-label-numeric-md text-on-surface">2.0x</span>
+</div>
+<div class="text-right">
+<span class="font-label-caps text-label-caps text-on-surface-variant block">实际已发放</span>
+<span class="font-label-numeric-md text-label-numeric-md text-primary font-bold">420,000 A9</span>
+</div>
+</div>
+</div>
+</div>
+<!-- TACTICAL FAST NAVIGATION GRID -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-md flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<span class="font-label-caps text-label-caps uppercase text-on-surface-variant tracking-wider">COMMAND CENTER · 终端操作</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">8 MODULES</span>
+</div>
+<div class="grid grid-cols-4 gap-space-xs">
+<button class="bg-surface-container hover:bg-surface-container-high p-space-sm rounded-lg flex flex-col items-center justify-center gap-space-xs transition-colors">
+<span class="material-symbols-outlined text-primary-container text-[20px]">receipt_long</span>
+<span class="font-body-sm text-body-sm text-on-surface text-center">奖励明细</span>
+</button>
+<button class="bg-surface-container hover:bg-surface-container-high p-space-sm rounded-lg flex flex-col items-center justify-center gap-space-xs transition-colors">
+<span class="material-symbols-outlined text-secondary-container text-[20px]">history</span>
+<span class="font-body-sm text-body-sm text-on-surface text-center">参与记录</span>
+</button>
+<button class="bg-surface-container hover:bg-surface-container-high p-space-sm rounded-lg flex flex-col items-center justify-center gap-space-xs transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant text-[20px]">swap_horizontal_circle</span>
+<span class="font-body-sm text-body-sm text-on-surface text-center">内盘记录</span>
+</button>
+<button class="bg-surface-container hover:bg-surface-container-high p-space-sm rounded-lg flex flex-col items-center justify-center gap-space-xs transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant text-[20px]">autorenew</span>
+<span class="font-body-sm text-body-sm text-on-surface text-center">续期管理</span>
+</button>
+<button class="bg-surface-container hover:bg-surface-container-high p-space-sm rounded-lg flex flex-col items-center justify-center gap-space-xs transition-colors relative">
+<span class="material-symbols-outlined text-primary-container text-[20px]">redeem</span>
+<span class="font-body-sm text-body-sm text-on-surface text-center">推广奖励</span>
+<span class="absolute top-1 right-1 w-2 h-2 rounded-full bg-primary-container"></span>
+</button>
+<button class="bg-surface-container hover:bg-surface-container-high p-space-sm rounded-lg flex flex-col items-center justify-center gap-space-xs transition-colors">
+<span class="material-symbols-outlined text-secondary-container text-[20px]">share</span>
+<span class="font-body-sm text-body-sm text-on-surface text-center">邀请分享</span>
+</button>
+<button class="bg-surface-container hover:bg-surface-container-high p-space-sm rounded-lg flex flex-col items-center justify-center gap-space-xs transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant text-[20px]">settings</span>
+<span class="font-body-sm text-body-sm text-on-surface text-center">设置</span>
+</button>
+<button class="bg-surface-container hover:bg-surface-container-high p-space-sm rounded-lg flex flex-col items-center justify-center gap-space-xs transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant text-[20px]">menu_book</span>
+<span class="font-body-sm text-body-sm text-on-surface text-center">规则说明</span>
+</button>
+</div>
+</div>
+<!-- INSTITUTIONAL COMPLIANCE MEMO & AUDIT -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md flex flex-col gap-space-xs">
+<div class="flex items-center gap-space-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px]">shield</span>
+<span class="font-label-caps text-label-caps uppercase tracking-wider">COMPLIANCE &amp; RISK GOVERNANCE</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+      A9 算法协议运行于 TON 主网智能合约。所有锁仓代币遵循链上只读时间锁（TimeLock 2.0），质押达标校验由去中心化预言机节点签名撮合。高频交易存在市场波动敞口，本界面提供之数据皆为即时遥测，结算以 TON 区块链确认高度为准。
+    </p>
+<div class="flex items-center justify-between pt-space-xs text-on-surface-variant font-label-numeric-xs text-label-numeric-xs">
+<span>HASH: 0x93FA...DE38</span>
+<span class="text-primary-container">ALL PROTOCOLS NOMINAL</span>
+</div>
+</div>
+</div>
+<script>
+  // Slide to Claim Micro-Interaction
+  (function initSlideClaim() {
+    const track = document.getElementById('slider-track');
+    const thumb = document.getElementById('slider-thumb');
+    const fill = document.getElementById('slider-fill');
+    const prompt = document.getElementById('slider-prompt');
+    const successMsg = document.getElementById('claim-success-msg');
+
+    if (!track || !thumb || !fill) return;
+
+    let isDragging = false;
+    let startX = 0;
+    let maxDistance = 0;
+    let currentX = 0;
+
+    function updateMaxDistance() {
+      maxDistance = track.clientWidth - thumb.clientWidth - 8;
+    }
+
+    updateMaxDistance();
+    window.addEventListener('resize', updateMaxDistance);
+
+    function onStart(e) {
+      if (track.getAttribute('data-claimed') === 'true') return;
+      isDragging = true;
+      startX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+      thumb.style.transition = 'none';
+      fill.style.transition = 'none';
+    }
+
+    function onMove(e) {
+      if (!isDragging) return;
+      const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+      const deltaX = clientX - startX;
+      currentX = Math.max(0, Math.min(deltaX, maxDistance));
+      
+      thumb.style.transform = `translateX(${currentX}px)`;
+      fill.style.width = `${currentX + 44}px`;
+      
+      const opacity = 1 - (currentX / maxDistance);
+      if (prompt) prompt.style.opacity = opacity.toString();
+    }
+
+    function onEnd() {
+      if (!isDragging) return;
+      isDragging = false;
+
+      if (currentX >= maxDistance * 0.85) {
+        // Successful claim action trigger
+        thumb.style.transition = 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)';
+        thumb.style.transform = `translateX(${maxDistance}px)`;
+        fill.style.width = `100%`;
+        track.setAttribute('data-claimed', 'true');
+        thumb.innerHTML = '<span class="material-symbols-outlined text-[18px]">done</span>';
+        if (prompt) prompt.classList.add('hidden');
+        if (successMsg) successMsg.classList.remove('hidden');
+
+        // Tactile Haptic simulation if available in Telegram environment
+        if (window.Telegram?.WebApp?.HapticFeedback) {
+          window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+        }
+      } else {
+        // Reset slider
+        thumb.style.transition = 'transform 0.3s ease';
+        fill.style.transition = 'width 0.3s ease';
+        thumb.style.transform = 'translateX(0px)';
+        fill.style.width = '44px';
+        if (prompt) prompt.style.opacity = '1';
+      }
+    }
+
+    thumb.addEventListener('mousedown', onStart);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onEnd);
+
+    thumb.addEventListener('touchstart', onStart, { passive: true });
+    window.addEventListener('touchmove', onMove, { passive: true });
+    window.addEventListener('touchend', onEnd);
+
+    // Sync active state in App Shell Nav if present
+    const profileNav = document.querySelector('nav a[data-path="profile"]');
+    if (profileNav) {
+      document.querySelectorAll('nav a').forEach(el => {
+        el.classList.remove('text-primary-container');
+        const glow = el.querySelector('.glow-indicator');
+        if (glow) glow.classList.remove('opacity-100');
+      });
+      profileNav.classList.add('text-primary-container');
+      const glow = profileNav.querySelector('.glow-indicator');
+      if (glow) glow.classList.add('opacity-100');
+    }
+  })();
+</script></main><nav class="fixed bottom-0 w-full z-50 pb-safe bg-surface/85 backdrop-blur-xl shadow-[0_-2px_12px_rgba(0,0,0,0.4)]" data-active-classes="text-primary-container [&amp;_.glow-indicator]:opacity-100 [&amp;_.nav-label]:font-semibold [&amp;_.nav-icon]:scale-105"><div class="flex justify-around items-center h-16 px-gutter"><a class="flex flex-col items-center justify-center gap-space-xs min-w-[44px] min-h-[44px] py-space-xs px-space-sm text-on-surface-variant hover:text-on-surface transition-all group" data-path="challenge" href="#"><span class="material-symbols-outlined text-[20px] transition-transform duration-200 nav-icon">token</span><span class="font-label-caps text-label-caps tracking-wider nav-label">挑战</span><span class="w-1 h-1 rounded-full bg-primary-container shadow-[0_0_6px_#00f090] opacity-0 transition-opacity duration-200 glow-indicator"></span></a><a class="flex flex-col items-center justify-center gap-space-xs min-w-[44px] min-h-[44px] py-space-xs px-space-sm text-on-surface-variant hover:text-on-surface transition-all group" data-path="team" href="#"><span class="material-symbols-outlined text-[20px] transition-transform duration-200 nav-icon">groups</span><span class="font-label-caps text-label-caps tracking-wider nav-label">团队</span><span class="w-1 h-1 rounded-full bg-primary-container shadow-[0_0_6px_#00f090] opacity-0 transition-opacity duration-200 glow-indicator"></span></a><a class="flex flex-col items-center justify-center gap-space-xs min-w-[44px] min-h-[44px] py-space-xs px-space-sm text-on-surface-variant hover:text-on-surface transition-all group" data-path="leaderboard" href="#"><span class="material-symbols-outlined text-[20px] transition-transform duration-200 nav-icon">leaderboard</span><span class="font-label-caps text-label-caps tracking-wider nav-label">榜单</span><span class="w-1 h-1 rounded-full bg-primary-container shadow-[0_0_6px_#00f090] opacity-0 transition-opacity duration-200 glow-indicator"></span></a><a aria-current="page" class="flex flex-col items-center justify-center gap-space-xs min-w-[44px] min-h-[44px] py-space-xs px-space-sm transition-all group text-primary-container [&amp;_.glow-indicator]:opacity-100 [&amp;_.nav-label]:font-semibold [&amp;_.nav-icon]:scale-105" data-path="profile" href="#"><span class="material-symbols-outlined text-[20px] transition-transform duration-200 nav-icon">fingerprint</span><span class="font-label-caps text-label-caps tracking-wider nav-label">我的</span><span class="w-1 h-1 rounded-full bg-primary-container shadow-[0_0_6px_#00f090] opacity-0 transition-opacity duration-200 glow-indicator"></span></a></div></nav></body></html>

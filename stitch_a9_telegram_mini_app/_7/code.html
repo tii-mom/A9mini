@@ -1,0 +1,376 @@
+<!DOCTYPE html><html class="dark" lang="zh-CN"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"><meta content="mobile_tab" name="shell-type"><link href="https://fonts.googleapis.com" rel="preconnect"><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;600;700&amp;display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{width:100vw;margin:0;padding:0;background-color:#0f131c;}body{overscroll-behavior:none;-webkit-tap-highlight-color:transparent;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "secondary-container": "#00d2ff", "error-container": "#93000a", "surface-variant": "#31353f", "on-secondary-fixed-variant": "#004e60", "background": "#0f131c", "on-error": "#690005", "secondary-fixed-dim": "#47d6ff", "on-tertiary": "#680017", "on-error-container": "#ffdad6", "outline": "#849587", "surface-container": "#1c1f29", "on-surface": "#dfe2ef", "on-primary": "#00391e", "on-primary-fixed-variant": "#00522e", "on-secondary": "#003543", "surface-container-high": "#262a34", "inverse-surface": "#dfe2ef", "tertiary-fixed": "#ffdada", "primary": "#b4ffcb", "on-secondary-container": "#00566a", "tertiary-container": "#ffc3c4", "primary-fixed-dim": "#00e388", "primary-fixed": "#58ffa5", "surface-container-low": "#181b25", "tertiary": "#ffe9e9", "surface-bright": "#353943", "inverse-primary": "#006d3e", "surface-tint": "#00e388", "on-primary-fixed": "#00210f", "on-tertiary-container": "#b60030", "on-surface-variant": "#bacbbc", "secondary-fixed": "#b6ebff", "inverse-on-surface": "#2c303a", "secondary": "#a5e7ff", "on-secondary-fixed": "#001f28", "surface-container-lowest": "#0a0e17", "on-tertiary-fixed-variant": "#920024", "error": "#ffb4ab", "surface-container-highest": "#31353f", "on-tertiary-fixed": "#40000b", "surface-dim": "#0f131c", "on-primary-container": "#00683b", "tertiary-fixed-dim": "#ffb3b4", "primary-container": "#00f090", "surface": "#0f131c", "outline-variant": "#3b4a3f", "on-background": "#dfe2ef" }, "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, "spacing": { "margin": "0.75rem", "space-sm": "0.25rem", "gutter-desktop": "0.75rem", "space-xs": "0.125rem", "gutter": "0.5rem", "space-xl": "1rem", "space-lg": "0.75rem", "margin-desktop": "1rem", "space-md": "0.5rem" }, "fontFamily": { "headline-md": ["Inter"], "label-numeric-lg": ["JetBrains Mono"], "body-md": ["Inter"], "label-caps": ["Inter"], "headline-sm": ["Inter"], "label-numeric-md": ["JetBrains Mono"], "label-numeric-sm": ["JetBrains Mono"], "body-sm": ["Inter"], "body-lg": ["Inter"], "label-numeric-xs": ["JetBrains Mono"], "headline-lg": ["Inter"] }, "fontSize": { "headline-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "label-numeric-lg": ["18px", { "lineHeight": "22px", "letterSpacing": "-0.03em", "fontWeight": "700" }], "body-md": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "label-caps": ["10px", { "lineHeight": "12px", "letterSpacing": "0.06em", "fontWeight": "600" }], "headline-sm": ["15px", { "lineHeight": "20px", "fontWeight": "600" }], "label-numeric-md": ["13px", { "lineHeight": "16px", "letterSpacing": "-0.02em", "fontWeight": "500" }], "label-numeric-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0em", "fontWeight": "500" }], "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }], "body-lg": ["14px", { "lineHeight": "20px", "fontWeight": "400" }], "label-numeric-xs": ["9px", { "lineHeight": "12px", "letterSpacing": "0.04em", "fontWeight": "600" }], "headline-lg": ["24px", { "lineHeight": "30px", "letterSpacing": "-0.02em", "fontWeight": "700" }] } } } }</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  <style>@keyframes candle-active-glow { 0%, 100% { opacity: 0.75; transform: scaleY(0.96); box-shadow: 0 0 4px rgba(0, 240, 144, 0.4); } 50% { opacity: 1; transform: scaleY(1.04); box-shadow: 0 0 16px 4px rgba(0, 240, 144, 0.75); } } .animate-candle-active { animation: candle-active-glow 1.6s ease-in-out infinite; transform-origin: bottom; } @keyframes ticker-pulse { 0%, 100% { background-color: transparent; } 30% { background-color: rgba(0, 240, 144, 0.22); } } .animate-ticker { animation: ticker-pulse 2.4s cubic-bezier(0.2, 0, 0, 1) infinite; border-radius: 4px; padding: 0 2px; } @keyframes shimmer-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } } .animate-shimmer { animation: shimmer-slide 2.5s infinite linear; }</style></head><body class="bg-surface font-body-md text-body-md text-on-surface flex flex-col min-h-screen selection:bg-primary selection:text-on-primary"><header class="fixed top-0 inset-x-0 z-50 bg-surface-container-lowest/80 backdrop-blur-xl pt-safe shadow-[0_1px_12px_rgba(0,0,0,0.5)]"><div class="h-24 px-margin flex flex-col justify-between py-space-xs"><div class="flex items-center justify-between gap-gutter"><div class="flex items-center gap-space-sm"><div class="w-11 h-11 flex items-center justify-center -ml-space-sm text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"><span class="material-symbols-outlined text-[20px]">close</span></div><div class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-high/60"><div class="w-1.5 h-1.5 rounded-full bg-secondary-container animate-pulse"></div><span class="font-label-caps text-label-caps text-secondary uppercase">TON MAINNET</span></div></div><div class="flex items-center gap-space-sm"><button class="h-8 px-space-md rounded bg-surface-container-high/80 hover:bg-surface-container-highest transition-all flex items-center gap-space-xs"><span class="w-2 h-2 rounded-full bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.6)]"></span><span class="font-label-numeric-xs text-label-numeric-xs text-primary">UQ...489f</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div><div class="w-11 h-11 flex items-center justify-center -mr-space-sm text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"><span class="material-symbols-outlined text-[20px]">more_vert</span></div></div></div><div class="flex items-center justify-between px-space-xs py-space-xs bg-surface-container-low/60 rounded backdrop-blur-md"><div class="flex items-center gap-space-sm"><span class="font-headline-sm text-headline-sm text-on-surface font-bold tracking-tight">A9/TON</span><div class="flex items-baseline gap-space-xs"><span class="font-label-numeric-sm text-label-numeric-sm text-on-surface animate-ticker">14.285</span><span class="font-label-numeric-xs text-label-numeric-xs text-primary-container font-semibold">+4.82%</span></div></div><div class="flex items-center gap-space-sm"><span class="font-label-caps text-label-caps text-on-surface-variant uppercase">24H TWAP</span><span class="font-label-numeric-xs text-label-numeric-xs text-secondary-fixed-dim">13.942</span><div class="w-2 h-2 rounded-full bg-primary-container/80 shadow-[0_0_4px_#00f090]"></div></div></div></div></header><main class="flex flex-col relative w-full pt-24 pb-20 bg-surface min-h-screen"><div class="flex flex-col w-full px-margin py-space-sm gap-space-md">
+<!-- Round Telemetry Status Banner -->
+<div class="relative overflow-hidden rounded bg-surface-container-high p-space-md shadow-md">
+<div class="absolute -right-12 -top-12 w-32 h-32 bg-secondary-container/10 rounded-full blur-2xl pointer-events-none"></div>
+<div class="flex items-center justify-between gap-space-sm mb-space-sm">
+<div class="flex items-center gap-space-xs">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase">ROUND TRACKER</span>
+<span class="font-label-numeric-sm text-label-numeric-sm text-on-surface font-bold">第 3 轮 / 共 10 轮</span>
+</div>
+<div class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-secondary-container/10 text-secondary shadow-[0_0_8px_rgba(0,210,255,0.25)]">
+<span class="material-symbols-outlined text-[13px] animate-spin" style="animation-duration: 4s;">radar</span>
+<span class="font-label-caps text-label-caps font-semibold">观察阶段 (24小时)</span>
+</div>
+</div>
+<!-- Countdown & Execution State -->
+<div class="flex items-baseline justify-between pt-space-xs">
+<div>
+<span class="font-label-caps text-label-caps text-on-surface-variant block">距离结算窗口关闭</span>
+<div class="flex items-center gap-space-xs mt-space-xs">
+<span class="font-label-numeric-lg text-label-numeric-lg text-secondary-fixed-dim tracking-tight">09:34:12</span>
+<span class="font-label-caps text-label-caps px-space-xs py-0.5 rounded bg-surface-container-lowest text-on-surface-variant">TMA-SYNCHRONIZED</span>
+</div>
+</div>
+<div class="flex flex-col items-end">
+<span class="font-label-caps text-label-caps text-on-surface-variant">实时达标判定</span>
+<span class="font-label-numeric-md text-label-numeric-md text-primary font-bold flex items-center gap-space-xs">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container animate-ping"></span>
+          ACTIVE BULLISH
+        </span>
+</div>
+</div>
+</div>
+<!-- Price Corridor & Algorithmic Trigger -->
+<div class="rounded bg-surface-container p-space-md flex flex-col gap-space-md shadow-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-secondary-fixed-dim text-[16px]">tune</span>
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase">PRICE CORRIDOR PROTOCOL</span>
+</div>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">THRESHOLD: 16/24 BARS</span>
+</div>
+<div class="grid grid-cols-2 gap-space-sm">
+<div class="bg-surface-container-lowest p-space-sm rounded flex flex-col">
+<span class="font-label-caps text-label-caps text-on-surface-variant">本轮目标价 (BASE)</span>
+<span class="font-label-numeric-md text-label-numeric-md text-on-surface font-semibold mt-space-xs">$0.1850 TON</span>
+</div>
+<div class="bg-surface-container-lowest p-space-sm rounded flex flex-col">
+<div class="flex items-center justify-between">
+<span class="font-label-caps text-label-caps text-primary">当前 24H TWAP</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-primary-fixed-dim font-bold">+2.43%</span>
+</div>
+<span class="font-label-numeric-md text-label-numeric-md text-primary-container font-bold mt-space-xs animate-ticker">$0.1895 TON</span>
+</div>
+</div>
+<!-- Threshold Progress Pill & Summary -->
+<div class="flex items-center justify-between px-space-sm py-space-xs rounded bg-surface-container-high">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[15px] text-primary-container">check_circle</span>
+<span class="font-label-caps text-label-caps text-on-surface font-semibold">达标状态良好</span>
+</div>
+<span class="font-label-numeric-xs text-label-numeric-xs text-primary-container font-medium">已达标 12 / 16 根 · 剩余 9 根需完成 4 根</span>
+</div>
+<!-- 24-Hour Candlestick Matrix -->
+<div class="flex flex-col gap-space-xs pt-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase">24H HOURLY CANDLESTICK MATRIX (HOURS 01-24)</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">CURRENT: #16</span>
+</div>
+<!-- Interactive Grid Display -->
+<div class="grid grid-cols-12 gap-1 bg-surface-container-lowest p-space-sm rounded">
+<!-- 15 Completed Bars: 12 glowing primary-container, 3 error-container -->
+<!-- H01: Pass -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-3 bg-primary-container"></div>
+<div class="w-2.5 h-7 rounded-sm bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="w-0.5 h-2 bg-primary-container"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">1</span>
+</div>
+<!-- H02: Pass -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-2 bg-primary-container"></div>
+<div class="w-2.5 h-6 rounded-sm bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="w-0.5 h-3 bg-primary-container"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">2</span>
+</div>
+<!-- H03: Fail -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-2.5 bg-error"></div>
+<div class="w-2.5 h-5 rounded-sm bg-error-container"></div>
+<div class="w-0.5 h-2 bg-error"></div>
+<span class="font-label-numeric-xs text-[8px] text-error mt-0.5">3</span>
+</div>
+<!-- H04: Pass -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-2 bg-primary-container"></div>
+<div class="w-2.5 h-8 rounded-sm bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="w-0.5 h-1.5 bg-primary-container"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">4</span>
+</div>
+<!-- H05: Pass -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-3 bg-primary-container"></div>
+<div class="w-2.5 h-7 rounded-sm bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="w-0.5 h-2 bg-primary-container"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">5</span>
+</div>
+<!-- H06: Pass -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-1 bg-primary-container"></div>
+<div class="w-2.5 h-9 rounded-sm bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="w-0.5 h-2 bg-primary-container"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">6</span>
+</div>
+<!-- H07: Fail -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-3 bg-error"></div>
+<div class="w-2.5 h-6 rounded-sm bg-error-container"></div>
+<div class="w-0.5 h-1.5 bg-error"></div>
+<span class="font-label-numeric-xs text-[8px] text-error mt-0.5">7</span>
+</div>
+<!-- H08: Pass -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-2 bg-primary-container"></div>
+<div class="w-2.5 h-6 rounded-sm bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="w-0.5 h-2 bg-primary-container"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">8</span>
+</div>
+<!-- H09: Pass -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-1.5 bg-primary-container"></div>
+<div class="w-2.5 h-7 rounded-sm bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="w-0.5 h-2.5 bg-primary-container"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">9</span>
+</div>
+<!-- H10: Pass -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-2.5 bg-primary-container"></div>
+<div class="w-2.5 h-8 rounded-sm bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="w-0.5 h-1 bg-primary-container"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">10</span>
+</div>
+<!-- H11: Fail -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-3 bg-error"></div>
+<div class="w-2.5 h-4 rounded-sm bg-error-container"></div>
+<div class="w-0.5 h-2 bg-error"></div>
+<span class="font-label-numeric-xs text-[8px] text-error mt-0.5">11</span>
+</div>
+<!-- H12: Pass -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-2 bg-primary-container"></div>
+<div class="w-2.5 h-7 rounded-sm bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="w-0.5 h-2 bg-primary-container"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">12</span>
+</div>
+<!-- Row 2: Bars 13 to 24 -->
+<!-- H13: Pass -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-2 bg-primary-container"></div>
+<div class="w-2.5 h-6 rounded-sm bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="w-0.5 h-2 bg-primary-container"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">13</span>
+</div>
+<!-- H14: Pass -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-3 bg-primary-container"></div>
+<div class="w-2.5 h-8 rounded-sm bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="w-0.5 h-1.5 bg-primary-container"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">14</span>
+</div>
+<!-- H15: Pass -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container/60 rounded cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="w-0.5 h-2 bg-primary-container"></div>
+<div class="w-2.5 h-7 rounded-sm bg-primary-container shadow-[0_0_6px_rgba(0,240,144,0.4)]"></div>
+<div class="w-0.5 h-3 bg-primary-container"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">15</span>
+</div>
+<!-- H16: Pulsing Active Bar (Forming now) -->
+<div class="group relative flex flex-col items-center justify-end h-14 bg-surface-container-high rounded cursor-pointer shadow-[0_0_8px_rgba(0,240,144,0.3)] animate-pulse">
+<div class="w-0.5 h-2 bg-primary-container"></div>
+<div class="w-2.5 h-8 rounded-sm bg-primary-container shadow-[0_0_10px_#00f090] animate-candle-active"></div>
+<div class="w-0.5 h-1 bg-primary-container"></div>
+<span class="font-label-numeric-xs text-[8px] text-primary-fixed-dim font-bold mt-0.5">16*</span>
+</div>
+<!-- Pending Bars: H17 to H24 -->
+<div class="flex flex-col items-center justify-end h-14 bg-surface-container-low/40 rounded opacity-40">
+<div class="w-2 h-4 rounded-sm bg-surface-variant"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">17</span>
+</div>
+<div class="flex flex-col items-center justify-end h-14 bg-surface-container-low/40 rounded opacity-40">
+<div class="w-2 h-4 rounded-sm bg-surface-variant"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">18</span>
+</div>
+<div class="flex flex-col items-center justify-end h-14 bg-surface-container-low/40 rounded opacity-40">
+<div class="w-2 h-4 rounded-sm bg-surface-variant"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">19</span>
+</div>
+<div class="flex flex-col items-center justify-end h-14 bg-surface-container-low/40 rounded opacity-40">
+<div class="w-2 h-4 rounded-sm bg-surface-variant"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">20</span>
+</div>
+<div class="flex flex-col items-center justify-end h-14 bg-surface-container-low/40 rounded opacity-40">
+<div class="w-2 h-4 rounded-sm bg-surface-variant"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">21</span>
+</div>
+<div class="flex flex-col items-center justify-end h-14 bg-surface-container-low/40 rounded opacity-40">
+<div class="w-2 h-4 rounded-sm bg-surface-variant"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">22</span>
+</div>
+<div class="flex flex-col items-center justify-end h-14 bg-surface-container-low/40 rounded opacity-40">
+<div class="w-2 h-4 rounded-sm bg-surface-variant"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">23</span>
+</div>
+<div class="flex flex-col items-center justify-end h-14 bg-surface-container-low/40 rounded opacity-40">
+<div class="w-2 h-4 rounded-sm bg-surface-variant"></div>
+<span class="font-label-numeric-xs text-[8px] text-on-surface-variant mt-0.5">24</span>
+</div>
+</div>
+<!-- Current forming bar telemetry readout -->
+<div class="flex items-center justify-between px-space-xs mt-space-xs">
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">第 16 根正在形成中 (剩余 25m 48s)</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-primary-container font-semibold">实时现价: $0.1910 TON</span>
+</div>
+</div>
+</div>
+<!-- Global Vault Pool & Liquidity Telemetry -->
+<div class="rounded bg-surface-container p-space-md shadow-sm flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase">ROUND POOL &amp; LIQUIDITY MATRIX</span>
+<span class="font-label-numeric-xs text-label-numeric-xs px-space-xs py-0.5 rounded bg-surface-container-high text-secondary">
+        18,940 TRADERS
+      </span>
+</div>
+<div class="grid grid-cols-2 gap-space-sm">
+<div class="bg-surface-container-lowest p-space-sm rounded">
+<span class="font-label-caps text-label-caps text-on-surface-variant block">本轮质押总额</span>
+<span class="font-label-numeric-md text-label-numeric-md text-on-surface font-bold mt-space-xs block">5,200,000 TON</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-secondary-fixed-dim">≈ $27,456,000</span>
+</div>
+<div class="bg-surface-container-lowest p-space-sm rounded">
+<span class="font-label-caps text-label-caps text-on-surface-variant block">用户总奖池 (POOL)</span>
+<span class="font-label-numeric-md text-label-numeric-md text-primary font-bold mt-space-xs block animate-ticker">700,000,000 A9</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">团队额度: 120M A9</span>
+</div>
+</div>
+<!-- Mini Liquidity Depth Meter -->
+<div class="bg-surface-container-lowest p-space-sm rounded flex flex-col gap-space-xs">
+<div class="flex justify-between font-label-numeric-xs text-label-numeric-xs text-on-surface-variant">
+<span>结算分配比重 (动态调整)</span>
+<span class="text-primary-container">85.3% 达标分润仓位</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-variant overflow-hidden flex">
+<div class="h-full bg-primary-container shadow-[0_0_6px_#00f090]" style="width: 85.3%;"><div class="w-full h-full relative overflow-hidden"><div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"></div></div></div>
+<div class="h-full bg-secondary-container" style="width: 14.7%;"></div>
+</div>
+</div>
+</div>
+<!-- User Observation Position Card -->
+<div class="rounded bg-surface-container-high p-space-md shadow-md flex flex-col gap-space-sm relative overflow-hidden">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px] text-secondary">verified_user</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-bold">我的观察仓位</span>
+</div>
+<div class="flex items-center gap-space-xs px-space-xs py-0.5 rounded bg-surface-container-lowest text-primary-container font-label-numeric-xs text-label-numeric-xs">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
+        15X 上限检测: 正常
+      </div>
+</div>
+<div class="grid grid-cols-3 gap-space-xs bg-surface-container-lowest p-space-sm rounded">
+<div>
+<span class="font-label-caps text-label-caps text-on-surface-variant block">质押本金</span>
+<span class="font-label-numeric-md text-label-numeric-md text-on-surface font-semibold mt-space-xs block">5,000</span>
+<span class="font-label-caps text-[9px] text-on-surface-variant uppercase">TON</span>
+</div>
+<div>
+<span class="font-label-caps text-label-caps text-on-surface-variant block">锁定权重</span>
+<span class="font-label-numeric-md text-label-numeric-md text-secondary-container font-semibold mt-space-xs block">10,000</span>
+<span class="font-label-caps text-[9px] text-secondary-fixed uppercase">SHARE</span>
+</div>
+<div>
+<span class="font-label-caps text-label-caps text-primary block">预计可分润</span>
+<span class="font-label-numeric-md text-label-numeric-md text-primary-container font-bold mt-space-xs block truncate">1,480,000</span>
+<span class="font-label-caps text-[9px] text-primary-container uppercase">A9 TOKEN</span>
+</div>
+</div>
+<!-- Settlement Disclaimer Note -->
+<div class="flex items-start gap-space-xs pt-space-xs text-on-surface-variant font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-[15px] shrink-0 text-secondary-fixed-dim mt-0.5">info</span>
+<span>观察阶段内本金已完全锁定。若最终达标（≥16根），分润将在观察期结束后 10 分钟内直接入账智能合约钱包。</span>
+</div>
+</div>
+<!-- Interactive Terminal Trigger Bar -->
+<div class="flex flex-col gap-space-sm pt-space-xs">
+<!-- Secondary action: Open Trades Modal / Terminal detail -->
+<button class="w-full h-10 px-space-md rounded bg-surface-container-high hover:bg-surface-container-highest transition-colors flex items-center justify-between text-on-surface" id="btn-show-trades">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[18px] text-secondary-container">show_chart</span>
+<span class="font-body-md text-body-md font-medium">查看逐笔交易与K线明细</span>
+</div>
+<div class="flex items-center gap-space-xs text-on-surface-variant">
+<span class="font-label-numeric-xs text-label-numeric-xs">324 笔新成交</span>
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</div>
+</button>
+<!-- Primary Action: Push Notification Status -->
+<button class="w-full h-11 px-space-md rounded bg-surface-container-lowest text-primary flex items-center justify-between cursor-pointer active:scale-[0.99] transition-transform" id="btn-telegram-push">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[20px] text-primary-container">notifications_active</span>
+<span class="font-headline-sm text-headline-sm font-semibold text-primary">开启结算即时 Telegram 推送提醒</span>
+</div>
+<span class="font-label-caps text-label-caps px-space-xs py-0.5 rounded bg-surface-container-high text-primary-container font-bold">
+        已同步
+      </span>
+</button>
+</div>
+<!-- Collapsible Live Trade Stream Drawer (Mock institutional telemetry) -->
+<div class="hidden rounded bg-surface-container-lowest p-space-sm flex-col gap-space-xs" id="telemetry-drawer">
+<div class="flex justify-between items-center pb-space-xs">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase">ORDER EXECUTION STREAM</span>
+<span class="font-label-numeric-xs text-label-numeric-xs text-secondary-fixed-dim">SUB-SECOND SETTLEMENT</span>
+</div>
+<div class="flex justify-between font-label-numeric-xs text-label-numeric-xs py-0.5 text-on-surface">
+<span class="text-on-surface-variant">14:25:31</span>
+<span class="text-primary-container">BUY 14,200 TON @ 0.1912</span>
+<span class="text-on-surface-variant">TX...99c4</span>
+</div>
+<div class="flex justify-between font-label-numeric-xs text-label-numeric-xs py-0.5 text-on-surface">
+<span class="text-on-surface-variant">14:24:58</span>
+<span class="text-primary-container">BUY 8,500 TON @ 0.1910</span>
+<span class="text-on-surface-variant">TX...a1b8</span>
+</div>
+<div class="flex justify-between font-label-numeric-xs text-label-numeric-xs py-0.5 text-on-surface">
+<span class="text-on-surface-variant">14:23:12</span>
+<span class="text-error">SELL 3,100 TON @ 0.1906</span>
+<span class="text-on-surface-variant">TX...ff20</span>
+</div>
+</div>
+</div>
+<script>
+  (function() {
+    const tradeBtn = document.getElementById('btn-show-trades');
+    const drawer = document.getElementById('telemetry-drawer');
+    if (tradeBtn && drawer) {
+      tradeBtn.addEventListener('click', function() {
+        if (drawer.classList.contains('hidden')) {
+          drawer.classList.remove('hidden');
+          drawer.classList.add('flex');
+        } else {
+          drawer.classList.add('hidden');
+          drawer.classList.remove('flex');
+        }
+      });
+    }
+
+    const pushBtn = document.getElementById('btn-telegram-push');
+    if (pushBtn) {
+      pushBtn.addEventListener('click', function() {
+        const badge = pushBtn.querySelector('span:last-child');
+        if (badge) {
+          badge.textContent = '已订阅';
+          badge.classList.remove('bg-surface-container-high', 'text-primary-container');
+          badge.classList.add('bg-primary-container', 'text-on-primary');
+        }
+      });
+    }
+  })();
+</script></main><nav class="fixed bottom-0 inset-x-0 z-50 pb-safe bg-surface-container-lowest/90 backdrop-blur-xl shadow-[0_-2px_16px_rgba(0,0,0,0.6)]" data-active-classes="text-primary-container font-semibold"><div class="flex justify-around items-center h-16 px-space-xs"><a aria-current="page" class="flex flex-col items-center justify-center gap-space-xs min-w-[56px] h-11 transition-colors relative text-primary-container font-semibold" data-path="challenge" href="#"><span class="material-symbols-outlined text-[22px]">candlestick_chart</span><span class="font-label-caps text-label-caps">挑战</span></a><a class="flex flex-col items-center justify-center gap-space-xs min-w-[56px] h-11 text-on-surface-variant hover:text-on-surface transition-colors relative" data-path="team" href="#"><span class="material-symbols-outlined text-[22px]">groups</span><span class="font-label-caps text-label-caps">团队</span></a><a class="flex flex-col items-center justify-center gap-space-xs min-w-[56px] h-11 text-on-surface-variant hover:text-on-surface transition-colors relative" data-path="leaderboard" href="#"><span class="material-symbols-outlined text-[22px]">trophy</span><span class="font-label-caps text-label-caps">榜单</span><span class="absolute top-0.5 right-2 w-1.5 h-1.5 rounded-full bg-primary-container shadow-[0_0_4px_#00f090]"></span></a><a class="flex flex-col items-center justify-center gap-space-xs min-w-[56px] h-11 text-on-surface-variant hover:text-on-surface transition-colors relative" data-path="portfolio" href="#"><span class="material-symbols-outlined text-[22px]">account_balance_wallet</span><span class="font-label-caps text-label-caps">我的</span></a></div></nav>
+
+</body></html>

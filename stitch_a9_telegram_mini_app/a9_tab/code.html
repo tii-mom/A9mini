@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>A9 · 量化交易多Tab交互动效原型</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --bg-dark: #0a0e17;
+      --surface: #0f131c;
+      --surface-card: #141923;
+      --surface-border: #1f2735;
+      --accent-green: #00f090;
+      --accent-green-glow: rgba(0, 240, 144, 0.4);
+      --accent-red: #ff3b5c;
+      --text-main: #f0f4fa;
+      --text-sub: #8a93a6;
+      --ease-standard: cubic-bezier(0.2, 0.0, 0, 1.0);
+      --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .tnum { font-feature-settings: 'tnum'; }
+
+    /* 流星光束横扫 */
+    @keyframes meteor-sweep {
+      0% { transform: translateX(-150%) skewX(-25deg); opacity: 0; }
+      20% { opacity: 0.7; }
+      80% { opacity: 0.9; }
+      100% { transform: translateX(250%) skewX(-25deg); opacity: 0; }
+    }
+    .meteor-flow {
+      position: relative;
+      overflow: hidden;
+    }
+    .meteor-flow::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; width: 60%; height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(0, 240, 144, 0.35), rgba(255, 255, 255, 0.7), transparent);
+      animation: meteor-sweep 3s infinite var(--ease-standard);
+      pointer-events: none;
+    }
+
+    /* K线盘口微颤 */
+    @keyframes candle-jitter {
+      0%, 100% { transform: scaleY(1); filter: drop-shadow(0 0 3px rgba(0, 240, 144, 0.4)); }
+      50% { transform: scaleY(1.08); filter: drop-shadow(0 0 10px rgba(0, 240, 144, 0.8)); }
+    }
+    .candle-active {
+      transform-origin: bottom center;
+      animation: candle-jitter 1.6s infinite ease-in-out;
+    }
+
+    /* 滑块呼吸 */
+    @keyframes handle-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(0, 240, 144, 0.4); }
+      50% { box-shadow: 0 0 16px 4px rgba(0, 240, 144, 0.6); }
+    }
+    .slider-handle {
+      animation: handle-pulse 2s infinite ease-in-out;
+    }
+
+    /* 文本流光 */
+    @keyframes text-shimmer {
+      0% { background-position: -200% center; }
+      100% { background-position: 200% center; }
+    }
+    .shimmer-text {
+      background: linear-gradient(90deg, #6b778c 0%, #00f090 50%, #6b778c 100%);
+      background-size: 200% auto;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: text-shimmer 2.5s infinite linear;
+    }
+
+    /* 移动端最小 44x44px 触控区扩展 */
+    .touch-target {
+      position: relative;
+    }
+    .touch-target::before {
+      content: '';
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      min-width: 44px; min-height: 44px;
+      width: 100%; height: 100%;
+    }
+  </style>
+</head>
+<body class="flex justify-center items-center min-h-screen p-0 sm:p-4 bg-slate-950">
+
+  <!-- 移动端外框 (390px 模拟 Telegram Mini App) -->
+  <div class="relative w-full max-w-[390px] h-[844px] bg-[#0a0e17] flex flex-col overflow-hidden border border-[#1f2735] sm:rounded-3xl shadow-2xl">
+    
+    <!-- 顶部状态栏与 Header -->
+    <header class="h-14 px-4 border-b border-[#18202d] bg-[#0d121c]/90 backdrop-blur flex items-center justify-between shrink-0 z-30">
+      <div class="flex items-center space-x-2">
+        <div class="w-2 h-2 rounded-full bg-[#00f090] animate-ping"></div>
+        <span class="text-xs font-bold tracking-wider text-[#00f090]">A9 // TERMINAL</span>
+        <span class="text-[10px] px-1.5 py-0.5 rounded bg-[#162232] text-[#8a93a6]">TON MAINNET</span>
+      </div>
+      <div class="flex items-center space-x-2">
+        <span class="text-xs tnum text-slate-300 font-mono">UQ...489f</span>
+        <div class="w-7 h-7 rounded-full bg-[#1b2636] border border-[#2b3a4f] flex items-center justify-center text-xs text-[#00f090] touch-target">
+          <i class="fa-solid fa-user"></i>
+        </div>
+      </div>
+    </header>
+
+    <!-- 动态可滚动主内容容器 -->
+    <main class="flex-1 overflow-y-auto px-4 py-3 space-y-4 pb-20" id="main-content">
+
+      <!-- TAB 1: 挑战与实时 K 线 -->
+      <section id="tab-challenge" class="tab-pane space-y-3">
+        <!-- 交易看板卡片 -->
+        <div class="p-3.5 rounded-xl bg-[#121824] border border-[#1e293b]">
+          <div class="flex justify-between items-center mb-2">
+            <div>
+              <span class="text-xs text-[#8a93a6] font-mono">ROUND #03 TRACKER</span>
+              <div class="text-lg font-bold text-[#00f090] tnum">$0.1895 TON <span class="text-xs font-normal text-emerald-400">+2.43%</span></div>
+            </div>
+            <div class="text-right">
+              <span class="text-[10px] text-[#8a93a6] block">观察阶段 (24H)</span>
+              <span class="text-xs font-bold text-amber-300 font-mono" id="countdown-timer">09:34:12</span>
+            </div>
+          </div>
+
+          <!-- 24 根实时 K 线走廊 -->
+          <div class="mt-3 pt-3 border-t border-[#1a2332]">
+            <div class="flex justify-between text-[10px] text-[#8a93a6] mb-2 font-mono">
+              <span>HOURLY CANDLES (12/16 达标)</span>
+              <span class="text-[#00f090]">● ACTIVE #16</span>
+            </div>
+            <div class="flex items-end justify-between h-14 px-1 gap-1">
+              <!-- 示例 15 根已定盘 K 线 -->
+              <div class="w-2.5 h-8 bg-[#00f090] rounded-sm opacity-80"></div>
+              <div class="w-2.5 h-10 bg-[#00f090] rounded-sm opacity-80"></div>
+              <div class="w-2.5 h-6 bg-[#ff3b5c] rounded-sm opacity-80"></div>
+              <div class="w-2.5 h-11 bg-[#00f090] rounded-sm opacity-80"></div>
+              <div class="w-2.5 h-9 bg-[#00f090] rounded-sm opacity-80"></div>
+              <div class="w-2.5 h-10 bg-[#00f090] rounded-sm opacity-80"></div>
+              <div class="w-2.5 h-5 bg-[#ff3b5c] rounded-sm opacity-80"></div>
+              <div class="w-2.5 h-10 bg-[#00f090] rounded-sm opacity-80"></div>
+              <div class="w-2.5 h-12 bg-[#00f090] rounded-sm opacity-80"></div>
+              <div class="w-2.5 h-9 bg-[#00f090] rounded-sm opacity-80"></div>
+              <div class="w-2.5 h-4 bg-[#ff3b5c] rounded-sm opacity-80"></div>
+              <div class="w-2.5 h-10 bg-[#00f090] rounded-sm opacity-80"></div>
+              <div class="w-2.5 h-8 bg-[#00f090] rounded-sm opacity-80"></div>
+              <div class="w-2.5 h-11 bg-[#00f090] rounded-sm opacity-80"></div>
+              <div class="w-2.5 h-9 bg-[#00f090] rounded-sm opacity-80"></div>
+              <!-- 第 16 根正在形成，带实时微颤与高亮发光 -->
+              <div class="w-3 h-11 bg-[#00f090] rounded-sm candle-active relative">
+                <span class="absolute -top-5 left-1/2 -translate-x-1/2 text-[8px] bg-[#00f090] text-black font-bold px-1 rounded">25m</span>
+              </div>
+              <!-- 未来的占位 K 线 -->
+              <div class="w-2.5 h-3 bg-[#1e293b] rounded-sm"></div>
+              <div class="w-2.5 h-3 bg-[#1e293b] rounded-sm"></div>
+              <div class="w-2.5 h-3 bg-[#1e293b] rounded-sm"></div>
+              <div class="w-2.5 h-3 bg-[#1e293b] rounded-sm"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 结算达标流星辉光卡片 -->
+        <div class="p-4 rounded-xl bg-[#121824] border border-[#1e293b] meteor-flow">
+          <div class="flex justify-between items-start">
+            <div>
+              <span class="text-[10px] text-emerald-400 font-bold uppercase tracking-wider"><i class="fa-solid fa-circle-check mr-1"></i>达标流星入账</span>
+              <h3 class="text-xl font-bold text-white tnum mt-0.5">1,260,000 <span class="text-xs text-[#00f090]">A9</span></h3>
+            </div>
+            <span class="text-[11px] px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800">收益倍率 2.15x</span>
+          </div>
+          <p class="text-xs text-[#8a93a6] mt-2">智能合约已完成验证，即时可领 20%：<span class="text-white font-mono font-bold">252,000 A9</span></p>
+        </div>
+
+        <!-- 可拖拽滑块提取组件 (含阻尼回弹) -->
+        <div class="p-4 rounded-xl bg-[#121824] border border-[#1e293b]">
+          <div class="text-xs text-[#8a93a6] mb-2 flex justify-between">
+            <span>滑动确认提取</span>
+            <span id="slider-status" class="text-[#00f090] font-mono">0% 就绪</span>
+          </div>
+          <div id="slider-track" class="relative w-full h-12 bg-[#0a0e17] rounded-full border border-[#233145] overflow-hidden flex items-center px-1 touch-none">
+            <!-- 能量填充槽 -->
+            <div id="slider-fill" class="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-emerald-900 to-[#00f090]/80 w-0 transition-all duration-75"></div>
+            <!-- 引导文字 -->
+            <div class="w-full text-center text-xs font-bold shimmer-text pointer-events-none z-10" id="slider-prompt">
+              >>> 右滑立即提取 252,000 A9 >>>
+            </div>
+            <!-- 滑动手柄 -->
+            <div id="slider-thumb" class="absolute left-1 w-10 h-10 rounded-full bg-[#00f090] flex items-center justify-center text-slate-950 font-bold shadow-lg slider-handle cursor-pointer z-20 touch-target">
+              <i class="fa-solid fa-arrow-right text-xs" id="slider-icon"></i>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: 团队与分红 -->
+      <section id="tab-team" class="tab-pane hidden space-y-3">
+        <!-- 队长收益翻牌器卡片 -->
+        <div class="p-4 rounded-xl bg-[#121824] border border-[#1e293b]">
+          <div class="flex justify-between items-center mb-1">
+            <span class="text-xs text-[#8a93a6]">队长本轮秒级分红</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-[#00f090] border border-emerald-800">● 实时流</span>
+          </div>
+          <div class="flex items-baseline space-x-2">
+            <span class="text-3xl font-extrabold text-[#00f090] font-mono tnum" id="team-payout">5,800.00</span>
+            <span class="text-sm font-bold text-white">TON</span>
+            <span class="text-xs text-emerald-400 font-mono" id="team-delta">↑ +0.42</span>
+          </div>
+          <p class="text-[11px] text-[#8a93a6] mt-1">折合 ≈ $36,540.00 · 全队本金 1.0% 直返机制</p>
+
+          <div class="mt-4 pt-3 border-t border-[#1a2332] flex justify-between text-xs font-mono">
+            <div>
+              <div class="text-[#8a93a6] text-[10px]">团队成员</div>
+              <div class="text-white font-bold">520 人 (已满编)</div>
+            </div>
+            <div>
+              <div class="text-[#8a93a6] text-[10px]">全员加成</div>
+              <div class="text-[#00f090] font-bold">+15.00%</div>
+            </div>
+            <div>
+              <div class="text-[#8a93a6] text-[10px]">有效直邀</div>
+              <div class="text-white font-bold">68 席位</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 战队主力资金流 -->
+        <div class="p-3.5 rounded-xl bg-[#121824] border border-[#1e293b]">
+          <div class="text-xs font-bold text-slate-300 mb-2.5">战队核心主力 (资金流入)</div>
+          <div class="space-y-2 text-xs font-mono">
+            <div class="flex justify-between p-2 rounded bg-[#0a0e17] border border-[#1a2332]">
+              <span class="text-emerald-400">01 UQ_9921...8892</span>
+              <span class="text-white font-bold tnum">5,000.00 TON</span>
+            </div>
+            <div class="flex justify-between p-2 rounded bg-[#0a0e17] border border-[#1a2332]">
+              <span class="text-slate-300">02 EQ_b120...3312</span>
+              <span class="text-white font-bold tnum">2,000.00 TON</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: 榜单与排位 -->
+      <section id="tab-leaderboard" class="tab-pane hidden space-y-3">
+        <div class="p-3 rounded-xl bg-[#121824] border border-[#1e293b] flex justify-between items-center">
+          <div>
+            <div class="text-xs text-[#8a93a6]">总激励奖池</div>
+            <div class="text-base font-bold text-[#00f090] font-mono">8,000,000 A9</div>
+          </div>
+          <div class="text-right">
+            <div class="text-xs text-[#8a93a6]">入榜门槛</div>
+            <div class="text-xs font-bold text-amber-400 font-mono">≥ 6 人有效直邀</div>
+          </div>
+        </div>
+
+        <div class="space-y-1.5" id="rank-list">
+          <div class="p-2.5 rounded-lg bg-[#141d2b] border border-amber-500/40 flex justify-between items-center text-xs font-mono">
+            <div class="flex items-center space-x-2">
+              <span class="text-amber-400 font-bold">01 👑</span>
+              <span class="text-white">UQ...9F21</span>
+            </div>
+            <div class="text-right">
+              <span class="text-white font-bold">42 人</span>
+              <span class="text-[10px] text-amber-300 block">400,000 A9</span>
+            </div>
+          </div>
+          <!-- 用户当前防线席位 -->
+          <div class="p-2.5 rounded-lg bg-emerald-950/60 border border-[#00f090] flex justify-between items-center text-xs font-mono relative overflow-hidden">
+            <div class="flex items-center space-x-2">
+              <span class="text-[#00f090] font-bold">08 YOU</span>
+              <span class="text-emerald-300">UQ...8892</span>
+              <span class="text-[10px] bg-[#00f090] text-black font-bold px-1 rounded">↑1</span>
+            </div>
+            <div class="text-right">
+              <span class="text-[#00f090] font-bold">18 人</span>
+              <span class="text-[10px] text-emerald-400 block">400,000 A9</span>
+            </div>
+          </div>
+          <!-- 守门员席位 -->
+          <div class="p-2.5 rounded-lg bg-[#121824] border border-red-500/40 flex justify-between items-center text-xs font-mono">
+            <div class="flex items-center space-x-2">
+              <span class="text-red-400 font-bold">50 门</span>
+              <span class="text-slate-400">UQ...0142 (守门员)</span>
+            </div>
+            <div class="text-right">
+              <span class="text-red-300 font-bold">6 人</span>
+              <span class="text-[10px] text-slate-400 block">64,000 A9</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: 我的与凭证 -->
+      <section id="tab-profile" class="tab-pane hidden space-y-3">
+        <div class="p-4 rounded-xl bg-[#121824] border border-[#1e293b]">
+          <div class="text-xs text-[#8a93a6]">总质押持仓本金</div>
+          <div class="text-2xl font-bold text-white font-mono mt-0.5">6,500.00 <span class="text-xs text-[#00f090]">TON</span></div>
+          <div class="mt-2 text-xs text-emerald-400 font-mono">达成成功率 100% (2胜 · 0负 · 1进行中)</div>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-[#121824] border border-[#1e293b] space-y-2">
+          <div class="flex justify-between items-center text-xs">
+            <span class="text-slate-300 font-medium">第 3 轮观察中凭证</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-950 text-blue-400 border border-blue-800">SHA-256 存证</span>
+          </div>
+          <div class="p-2 rounded bg-[#0a0e17] text-xs font-mono text-slate-400 flex justify-between">
+            <span>凭证编号:</span>
+            <span class="text-slate-200">#A9-STAKE-R03-088921</span>
+          </div>
+          <button class="w-full py-2.5 mt-1 rounded-lg bg-[#1a2332] text-xs font-bold text-[#00f090] border border-[#2b3a4f] active:scale-[0.98] transition-transform touch-target" onclick="alert('已将凭证同步至 Telegram 频道！')">
+            <i class="fa-paper-plane mr-1.5"></i> 同步凭证至 TG 频道
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <!-- 底部持久化 Tab 导航栏 -->
+    <nav class="absolute bottom-0 left-0 right-0 h-16 bg-[#0d121c]/95 border-t border-[#18202d] backdrop-blur grid grid-cols-4 items-center z-40 px-2">
+      <button onclick="switchTab('tab-challenge', this)" class="tab-btn flex flex-col items-center justify-center text-[#00f090] touch-target">
+        <i class="fa-solid fa-chart-simple text-sm mb-1"></i>
+        <span class="text-[10px] font-bold">挑战</span>
+      </button>
+      <button onclick="switchTab('tab-team', this)" class="tab-btn flex flex-col items-center justify-center text-[#8a93a6] touch-target">
+        <i class="fa-solid fa-users text-sm mb-1"></i>
+        <span class="text-[10px] font-bold">团队</span>
+      </button>
+      <button onclick="switchTab('tab-leaderboard', this)" class="tab-btn flex flex-col items-center justify-center text-[#8a93a6] touch-target">
+        <i class="fa-solid fa-trophy text-sm mb-1"></i>
+        <span class="text-[10px] font-bold">榜单</span>
+      </button>
+      <button onclick="switchTab('tab-profile', this)" class="tab-btn flex flex-col items-center justify-center text-[#8a93a6] touch-target">
+        <i class="fa-solid fa-wallet text-sm mb-1"></i>
+        <span class="text-[10px] font-bold">我的</span>
+      </button>
+    </nav>
+  </div>
+
+  <script>
+    // 简易 Haptic Mock
+    const haptic = {
+      tick: () => window.Telegram?.WebApp?.HapticFeedback?.selectionChanged(),
+      impact: (style) => window.Telegram?.WebApp?.HapticFeedback?.impactOccurred(style || 'light'),
+      success: () => window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success')
+    };
+
+    // Tab 切换逻辑
+    function switchTab(tabId, btn) {
+      haptic.tick();
+      document.querySelectorAll('.tab-pane').forEach(el => el.classList.add('hidden'));
+      document.getElementById(tabId)?.classList.remove('hidden');
+
+      document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.remove('text-[#00f090]');
+        b.classList.add('text-[#8a93a6]');
+      });
+      btn.classList.add('text-[#00f090]');
+      btn.classList.remove('text-[#8a93a6]');
+    }
+
+    // 翻牌器微增模拟
+    let currentPayout = 5800.00;
+    setInterval(() => {
+      currentPayout += 0.12;
+      const el = document.getElementById('team-payout');
+      if (el) el.innerText = currentPayout.toFixed(2);
+    }, 2800);
+
+    // 滑块交互与阻尼回弹
+    const track = document.getElementById('slider-track');
+    const thumb = document.getElementById('slider-thumb');
+    const fill = document.getElementById('slider-fill');
+    const statusText = document.getElementById('slider-status');
+    const promptText = document.getElementById('slider-prompt');
+    const icon = document.getElementById('slider-icon');
+
+    let isDragging = false;
+    let startX = 0;
+    let currentX = 0;
+    let maxDistance = 0;
+    let isCompleted = false;
+
+    function initSlider() {
+      maxDistance = track.clientWidth - thumb.clientWidth - 8;
+    }
+    window.addEventListener('resize', initSlider);
+    setTimeout(initSlider, 100);
+
+    function onStart(e) {
+      if (isCompleted) return;
+      isDragging = true;
+      startX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+      thumb.style.transition = 'none';
+      fill.style.transition = 'none';
+      haptic.impact('light');
+    }
+
+    function onMove(e) {
+      if (!isDragging || isCompleted) return;
+      const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+      let move = clientX - startX;
+      move = Math.max(0, Math.min(move, maxDistance));
+      currentX = move;
+
+      thumb.style.left = `${move + 4}px`;
+      fill.style.width = `${move + thumb.clientWidth / 2}px`;
+      
+      const pct = Math.round((move / maxDistance) * 100);
+      statusText.innerText = `${pct}% 拖拽中`;
+      if (pct % 25 === 0) haptic.tick();
+    }
+
+    function onEnd() {
+      if (!isDragging || isCompleted) return;
+      isDragging = false;
+      const progress = currentX / maxDistance;
+
+      if (progress >= 0.85) {
+        // 磁吸达标
+        isCompleted = true;
+        thumb.style.transition = 'all 0.2s ease-out';
+        fill.style.transition = 'all 0.2s ease-out';
+        thumb.style.left = `${maxDistance + 4}px`;
+        fill.style.width = '100%';
+        thumb.classList.remove('bg-[#00f090]');
+        thumb.classList.add('bg-white');
+        icon.className = 'fa-solid fa-check text-emerald-600 text-xs';
+        promptText.innerText = '提取已广播上链 · 252,000 A9';
+        statusText.innerText = '已上链';
+        haptic.success();
+      } else {
+        // 阻尼回弹
+        thumb.style.transition = 'all 0.25s var(--ease-spring)';
+        fill.style.transition = 'all 0.25s var(--ease-spring)';
+        thumb.style.left = '4px';
+        fill.style.width = '0px';
+        statusText.innerText = '已复位';
+        haptic.impact('light');
+      }
+    }
+
+    thumb.addEventListener('touchstart', onStart, { passive: true });
+    window.addEventListener('touchmove', onMove, { passive: true });
+    window.addEventListener('touchend', onEnd);
+
+    thumb.addEventListener('mousedown', onStart);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onEnd);
+  </script>
+</body>
+</html>
