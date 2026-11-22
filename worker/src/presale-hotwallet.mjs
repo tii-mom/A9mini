@@ -13,6 +13,12 @@
 //   * planInbound() is a pure read: dry-run never writes.
 //   * Pool + per-wallet quota are reserved atomically when the order is created.
 //   * Referral reward is booked only after the payout is confirmed, exactly once.
+//   * Owner rule (acceptance round 1): an inbound transfer without a valid order, from the
+//     wrong sender, for an order that is no longer payable, or with an amount different from
+//     the order is NEVER auto-confirmed and NEVER auto-charged a fee. It is recorded as an
+//     ANOMALY (payer, amount, refund destination) for an operator to resolve. A fee may only be
+//     applied when the operator marks it USER fault AND a published fee rule is configured
+//     (userFaultFeeNano); SYSTEM / UNKNOWN fault is always a full refund.
 // Storage is behind a small repository interface: MemoryPresaleRepo here, D1PresaleRepo in
 // d1-growth-store.mjs. Both are exercised by worker/tests.
 import { addressKey } from './ton-address.mjs';
@@ -27,6 +33,7 @@ export const PRESALE_STATUS = Object.freeze({
   COMPLETED: 'COMPLETED',
   PAYOUT_RETRY: 'PAYOUT_RETRY',
   NEEDS_REVIEW: 'NEEDS_REVIEW',
+  PAYMENT_EXCEPTION: 'PAYMENT_EXCEPTION', // paid, but not auto-confirmable: awaiting manual review
   REFUND_PENDING: 'REFUND_PENDING',
   REFUND_SENT: 'REFUND_SENT',
   REFUNDED: 'REFUNDED',
@@ -39,6 +46,16 @@ export const PRESALE_STATUS = Object.freeze({
   REFUNDED_MINUS_FEE: 'REFUNDED_MINUS_FEE',
   DUST_IGNORED: 'DUST_IGNORED',
 });
+
+/** Inbound transfers that cannot be auto-confirmed are recorded as anomalies (never auto-fee). */
+export const ANOMALY_STATUS = Object.freeze({
+  OPEN: 'OPEN',
+  REFUND_QUEUED: 'REFUND_QUEUED',
+  CLOSED_NO_REFUND: 'CLOSED_NO_REFUND',
+});
+
+/** Who caused the anomaly; decided by an operator, never inferred automatically. */
+export const FAULT_PARTY = Object.freeze({ USER: 'USER', SYSTEM: 'SYSTEM', UNKNOWN: 'UNKNOWN' });
 
 export const PAYOUT_STATUS = Object.freeze({
   PENDING: 'PENDING',
@@ -111,6 +128,7 @@ export class PresaleEngine {
     promoEngine = null,
     socialStore = null,
     orderTtlSec = ORDER_TTL_SEC,
+    userFaultFeeNano = null, // published user-fault fee in GRAM nano; null = no approved rule
   } = {}) {
     if (!repo) throw new PresaleError('CONFIG_MISSING', 'presale repository required');
     if (!hotWalletAddress) throw new PresaleError('CONFIG_MISSING', 'presale hotWalletAddress required');
@@ -125,6 +143,7 @@ export class PresaleEngine {
     this.promoEngine = promoEngine;
     this.socialStore = socialStore;
     this.orderTtlSec = orderTtlSec;
+    this.userFaultFeeNano = userFaultFeeNano === null || userFaultFeeNano === undefined || userFaultFeeNano === '' ? null : BigInt(userFaultFeeNano);
     this.userQuotaNano = new Map(); // walletKey -> bigint (ops override, memory only)
   }
 
@@ -245,7 +264,7 @@ export class PresaleEngine {
 
   /**
    * Pure decision for one inbound transfer. Reads only — safe for dry-run.
-   * action: REJECT | REPLAY | IGNORE_DUST | REFUND | CONFIRM
+   * action: REJECT | REPLAY | IGNORE_DUST | ANOMALY | REFUND | CONFIRM
    */
   async planInbound(tx, nowSec = Math.floor(Date.now() / 1000)) {
     if (!tx?.txHash) return { action: 'REJECT', reason: 'missing_tx_hash' };
@@ -272,15 +291,19 @@ export class PresaleEngine {
       ...this._refundAmount(receivedNano, passive),
     });
 
-    if (!order) return refund('no_matching_order', false, false);
+    const anomaly = (reason, touchesOrder) => ({ ...base, action: 'ANOMALY', reason, touchesOrder, refundTo: tx.from || null });
+
+    if (!order) return anomaly('no_matching_order', false);
     // The memo alone is not proof: payer must be the order's wallet and pay the exact amount.
-    if (addressKey(tx.from) !== order.walletKey) return refund('sender_mismatch', false, false);
+    if (addressKey(tx.from) !== order.walletKey) return anomaly('sender_mismatch', false);
     if (normalizeOrderStatus(order.status, order.payoutTxHash) !== PRESALE_STATUS.PENDING_PAYMENT) {
-      return refund('order_not_payable', false, false);
+      return anomaly('order_not_payable', false);
     }
+    if (receivedNano !== BigInt(order.tonNano)) return anomaly('amount_mismatch', true);
+    // Exact payment for a valid order that we can no longer fill: existing passive refund rule
+    // (order minimum is 5 GRAM, so this is always a full refund).
     if (!this.open) return refund('closed', true, true);
     if (nowSec > Number(order.expiresAt || 0) && Number(order.expiresAt || 0) > 0) return refund('expired', true, true);
-    if (receivedNano !== BigInt(order.tonNano)) return refund('amount_mismatch', false, true);
     return { ...base, action: 'CONFIRM', reason: 'valid', a9AmountRaw: BigInt(order.a9AmountRaw) };
   }
 
@@ -300,7 +323,16 @@ export class PresaleEngine {
     };
     let orderUpdate = null;
     let payout = null;
-    if (d.action === 'CONFIRM') {
+    if (d.action === 'ANOMALY') {
+      inbound.anomaly = { status: ANOMALY_STATUS.OPEN, refundTo: d.refundTo };
+      if (d.touchesOrder && d.orderId) {
+        orderUpdate = {
+          orderId: d.orderId,
+          from: [PRESALE_STATUS.PENDING_PAYMENT, PRESALE_STATUS.PENDING_TON],
+          patch: { status: PRESALE_STATUS.PAYMENT_EXCEPTION, inboundTxHash: tx.txHash, refundReason: d.reason, updatedAt: nowSec },
+        };
+      }
+    } else if (d.action === 'CONFIRM') {
       orderUpdate = {
         orderId: d.orderId,
         from: [PRESALE_STATUS.PENDING_PAYMENT, PRESALE_STATUS.PENDING_TON],
@@ -343,6 +375,63 @@ export class PresaleEngine {
     if (res === 'REPLAY') return { ...d, action: 'REPLAY', applied: false };
     if (res === 'ORDER_RACE') return { ...d, applied: true, orderRace: true };
     return { ...d, applied: true };
+  }
+
+  async listAnomalies(status = ANOMALY_STATUS.OPEN) {
+    return this.repo.listAnomalies(status);
+  }
+
+  /**
+   * Operator resolution of an anomalous inbound transfer.
+   * decision: 'REFUND' (to the original payer) | 'CLOSE_NO_REFUND' (e.g. already refunded off-band).
+   * faultParty USER may deduct ONLY the published userFaultFeeNano; SYSTEM / UNKNOWN never pay a fee.
+   */
+  async resolveAnomaly(txHash, { decision, faultParty, operator, note = '' } = {}, nowSec = Math.floor(Date.now() / 1000)) {
+    const a = await this.repo.getInbound(txHash);
+    if (!a || a.decision !== 'ANOMALY') throw new PresaleError('NOT_FOUND', 'anomaly not found');
+    if (a.anomalyStatus !== ANOMALY_STATUS.OPEN) throw new PresaleError('ALREADY_RESOLVED', 'anomaly already resolved');
+    if (!operator) throw new PresaleError('BAD_REQUEST', 'operator is required for the audit trail');
+    if (!Object.values(FAULT_PARTY).includes(faultParty)) throw new PresaleError('BAD_REQUEST', 'faultParty must be USER, SYSTEM or UNKNOWN');
+    const received = BigInt(a.valueNano);
+    const resolution = { faultParty, operator: String(operator), note: String(note || '').slice(0, 500), resolvedAt: nowSec };
+    if (decision === 'CLOSE_NO_REFUND') {
+      if (!String(note || '').trim()) throw new PresaleError('BAD_REQUEST', 'a note is required when closing without refund');
+      const ok = await this.repo.resolveAnomaly(txHash, { ...resolution, status: ANOMALY_STATUS.CLOSED_NO_REFUND, feeNano: 0n }, null, null);
+      if (!ok) throw new PresaleError('ALREADY_RESOLVED', 'anomaly already resolved');
+      return { txHash, status: ANOMALY_STATUS.CLOSED_NO_REFUND };
+    }
+    if (decision !== 'REFUND') throw new PresaleError('BAD_REQUEST', 'decision must be REFUND or CLOSE_NO_REFUND');
+    let feeNano = 0n;
+    if (faultParty === FAULT_PARTY.USER) {
+      if (this.userFaultFeeNano === null) {
+        throw new PresaleError('FEE_RULE_NOT_PUBLISHED', 'no published user-fault fee rule; refund in full or publish the rule first');
+      }
+      feeNano = this.userFaultFeeNano;
+    }
+    if (received <= feeNano) throw new PresaleError('BAD_AMOUNT', 'refund amount would be zero');
+    const refundNano = received - feeNano;
+    const payout = {
+      payoutId: `refund:${txHash}`,
+      orderId: a.orderId || null,
+      inboundTxHash: txHash,
+      kind: 'REFUND',
+      recipient: a.refundTo || a.sender,
+      amount: refundNano.toString(),
+      queryId: newQueryId(),
+      status: PAYOUT_STATUS.PENDING,
+      attempts: 0,
+      ambiguous: false,
+      txHash: null,
+      lastError: null,
+      createdAt: nowSec,
+      updatedAt: nowSec,
+    };
+    const orderPatch = a.orderId
+      ? { orderId: a.orderId, from: [PRESALE_STATUS.PAYMENT_EXCEPTION], patch: { status: PRESALE_STATUS.REFUND_PENDING, refundTonNano: refundNano, updatedAt: nowSec } }
+      : null;
+    const ok = await this.repo.resolveAnomaly(txHash, { ...resolution, status: ANOMALY_STATUS.REFUND_QUEUED, feeNano }, payout, orderPatch);
+    if (!ok) throw new PresaleError('ALREADY_RESOLVED', 'anomaly already resolved');
+    return { txHash, status: ANOMALY_STATUS.REFUND_QUEUED, refundNano: refundNano.toString(), feeNano: feeNano.toString(), recipient: payout.recipient };
   }
 
   /** PAYMENT_CONFIRMED -> PAYOUT_PENDING with a persisted payout instruction (idempotent). */
@@ -629,9 +718,38 @@ export class MemoryPresaleRepo {
       if (o && orderUpdate.from.includes(o.status)) Object.assign(o, orderUpdate.patch);
       else race = true;
     }
-    this.inbound.set(inbound.txHash, { ...inbound, decision: race ? 'NEEDS_REVIEW' : inbound.decision });
+    const row = { ...inbound, decision: race ? 'NEEDS_REVIEW' : inbound.decision };
+    if (inbound.anomaly) {
+      delete row.anomaly;
+      Object.assign(row, { anomalyStatus: inbound.anomaly.status, refundTo: inbound.anomaly.refundTo });
+    }
+    this.inbound.set(inbound.txHash, row);
     if (payout) this.payouts.set(payout.payoutId, { ...payout });
     return race ? 'ORDER_RACE' : 'OK';
+  }
+
+  async listAnomalies(status) {
+    return [...this.inbound.values()].filter((r) => r.decision === 'ANOMALY' && (!status || r.anomalyStatus === status)).map(clone);
+  }
+
+  async resolveAnomaly(txHash, resolution, payout, orderPatch) {
+    const r = this.inbound.get(txHash);
+    if (!r || r.anomalyStatus !== 'OPEN') return false;
+    if (payout && this.payouts.has(payout.payoutId)) return false;
+    Object.assign(r, {
+      anomalyStatus: resolution.status,
+      faultParty: resolution.faultParty,
+      feeNano: resolution.feeNano.toString(),
+      resolvedBy: resolution.operator,
+      resolvedAt: resolution.resolvedAt,
+      resolutionNote: resolution.note,
+    });
+    if (payout) this.payouts.set(payout.payoutId, { ...payout });
+    if (orderPatch) {
+      const o = this.orders.get(orderPatch.orderId);
+      if (o && orderPatch.from.includes(o.status)) Object.assign(o, orderPatch.patch);
+    }
+    return true;
   }
 
   async queuePayout(orderId, fromStatus, patch, payout) {

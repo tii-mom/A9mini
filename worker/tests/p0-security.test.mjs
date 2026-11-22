@@ -12,7 +12,9 @@ import { SocialStore } from '../src/social-store.mjs';
 import { PredictionEngine } from '../src/growth-engine.mjs';
 import { parseDecimalUnits, formatUnits } from '../src/money.mjs';
 import { normalizeTonAddress } from '../src/ton-address.mjs';
-import { TEST_BOT_TOKEN, tgHeaders, createSqliteD1, FRESH_SCHEMA, MIGRATIONS, completePurchase } from './helpers/test-env.mjs';
+import { TEST_BOT_TOKEN, tgHeaders, createSqliteD1, FRESH_SCHEMA, MIGRATIONS, completePurchase, dumpDb, createMiniflareD1, makeV4R2Wallet, signTonProof, PROOF_FIXTURES } from './helpers/test-env.mjs';
+import { verifyTonProof, REBIND_DELAY_SEC, TON_PROOF_MAX_SKEW_SEC } from '../src/auth.mjs';
+import { inspectWalletStateInit } from '../src/ton-cell.mjs';
 
 let passed = 0;
 async function test(name, fn) {
@@ -28,7 +30,7 @@ const stateStore = {
   listRounds: () => [],
   getRound: () => null,
 };
-const ENV = { A9_BOT_TOKEN: TEST_BOT_TOKEN, A9_TON_PROOF_DOMAINS: 'a9.example' };
+const ENV = { A9_BOT_TOKEN: TEST_BOT_TOKEN, A9_TON_PROOF_DOMAINS: 'a9.example', A9_NETWORK: 'testnet', A9_ADMIN_TOKEN: 'adm-p0' };
 
 function buildRouter(extra = {}) {
   const identityStore = extra.identityStore || new MemoryIdentityStore();
@@ -42,15 +44,27 @@ function buildRouter(extra = {}) {
 
 /** Both storage backends must behave identically. */
 const BACKENDS = [
-  ['memory', (opts) => new PresaleHotWalletEngine({ hotWalletAddress: HOT, ...opts })],
-  ['d1-sqlite', (opts) => {
+  ['memory', async (opts) => new PresaleHotWalletEngine({ hotWalletAddress: HOT, ...opts })],
+  ['d1-sqlite', async (opts) => {
     const db = opts.db || createSqliteD1(FRESH_SCHEMA);
     const e = new D1PresaleStore({ db, hotWalletAddress: HOT, ...opts });
     e._db = db;
     return e;
   }],
 ];
-const dumpOf = (e) => (e._db ? e._db.dump() : e.repo.snapshot());
+const MF_DISPOSE = [];
+if (await createMiniflareD1().then((mf) => { if (mf) MF_DISPOSE.push(mf.dispose); return Boolean(mf); })) {
+  BACKENDS.push(['d1-miniflare', async (opts) => {
+    const mf = await createMiniflareD1();
+    MF_DISPOSE.push(mf.dispose);
+    const e = new D1PresaleStore({ db: mf.db, hotWalletAddress: HOT, ...opts });
+    e._db = mf.db;
+    return e;
+  }]);
+} else {
+  console.log('  SKIP  [d1-miniflare] backend: `miniflare` not installed (npm i -D miniflare to run against real D1/workerd)');
+}
+const dumpOf = async (e) => (e._db ? dumpDb(e._db) : e.repo.snapshot());
 const inbound = (order, extra = {}) => ({ txHash: `in-${order.orderId}`, finality: 'finalized', to: HOT, from: order.walletAddress, valueNano: order.tonNano, memo: order.memo, ...extra });
 
 console.log('Running phase-1 P0 security tests...');
@@ -177,82 +191,163 @@ await test('non-captain cannot bind a team group; a typed @handle is reported as
   assert.notEqual(intr2.status, 200);
 });
 
-// ton_proof helpers (real ed25519 keys, TON Connect ton-proof-item-v2 layout)
-async function makeWallet() {
-  const kp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
-  const pub = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
-  const hashBytes = new Uint8Array(32);
-  crypto.getRandomValues(hashBytes);
-  const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
-  return { kp, pubHex: hex(pub), address: `0:${hex(hashBytes)}`, hashBytes };
-}
-async function signProof(w, { payload, domain = 'a9.example', timestamp }) {
-  const enc = new TextEncoder();
-  const cat = (...p) => { const o = new Uint8Array(p.reduce((n, x) => n + x.length, 0)); let i = 0; for (const x of p) { o.set(x, i); i += x.length; } return o; };
-  const wc = new Uint8Array(4);
-  const db = enc.encode(domain);
-  const dl = new Uint8Array(4); new DataView(dl.buffer).setUint32(0, db.length, true);
-  const ts = new Uint8Array(8); new DataView(ts.buffer).setBigUint64(0, BigInt(timestamp), true);
-  const msg = cat(enc.encode('ton-proof-item-v2/'), wc, w.hashBytes, dl, db, ts, enc.encode(payload));
-  const full = cat(new Uint8Array([0xff, 0xff]), enc.encode('ton-connect'), new Uint8Array(await crypto.subtle.digest('SHA-256', msg)));
-  const sig = new Uint8Array(await crypto.subtle.sign('Ed25519', w.kp.privateKey, new Uint8Array(await crypto.subtle.digest('SHA-256', full))));
-  return { timestamp, domain: { lengthBytes: db.length, value: domain }, payload, signature: btoa(String.fromCharCode(...sig)) };
+// ---------------------------------------------------------------------------
+// ton_proof (acceptance item 1): StateInit, address, public key source, network, format
+// ---------------------------------------------------------------------------
+await test('ton_proof: 4 REAL wallet replies (v3r1/v4r2 mainnet, v4r2/v5beta testnet) verify: StateInit hash == address, key from StateInit == reported key', async () => {
+  for (const v of PROOF_FIXTURES.vectors) {
+    const info = await inspectWalletStateInit(v.proof.state_init);
+    assert.equal(info.addressHashHex, v.address.split(':')[1], v.name);
+    assert.equal(info.publicKeyHex, v.publicKey, v.name);
+    const r = await verifyTonProof({
+      address: v.address, network: v.network, publicKey: v.publicKey, proof: v.proof,
+      expectedNetwork: v.network, allowedDomains: [v.proof.domain.value], nowSec: v.proof.timestamp,
+    });
+    assert.equal(r.keySource, 'state_init', v.name);
+    assert.ok(['v3r1', 'v4r2', 'v5beta'].includes(r.walletVersion), v.name);
+  }
+  // Official @ton/ton wallet code BoCs hash to the published code hashes used for detection.
+  const { parseBoc } = await import('../src/ton-cell.mjs');
+  for (const k of ['v3r2', 'v4r2', 'v5r1']) {
+    const [c] = parseBoc(PROOF_FIXTURES.walletCodes[k]);
+    assert.equal(await c.hashHex(), PROOF_FIXTURES.expectedCodeHashes[k], k);
+  }
+});
+
+await test('ton_proof negatives on real vectors: wrong network, tampered signature/payload/timestamp, swapped StateInit, wrong reported key, chain key mismatch, foreign domain', async () => {
+  const [v, v2] = PROOF_FIXTURES.vectors;
+  const base = { address: v.address, network: v.network, publicKey: v.publicKey, proof: v.proof, expectedNetwork: v.network, allowedDomains: [v.proof.domain.value], nowSec: v.proof.timestamp };
+  const code = async (over) => { try { await verifyTonProof({ ...base, ...over }); return 'OK'; } catch (e) { return e.code; } };
+  assert.equal(await code({}), 'OK');
+  assert.equal(await code({ expectedNetwork: '-3' }), 'PROOF_WRONG_NETWORK');
+  assert.equal(await code({ network: undefined }), 'PROOF_WRONG_NETWORK');
+  assert.equal(await code({ expectedNetwork: undefined }), 'AUTH_UNCONFIGURED');
+  const sig = Buffer.from(v.proof.signature, 'base64'); sig[5] ^= 1;
+  assert.equal(await code({ proof: { ...v.proof, signature: sig.toString('base64') } }), 'PROOF_INVALID');
+  assert.equal(await code({ proof: { ...v.proof, payload: v.proof.payload + 'x' } }), 'PROOF_INVALID');
+  assert.equal(await code({ proof: { ...v.proof, timestamp: v.proof.timestamp + 1 } }), 'PROOF_INVALID');
+  assert.equal(await code({ proof: { ...v.proof, state_init: v2.proof.state_init } }), 'PROOF_INVALID');
+  assert.equal(await code({ proof: { ...v.proof, state_init: undefined } }), 'PROOF_INVALID');
+  assert.equal(await code({ publicKey: v2.publicKey.replace(/^./, (c) => (c === 'a' ? 'b' : 'a')) }), 'PROOF_INVALID');
+  assert.equal(await code({ chainPublicKeyResolver: async () => 'ab'.repeat(32) }), 'PROOF_INVALID');
+  assert.equal(await code({ chainPublicKeyResolver: async () => v.publicKey }), 'OK');
+  assert.equal(await code({ allowedDomains: ['a9.example'] }), 'PROOF_INVALID');
+  assert.equal(await code({ nowSec: v.proof.timestamp + TON_PROOF_MAX_SKEW_SEC + 1 }), 'PROOF_EXPIRED');
+  assert.equal(await code({ nowSec: v.proof.timestamp - TON_PROOF_MAX_SKEW_SEC - 1 }), 'PROOF_EXPIRED');
+  assert.equal(await code({ nowSec: v.proof.timestamp + TON_PROOF_MAX_SKEW_SEC - 1 }), 'OK');
+  assert.equal(TON_PROOF_MAX_SKEW_SEC, 600);
+});
+
+async function proofFlow(route, h, w, now, extra = {}) {
+  const payload = (await route({ method: 'POST', pathname: '/api/auth/ton-proof/payload', headers: h, nowSec: now })).body.data.payload;
+  const proof = await signTonProof(w, { payload, timestamp: now, ...(extra.sign || {}) });
+  return route({ method: 'POST', pathname: '/api/auth/ton-proof/verify', body: { address: w.address, network: '-3', publicKey: w.pubHex, proof, purpose: extra.purpose }, headers: h, nowSec: now });
 }
 
-await test('ton_proof: server payload + wallet signature binds wallet; replay, wrong domain, wrong key, foreign payload and double-binding refused', async () => {
-  const walletA = await makeWallet();
-  const walletB = await makeWallet();
-  const keys = new Map([[walletA.address, walletA.pubHex], [walletB.address, walletB.pubHex]]);
+await test('ton_proof API: single-use payload, bound to the requesting Telegram user, wallet bound once; payload replay / foreign payload / wrong key / double-binding refused', async () => {
+  const walletA = await makeV4R2Wallet();
+  const walletB = await makeV4R2Wallet();
   for (const backend of ['memory', 'd1-sqlite']) {
     const identityStore = backend === 'memory' ? new MemoryIdentityStore() : new D1IdentityStore({ db: createSqliteD1(FRESH_SCHEMA) });
-    const { route } = buildRouter({ identityStore, publicKeyResolver: async (a) => keys.get(normalizeTonAddress(a)) || null });
+    const { route } = buildRouter({ identityStore });
     const now = 10_000;
     const hA = await tgHeaders(9001, { nowSec: now });
     const hB = await tgHeaders(9002, { nowSec: now });
-    const getPayload = async (h) => (await route({ method: 'POST', pathname: '/api/auth/ton-proof/payload', headers: h, nowSec: now })).body.data.payload;
-
-    const p1 = await getPayload(hA);
-    const proof1 = await signProof(walletA, { payload: p1, timestamp: now });
-    const ok = await route({ method: 'POST', pathname: '/api/auth/ton-proof/verify', body: { address: walletA.address, proof: proof1 }, headers: hA, nowSec: now });
+    const ok = await proofFlow(route, hA, walletA, now);
     assert.equal(ok.status, 200, backend + JSON.stringify(ok.body));
+    assert.equal(ok.body.data.status, 'BOUND');
     assert.equal((await route({ method: 'GET', pathname: '/api/me', headers: hA, nowSec: now })).body.data.wallet.address, walletA.address);
 
-    const replay = await route({ method: 'POST', pathname: '/api/auth/ton-proof/verify', body: { address: walletA.address, proof: proof1 }, headers: hA, nowSec: now });
-    assert.equal(replay.body.error.code, 'PROOF_INVALID');
-
-    const p2 = await getPayload(hA);
-    const badDomain = await route({ method: 'POST', pathname: '/api/auth/ton-proof/verify', body: { address: walletA.address, proof: await signProof(walletA, { payload: p2, timestamp: now, domain: 'evil.example' }) }, headers: hA, nowSec: now });
-    assert.equal(badDomain.body.error.code, 'PROOF_INVALID');
-
-    // Claiming wallet B with a signature from wallet A's key
-    const p3 = await getPayload(hA);
-    const proofWrongKey = await signProof({ ...walletB, kp: walletA.kp }, { payload: p3, timestamp: now });
-    const wrongKey = await route({ method: 'POST', pathname: '/api/auth/ton-proof/verify', body: { address: walletB.address, proof: proofWrongKey }, headers: hA, nowSec: now });
-    assert.equal(wrongKey.body.error.code, 'PROOF_INVALID');
+    // Replay of an already consumed payload
+    const p1 = (await route({ method: 'POST', pathname: '/api/auth/ton-proof/payload', headers: hA, nowSec: now })).body.data.payload;
+    const proof1 = await signTonProof(walletA, { payload: p1, timestamp: now });
+    const body1 = { address: walletA.address, network: '-3', publicKey: walletA.pubHex, proof: proof1 };
+    assert.equal((await route({ method: 'POST', pathname: '/api/auth/ton-proof/verify', body: body1, headers: hA, nowSec: now })).status, 200);
+    assert.equal((await route({ method: 'POST', pathname: '/api/auth/ton-proof/verify', body: body1, headers: hA, nowSec: now })).body.error.code, 'PROOF_INVALID');
 
     // Payload issued to A cannot be used by B
-    const p4 = await getPayload(hA);
-    const foreign = await route({ method: 'POST', pathname: '/api/auth/ton-proof/verify', body: { address: walletB.address, proof: await signProof(walletB, { payload: p4, timestamp: now }) }, headers: hB, nowSec: now });
+    const p2 = (await route({ method: 'POST', pathname: '/api/auth/ton-proof/payload', headers: hA, nowSec: now })).body.data.payload;
+    const foreign = await route({ method: 'POST', pathname: '/api/auth/ton-proof/verify', body: { address: walletB.address, network: '-3', proof: await signTonProof(walletB, { payload: p2, timestamp: now }) }, headers: hB, nowSec: now });
     assert.equal(foreign.body.error.code, 'PROOF_INVALID');
 
-    // Stale proof timestamp
-    const p5 = await getPayload(hB);
-    const stale = await route({ method: 'POST', pathname: '/api/auth/ton-proof/verify', body: { address: walletB.address, proof: await signProof(walletB, { payload: p5, timestamp: now - 3600 }) }, headers: hB, nowSec: now });
-    assert.equal(stale.body.error.code, 'PROOF_EXPIRED');
+    // Claiming wallet B with wallet A's private key (B's StateInit carries B's key)
+    const wrongKey = await proofFlow(route, hB, walletB, now, { sign: { key: walletA.kp.privateKey } });
+    assert.equal(wrongKey.body.error.code, 'PROOF_INVALID');
 
-    // Wallet A already bound to 9001 -> 9002 cannot take it over even with a valid signature
-    const p6 = await getPayload(hB);
-    const takeover = await route({ method: 'POST', pathname: '/api/auth/ton-proof/verify', body: { address: walletA.address, proof: await signProof(walletA, { payload: p6, timestamp: now }) }, headers: hB, nowSec: now });
-    assert.equal(takeover.status, 409);
+    // Wrong network: wallet reports mainnet while server runs testnet
+    const p3 = (await route({ method: 'POST', pathname: '/api/auth/ton-proof/payload', headers: hB, nowSec: now })).body.data.payload;
+    const net = await route({ method: 'POST', pathname: '/api/auth/ton-proof/verify', body: { address: walletB.address, network: '-239', proof: await signTonProof(walletB, { payload: p3, timestamp: now }) }, headers: hB, nowSec: now });
+    assert.equal(net.body.error.code, 'PROOF_WRONG_NETWORK');
 
-    // Switching wallet (A -> B) for the same Telegram user, then unbinding
-    const p7 = await getPayload(hA);
-    const sw = await route({ method: 'POST', pathname: '/api/auth/ton-proof/verify', body: { address: walletB.address, proof: await signProof(walletB, { payload: p7, timestamp: now }) }, headers: hA, nowSec: now });
-    assert.equal(sw.status, 200);
-    assert.equal((await route({ method: 'GET', pathname: '/api/me', headers: hA, nowSec: now })).body.data.wallet.address, walletB.address);
-    await route({ method: 'POST', pathname: '/api/auth/wallet/unbind', headers: hA, nowSec: now });
-    assert.equal((await route({ method: 'GET', pathname: '/api/me', headers: hA, nowSec: now })).body.data.wallet, null);
+    // Wallet A already bound to 9001 -> 9002 cannot take it, even with a valid signature
+    assert.equal((await proofFlow(route, hB, walletA, now)).status, 409);
+    // The removed proof-less unbind route no longer exists
+    assert.equal((await route({ method: 'POST', pathname: '/api/auth/wallet/unbind', headers: hA, nowSec: now })).status, 404);
   }
+});
+
+await test('wallet switch is delayed and cancellable by the current wallet; unbind needs the current wallet; disconnect is not unbind', async () => {
+  for (const backend of ['memory', 'd1-sqlite']) {
+    const walletA = await makeV4R2Wallet();
+    const walletB = await makeV4R2Wallet();
+    const identityStore = backend === 'memory' ? new MemoryIdentityStore() : new D1IdentityStore({ db: createSqliteD1(FRESH_SCHEMA) });
+    const { route } = buildRouter({ identityStore });
+    const t0 = 20_000;
+    const H = (t) => tgHeaders(9101, { nowSec: t });
+    const me = async (t) => (await route({ method: 'GET', pathname: '/api/me', headers: await H(t), nowSec: t })).body.data.wallet;
+    assert.equal((await proofFlow(route, await H(t0), walletA, t0)).body.data.status, 'BOUND');
+
+    // Switch request with B -> pending; A stays the active wallet
+    const sw = await proofFlow(route, await H(t0 + 10), walletB, t0 + 10);
+    assert.equal(sw.body.data.status, 'PENDING_REBIND');
+    assert.equal((await me(t0 + 20)).address, walletA.address);
+    assert.equal((await me(t0 + 20)).pendingSwitch.address, walletB.address);
+
+    // Unbind / cancel with a proof from B (not the current wallet) is refused
+    assert.equal((await proofFlow(route, await H(t0 + 30), walletB, t0 + 30, { purpose: 'unbind' })).status, 403);
+    // Current wallet A cancels the switch
+    assert.equal((await proofFlow(route, await H(t0 + 40), walletA, t0 + 40, { purpose: 'cancel_rebind' })).body.data.status, 'REBIND_CANCELLED');
+    assert.equal((await me(t0 + REBIND_DELAY_SEC + 100)).address, walletA.address);
+
+    // Recovery path (A lost): request again and wait the delay -> B becomes active
+    const t1 = t0 + 1000;
+    assert.equal((await proofFlow(route, await H(t1), walletB, t1)).body.data.status, 'PENDING_REBIND');
+    assert.equal((await me(t1 + REBIND_DELAY_SEC - 1)).address, walletA.address);
+    const after = await me(t1 + REBIND_DELAY_SEC);
+    assert.equal(after.address, walletB.address);
+    assert.equal(after.pendingSwitch, null);
+
+    // Unbind with the current wallet (B) works
+    const t2 = t1 + REBIND_DELAY_SEC + 10;
+    assert.equal((await proofFlow(route, await H(t2), walletB, t2, { purpose: 'unbind' })).body.data.status, 'UNBOUND');
+    assert.equal(await me(t2 + 1), null);
+  }
+});
+
+await test('initData replay: a replayed (stolen) initData is valid until expiry but cannot redirect funds or rebind instantly', async () => {
+  const victimWallet = await makeV4R2Wallet();
+  const attackerWallet = await makeV4R2Wallet();
+  const pred = new PredictionEngine({ defaultPoolA9Raw: '10000000000000' });
+  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT });
+  const { route, promoEngine } = buildRouter({ predictionEngine: pred, presaleEngine: presale });
+  const t0 = 30_000;
+  const stolen = await tgHeaders(9201, { nowSec: t0 }); // captured once, replayed below
+  assert.equal((await proofFlow(route, stolen, victimWallet, t0)).body.data.status, 'BOUND');
+  // Attacker replays the same initData within 24h and proves THEIR wallet -> only a pending switch
+  assert.equal((await proofFlow(route, stolen, attackerWallet, t0 + 3600)).body.data.status, 'PENDING_REBIND');
+  // Rewards still go to the victim's bound wallet
+  await completePurchase(presale, victimWallet.address, 5, t0);
+  pred.placeBet({ roundId: 1, userId: '9201', side: 'PASS' }, t0);
+  pred.settleRoundBets(1, true, 18, '10000000000000', t0 * 1000);
+  const act = await route({ method: 'POST', pathname: '/api/prediction/activate', body: { walletAddress: attackerWallet.address }, headers: stolen, nowSec: t0 + 3700 });
+  assert.equal(act.status, 403); // claimed wallet != bound wallet
+  const act2 = await route({ method: 'POST', pathname: '/api/prediction/activate', body: {}, headers: stolen, nowSec: t0 + 3700 });
+  assert.equal(act2.status, 200);
+  assert.equal(promoEngine.getBalance(victimWallet.address).claimableRaw, '10000000000000');
+  assert.equal(promoEngine.getBalance(attackerWallet.address).claimableRaw, '0');
+  // The replayed initData itself stops working after 24h
+  const late = await route({ method: 'GET', pathname: '/api/me', headers: stolen, nowSec: t0 + 24 * 3600 + 1 });
+  assert.equal(late.body.error.code, 'AUTH_EXPIRED');
 });
 
 // ---------------------------------------------------------------------------
@@ -270,7 +365,7 @@ await test('exact decimal money: 1.99 / 5.99 / 13.99 GRAM x 2,002 = 3,983.98 / 1
 
 for (const [name, make] of BACKENDS) {
   await test(`[${name}] min/max boundaries; 1.99 GRAM rejected under current 5 GRAM minimum; amounts stored exactly`, async () => {
-    const e = make({});
+    const e = await make({});
     const W = 'EQ_BOUNDS';
     await assert.rejects(e.createOrderIntent(W, '1.99', 1000), { code: 'BAD_AMOUNT' });
     await assert.rejects(e.createOrderIntent(W, '4.999999999', 1000), { code: 'BAD_AMOUNT' });
@@ -286,7 +381,7 @@ for (const [name, make] of BACKENDS) {
   });
 
   await test(`[${name}] duplicate inbound tx is a no-op; memo alone (wrong sender / wrong amount) never confirms`, async () => {
-    const e = make({});
+    const e = await make({});
     const o = await e.createOrderIntent('EQ_BUYER_1', '10', 1000);
     const first = await e.ingestInbound(inbound(o), 1001);
     assert.equal(first.action, 'CONFIRM');
@@ -298,13 +393,19 @@ for (const [name, make] of BACKENDS) {
 
     const o2 = await e.createOrderIntent('EQ_BUYER_2', '10', 1000);
     const thief = await e.ingestInbound(inbound(o2, { txHash: 'thief', from: 'EQ_SOMEONE_ELSE' }), 1005);
-    assert.equal(thief.action, 'REFUND');
+    assert.equal(thief.action, 'ANOMALY');
     assert.equal(thief.reason, 'sender_mismatch');
     assert.equal((await e.getOrder(o2.orderId)).status, PRESALE_STATUS.PENDING_PAYMENT);
     const under = await e.ingestInbound(inbound(o2, { txHash: 'under', valueNano: '9000000000' }), 1006);
+    assert.equal(under.action, 'ANOMALY');
     assert.equal(under.reason, 'amount_mismatch');
-    assert.equal(under.refundNano, 8_950_000_000n);
-    assert.equal((await e.getOrder(o2.orderId)).status, PRESALE_STATUS.REFUND_PENDING);
+    assert.equal((await e.getOrder(o2.orderId)).status, PRESALE_STATUS.PAYMENT_EXCEPTION);
+    assert.equal((await e.repo.listOpenPayouts()).length, 1); // no automatic refund, no automatic fee
+    const anomalies = await e.listAnomalies();
+    assert.deepEqual(anomalies.map((a) => [a.txHash, a.reason, a.refundTo, a.valueNano]).sort(), [
+      ['thief', 'sender_mismatch', 'EQ_SOMEONE_ELSE', '10000000000'],
+      ['under', 'amount_mismatch', 'EQ_BUYER_2', '9000000000'],
+    ]);
     const wrongDest = await e.planInbound(inbound(o, { txHash: 'x', to: 'EQ_OTHER_WALLET' }), 1007);
     assert.equal(wrongDest.action, 'REJECT');
     const unfinal = await e.planInbound(inbound(o, { txHash: 'y', finality: 'confirmed' }), 1007);
@@ -312,7 +413,7 @@ for (const [name, make] of BACKENDS) {
   });
 
   await test(`[${name}] payment confirmed but broadcast fails: order stays retryable, then completes with exactly one payout`, async () => {
-    const e = make({});
+    const e = await make({});
     const o = await e.createOrderIntent('EQ_RETRY', '5', 1000);
     await e.ingestInbound(inbound(o), 1001);
     await e.queueConfirmedPayouts(1002);
@@ -333,7 +434,7 @@ for (const [name, make] of BACKENDS) {
   });
 
   await test(`[${name}] ambiguous broadcast failure is never blindly re-sent (verifier or manual review)`, async () => {
-    const e = make({});
+    const e = await make({});
     const o = await e.createOrderIntent('EQ_AMBIG', '5', 1000);
     await e.ingestInbound(inbound(o), 1001);
     await e.queueConfirmedPayouts(1002);
@@ -344,7 +445,7 @@ for (const [name, make] of BACKENDS) {
     assert.equal(calls, 1);
     assert.equal((await e.getOrder(o.orderId)).status, PRESALE_STATUS.NEEDS_REVIEW);
 
-    const e2 = make({});
+    const e2 = await make({});
     const o2 = await e2.createOrderIntent('EQ_AMBIG_2', '5', 1000);
     await e2.ingestInbound(inbound(o2), 1001);
     await e2.queueConfirmedPayouts(1002);
@@ -361,9 +462,9 @@ for (const [name, make] of BACKENDS) {
   });
 
   await test(`[${name}] dry-run runner writes nothing and never calls a broadcaster`, async () => {
-    const e = make({});
+    const e = await make({});
     const o = await e.createOrderIntent('EQ_DRY', '5', 1000);
-    const before = dumpOf(e);
+    const before = await dumpOf(e);
     let calls = 0;
     const runner = new PresalePayoutRunner({
       engine: e,
@@ -374,19 +475,19 @@ for (const [name, make] of BACKENDS) {
     });
     const s = await runner.tick(1001);
     assert.equal(s.dryRun, 2);
-    assert.deepEqual(s.plans.map((p) => p.action), ['CONFIRM', 'REFUND']);
+    assert.deepEqual(s.plans.map((p) => p.action), ['CONFIRM', 'ANOMALY']);
     assert.equal(calls, 0);
-    assert.equal(dumpOf(e), before);
+    assert.equal(await dumpOf(e), before);
     assert.equal((await e.getOrder(o.orderId)).status, PRESALE_STATUS.PENDING_PAYMENT);
   });
 
   await test(`[${name}] concurrent orders cannot oversell wallet quota or pool cap`, async () => {
-    const e = make({ defaultQuotaTon: 200n });
+    const e = await make({ defaultQuotaTon: 200n });
     const results = await Promise.allSettled(Array.from({ length: 6 }, () => e.createOrderIntent('EQ_RUSH', '50', 1000)));
     assert.equal(results.filter((r) => r.status === 'fulfilled').length, 4);
     assert.ok(results.filter((r) => r.status === 'rejected').every((r) => r.reason.code === 'OVER_QUOTA'));
 
-    const pool = make({ totalCapA9Raw: 3n * 10n * 2002n * 1_000_000_000n });
+    const pool = await make({ totalCapA9Raw: 3n * 10n * 2002n * 1_000_000_000n });
     const res2 = await Promise.allSettled(['EQ_P1', 'EQ_P2', 'EQ_P3', 'EQ_P4', 'EQ_P5'].map((w) => pool.createOrderIntent(w, '10', 1000)));
     assert.equal(res2.filter((r) => r.status === 'fulfilled').length, 3);
     // Unpaid reservations expire and free capacity again.
@@ -395,7 +496,7 @@ for (const [name, make] of BACKENDS) {
   });
 
   await test(`[${name}] expired order paid late -> passive full refund; refund broadcast failure retries then confirms`, async () => {
-    const e = make({});
+    const e = await make({});
     const o = await e.createOrderIntent('EQ_LATE', '5', 1000);
     const late = await e.ingestInbound(inbound(o), 1000 + 31 * 60);
     assert.equal(late.action, 'REFUND');
@@ -413,9 +514,39 @@ for (const [name, make] of BACKENDS) {
     assert.equal(n, 2);
   });
 
+  await test(`[${name}] anomaly resolution: SYSTEM/UNKNOWN fault = full refund to the payer; USER fee only with a published rule; resolves exactly once`, async () => {
+    const e = await make({});
+    const o = await e.createOrderIntent('EQ_ANOM', '10', 1000);
+    await e.ingestInbound(inbound(o, { txHash: 'short', valueNano: '9000000000' }), 1001);
+    await e.ingestInbound({ txHash: 'stray', finality: 'finalized', to: HOT, from: 'EQ_STRANGER', valueNano: '3000000000', memo: 'hello' }, 1002);
+    await assert.rejects(e.resolveAnomaly('short', { decision: 'REFUND', faultParty: 'USER', operator: 'ops' }, 1003), { code: 'FEE_RULE_NOT_PUBLISHED' });
+    await assert.rejects(e.resolveAnomaly('short', { decision: 'REFUND', faultParty: 'SYSTEM' }, 1003), { code: 'BAD_REQUEST' });
+    const both = await Promise.allSettled([
+      e.resolveAnomaly('short', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops', note: 'system' }, 1004),
+      e.resolveAnomaly('short', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops2', note: 'dup' }, 1004),
+    ]);
+    assert.equal(both.filter((r) => r.status === 'fulfilled').length, 1);
+    assert.equal(both.find((r) => r.status === 'fulfilled').value.refundNano, '9000000000');
+    assert.equal((await e.getOrder(o.orderId)).status, PRESALE_STATUS.REFUND_PENDING);
+    const refunds = (await e.repo.listOpenPayouts()).filter((p) => p.kind === 'REFUND');
+    assert.equal(refunds.length, 1);
+    assert.equal(refunds[0].recipient, 'EQ_ANOM');
+    assert.equal(refunds[0].amount, '9000000000');
+
+    const published = await make({ userFaultFeeNano: '50000000' });
+    await published.ingestInbound({ txHash: 'stray2', finality: 'finalized', to: HOT, from: 'EQ_STRANGER', valueNano: '3000000000', memo: '' }, 1002);
+    const r = await published.resolveAnomaly('stray2', { decision: 'REFUND', faultParty: 'USER', operator: 'ops', note: 'no memo' }, 1005);
+    assert.equal(r.feeNano, '50000000');
+    assert.equal(r.refundNano, '2950000000');
+    assert.equal(r.recipient, 'EQ_STRANGER');
+    await assert.rejects(published.resolveAnomaly('stray2', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops' }, 1006), { code: 'ALREADY_RESOLVED' });
+    await assert.rejects(e.resolveAnomaly('stray', { decision: 'CLOSE_NO_REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 1007), { code: 'BAD_REQUEST' });
+    assert.equal((await e.resolveAnomaly('stray', { decision: 'CLOSE_NO_REFUND', faultParty: 'UNKNOWN', operator: 'ops', note: 'refunded off-band tx X' }, 1007)).status, 'CLOSED_NO_REFUND');
+  });
+
   await test(`[${name}] referral reward booked once; crash while crediting goes to review, never double-credits`, async () => {
     const promo = new PromoHotWalletEngine({ hotWalletAddress: HOT });
-    const e = make({ promoEngine: promo });
+    const e = await make({ promoEngine: promo });
     const o = await e.createOrderIntent('EQ_REFBUY', '10', 1000, { referrerId: 'EQ_INVITER' });
     await e.ingestInbound(inbound(o), 1001);
     await e.queueConfirmedPayouts(1002);
@@ -428,7 +559,7 @@ for (const [name, make] of BACKENDS) {
     assert.equal(promo.getBalance('EQ_INVITER').claimableRaw, String((10n * 2002n * 1_000_000_000n * 12n) / 100n));
 
     const crashing = { creditReward: () => { throw new Error('crash mid-credit'); } };
-    const e2 = make({ promoEngine: crashing });
+    const e2 = await make({ promoEngine: crashing });
     const o2 = await e2.createOrderIntent('EQ_REFBUY2', '10', 1000, { referrerId: 'EQ_INVITER2' });
     await completePurchase(e2, 'EQ_FILLER', '5', 999).catch(() => {});
     await e2.ingestInbound(inbound(o2), 1001);
@@ -477,7 +608,7 @@ await test('[d1-sqlite] migration from the v15 baseline keeps legacy rows; legac
   const db = createSqliteD1([MIGRATIONS[0]]);
   await db.prepare(`INSERT INTO presale_orders (order_id, wallet_address, referrer_id, ton_nano, a9_amount_raw, memo, status, inbound_tx_hash, payout_tx_hash, refund_ton_nano, created_at, updated_at)
     VALUES ('legacy1', 'EQ_LEGACY', NULL, '5000000000', '10010000000000', 'buy:legacy1', 'PAID_A9', 'in-legacy', NULL, '0', 100, 100)`).run();
-  db.exec((await import('node:fs')).readFileSync(new URL(MIGRATIONS[1], new URL('./helpers/test-env.mjs', import.meta.url)), 'utf8'));
+  for (const m of MIGRATIONS.slice(1)) db.exec((await import('node:fs')).readFileSync(new URL(m, new URL('./helpers/test-env.mjs', import.meta.url)), 'utf8'));
   const e = new D1PresaleStore({ db, hotWalletAddress: HOT, defaultQuotaTon: 7n });
   const [legacy] = await e.listOrders('EQ_LEGACY');
   assert.equal(legacy.legacyStatus, 'PAID_A9');
@@ -510,4 +641,20 @@ await test('D1 social store: typed group handle stays verifying (no fake "bound"
   assert.equal(t.bindStatus, 'verifying');
 });
 
+await test('admin anomaly API requires the admin token and resolves with an audit trail', async () => {
+  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT });
+  const { route } = buildRouter({ presaleEngine: presale });
+  await presale.ingestInbound({ txHash: 'adm-1', finality: 'finalized', to: HOT, from: 'EQ_PAYER', valueNano: '7000000000', memo: 'buy:nope' }, 100);
+  assert.equal((await route({ method: 'GET', pathname: '/api/admin/presale/anomalies', nowSec: 101 })).status, 401);
+  const list = await route({ method: 'GET', pathname: '/api/admin/presale/anomalies', headers: { 'x-a9-admin-token': 'adm-p0' }, nowSec: 101 });
+  assert.equal(list.body.data.length, 1);
+  const res = await route({ method: 'POST', pathname: '/api/admin/presale/anomalies/adm-1/resolve', headers: { 'x-a9-admin-token': 'adm-p0' }, body: { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops-alice', note: 'memo typo by our UI' }, nowSec: 102 });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.data.refundNano, '7000000000');
+  const [row] = await presale.listAnomalies(null);
+  assert.equal(row.resolvedBy, 'ops-alice');
+  assert.equal(row.faultParty, 'SYSTEM');
+});
+
+for (const d of MF_DISPOSE) await d();
 console.log(`All ${passed} phase-1 P0 security tests passed.`);

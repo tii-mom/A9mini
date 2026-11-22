@@ -1,0 +1,80 @@
+{
+  "source": "https://github.com/WinoGarcia/TonProof.NET (TonProof.Tests/Data, MIT). Real wallet ton_proof replies captured by that project.",
+  "vectors": [
+    {
+      "name": "v4r2-mainnet",
+      "address": "0:0522952c6d0846ad7f93dfb7987e5f77f02ee53290a26f9be85a50c689085932",
+      "network": "-239",
+      "publicKey": "e635249f6b3fbaf9742ae1d09d8f6f01b6082ff9256d719006329405019f3198",
+      "proof": {
+        "timestamp": 1721827476,
+        "domain": {
+          "lengthBytes": 20,
+          "value": "winogarcia.github.io"
+        },
+        "signature": "z05SXc3qseQ/c/Fwmp+D4+qF2QWRAbP7E8mcYwbxBTqsEcG/DQdMdUUJhYx0NQTpid38oxBDYnJ9vB0cZkd/Bw==",
+        "payload": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1bmlxdWVfbmFtZSI6IjExMjM3N2UxLWUwYjktNGIyOC05NjJkLTRiZDAxMTFmZmY3NyIsIm5iZiI6MTcyMTgyNzA4MiwiZXhwIjoxNzIxODI3OTgyLCJpYXQiOjE3MjE4MjcwODIsImlzcyI6Iklzc3VlckZvclBheWxvYWQiLCJhdWQiOiJBdWRpZW5jZUZvclBheWxvYWQifQ.BZ6LvTKvsSPZ4H6nbwcQP3gjVgvkbYm2vPIQjJ4Gyak",
+        "state_init": "te6cckECFgEAAwQAAgE0AgEAUQAAAAApqaMX5jUkn2s/uvl0KuHQnY9vAbYIL/klbXGQBjKUBQGfMZhAART/APSkE/S88sgLAwIBIAkEBPjygwjXGCDTH9Mf0x8C+CO78mTtRNDTH9Mf0//0BNFRQ7ryoVFRuvKiBfkBVBBk+RDyo/gAJKTIyx9SQMsfUjDL/1IQ9ADJ7VT4DwHTByHAAJ9sUZMg10qW0wfUAvsA6DDgIcAB4wAhwALjAAHAA5Ew4w0DpMjLHxLLH8v/CAcGBQAK9ADJ7VQAbIEBCNcY+gDTPzBSJIEBCPRZ8qeCEGRzdHJwdIAYyMsFywJQBc8WUAP6AhPLassfEss/yXP7AABwgQEI1xj6ANM/yFQgR4EBCPRR8qeCEG5vdGVwdIAYyMsFywJQBs8WUAT6AhTLahLLH8s/yXP7AAIAbtIH+gDU1CL5AAXIygcVy//J0Hd0gBjIywXLAiLPFlAF+gIUy2sSzMzJc/sAyEAUgQEI9FHypwICAUgTCgIBIAwLAFm9JCtvaiaECAoGuQ+gIYRw1AgIR6STfSmRDOaQPp/5g3gSgBt4EBSJhxWfMYQCASAODQARuMl+1E0NcLH4AgFYEg8CASAREAAZrx32omhAEGuQ64WPwAAZrc52omhAIGuQ64X/wAA9sp37UTQgQFA1yH0BDACyMoHy//J0AGBAQj0Cm+hMYALm0AHQ0wMhcbCSXwTgItdJwSCSXwTgAtMfIYIQcGx1Z70ighBkc3RyvbCSXwXgA/pAMCD6RAHIygfL/8nQ7UTQgQFA1yH0BDBcgQEI9ApvoTGzkl8H4AXTP8glghBwbHVnupI4MOMNA4IQZHN0crqSXwbjDRUUAIpQBIEBCPRZMO1E0IEBQNcgyAHPFvQAye1UAXKwjiOCEGRzdHKDHrFwgBhQBcsFUAPPFiP6AhPLassfyz/JgED7AJJfA+IAeAH6APQEMPgnbyIwUAqhIb7y4FCCEHBsdWeDHrFwgBhQBMsFJs8WWPoCGfQAy2kXyx9SYMs/IMmAQPsABru64+A="
+      }
+    },
+    {
+      "name": "v4r2-testnet",
+      "address": "0:13f04fa2a978c6eaccc5c0521c44d87b5be7f673ff20176a0203d90e8b90a7c1",
+      "network": "-3",
+      "publicKey": "c5134fcb39879c2cf81ffdc347353d031cf184538130fdd42688152088bf69ba",
+      "proof": {
+        "timestamp": 1718913764,
+        "domain": {
+          "lengthBytes": 20,
+          "value": "winogarcia.github.io"
+        },
+        "signature": "YlhjR9vEhyGyYbrGavBFMxvQ0Gj0x3ESHO2mZ/QzMSItfpTw2q52TOkLklpx5VJochzAbkyVmYAvGmHgHcasAg==",
+        "payload": "mypayload",
+        "state_init": "te6cckECFgEAAwQAAgE0ARUBFP8A9KQT9LzyyAsCAgEgAxACAUgEBwLm0AHQ0wMhcbCSXwTgItdJwSCSXwTgAtMfIYIQcGx1Z70ighBkc3RyvbCSXwXgA/pAMCD6RAHIygfL/8nQ7UTQgQFA1yH0BDBcgQEI9ApvoTGzkl8H4AXTP8glghBwbHVnupI4MOMNA4IQZHN0crqSXwbjDQUGAHgB+gD0BDD4J28iMFAKoSG+8uBQghBwbHVngx6xcIAYUATLBSbPFlj6Ahn0AMtpF8sfUmDLPyDJgED7AAYAilAEgQEI9Fkw7UTQgQFA1yDIAc8W9ADJ7VQBcrCOI4IQZHN0coMesXCAGFAFywVQA88WI/oCE8tqyx/LP8mAQPsAkl8D4gIBIAgPAgEgCQ4CAVgKCwA9sp37UTQgQFA1yH0BDACyMoHy//J0AGBAQj0Cm+hMYAIBIAwNABmtznaiaEAga5Drhf/AABmvHfaiaEAQa5DrhY/AABG4yX7UTQ1wsfgAWb0kK29qJoQICga5D6AhhHDUCAhHpJN9KZEM5pA+n/mDeBKAG3gQFImHFZ8xhAT48oMI1xgg0x/TH9MfAvgju/Jk7UTQ0x/TH9P/9ATRUUO68qFRUbryogX5AVQQZPkQ8qP4ACSkyMsfUkDLH1Iwy/9SEPQAye1U+A8B0wchwACfbFGTINdKltMH1AL7AOgw4CHAAeMAIcAC4wABwAORMOMNA6TIyx8Syx/L/xESExQAbtIH+gDU1CL5AAXIygcVy//J0Hd0gBjIywXLAiLPFlAF+gIUy2sSzMzJc/sAyEAUgQEI9FHypwIAcIEBCNcY+gDTP8hUIEeBAQj0UfKnghBub3RlcHSAGMjLBcsCUAbPFlAE+gIUy2oSyx/LP8lz+wACAGyBAQjXGPoA0z8wUiSBAQj0WfKnghBkc3RycHSAGMjLBcsCUAXPFlAD+gITy2rLHxLLP8lz+wAACvQAye1UAFEAAAAAKamjF8UTT8s5h5ws+B/9w0c1PQMc8YRTgTD91CaIFSCIv2m6QFpYiqg="
+      }
+    },
+    {
+      "name": "v5r1-testnet",
+      "address": "0:7afd7563d8fd084d35060278320769743905983b8ea43c5b16fb6e3dc0a190dd",
+      "network": "-3",
+      "publicKey": "c5134fcb39879c2cf81ffdc347353d031cf184538130fdd42688152088bf69ba",
+      "proof": {
+        "timestamp": 1721812530,
+        "domain": {
+          "lengthBytes": 20,
+          "value": "winogarcia.github.io"
+        },
+        "signature": "8ab+IBU83nga6aNznUNEHr3OgN1L7I2raVomWNrhEElTFI1a3VvAz4mzvQbaYiaCY+WftHZrJnSiEgnbRYojDA==",
+        "payload": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1bmlxdWVfbmFtZSI6IjQxNDA1NzUxLTNlZjEtNDZhYi04ZDJiLTRkMjE4NWVhZjI2ZSIsIm5iZiI6MTcyMTgxMjQ4OCwiZXhwIjoxNzIxODEzMzg4LCJpYXQiOjE3MjE4MTI0ODgsImlzcyI6Iklzc3VlckZvclBheWxvYWQiLCJhdWQiOiJBdWRpZW5jZUZvclBheWxvYWQifQ.rzJ1tpq-jDp19pDwWO8ZNp8T9ZkME9CZXIppWc5FYGo",
+        "state_init": "te6cckEBAwEAWQACATQCAQBdAAAAAH////6AAAAAAABiiaflnMPOFnwP/uGjmp6BjnjCKcCYfuoTRAqQRF+03SAIQgLkzzsvTG1qYeoPK1RH0mZ4WyavNjfbLe7mvNGqgm80EpjwGJs="
+      }
+    },
+    {
+      "name": "v3r1-mainnet",
+      "address": "0:c83546fdc5fac87d55f04804919c0829bc0e6be24b8e564590dbc44380c30ee9",
+      "network": "-239",
+      "publicKey": "e635249f6b3fbaf9742ae1d09d8f6f01b6082ff9256d719006329405019f3198",
+      "proof": {
+        "timestamp": 1721827131,
+        "domain": {
+          "lengthBytes": 20,
+          "value": "winogarcia.github.io"
+        },
+        "signature": "LVQzfrfwz8I5ZCl7WFpGdICvYbHxPplZnMKx0gT/X0jFlDOohPa9/6RtzvcSGWqtHBwE6XlUUadmcZoTMlyUAw==",
+        "payload": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1bmlxdWVfbmFtZSI6IjExMjM3N2UxLWUwYjktNGIyOC05NjJkLTRiZDAxMTFmZmY3NyIsIm5iZiI6MTcyMTgyNzA4MiwiZXhwIjoxNzIxODI3OTgyLCJpYXQiOjE3MjE4MjcwODIsImlzcyI6Iklzc3VlckZvclBheWxvYWQiLCJhdWQiOiJBdWRpZW5jZUZvclBheWxvYWQifQ.BZ6LvTKvsSPZ4H6nbwcQP3gjVgvkbYm2vPIQjJ4Gyak",
+        "state_init": "te6cckEBAwEAkQACATQCAQBQAAAAACmpoxfmNSSfaz+6+XQq4dCdj28Btggv+SVtcZAGMpQFAZ8xmADA/wAg3SCCAUyXupcw7UTQ1wsf4KTyYIMI1xgg0x/TH9Mf+CMTu/Jj7UTQ0x/TH9P/0VEyuvKhUUS68qIE+QFUEFX5EPKj+ACTINdKltMH1AL7AOjRAaTIyx/LH8v/ye1UGy3yHQ=="
+      }
+    }
+  ],
+  "walletCodes": {
+    "source": "https://github.com/ton-org/ton src/wallets (MIT): official wallet code BoCs",
+    "v4r2": "te6ccgECFAEAAtQAART/APSkE/S88sgLAQIBIAIDAgFIBAUE+PKDCNcYINMf0x/THwL4I7vyZO1E0NMf0x/T//QE0VFDuvKhUVG68qIF+QFUEGT5EPKj+AAkpMjLH1JAyx9SMMv/UhD0AMntVPgPAdMHIcAAn2xRkyDXSpbTB9QC+wDoMOAhwAHjACHAAuMAAcADkTDjDQOkyMsfEssfy/8QERITAubQAdDTAyFxsJJfBOAi10nBIJJfBOAC0x8hghBwbHVnvSKCEGRzdHK9sJJfBeAD+kAwIPpEAcjKB8v/ydDtRNCBAUDXIfQEMFyBAQj0Cm+hMbOSXwfgBdM/yCWCEHBsdWe6kjgw4w0DghBkc3RyupJfBuMNBgcCASAICQB4AfoA9AQw+CdvIjBQCqEhvvLgUIIQcGx1Z4MesXCAGFAEywUmzxZY+gIZ9ADLaRfLH1Jgyz8gyYBA+wAGAIpQBIEBCPRZMO1E0IEBQNcgyAHPFvQAye1UAXKwjiOCEGRzdHKDHrFwgBhQBcsFUAPPFiP6AhPLassfyz/JgED7AJJfA+ICASAKCwBZvSQrb2omhAgKBrkPoCGEcNQICEekk30pkQzmkD6f+YN4EoAbeBAUiYcVnzGEAgFYDA0AEbjJftRNDXCx+AA9sp37UTQgQFA1yH0BDACyMoHy//J0AGBAQj0Cm+hMYAIBIA4PABmtznaiaEAga5Drhf/AABmvHfaiaEAQa5DrhY/AAG7SB/oA1NQi+QAFyMoHFcv/ydB3dIAYyMsFywIizxZQBfoCFMtrEszMyXP7AMhAFIEBCPRR8qcCAHCBAQjXGPoA0z/IVCBHgQEI9FHyp4IQbm90ZXB0gBjIywXLAlAGzxZQBPoCFMtqEssfyz/Jc/sAAgBsgQEI1xj6ANM/MFIkgQEI9Fnyp4IQZHN0cnB0gBjIywXLAlAFzxZQA/oCE8tqyx8Syz/Jc/sAAAr0AMntVA==",
+    "v3r2": "te6cckEBAQEAcQAA3v8AIN0gggFMl7ohggEznLqxn3Gw7UTQ0x/THzHXC//jBOCk8mCDCNcYINMf0x/TH/gjE7vyY+1E0NMf0x/T/9FRMrryoVFEuvKiBPkBVBBV+RDyo/gAkyDXSpbTB9QC+wDo0QGkyMsfyx/L/8ntVBC9ba0=",
+    "v5r1": "te6cckECFAEAAoEAART/APSkE/S88sgLAQIBIAINAgFIAwQC3NAg10nBIJFbj2Mg1wsfIIIQZXh0br0hghBzaW50vbCSXwPgghBleHRuuo60gCDXIQHQdNch+kAw+kT4KPpEMFi9kVvg7UTQgQFB1yH0BYMH9A5voTGRMOGAQNchcH/bPOAxINdJgQKAuZEw4HDiEA8CASAFDAIBIAYJAgFuBwgAGa3OdqJoQCDrkOuF/8AAGa8d9qJoQBDrkOuFj8ACAUgKCwAXsyX7UTQcdch1wsfgABGyYvtRNDXCgCAAGb5fD2omhAgKDrkPoCwBAvIOAR4g1wsfghBzaWduuvLgin8PAeaO8O2i7fshgwjXIgKDCNcjIIAg1yHTH9Mf0x/tRNDSANMfINMf0//XCgAK+QFAzPkQmiiUXwrbMeHywIffArNQB7Dy0IRRJbry4IVQNrry4Ib4I7vy0IgikvgA3gGkf8jKAMsfAc8Wye1UIJL4D95w2zzYEAP27aLt+wL0BCFukmwhjkwCIdc5MHCUIccAs44tAdcoIHYeQ2wg10nACPLgkyDXSsAC8uCTINcdBscSwgBSMLDy0InXTNc5MAGk6GwShAe78uCT10rAAPLgk+1V4tIAAcAAkVvg69csCBQgkXCWAdcsCBwS4lIQseMPINdKERITAJYB+kAB+kT4KPpEMFi68uCR7UTQgQFB1xj0BQSdf8jKAEAEgwf0U/Lgi44UA4MH9Fvy4Iwi1woAIW4Bs7Dy0JDiyFADzxYS9ADJ7VQAcjDXLAgkji0h8uCS0gDtRNDSAFETuvLQj1RQMJExnAGBAUDXIdcKAPLgjuLIygBYzxbJ7VST8sCN4gAQk1vbMeHXTNC01sNe"
+  },
+  "expectedCodeHashes": {
+    "v3r2": "84dafa449f98a6987789ba232358072bc0f76dc4524002a5d0918b9a75d2d599",
+    "v4r2": "feb5ff6820e2ff0d9483e7e0d62c817d846789fb4ae580c878866d959dabd5c0",
+    "v5r1": "20834b7b72b112147e1b2fb457b84e74d1a30f04f737d4f62a668e9552d2b72f"
+  }
+}

@@ -633,6 +633,27 @@ function rowToPayout(r) {
   };
 }
 
+function rowToInbound(r) {
+  if (!r) return null;
+  return {
+    txHash: r.tx_hash,
+    orderId: r.order_id || null,
+    sender: r.sender || null,
+    valueNano: String(r.value_nano),
+    memo: r.memo || '',
+    decision: r.decision,
+    reason: r.reason || null,
+    anomalyStatus: r.anomaly_status || null,
+    refundTo: r.refund_to || null,
+    faultParty: r.fault_party || null,
+    feeNano: r.fee_nano === null || r.fee_nano === undefined ? null : String(r.fee_nano),
+    resolvedBy: r.resolved_by || null,
+    resolvedAt: r.resolved_at === null || r.resolved_at === undefined ? null : Number(r.resolved_at),
+    resolutionNote: r.resolution_note || null,
+    createdAt: Number(r.created_at),
+  };
+}
+
 function rowToCredit(r) {
   if (!r) return null;
   return {
@@ -713,7 +734,55 @@ export class D1PresaleRepo {
   }
 
   async getInbound(txHash) {
-    return (await this.db.prepare('SELECT * FROM presale_inbound_txs WHERE tx_hash = ?').bind(txHash).first()) || null;
+    return rowToInbound(await this.db.prepare('SELECT * FROM presale_inbound_txs WHERE tx_hash = ?').bind(txHash).first());
+  }
+
+  async listAnomalies(status) {
+    const res = status
+      ? await this.db.prepare("SELECT * FROM presale_inbound_txs WHERE decision = 'ANOMALY' AND anomaly_status = ? ORDER BY created_at ASC").bind(status).all()
+      : await this.db.prepare("SELECT * FROM presale_inbound_txs WHERE decision = 'ANOMALY' ORDER BY created_at ASC").all();
+    return (res?.results || []).map(rowToInbound);
+  }
+
+  /** One transaction: close the anomaly (only if still OPEN) + queue the refund + move the order. */
+  async resolveAnomaly(txHash, resolution, payout, orderPatch) {
+    const stmts = [
+      this.db
+        .prepare(
+          `UPDATE presale_inbound_txs SET anomaly_status = ?, fault_party = ?, fee_nano = ?, resolved_by = ?, resolved_at = ?, resolution_note = ?
+           WHERE tx_hash = ? AND decision = 'ANOMALY' AND anomaly_status = 'OPEN'`,
+        )
+        .bind(resolution.status, resolution.faultParty, resolution.feeNano.toString(), resolution.operator, resolution.resolvedAt, resolution.note, txHash),
+    ];
+    if (payout) {
+      // Inserted only if the UPDATE above actually closed an OPEN anomaly in this transaction.
+      stmts.push(
+        this.db
+          .prepare(
+            `INSERT INTO presale_payouts
+               (payout_id, order_id, inbound_tx_hash, kind, recipient, amount, query_id, status, attempts, ambiguous, tx_hash, last_error, created_at, updated_at)
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, ?, ?
+             WHERE EXISTS (SELECT 1 FROM presale_inbound_txs WHERE tx_hash = ? AND anomaly_status = ? AND resolved_at = ?)`,
+          )
+          .bind(payout.payoutId, payout.orderId, payout.inboundTxHash, payout.kind, payout.recipient, payout.amount, payout.queryId, payout.status, payout.createdAt, payout.updatedAt, txHash, resolution.status, resolution.resolvedAt),
+      );
+    }
+    if (orderPatch) {
+      const set = buildSet(orderPatch.patch, ORDER_COLS);
+      stmts.push(
+        this.db
+          .prepare(`UPDATE presale_orders SET ${set.sql} WHERE order_id = ? AND status IN (${orderPatch.from.map(() => '?').join(', ')})`)
+          .bind(...set.vals, orderPatch.orderId, ...orderPatch.from),
+      );
+    }
+    let out;
+    try {
+      out = await this.db.batch(stmts);
+    } catch (e) {
+      if (isUnique(e)) return false;
+      throw e;
+    }
+    return changes(out?.[0]) === 1;
   }
 
   _insertPayoutStmt(p) {
@@ -729,8 +798,14 @@ export class D1PresaleRepo {
   async commitInbound({ inbound, orderUpdate, payout }) {
     const stmts = [
       this.db
-        .prepare('INSERT INTO presale_inbound_txs (tx_hash, order_id, sender, value_nano, memo, decision, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .bind(inbound.txHash, inbound.orderId, inbound.sender, inbound.valueNano, inbound.memo, inbound.decision, inbound.reason, inbound.createdAt),
+        .prepare(
+          `INSERT INTO presale_inbound_txs (tx_hash, order_id, sender, value_nano, memo, decision, reason, anomaly_status, refund_to, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          inbound.txHash, inbound.orderId, inbound.sender, inbound.valueNano, inbound.memo, inbound.decision, inbound.reason,
+          inbound.anomaly ? inbound.anomaly.status : null, inbound.anomaly ? inbound.anomaly.refundTo : null, inbound.createdAt,
+        ),
     ];
     if (orderUpdate) {
       const set = buildSet(orderUpdate.patch, ORDER_COLS);

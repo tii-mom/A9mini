@@ -4,11 +4,20 @@ import { buildV15ConfigPayload, mapV15RoundDetail } from './v15-indexer.mjs';
 import { PromoError } from './promo-hotwallet.mjs';
 import { PresaleError } from './presale-hotwallet.mjs';
 import { GrowthError, renderOgCardPng, renderOgCardSvg, renderOgLandingHtml } from './growth-engine.mjs';
-import { AuthError, MemoryIdentityStore, allowedProofDomains, createRequestAuth, verifyTonProofSignature } from './auth.mjs';
+import { AuthError, MemoryIdentityStore, allowedProofDomains, createRequestAuth, expectedChainId, verifyTonProof } from './auth.mjs';
 import { addressKey, normalizeTonAddress } from './ton-address.mjs';
 
 function ok(data, status = 200) {
   return { status, body: { ok: true, data, ts: Date.now() } };
+}
+
+function publicBinding(b) {
+  if (!b) return null;
+  return {
+    address: b.walletAddress,
+    boundAt: b.boundAt,
+    pendingSwitch: b.pending ? { address: b.pending.walletAddress, effectiveAt: b.pending.effectiveAt } : null,
+  };
 }
 
 function err(code, message, status = 400) {
@@ -82,8 +91,8 @@ export function createApiRouter({
       // ---------------------------------------------------------------------
       if (method === 'GET' && pathname === '/api/me') {
         const id = await auth.telegram();
-        const binding = await identityStore.getBinding(id.telegramUserId);
-        return ok({ telegramUserId: id.telegramUserId, user: id.user, wallet: binding ? { address: binding.walletAddress, boundAt: binding.boundAt } : null });
+        const binding = await identityStore.getBinding(id.telegramUserId, nowSec);
+        return ok({ telegramUserId: id.telegramUserId, user: id.user, wallet: publicBinding(binding) });
       }
 
       if (method === 'POST' && pathname === '/api/auth/ton-proof/payload') {
@@ -91,34 +100,43 @@ export function createApiRouter({
         return ok(await identityStore.issueProofPayload(id.telegramUserId, nowSec));
       }
 
+      // purpose: 'bind' (default) | 'unbind' | 'cancel_rebind'. Every binding change needs a
+      // fresh single-use proof; unbind / cancel need a proof from the CURRENTLY bound wallet.
       if (method === 'POST' && pathname === '/api/auth/ton-proof/verify') {
         const id = await auth.telegram();
         const address = String(body?.address || '').trim();
         const proof = body?.proof || null;
+        const purpose = String(body?.purpose || 'bind');
+        if (!['bind', 'unbind', 'cancel_rebind'].includes(purpose)) return err('BAD_REQUEST', 'unknown purpose', 400);
         if (!normalizeTonAddress(address) || !proof?.payload) return err('BAD_REQUEST', 'address and ton_proof are required', 400);
         // Single-use, issued to THIS Telegram user, not expired. Consumed before any other check.
         if (!(await identityStore.consumeProofPayload(proof.payload, id.telegramUserId, nowSec))) {
           return err('PROOF_INVALID', 'ton_proof payload unknown, expired or already used', 400);
         }
-        if (typeof publicKeyResolver !== 'function') return err('AUTH_UNCONFIGURED', 'wallet public key resolver not configured', 503);
-        let publicKeyHex = null;
-        try {
-          publicKeyHex = await publicKeyResolver(address);
-        } catch (_) {
-          publicKeyHex = null;
+        const verified = await verifyTonProof({
+          address,
+          network: body?.network,
+          publicKey: body?.publicKey || null,
+          proof: { ...proof, state_init: proof.state_init || body?.walletStateInit || null },
+          expectedNetwork: expectedChainId(env),
+          allowedDomains: allowedProofDomains(env),
+          chainPublicKeyResolver: publicKeyResolver,
+          nowSec,
+        });
+        if (purpose === 'bind') {
+          const res = await identityStore.bindVerifiedWallet(id.telegramUserId, address, nowSec);
+          return ok({ telegramUserId: id.telegramUserId, status: res.status, wallet: publicBinding(res.binding), keySource: verified.keySource });
         }
-        if (!publicKeyHex) {
-          return err('WALLET_PUBKEY_UNAVAILABLE', 'wallet public key not readable on chain (wallet may be undeployed)', 400);
+        const cur = await identityStore.getBinding(id.telegramUserId, nowSec);
+        if (!cur || addressKey(address) !== cur.walletKey) {
+          return err('FORBIDDEN', 'this action needs a proof from the currently bound wallet', 403);
         }
-        await verifyTonProofSignature({ address, proof, publicKeyHex, allowedDomains: allowedProofDomains(env), nowSec });
-        const binding = await identityStore.bindWallet(id.telegramUserId, address, nowSec);
-        return ok({ telegramUserId: id.telegramUserId, wallet: { address: binding.walletAddress, boundAt: binding.boundAt } });
-      }
-
-      if (method === 'POST' && pathname === '/api/auth/wallet/unbind') {
-        const id = await auth.telegram();
-        await identityStore.unbindWallet(id.telegramUserId);
-        return ok({ telegramUserId: id.telegramUserId, wallet: null });
+        if (purpose === 'unbind') {
+          await identityStore.unbindWallet(id.telegramUserId);
+          return ok({ telegramUserId: id.telegramUserId, status: 'UNBOUND', wallet: null });
+        }
+        await identityStore.cancelPendingRebind(id.telegramUserId);
+        return ok({ telegramUserId: id.telegramUserId, status: 'REBIND_CANCELLED', wallet: publicBinding(await identityStore.getBinding(id.telegramUserId, nowSec)) });
       }
 
       // Unified user portfolio. On-chain data is public; promo / presale / team private parts are
@@ -277,6 +295,27 @@ export function createApiRouter({
             nowMs: nowSec * 1000,
           }),
         );
+      }
+
+      // Admin: anomalous inbound transfers (no valid order / wrong sender / amount mismatch ...)
+      if (pathname === '/api/admin/presale/anomalies' || pathname.startsWith('/api/admin/presale/anomalies/')) {
+        const expectedToken = String(env.A9_ADMIN_TOKEN || '').trim();
+        const providedToken = extractAdminToken(headers);
+        if (!expectedToken || !providedToken || providedToken !== expectedToken) {
+          return err('UNAUTHORIZED', 'invalid or missing admin token', 401);
+        }
+        if (!presaleEngine) return err('PRESALE_DISABLED', 'presale hot wallet not configured', 503);
+        if (method === 'GET' && pathname === '/api/admin/presale/anomalies') {
+          const list = await presaleEngine.listAnomalies(query.status || 'OPEN');
+          return ok(list);
+        }
+        const m = method === 'POST' && pathname.match(/^\/api\/admin\/presale\/anomalies\/([^/]+)\/resolve$/);
+        if (m) {
+          return ok(await presaleEngine.resolveAnomaly(decodeURIComponent(m[1]), {
+            decision: body?.decision, faultParty: body?.faultParty, operator: body?.operator, note: body?.note,
+          }, nowSec));
+        }
+        return err('NOT_FOUND', 'route not found', 404);
       }
 
       // Admin endpoint for ops/Cron to settle a prediction round explicitly

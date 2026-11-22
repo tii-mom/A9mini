@@ -75,6 +75,7 @@ const presaleEngine = presaleHotAddr
       rateA9PerTon: BigInt(process.env.A9_PRESALE_RATE_A9_PER_TON || '2002'),
       minOrderTon: BigInt(process.env.A9_PRESALE_MIN_ORDER_TON || '5'),
       maxOrderTon: BigInt(process.env.A9_PRESALE_MAX_ORDER_TON || '200'),
+      userFaultFeeNano: process.env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
       promoEngine,
       socialStore,
     })

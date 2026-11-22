@@ -228,7 +228,7 @@ await test('createActonPromoBroadcaster passes --net and parses PROMO_PAYOUT_TX 
   assert.equal(res.txHash, '0xdeadbeef1234');
 });
 
-await test('PresaleHotWalletEngine handles valid fill, passive free refund, user-fault -0.05 GRAM refund, and dust ignore', async () => {
+await test('PresaleHotWalletEngine handles valid fill, passive free refund, no-order anomaly (no auto fee), and dust ignore', async () => {
   const { PresaleHotWalletEngine, PRESALE_STATUS } = await import('../src/presale-hotwallet.mjs');
   const HOT = 'EQ_PRESALE_HOT';
   const ALICE = 'EQ_ALICE';
@@ -253,10 +253,18 @@ await test('PresaleHotWalletEngine handles valid fill, passive free refund, user
   const dust = await engine.ingestInbound({ txHash: 'p2', finality: 'finalized', to: HOT, from: ALICE, valueNano: '100000000', memo: '' }, 1020);
   assert.equal(dust.action, 'IGNORE_DUST');
 
-  // User-fault (no matching order) -> refund minus 0.05 GRAM
+  // No matching order -> recorded as an ANOMALY for review: no auto payout, no automatic fee.
   const fault = await engine.ingestInbound({ txHash: 'p3', finality: 'finalized', to: HOT, from: ALICE, valueNano: '95000000000', memo: '' }, 1030);
-  assert.equal(fault.action, 'REFUND');
-  assert.equal(fault.refundNano, 94950000000n);
+  assert.equal(fault.action, 'ANOMALY');
+  assert.equal(fault.reason, 'no_matching_order');
+  assert.equal((await engine.repo.listOpenPayouts()).length, 1); // only the A9 payout above
+  const [anomaly] = await engine.listAnomalies();
+  assert.equal(anomaly.refundTo, ALICE);
+  assert.equal(anomaly.valueNano, '95000000000');
+  await assert.rejects(engine.resolveAnomaly('p3', { decision: 'REFUND', faultParty: 'USER', operator: 'ops1' }, 1031), { code: 'FEE_RULE_NOT_PUBLISHED' });
+  const resolved = await engine.resolveAnomaly('p3', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops1' }, 1032);
+  assert.equal(resolved.refundNano, '95000000000');
+  assert.equal(resolved.feeNano, '0');
 
   // Passive refund (closed + >= 1 GRAM) -> 100% free full refund
   const order2 = await engine.createOrderIntent(ALICE, 5, 1035);

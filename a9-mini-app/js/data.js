@@ -36,8 +36,7 @@ export const ENDPOINTS = Object.freeze({
   teamBindTg: '/api/team/bind-tg',
   me: '/api/me',
   tonProofPayload: '/api/auth/ton-proof/payload',
-  tonProofVerify: '/api/auth/ton-proof/verify',
-  walletUnbind: '/api/auth/wallet/unbind'
+  tonProofVerify: '/api/auth/ton-proof/verify'
 });
 
 export class ApiError extends Error {
@@ -298,14 +297,13 @@ export async function requestTonProofPayload() {
   return request(ENDPOINTS.tonProofPayload, { method: 'POST', body: {} });
 }
 
-/** TON Connect ton_proof：提交钱包签名，由服务端验证并绑定钱包。 */
-export async function submitTonProof({ address, network, proof }) {
-  return request(ENDPOINTS.tonProofVerify, { method: 'POST', body: { address, network, proof } });
-}
-
-/** 断开钱包时解除服务端绑定。 */
-export async function unbindWallet() {
-  return request(ENDPOINTS.walletUnbind, { method: 'POST', body: {} });
+/**
+ * TON Connect ton_proof：提交钱包签名，由服务端验证地址、网络、StateInit、公钥与签名。
+ * purpose: 'bind'（绑定 / 申请换绑）| 'unbind'（解除绑定，需当前钱包签名）| 'cancel_rebind'。
+ * 注意：前端断开钱包连接不会解除服务端长期绑定。
+ */
+export async function submitTonProof({ address, network, publicKey, walletStateInit, proof, purpose = 'bind' }) {
+  return request(ENDPOINTS.tonProofVerify, { method: 'POST', body: { address, network, publicKey, walletStateInit, proof, purpose } });
 }
 
 /** 24H 生死预言局：读取本轮多空实时比例 */

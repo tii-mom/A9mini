@@ -14,7 +14,7 @@ import { escapeHtml, showToast, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
 import { buildV15StakeTx, buildV15ClaimTx, buildV15PromoFeeTx } from './v15-tx.js';
 import { A9TMA as TMA } from './tma.js';
-import { fetchMe, requestTonProofPayload, submitTonProof, unbindWallet } from './data.js';
+import { fetchMe, requestTonProofPayload, submitTonProof } from './data.js';
 
 /** 真实模式且在 Telegram 内：钱包归属需通过 ton_proof 由服务端验证。 */
 const proofFlowEnabled = () => !config.isDemo && Boolean(TMA.getRawInitData());
@@ -67,16 +67,13 @@ class A9TonConnect {
             showToast(`TON Connect 2.0 已连接: ${short}`);
             await this._verifyOwnership(wallet);
           } else {
-            const wasConnected = store.state.user.connected;
+            // 仅断开本地连接；服务端的长期钱包绑定保持不变（解除绑定需当前钱包签名）。
             store.update(s => {
               s.user.connected = false;
               s.user.address = null;
               s.user.shortAddress = null;
               s.user.walletVerified = false;
             });
-            if (wasConnected && proofFlowEnabled()) {
-              try { await unbindWallet(); } catch (_) {}
-            }
           }
           if (this._onChanged) this._onChanged();
         });
@@ -111,15 +108,26 @@ class A9TonConnect {
     const proof = wallet?.connectItems?.tonProof;
     try {
       let verified = false;
+      let pending = false;
       if (proof && 'proof' in proof) {
-        await submitTonProof({ address: wallet.account.address, network: wallet.account.chain, proof: proof.proof });
-        verified = true;
+        const res = await submitTonProof({
+          address: wallet.account.address,
+          network: wallet.account.chain,
+          publicKey: wallet.account.publicKey,
+          walletStateInit: wallet.account.walletStateInit,
+          proof: proof.proof,
+        });
+        verified = res?.status === 'BOUND' || res?.status === 'UNCHANGED';
+        if (res?.status === 'PENDING_REBIND') {
+          pending = true;
+          showToast(`换绑申请已提交，将于 ${new Date(res.wallet.pendingSwitch.effectiveAt * 1000).toLocaleString()} 生效；原钱包可签名取消`, 'amber');
+        }
       } else {
         const me = await fetchMe();
         verified = Boolean(me?.wallet?.address) && String(me.wallet.address) === String(wallet.account.address);
       }
       store.update(s => { s.user.walletVerified = verified; });
-      if (!verified) showToast('钱包尚未完成归属验证，请断开后重新连接', 'amber');
+      if (!verified && !pending) showToast('钱包尚未完成归属验证，请断开后重新连接', 'amber');
     } catch (e) {
       store.update(s => { s.user.walletVerified = false; });
       showToast(`钱包归属验证失败：${e?.message || '请重试'}`, 'error');

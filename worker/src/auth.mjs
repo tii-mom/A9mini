@@ -8,13 +8,17 @@
 //     the wallet's on-chain public key. Client-supplied userId / walletAddress never select
 //     the account that is read or mutated.
 import { addressKey, parseTonAddress } from './ton-address.mjs';
+import { inspectWalletStateInit } from './ton-cell.mjs';
 
 /** initData older than this is rejected (seconds). Owner to confirm; see phase-1 report. */
 export const INIT_DATA_MAX_AGE_SEC = 24 * 3600;
 /** A ton_proof payload must be used within this window (seconds). */
 export const TON_PROOF_PAYLOAD_TTL_SEC = 15 * 60;
 /** Accepted clock skew between the wallet's proof timestamp and the server (seconds). */
-export const TON_PROOF_MAX_SKEW_SEC = 15 * 60;
+export const TON_PROOF_MAX_SKEW_SEC = 10 * 60;
+/** A switch to a DIFFERENT wallet only takes effect after this delay unless cancelled by the
+ * currently bound wallet (protects against a replayed/stolen initData). Owner to confirm. */
+export const REBIND_DELAY_SEC = 72 * 3600;
 
 export class AuthError extends Error {
   constructor(code, message, status = 401) {
@@ -155,18 +159,36 @@ export function extractInitData(headers = {}) {
   return '';
 }
 
+/** TON Connect CHAIN ids. */
+export const TON_CHAIN = Object.freeze({ mainnet: '-239', testnet: '-3' });
+
+export function expectedChainId(env = {}) {
+  const net = String(env.A9_NETWORK || '').trim().toLowerCase();
+  return TON_CHAIN[net] || null;
+}
+
+function proofMessageDigest({ workchain, hash, domain, timestamp, payload }) {
+  const domainBytes = enc.encode(domain);
+  const wc = new Uint8Array(4);
+  new DataView(wc.buffer).setInt32(0, workchain, false); // big-endian
+  const dl = new Uint8Array(4);
+  new DataView(dl.buffer).setUint32(0, domainBytes.length, true); // little-endian
+  const tsb = new Uint8Array(8);
+  new DataView(tsb.buffer).setBigUint64(0, BigInt(timestamp), true); // little-endian
+  return concatBytes(enc.encode('ton-proof-item-v2/'), wc, hash, dl, domainBytes, tsb, enc.encode(String(payload || '')));
+}
+
 /**
- * Verify a TON Connect `ton_proof` (ton-proof-item-v2) against a known wallet public key.
- * See https://docs.ton.org/develop/dapps/ton-connect/sign — signature is ed25519 over
- * sha256(0xffff ++ "ton-connect" ++ sha256(message)).
+ * Low-level ton_proof signature check (ton-proof-item-v2): ed25519 over
+ * sha256(0xffff ++ "ton-connect" ++ sha256(message)). Same byte layout as the official
+ * reference implementation (ton-connect demo-dapp-with-react-ui ton-proof-service.ts).
  */
 export async function verifyTonProofSignature({ address, proof, publicKeyHex, allowedDomains = [], nowSec = Math.floor(Date.now() / 1000), maxSkewSec = TON_PROOF_MAX_SKEW_SEC }) {
   const parsed = parseTonAddress(address);
   if (!parsed) throw new AuthError('PROOF_INVALID', 'wallet address is not a valid TON address', 400);
   if (!proof || typeof proof !== 'object') throw new AuthError('PROOF_INVALID', 'ton_proof missing', 400);
   const domain = String(proof.domain?.value || '');
-  const domainBytes = enc.encode(domain);
-  if (!domain || Number(proof.domain?.lengthBytes) !== domainBytes.length) {
+  if (!domain || Number(proof.domain?.lengthBytes) !== enc.encode(domain).length) {
     throw new AuthError('PROOF_INVALID', 'ton_proof domain malformed', 400);
   }
   const allowed = allowedDomains.map((d) => String(d).trim().toLowerCase()).filter(Boolean);
@@ -185,14 +207,7 @@ export async function verifyTonProofSignature({ address, proof, publicKeyHex, al
     sig = null;
   }
   if (!sig || sig.length !== 64) throw new AuthError('PROOF_INVALID', 'ton_proof signature malformed', 400);
-
-  const wc = new Uint8Array(4);
-  new DataView(wc.buffer).setInt32(0, parsed.workchain, false);
-  const dl = new Uint8Array(4);
-  new DataView(dl.buffer).setUint32(0, domainBytes.length, true);
-  const tsb = new Uint8Array(8);
-  new DataView(tsb.buffer).setBigUint64(0, BigInt(ts), true);
-  const message = concatBytes(enc.encode('ton-proof-item-v2/'), wc, parsed.hash, dl, domainBytes, tsb, enc.encode(String(proof.payload || '')));
+  const message = proofMessageDigest({ workchain: parsed.workchain, hash: parsed.hash, domain, timestamp: ts, payload: proof.payload });
   const full = concatBytes(new Uint8Array([0xff, 0xff]), enc.encode('ton-connect'), await sha256(message));
   const digest = await sha256(full);
   const key = await crypto.subtle.importKey('raw', pub, { name: 'Ed25519' }, false, ['verify']);
@@ -201,17 +216,106 @@ export async function verifyTonProofSignature({ address, proof, publicKeyHex, al
   return true;
 }
 
+/**
+ * Full ton_proof verification (P0-1, acceptance item 1):
+ *   1. network: account.chain must equal the server's network (A9_NETWORK); a friendly address
+ *      flagged test-only is refused on mainnet;
+ *   2. StateInit: proof.state_init (walletStateInit) is required and its representation hash
+ *      must equal the address hash (so the key below really belongs to this address);
+ *   3. public key source: parsed from StateInit for known standard wallets (v3r1/v3r2/v4r2/
+ *      v5beta/v5r1) and/or read on chain via get_public_key; when both exist they must match;
+ *      the wallet-reported account.publicKey, if sent, must match too;
+ *   4. domain allow-list, timestamp within ±maxSkewSec, ed25519 signature.
+ * The single-use server payload is checked by the caller BEFORE this function.
+ */
+export async function verifyTonProof({
+  address,
+  network,
+  publicKey = null,
+  proof,
+  expectedNetwork,
+  allowedDomains = [],
+  chainPublicKeyResolver = null,
+  nowSec = Math.floor(Date.now() / 1000),
+  maxSkewSec = TON_PROOF_MAX_SKEW_SEC,
+}) {
+  const parsed = parseTonAddress(address);
+  if (!parsed) throw new AuthError('PROOF_INVALID', 'wallet address is not a valid TON address', 400);
+  if (!expectedNetwork) throw new AuthError('AUTH_UNCONFIGURED', 'A9_NETWORK is not configured', 503);
+  if (String(network ?? '') !== String(expectedNetwork)) {
+    throw new AuthError('PROOF_WRONG_NETWORK', `wallet is on network ${network}, expected ${expectedNetwork}`, 400);
+  }
+  if (parsed.testOnly === true && expectedNetwork === TON_CHAIN.mainnet) {
+    throw new AuthError('PROOF_WRONG_NETWORK', 'test-only address used on mainnet', 400);
+  }
+  const stateInit = proof?.state_init || proof?.stateInit || null;
+  if (!stateInit) throw new AuthError('PROOF_INVALID', 'ton_proof walletStateInit is required', 400);
+  let init;
+  try {
+    init = await inspectWalletStateInit(stateInit);
+  } catch (e) {
+    throw new AuthError('PROOF_INVALID', `walletStateInit unreadable: ${e.message}`, 400);
+  }
+  const addrHashHex = Array.from(parsed.hash, (b) => b.toString(16).padStart(2, '0')).join('');
+  if (init.addressHashHex !== addrHashHex) throw new AuthError('PROOF_INVALID', 'walletStateInit does not hash to the wallet address', 400);
+
+  let chainKey = null;
+  if (typeof chainPublicKeyResolver === 'function') {
+    try {
+      chainKey = (await chainPublicKeyResolver(address)) || null;
+    } catch {
+      chainKey = null; // undeployed wallet or missing get-method
+    }
+  }
+  const initKey = init.publicKeyHex;
+  if (chainKey && initKey && chainKey.toLowerCase() !== initKey.toLowerCase()) {
+    throw new AuthError('PROOF_INVALID', 'on-chain public key differs from walletStateInit key', 400);
+  }
+  const publicKeyHex = (chainKey || initKey || '').toLowerCase();
+  if (!publicKeyHex) throw new AuthError('WALLET_PUBKEY_UNAVAILABLE', 'wallet public key not available from chain or a known wallet StateInit', 400);
+  if (publicKey && String(publicKey).toLowerCase() !== publicKeyHex) {
+    throw new AuthError('PROOF_INVALID', 'reported publicKey does not match wallet key', 400);
+  }
+  await verifyTonProofSignature({ address, proof, publicKeyHex, allowedDomains, nowSec, maxSkewSec });
+  return {
+    publicKeyHex,
+    keySource: chainKey && initKey ? 'chain+state_init' : chainKey ? 'chain' : 'state_init',
+    walletVersion: init.version,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Identity stores: single-use ton_proof payloads + Telegram <-> wallet bindings
+//
+// Binding rules (owner-confirmed): one wallet <-> one Telegram account. Disconnecting the
+// wallet in the UI does NOT remove the server binding. Changing the binding needs a fresh
+// ton_proof:
+//   * first binding                      -> immediate
+//   * same wallet again                  -> refresh, clears any pending switch
+//   * different wallet ("rebind")        -> PENDING for REBIND_DELAY_SEC, then effective;
+//                                           the currently bound wallet can cancel it
+//   * unbind / cancel pending switch     -> requires ton_proof from the CURRENT wallet
+// Recovery when the old wallet is lost = the delayed rebind.
 // ---------------------------------------------------------------------------
-function formatBinding(tg, walletAddress, walletKey, boundAt) {
-  return { telegramUserId: tg, walletAddress, walletKey, boundAt };
+function walletBoundElsewhere() {
+  return new AuthError('WALLET_BOUND_ELSEWHERE', 'this wallet is already bound to another Telegram account', 409);
+}
+
+function viewBinding(b) {
+  if (!b) return null;
+  return {
+    telegramUserId: b.telegramUserId,
+    walletAddress: b.walletAddress,
+    walletKey: b.walletKey,
+    boundAt: b.boundAt,
+    pending: b.pendingWalletKey ? { walletAddress: b.pendingWalletAddress, walletKey: b.pendingWalletKey, effectiveAt: b.pendingEffectiveAt } : null,
+  };
 }
 
 export class MemoryIdentityStore {
   constructor() {
     this.payloads = new Map(); // payload -> { tg, expiresAt, usedAt }
-    this.bindings = new Map(); // tg -> binding
+    this.bindings = new Map(); // tg -> binding row
   }
 
   async issueProofPayload(tg, nowSec, ttlSec = TON_PROOF_PAYLOAD_TTL_SEC) {
@@ -227,25 +331,71 @@ export class MemoryIdentityStore {
     return true;
   }
 
-  async bindWallet(tg, walletAddress, nowSec) {
-    const key = addressKey(walletAddress);
-    for (const b of this.bindings.values()) {
-      if (b.walletKey === key && b.telegramUserId !== String(tg)) {
-        throw new AuthError('WALLET_BOUND_ELSEWHERE', 'this wallet is already bound to another Telegram account', 409);
-      }
-    }
-    const b = formatBinding(String(tg), walletAddress, key, nowSec);
-    this.bindings.set(String(tg), b);
-    return b;
+  _ownerOf(walletKey) {
+    for (const b of this.bindings.values()) if (b.walletKey === walletKey) return b.telegramUserId;
+    return null;
   }
 
-  async getBinding(tg) {
-    return this.bindings.get(String(tg)) || null;
+  async bindVerifiedWallet(tg, walletAddress, nowSec, { rebindDelaySec = REBIND_DELAY_SEC } = {}) {
+    const id = String(tg);
+    const key = addressKey(walletAddress);
+    const owner = this._ownerOf(key);
+    if (owner && owner !== id) throw walletBoundElsewhere();
+    const cur = this.bindings.get(id);
+    if (!cur) {
+      const b = { telegramUserId: id, walletAddress, walletKey: key, boundAt: nowSec, pendingWalletAddress: null, pendingWalletKey: null, pendingEffectiveAt: null };
+      this.bindings.set(id, b);
+      return { status: 'BOUND', binding: viewBinding(b) };
+    }
+    if (cur.walletKey === key) {
+      Object.assign(cur, { walletAddress, pendingWalletAddress: null, pendingWalletKey: null, pendingEffectiveAt: null });
+      return { status: 'UNCHANGED', binding: viewBinding(cur) };
+    }
+    Object.assign(cur, { pendingWalletAddress: walletAddress, pendingWalletKey: key, pendingEffectiveAt: nowSec + rebindDelaySec });
+    return { status: 'PENDING_REBIND', binding: viewBinding(cur) };
+  }
+
+  /** Store-level helper (tests / ops tooling). The API only calls it after a verified ton_proof. */
+  async bindWallet(tg, walletAddress, nowSec) {
+    return (await this.bindVerifiedWallet(tg, walletAddress, nowSec)).binding;
+  }
+
+  async getBinding(tg, nowSec = Math.floor(Date.now() / 1000)) {
+    const b = this.bindings.get(String(tg));
+    if (!b) return null;
+    if (b.pendingWalletKey && b.pendingEffectiveAt <= nowSec) {
+      const owner = this._ownerOf(b.pendingWalletKey);
+      if (!owner || owner === b.telegramUserId) {
+        Object.assign(b, { walletAddress: b.pendingWalletAddress, walletKey: b.pendingWalletKey, boundAt: nowSec });
+      }
+      Object.assign(b, { pendingWalletAddress: null, pendingWalletKey: null, pendingEffectiveAt: null });
+    }
+    return viewBinding(b);
+  }
+
+  async cancelPendingRebind(tg) {
+    const b = this.bindings.get(String(tg));
+    if (!b || !b.pendingWalletKey) return false;
+    Object.assign(b, { pendingWalletAddress: null, pendingWalletKey: null, pendingEffectiveAt: null });
+    return true;
   }
 
   async unbindWallet(tg) {
     return this.bindings.delete(String(tg));
   }
+}
+
+function rowToBinding(r) {
+  if (!r) return null;
+  return {
+    telegramUserId: String(r.tg_user_id),
+    walletAddress: r.wallet_address,
+    walletKey: r.wallet_key,
+    boundAt: Number(r.bound_at),
+    pendingWalletAddress: r.pending_wallet_address || null,
+    pendingWalletKey: r.pending_wallet_key || null,
+    pendingEffectiveAt: r.pending_effective_at === null || r.pending_effective_at === undefined ? null : Number(r.pending_effective_at),
+  };
 }
 
 export class D1IdentityStore {
@@ -263,6 +413,7 @@ export class D1IdentityStore {
     return { payload, expiresAt: nowSec + ttlSec };
   }
 
+  /** Single conditional UPDATE: at most one caller can ever consume a payload. */
   async consumeProofPayload(payload, tg, nowSec) {
     const res = await this.db
       .prepare('UPDATE auth_ton_proof_payloads SET used_at = ? WHERE payload = ? AND tg_user_id = ? AND used_at IS NULL AND expires_at >= ?')
@@ -271,41 +422,82 @@ export class D1IdentityStore {
     return Number(res?.meta?.changes || 0) === 1;
   }
 
-  async bindWallet(tg, walletAddress, nowSec) {
-    const key = addressKey(walletAddress);
-    const other = await this.db
-      .prepare('SELECT tg_user_id FROM wallet_bindings WHERE wallet_key = ? AND tg_user_id <> ?')
-      .bind(key, String(tg))
-      .first();
-    if (other) throw new AuthError('WALLET_BOUND_ELSEWHERE', 'this wallet is already bound to another Telegram account', 409);
-    try {
-      await this.db
-        .prepare(
-          `INSERT INTO wallet_bindings (tg_user_id, wallet_address, wallet_key, bound_at, updated_at)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(tg_user_id) DO UPDATE SET
-             wallet_address = excluded.wallet_address,
-             wallet_key = excluded.wallet_key,
-             bound_at = excluded.bound_at,
-             updated_at = excluded.updated_at`,
-        )
-        .bind(String(tg), walletAddress, key, nowSec, nowSec)
-        .run();
-    } catch (e) {
-      if (/UNIQUE/i.test(String(e?.message))) {
-        throw new AuthError('WALLET_BOUND_ELSEWHERE', 'this wallet is already bound to another Telegram account', 409);
-      }
-      throw e;
-    }
-    return formatBinding(String(tg), walletAddress, key, nowSec);
+  async _row(tg) {
+    return rowToBinding(await this.db.prepare('SELECT * FROM wallet_bindings WHERE tg_user_id = ?').bind(String(tg)).first());
   }
 
-  async getBinding(tg) {
-    const r = await this.db
-      .prepare('SELECT tg_user_id, wallet_address, wallet_key, bound_at FROM wallet_bindings WHERE tg_user_id = ?')
+  async _ownerOf(walletKey) {
+    const r = await this.db.prepare('SELECT tg_user_id FROM wallet_bindings WHERE wallet_key = ?').bind(walletKey).first();
+    return r ? String(r.tg_user_id) : null;
+  }
+
+  async bindVerifiedWallet(tg, walletAddress, nowSec, { rebindDelaySec = REBIND_DELAY_SEC } = {}) {
+    const id = String(tg);
+    const key = addressKey(walletAddress);
+    const owner = await this._ownerOf(key);
+    if (owner && owner !== id) throw walletBoundElsewhere();
+    const cur = await this._row(id);
+    try {
+      if (!cur) {
+        await this.db
+          .prepare('INSERT INTO wallet_bindings (tg_user_id, wallet_address, wallet_key, bound_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+          .bind(id, walletAddress, key, nowSec, nowSec)
+          .run();
+        return { status: 'BOUND', binding: viewBinding(await this._row(id)) };
+      }
+      if (cur.walletKey === key) {
+        await this.db
+          .prepare('UPDATE wallet_bindings SET wallet_address = ?, pending_wallet_address = NULL, pending_wallet_key = NULL, pending_effective_at = NULL, updated_at = ? WHERE tg_user_id = ?')
+          .bind(walletAddress, nowSec, id)
+          .run();
+        return { status: 'UNCHANGED', binding: viewBinding(await this._row(id)) };
+      }
+      await this.db
+        .prepare('UPDATE wallet_bindings SET pending_wallet_address = ?, pending_wallet_key = ?, pending_effective_at = ?, updated_at = ? WHERE tg_user_id = ?')
+        .bind(walletAddress, key, nowSec + rebindDelaySec, nowSec, id)
+        .run();
+      return { status: 'PENDING_REBIND', binding: viewBinding(await this._row(id)) };
+    } catch (e) {
+      if (/UNIQUE/i.test(String(e?.message))) throw walletBoundElsewhere();
+      throw e;
+    }
+  }
+
+  /** Store-level helper (tests / ops tooling). The API only calls it after a verified ton_proof. */
+  async bindWallet(tg, walletAddress, nowSec) {
+    return (await this.bindVerifiedWallet(tg, walletAddress, nowSec)).binding;
+  }
+
+  async getBinding(tg, nowSec = Math.floor(Date.now() / 1000)) {
+    const b = await this._row(tg);
+    if (!b) return null;
+    if (b.pendingWalletKey && b.pendingEffectiveAt <= nowSec) {
+      try {
+        // wallet_key is UNIQUE: promotion fails (and the pending switch is dropped) if the
+        // target wallet was bound to someone else meanwhile.
+        await this.db
+          .prepare(
+            `UPDATE wallet_bindings SET wallet_address = pending_wallet_address, wallet_key = pending_wallet_key, bound_at = ?,
+               pending_wallet_address = NULL, pending_wallet_key = NULL, pending_effective_at = NULL, updated_at = ?
+             WHERE tg_user_id = ? AND pending_wallet_key IS NOT NULL AND pending_effective_at <= ?`,
+          )
+          .bind(nowSec, nowSec, String(tg), nowSec)
+          .run();
+      } catch (e) {
+        if (!/UNIQUE/i.test(String(e?.message))) throw e;
+        await this.cancelPendingRebind(tg);
+      }
+      return viewBinding(await this._row(tg));
+    }
+    return viewBinding(b);
+  }
+
+  async cancelPendingRebind(tg) {
+    const res = await this.db
+      .prepare('UPDATE wallet_bindings SET pending_wallet_address = NULL, pending_wallet_key = NULL, pending_effective_at = NULL WHERE tg_user_id = ? AND pending_wallet_key IS NOT NULL')
       .bind(String(tg))
-      .first();
-    return r ? formatBinding(String(r.tg_user_id), r.wallet_address, r.wallet_key, Number(r.bound_at)) : null;
+      .run();
+    return Number(res?.meta?.changes || 0) > 0;
   }
 
   async unbindWallet(tg) {
@@ -354,7 +546,7 @@ export function createRequestAuth({ env = {}, headers = {}, identityStore, nowSe
     /** Verified identity + server-bound wallet. If `claimedWallet` is given it must match the binding. */
     async wallet(claimedWallet = null) {
       const id = await this.telegram();
-      const binding = identityStore ? await identityStore.getBinding(id.telegramUserId) : null;
+      const binding = identityStore ? await identityStore.getBinding(id.telegramUserId, nowSec) : null;
       if (!binding) throw new AuthError('WALLET_NOT_VERIFIED', 'connect and verify your wallet first', 403);
       if (claimedWallet && addressKey(claimedWallet) !== binding.walletKey) {
         throw new AuthError('FORBIDDEN', 'this wallet is not bound to your account', 403);

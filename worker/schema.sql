@@ -165,7 +165,10 @@ CREATE TABLE IF NOT EXISTS wallet_bindings (
   wallet_address TEXT NOT NULL,
   wallet_key TEXT NOT NULL UNIQUE, -- canonical raw "wc:hex"
   bound_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  pending_wallet_address TEXT,
+  pending_wallet_key TEXT,
+  pending_effective_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS presale_inbound_txs (
@@ -174,10 +177,18 @@ CREATE TABLE IF NOT EXISTS presale_inbound_txs (
   sender TEXT,
   value_nano TEXT NOT NULL,
   memo TEXT,
-  decision TEXT NOT NULL, -- CONFIRM | REFUND | IGNORE_DUST | NEEDS_REVIEW
+  decision TEXT NOT NULL, -- CONFIRM | REFUND | IGNORE_DUST | ANOMALY | NEEDS_REVIEW
   reason TEXT,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  anomaly_status TEXT, -- OPEN | REFUND_QUEUED | CLOSED_NO_REFUND
+  refund_to TEXT,
+  fault_party TEXT, -- USER | SYSTEM | UNKNOWN (operator decision)
+  fee_nano TEXT,
+  resolved_by TEXT,
+  resolved_at INTEGER,
+  resolution_note TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_presale_inbound_anomaly ON presale_inbound_txs(decision, anomaly_status, created_at);
 
 CREATE TABLE IF NOT EXISTS presale_payouts (
   payout_id TEXT PRIMARY KEY, -- a9:<orderId> | refund:<inboundTxHash>
