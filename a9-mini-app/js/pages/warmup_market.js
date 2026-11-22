@@ -29,21 +29,30 @@ export function renderWarmupHome(root, navigate) {
     { key: 'done',           label: L('已发放 (T+48H)', 'Sent (T+48H)') }
   ];
 
+  const roundLabel = round.currentRound
+    ? L(`第 ${round.currentRound} 轮预热 (12H)`, `R${round.currentRound} Warm-Up (12H)`)
+    : L('预热状态待核验', 'Warm-Up Pending');
+  const cdText = round.earlyBirdSec === null || round.earlyBirdSec === undefined
+    ? '—'
+    : formatTimer(round.earlyBirdSec);
+
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
       <div class="card card-hero">
         <div class="row-between" style="margin-bottom:10px;">
-          <span class="chip chip-gold">${L(`第 ${round.currentRound} 轮预热 (12H)`, `R${round.currentRound} Warm-Up (12H)`)}</span>
-          <span class="row-start num-sm text-sec">${icon('clock', 13)} <span id="early-cd" class="mono">${formatTimer(round.earlyBirdSec)}</span></span>
+          <span class="chip chip-gold">${roundLabel}</span>
+          <span class="row-start num-sm text-sec">${icon('clock', 13)} <span id="early-cd" class="mono">${cdText}</span></span>
         </div>
         <div class="num-xs text-muted">${L('本轮预热奖励池', 'Warm-Up Pool')}</div>
-        <div class="num-hero" style="margin-top:4px;">8,000,000 <span class="num-md text-green">A9</span></div>
+        <div class="num-hero" style="margin-top:4px;">${config.isDemo ? '8,000,000 <span class="num-md text-green">A9</span>' : L('待核验', 'Awaiting verification')}</div>
 
+        ${config.isDemo ? `
         <div class="metric-strip cols-3">
           <div class="metric-cell"><span class="num-xs text-muted">${L('有效直邀', 'Invites')}</span><span class="num-md">${reg ? user.warmupInvites : 0}</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('预热排名', 'Rank')}</span><span class="num-md text-gold">${reg && config.isDemo ? 'No.08' : '--'}</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('预计奖励', 'Est. A9')}</span><span class="num-md text-green">${!reg ? '0' : (config.isDemo ? '400,000' : L('待核验', 'Pending'))}</span></div>
+          <div class="metric-cell"><span class="num-xs text-muted">${L('预热排名', 'Rank')}</span><span class="num-md text-gold">${reg ? 'No.08' : '--'}</span></div>
+          <div class="metric-cell"><span class="num-xs text-muted">${L('预计奖励', 'Est. A9')}</span><span class="num-md text-green">${!reg ? '0' : '400,000'}</span></div>
         </div>
+        ` : ''}
 
         ${!reg
           ? `<button class="btn btn-primary" id="btn-register-warmup">${icon('bolt', 16)} ${L('立即报名预热 (需 ≥1 有效直邀)', 'Join Warm-Up (≥1 Invite)')}</button>`
@@ -69,11 +78,13 @@ export function renderWarmupHome(root, navigate) {
         <div class="card-header">
           <div class="card-title">${icon('trophy', 15, 'text-gold')} ${L('前 50 名阶梯奖励', 'Top 50 Tiers')}</div>
         </div>
+        ${config.isDemo ? `
         <div class="col-gap">
           <div class="list-row"><b>${L('第 1–10 名', 'Top 1–10')}</b><span class="num-sm text-green">400,000 A9 / ${L('人', 'ea')}</span></div>
           <div class="list-row"><b>${L('第 11–25 名', 'Top 11–25')}</b><span class="num-sm text-gold">160,000 A9 / ${L('人', 'ea')}</span></div>
           <div class="list-row"><b>${L('第 26–50 名', 'Top 26–50')}</b><span class="num-sm text-sec">64,000 A9 / ${L('人', 'ea')}</span></div>
         </div>
+        ` : `<div class="num-xs text-muted">${L('预热奖池与阶梯发放标准等待服务端公布后展示。', 'Warm-up reward tiers await server publication.')}</div>`}
       </div>
 
       <div class="grid-2">
@@ -85,10 +96,6 @@ export function renderWarmupHome(root, navigate) {
     </div>
   `;
 
-  if (!config.isDemo) {
-    root.querySelector('.num-hero').textContent=L('待核验','Awaiting verification');
-    root.querySelector('.metric-strip').remove();
-  }
   const regBtn = root.querySelector('#btn-register-warmup');
   if (regBtn) {
     regBtn.onclick = async () => {
@@ -123,7 +130,7 @@ export function renderWarmupHome(root, navigate) {
   const shareBtn = root.querySelector('#btn-share-warmup');
   if (shareBtn) {
     shareBtn.onclick = () => {
-      A9TMA.shareInvite(inviteUrl, 'A9 8,000,000 A9 Warm-Up Pool');
+      A9TMA.shareInvite(inviteUrl, config.isDemo ? 'A9 8,000,000 A9 Warm-Up Pool' : L('A9 协议预热活动入口', 'A9 Protocol Warm-Up'));
       showToast(L('已调起分享', 'Share opened'));
     };
   }
@@ -145,6 +152,10 @@ export function renderWarmupRank(root) {
     panel.className='card col-gap';
     root.replaceChildren(panel);
     const load=async()=>{
+      if (!store.state.round.currentRound) {
+        panel.textContent=L('暂无预热排名','No warm-up rankings yet');
+        return;
+      }
       panel.textContent=L('正在读取预热榜','Loading warm-up rankings');
       try {
         const rows=await fetchWarmupRank(store.state.round.currentRound);

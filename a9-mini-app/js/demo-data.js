@@ -236,6 +236,11 @@ function createInitialCandles() {
 }
 
 export function applyDemoInitialState(state) {
+  state.round.currentRound = 3;
+  state.round.stage = 'observation';
+  state.round.qualifiedCandles = 8;
+  state.round.candlesConfirmed = 12;
+  state.round.needMore = 8;
   state.round.candles = createInitialCandles();
   state.round.quickStakeTon = 100;
   state.round.tonUsd = 3.00;

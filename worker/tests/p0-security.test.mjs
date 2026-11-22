@@ -11,10 +11,11 @@ import { PromoHotWalletEngine } from '../src/promo-hotwallet.mjs';
 import { SocialStore } from '../src/social-store.mjs';
 import { PredictionEngine } from '../src/growth-engine.mjs';
 import { parseDecimalUnits, formatUnits } from '../src/money.mjs';
-import { normalizeTonAddress } from '../src/ton-address.mjs';
+import { normalizeTonAddress, formatTonAddress, parseTonAddress } from '../src/ton-address.mjs';
 import { TEST_BOT_TOKEN, tgHeaders, createSqliteD1, FRESH_SCHEMA, MIGRATIONS, completePurchase, dumpDb, createMiniflareD1, makeV4R2Wallet, signTonProof, PROOF_FIXTURES } from './helpers/test-env.mjs';
 import { verifyTonProof, REBIND_DELAY_SEC, TON_PROOF_MAX_SKEW_SEC } from '../src/auth.mjs';
-import { inspectWalletStateInit } from '../src/ton-cell.mjs';
+import { inspectWalletStateInit, cellFromBits, serializeBoc, WALLET_TG_TRAMPOLINE_HASH } from '../src/ton-cell.mjs';
+import cfWorker from '../src/cf-worker.mjs';
 
 let passed = 0;
 async function test(name, fn) {
@@ -35,29 +36,29 @@ const ENV = { A9_BOT_TOKEN: TEST_BOT_TOKEN, A9_TON_PROOF_DOMAINS: 'a9.example', 
 function buildRouter(extra = {}) {
   const identityStore = extra.identityStore || new MemoryIdentityStore();
   const promoEngine = extra.promoEngine || new PromoHotWalletEngine({ hotWalletAddress: HOT });
-  const presaleEngine = extra.presaleEngine || new PresaleHotWalletEngine({ hotWalletAddress: HOT });
+  const presaleEngine = extra.presaleEngine || new PresaleHotWalletEngine({ hotWalletAddress: HOT, open: true });
   const socialStore = extra.socialStore || new SocialStore();
   const predictionEngine = extra.predictionEngine || new PredictionEngine();
   const route = createApiRouter({ env: ENV, stateStore, identityStore, promoEngine, presaleEngine, socialStore, predictionEngine, ...extra });
   return { route, identityStore, promoEngine, presaleEngine, socialStore, predictionEngine };
 }
 
-/** Both storage backends must behave identically. */
+/** Both storage backends must behave identically (explicit open:true for order-flow suites; default closed tested separately). */
 const BACKENDS = [
-  ['memory', async (opts) => new PresaleHotWalletEngine({ hotWalletAddress: HOT, ...opts })],
-  ['d1-sqlite', async (opts) => {
+  ['memory', async (opts = {}) => new PresaleHotWalletEngine({ hotWalletAddress: HOT, open: true, ...opts })],
+  ['d1-sqlite', async (opts = {}) => {
     const db = opts.db || createSqliteD1(FRESH_SCHEMA);
-    const e = new D1PresaleStore({ db, hotWalletAddress: HOT, ...opts });
+    const e = new D1PresaleStore({ db, hotWalletAddress: HOT, open: true, ...opts });
     e._db = db;
     return e;
   }],
 ];
 const MF_DISPOSE = [];
 if (await createMiniflareD1().then((mf) => { if (mf) MF_DISPOSE.push(mf.dispose); return Boolean(mf); })) {
-  BACKENDS.push(['d1-miniflare', async (opts) => {
+  BACKENDS.push(['d1-miniflare', async (opts = {}) => {
     const mf = await createMiniflareD1();
     MF_DISPOSE.push(mf.dispose);
-    const e = new D1PresaleStore({ db: mf.db, hotWalletAddress: HOT, ...opts });
+    const e = new D1PresaleStore({ db: mf.db, hotWalletAddress: HOT, open: true, ...opts });
     e._db = mf.db;
     return e;
   }]);
@@ -328,7 +329,7 @@ await test('initData replay: a replayed (stolen) initData is valid until expiry 
   const victimWallet = await makeV4R2Wallet();
   const attackerWallet = await makeV4R2Wallet();
   const pred = new PredictionEngine({ defaultPoolA9Raw: '10000000000000' });
-  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT });
+  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT, open: true });
   const { route, promoEngine } = buildRouter({ predictionEngine: pred, presaleEngine: presale });
   const t0 = 30_000;
   const stolen = await tgHeaders(9201, { nowSec: t0 }); // captured once, replayed below
@@ -514,13 +515,23 @@ for (const [name, make] of BACKENDS) {
     assert.equal(n, 2);
   });
 
-  await test(`[${name}] anomaly resolution: SYSTEM/UNKNOWN fault = full refund to the payer; USER fee only with a published rule; resolves exactly once`, async () => {
+  await test(`[${name}] anomaly resolution (P0-D): zero fee when unpublished for USER/SYSTEM/UNKNOWN; fee only for USER when published; resolves once`, async () => {
     const e = await make({});
     const o = await e.createOrderIntent('EQ_ANOM', '10', 1000);
     await e.ingestInbound(inbound(o, { txHash: 'short', valueNano: '9000000000' }), 1001);
     await e.ingestInbound({ txHash: 'stray', finality: 'finalized', to: HOT, from: 'EQ_STRANGER', valueNano: '3000000000', memo: 'hello' }, 1002);
-    await assert.rejects(e.resolveAnomaly('short', { decision: 'REFUND', faultParty: 'USER', operator: 'ops' }, 1003), { code: 'FEE_RULE_NOT_PUBLISHED' });
+    await e.ingestInbound({ txHash: 'user-nofee', finality: 'finalized', to: HOT, from: 'EQ_USER_FAULT', valueNano: '4000000000', memo: '' }, 1002);
+    await e.ingestInbound({ txHash: 'unk-nofee', finality: 'finalized', to: HOT, from: 'EQ_UNK_FAULT', valueNano: '2000000000', memo: '' }, 1002);
+    // 缺少操作人仍拒绝
     await assert.rejects(e.resolveAnomaly('short', { decision: 'REFUND', faultParty: 'SYSTEM' }, 1003), { code: 'BAD_REQUEST' });
+    // 未配置手续费规则时，USER / SYSTEM / UNKNOWN 三种责任方全部按零手续费全额退款
+    const uRes = await e.resolveAnomaly('user-nofee', { decision: 'REFUND', faultParty: 'USER', operator: 'ops', note: 'no fee rule yet' }, 1003);
+    assert.equal(uRes.feeNano, '0');
+    assert.equal(uRes.refundNano, '4000000000');
+    const unkRes = await e.resolveAnomaly('unk-nofee', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops', note: 'unknown' }, 1003);
+    assert.equal(unkRes.feeNano, '0');
+    assert.equal(unkRes.refundNano, '2000000000');
+
     const both = await Promise.allSettled([
       e.resolveAnomaly('short', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops', note: 'system' }, 1004),
       e.resolveAnomaly('short', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops2', note: 'dup' }, 1004),
@@ -528,17 +539,25 @@ for (const [name, make] of BACKENDS) {
     assert.equal(both.filter((r) => r.status === 'fulfilled').length, 1);
     assert.equal(both.find((r) => r.status === 'fulfilled').value.refundNano, '9000000000');
     assert.equal((await e.getOrder(o.orderId)).status, PRESALE_STATUS.REFUND_PENDING);
-    const refunds = (await e.repo.listOpenPayouts()).filter((p) => p.kind === 'REFUND');
-    assert.equal(refunds.length, 1);
-    assert.equal(refunds[0].recipient, 'EQ_ANOM');
-    assert.equal(refunds[0].amount, '9000000000');
+    const shortRefund = await e.repo.getPayout('refund:short');
+    assert.equal(shortRefund.recipient, 'EQ_ANOM');
+    assert.equal(shortRefund.amount, '9000000000');
 
+    // 配置有效手续费规则后：仅 USER 扣费，SYSTEM 与 UNKNOWN 仍为 0 手续费全额退款
     const published = await make({ userFaultFeeNano: '50000000' });
     await published.ingestInbound({ txHash: 'stray2', finality: 'finalized', to: HOT, from: 'EQ_STRANGER', valueNano: '3000000000', memo: '' }, 1002);
+    await published.ingestInbound({ txHash: 'stray-sys', finality: 'finalized', to: HOT, from: 'EQ_SYS', valueNano: '3000000000', memo: '' }, 1002);
+    await published.ingestInbound({ txHash: 'stray-unk', finality: 'finalized', to: HOT, from: 'EQ_UNK', valueNano: '3000000000', memo: '' }, 1002);
     const r = await published.resolveAnomaly('stray2', { decision: 'REFUND', faultParty: 'USER', operator: 'ops', note: 'no memo' }, 1005);
     assert.equal(r.feeNano, '50000000');
     assert.equal(r.refundNano, '2950000000');
     assert.equal(r.recipient, 'EQ_STRANGER');
+    const rSys = await published.resolveAnomaly('stray-sys', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops' }, 1005);
+    assert.equal(rSys.feeNano, '0');
+    assert.equal(rSys.refundNano, '3000000000');
+    const rUnk = await published.resolveAnomaly('stray-unk', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 1005);
+    assert.equal(rUnk.feeNano, '0');
+    assert.equal(rUnk.refundNano, '3000000000');
     await assert.rejects(published.resolveAnomaly('stray2', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops' }, 1006), { code: 'ALREADY_RESOLVED' });
     await assert.rejects(e.resolveAnomaly('stray', { decision: 'CLOSE_NO_REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 1007), { code: 'BAD_REQUEST' });
     assert.equal((await e.resolveAnomaly('stray', { decision: 'CLOSE_NO_REFUND', faultParty: 'UNKNOWN', operator: 'ops', note: 'refunded off-band tx X' }, 1007)).status, 'CLOSED_NO_REFUND');
@@ -571,18 +590,234 @@ for (const [name, make] of BACKENDS) {
     assert.equal(promo2.getBalance('EQ_INVITER2').claimableRaw, '0');
     assert.equal((await e2.getReferralCredit(o2.orderId)).status, 'NEEDS_REVIEW');
   });
+
+  // -------------------------------------------------------------------------
+  // P0-A (D3): PresalePayoutRunner.tick() 全入账分类与防重放（不静默丢弃、不误归推广交易）
+  // -------------------------------------------------------------------------
+  await test(`[${name}] P0-A: PresalePayoutRunner.tick() classifies all 8 inbound types without dropping or misclassifying promo claims`, async () => {
+    const promo = new PromoHotWalletEngine({ hotWalletAddress: HOT });
+    promo.creditReward('EQ_PROMO_USER', '5000000000000');
+    const claim = promo.createClaimIntent('EQ_PROMO_USER', 1000);
+
+    const e = await make({ promoEngine: promo });
+    const validOrder = await e.createOrderIntent('EQ_VALID', '10', 1000);
+    const wrongAmtOrder = await e.createOrderIntent('EQ_BADAMT', '10', 1000);
+    const wrongSenderOrder = await e.createOrderIntent('EQ_OWNER_A', '10', 1000);
+    const doneOrder = await completePurchase(e, 'EQ_DONE', '5', 900, { txHash: 'done-first' });
+
+    const txs = [
+      { txHash: 'tx-valid', finality: 'finalized', to: HOT, from: 'EQ_VALID', valueNano: validOrder.tonNano, memo: validOrder.memo },
+      { txHash: 'tx-nomemo', finality: 'finalized', to: HOT, from: 'EQ_NO_MEMO', valueNano: '7000000000', memo: '' },
+      { txHash: 'tx-badmemo', finality: 'finalized', to: HOT, from: 'EQ_BAD_MEMO', valueNano: '6000000000', memo: 'hello-world' },
+      { txHash: 'tx-badorder', finality: 'finalized', to: HOT, from: 'EQ_BAD_ORD', valueNano: '5000000000', memo: 'buy:doesnotexist' },
+      { txHash: 'tx-wrongsender', finality: 'finalized', to: HOT, from: 'EQ_THIEF_B', valueNano: wrongSenderOrder.tonNano, memo: wrongSenderOrder.memo },
+      { txHash: 'tx-wrongamt', finality: 'finalized', to: HOT, from: 'EQ_BADAMT', valueNano: '8000000000', memo: wrongAmtOrder.memo },
+      { txHash: 'tx-dup', finality: 'finalized', to: HOT, from: 'EQ_DONE', valueNano: doneOrder.tonNano, memo: doneOrder.memo },
+      { txHash: 'tx-promo-valid', finality: 'finalized', to: HOT, from: 'EQ_PROMO_USER', valueNano: '60000000', memo: claim.memo },
+      { txHash: 'tx-fake-claim-large', finality: 'finalized', to: HOT, from: 'EQ_MISTAKE', valueNano: '8000000000', memo: 'claim:nonexistent' },
+      { txHash: 'tx-dust', finality: 'finalized', to: HOT, from: 'EQ_DUST', valueNano: '100000000', memo: '' },
+    ];
+    let a9Sends = 0;
+    const runner = new PresalePayoutRunner({
+      engine: e,
+      tonCenter: { fetchInboundTransfers: async () => txs },
+      execute: true,
+      a9Broadcaster: async () => { a9Sends += 1; return { txHash: `a9-out-${a9Sends}` }; },
+      payoutVerifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }),
+      logger: { log() {} },
+    });
+
+    const s1 = await runner.tick(1010);
+    assert.equal(s1.confirmed, 1);
+    assert.equal(s1.anomalies, 7);
+    assert.equal(s1.otherFlow, 1);
+    assert.equal(s1.dust, 1);
+    assert.equal(s1.paid, 1);
+    assert.equal(s1.completed, 1);
+    assert.equal(a9Sends, 1);
+
+    const promoRec = await e.repo.getInbound('tx-promo-valid');
+    assert.equal(promoRec.decision, 'OTHER_FLOW');
+    assert.equal(promoRec.reason, 'promo_claim');
+    assert.equal(promoRec.anomalyStatus, null);
+    const dustRec = await e.repo.getInbound('tx-dust');
+    assert.equal(dustRec.decision, 'IGNORE_DUST');
+    const anomalies = await e.listAnomalies('OPEN');
+    assert.equal(anomalies.length, 7);
+    assert.equal(anomalies.some((a) => a.txHash === 'tx-promo-valid'), false);
+    assert.equal(anomalies.some((a) => a.txHash === 'tx-nomemo' && a.reason === 'no_matching_order'), true);
+
+    // 重复扫描全部交易 -> 零重复记录、零重复发币
+    const s2 = await runner.tick(1020);
+    assert.equal(s2.confirmed, 0);
+    assert.equal(s2.anomalies, 0);
+    assert.equal(s2.paid, 0);
+    assert.equal(s2.ignored, txs.length);
+    assert.equal(a9Sends, 1);
+    assert.equal((await e.listAnomalies('OPEN')).length, 7);
+  });
+
+  // -------------------------------------------------------------------------
+  // P0-B (D1 + D2) & P0-C (D4): 异常退款所有权隔离、已完成订单不可变、多笔异常退款并发/独立处理
+  // -------------------------------------------------------------------------
+  await test(`[${name}] P0-B & P0-C: B/C wrong-payer refunds never touch A's order or quota; duplicate refund never alters COMPLETED order`, async () => {
+    const e = await make({ defaultQuotaTon: 20n });
+    const aOrder = await e.createOrderIntent('EQ_USER_A', '10', 1000);
+    assert.equal((await e.getQuota('EQ_USER_A', 1000)).usedQuotaNano, '10000000000');
+
+    // B 和 C 两人分别错用 A 的订单号付款
+    const bIn = await e.ingestInbound({ txHash: 'b-wrong', finality: 'finalized', to: HOT, from: 'EQ_USER_B', valueNano: aOrder.tonNano, memo: aOrder.memo }, 1001);
+    const cIn = await e.ingestInbound({ txHash: 'c-wrong', finality: 'finalized', to: HOT, from: 'EQ_USER_C', valueNano: aOrder.tonNano, memo: aOrder.memo }, 1002);
+    assert.equal(bIn.action, 'ANOMALY');
+    assert.equal(cIn.action, 'ANOMALY');
+
+    // 两笔误付均独立审核退款成功，且 A 的订单和额度丝毫不受影响
+    const rB = await e.resolveAnomaly('b-wrong', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 1003);
+    const rC = await e.resolveAnomaly('c-wrong', { decision: 'REFUND', faultParty: 'USER', operator: 'ops' }, 1004);
+    assert.equal(rB.status, 'REFUND_QUEUED');
+    assert.equal(rC.status, 'REFUND_QUEUED');
+    assert.equal(rB.refundNano, '10000000000');
+    assert.equal(rC.refundNano, '10000000000');
+    assert.equal((await e.repo.getPayout('refund:b-wrong')).orderId, null);
+    assert.equal((await e.repo.getPayout('refund:c-wrong')).orderId, null);
+
+    // 同一笔入账二次 resolve 必须被拒绝
+    await assert.rejects(e.resolveAnomaly('b-wrong', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops' }, 1004), { code: 'ALREADY_RESOLVED' });
+
+    // 执行 B 和 C 的退款广播与链上确认（含模拟 B 首次广播失败进入重试）
+    let refundAttempt = 0;
+    await e.processPayouts(1005, {
+      refundBroadcaster: async (inst) => {
+        refundAttempt += 1;
+        if (inst.payoutId === 'refund:b-wrong' && refundAttempt === 1) throw Object.assign(new Error('rpc hiccup'), { notSent: true });
+        return { txHash: `rf-${inst.payoutId}` };
+      },
+      verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }),
+    });
+    await e.processPayouts(1006, {
+      refundBroadcaster: async (inst) => ({ txHash: `rf-${inst.payoutId}` }),
+      verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }),
+    });
+    assert.equal((await e.repo.getPayout('refund:b-wrong')).status, 'CONFIRMED');
+    assert.equal((await e.repo.getPayout('refund:c-wrong')).status, 'CONFIRMED');
+
+    // 验证 A 的订单仍为 PENDING_PAYMENT，额度仍精确占用 10 GRAM，随后 A 仍能正常付款成交
+    assert.equal((await e.getOrder(aOrder.orderId)).status, PRESALE_STATUS.PENDING_PAYMENT);
+    assert.equal((await e.getQuota('EQ_USER_A', 1007)).usedQuotaNano, '10000000000');
+    const aPay = await e.ingestInbound({ txHash: 'a-real-pay', finality: 'finalized', to: HOT, from: 'EQ_USER_A', valueNano: aOrder.tonNano, memo: aOrder.memo }, 1008);
+    assert.equal(aPay.action, 'CONFIRM');
+    await e.queueConfirmedPayouts(1009);
+    await e.processPayouts(1010, { a9Broadcaster: async () => ({ txHash: 'a9-for-a' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
+    assert.equal((await e.getOrder(aOrder.orderId)).status, PRESALE_STATUS.COMPLETED);
+    assert.equal(await e.hasCompletedPurchase('EQ_USER_A'), true);
+
+    // D2: A 的订单已经 COMPLETED，再次收到两笔重复付款（来自 A 和 B），退款或 NEEDS_REVIEW 均不改动 A 订单
+    await e.ingestInbound({ txHash: 'dup-by-a', finality: 'finalized', to: HOT, from: 'EQ_USER_A', valueNano: aOrder.tonNano, memo: aOrder.memo }, 1020);
+    await e.ingestInbound({ txHash: 'dup-by-b', finality: 'finalized', to: HOT, from: 'EQ_USER_B', valueNano: aOrder.tonNano, memo: aOrder.memo }, 1021);
+    await e.resolveAnomaly('dup-by-a', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 1022);
+    await e.resolveAnomaly('dup-by-b', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops' }, 1023);
+    await e.processPayouts(1024, {
+      refundBroadcaster: async (inst) => {
+        if (inst.payoutId === 'refund:dup-by-b') throw new Error('ambiguous timeout');
+        return { txHash: 'rf-dup-a' };
+      },
+      verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }),
+    });
+    await e.processPayouts(1024 + STALE_BROADCAST_SEC, { verifier: null });
+    assert.equal((await e.repo.getPayout('refund:dup-by-a')).status, 'CONFIRMED');
+    assert.equal((await e.repo.getPayout('refund:dup-by-b')).status, 'NEEDS_REVIEW');
+    assert.equal((await e.getOrder(aOrder.orderId)).status, PRESALE_STATUS.COMPLETED);
+    assert.equal(await e.hasCompletedPurchase('EQ_USER_A'), true);
+    assert.equal((await e.getQuota('EQ_USER_A', 1200)).usedQuotaNano, '10000000000');
+
+    // 错额订单叠加第二笔误付：退第二笔不改订单，退错额本人这笔才将 PAYMENT_EXCEPTION -> REFUNDED
+    const oExc = await e.createOrderIntent('EQ_EXC', '10', 1300);
+    await e.ingestInbound({ txHash: 'exc-short', finality: 'finalized', to: HOT, from: 'EQ_EXC', valueNano: '9000000000', memo: oExc.memo }, 1301);
+    assert.equal((await e.getOrder(oExc.orderId)).status, PRESALE_STATUS.PAYMENT_EXCEPTION);
+    assert.equal((await e.getQuota('EQ_EXC', 1302)).usedQuotaNano, '0');
+    await e.ingestInbound({ txHash: 'exc-stray', finality: 'finalized', to: HOT, from: 'EQ_OTHER', valueNano: '10000000000', memo: oExc.memo }, 1303);
+    await e.resolveAnomaly('exc-stray', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 1304);
+    await e.processPayouts(1305, { refundBroadcaster: async () => ({ txHash: 'rf-exc-stray' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
+    assert.equal((await e.getOrder(oExc.orderId)).status, PRESALE_STATUS.PAYMENT_EXCEPTION);
+    await e.resolveAnomaly('exc-short', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops' }, 1306);
+    assert.equal((await e.getOrder(oExc.orderId)).status, PRESALE_STATUS.REFUND_PENDING);
+    await e.processPayouts(1307, { refundBroadcaster: async () => ({ txHash: 'rf-exc-short' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
+    assert.equal((await e.getOrder(oExc.orderId)).status, PRESALE_STATUS.REFUNDED);
+  });
+
+  // -------------------------------------------------------------------------
+  // P0-I: 过期与到账时间竞争守卫 + NEEDS_REVIEW 不可被自动恢复误处理 + 账本守恒不变量
+  // -------------------------------------------------------------------------
+  await test(`[${name}] P0-I: expiry-vs-arrival race cannot oversell pool; NEEDS_REVIEW is never auto-retried; ledger balances exactly`, async () => {
+    const pool = await make({ totalCapA9Raw: 10n * 2002n * 1_000_000_000n });
+    const oA = await pool.createOrderIntent('EQ_RACE_A', '10', 1000);
+    const oB = await pool.createOrderIntent('EQ_RACE_B', '10', 2801);
+    assert.ok(oB.orderId);
+    const raceRes = await pool.repo.commitInbound({
+      inbound: { txHash: 'late-race-a', orderId: oA.orderId, sender: 'EQ_RACE_A', valueNano: oA.tonNano, memo: oA.memo, decision: 'CONFIRM', reason: 'valid', createdAt: 2801 },
+      orderUpdate: { orderId: oA.orderId, from: [PRESALE_STATUS.PENDING_PAYMENT], notExpiredAt: 2801, patch: { status: PRESALE_STATUS.PAYMENT_CONFIRMED, inboundTxHash: 'late-race-a', updatedAt: 2801 } },
+      payout: null,
+    });
+    assert.equal(raceRes, 'ORDER_RACE');
+    assert.equal((await pool.getOrder(oA.orderId)).status, PRESALE_STATUS.PENDING_PAYMENT);
+    const raceAnom = await pool.repo.getInbound('late-race-a');
+    assert.equal(raceAnom.decision, 'ANOMALY');
+    assert.equal(raceAnom.anomalyStatus, 'OPEN');
+
+    const e2 = await make({});
+    const oRev = await e2.createOrderIntent('EQ_REV', '5', 1000);
+    await e2.ingestInbound(inbound(oRev), 1001);
+    await e2.queueConfirmedPayouts(1002);
+    let sends = 0;
+    await e2.processPayouts(1003, { a9Broadcaster: async () => { sends += 1; throw new Error('ambiguous'); } });
+    await e2.processPayouts(1003 + STALE_BROADCAST_SEC, { verifier: null });
+    assert.equal((await e2.getOrder(oRev.orderId)).status, PRESALE_STATUS.NEEDS_REVIEW);
+    assert.equal(sends, 1);
+    const runner = new PresalePayoutRunner({
+      engine: e2,
+      tonCenter: { fetchInboundTransfers: async () => [] },
+      execute: true,
+      a9Broadcaster: async () => { sends += 1; return { txHash: 'should-not-send' }; },
+      payoutVerifier: async () => ({ state: 'CONFIRMED' }),
+      logger: { log() {} },
+    });
+    await runner.tick(5000);
+    await runner.tick(6000);
+    assert.equal(sends, 1);
+    assert.equal((await e2.getOrder(oRev.orderId)).status, PRESALE_STATUS.NEEDS_REVIEW);
+
+    // 账本守恒不变量
+    const e3 = await make({ userFaultFeeNano: '50000000' });
+    const oOk = await completePurchase(e3, 'EQ_CON_1', '10', 1000, { txHash: 'c-ok' });
+    await e3.ingestInbound({ txHash: 'c-dup', finality: 'finalized', to: HOT, from: 'EQ_CON_2', valueNano: '8000000000', memo: oOk.memo }, 1010);
+    await e3.resolveAnomaly('c-dup', { decision: 'REFUND', faultParty: 'USER', operator: 'ops' }, 1011);
+    await e3.processPayouts(1012, { refundBroadcaster: async () => ({ txHash: 'rf-c-dup' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
+    await e3.ingestInbound({ txHash: 'c-offband', finality: 'finalized', to: HOT, from: 'EQ_CON_3', valueNano: '6000000000', memo: '' }, 1013);
+    await e3.resolveAnomaly('c-offband', { decision: 'CLOSE_NO_REFUND', faultParty: 'UNKNOWN', operator: 'ops', note: 'off-band refunded' }, 1014);
+    await e3.ingestInbound({ txHash: 'c-open', finality: 'finalized', to: HOT, from: 'EQ_CON_4', valueNano: '4000000000', memo: 'bad' }, 1015);
+    await e3.ingestInbound({ txHash: 'c-dust', finality: 'finalized', to: HOT, from: 'EQ_CON_5', valueNano: '50000000', memo: '' }, 1016);
+
+    const totalIn = 10_000_000_000n + 8_000_000_000n + 6_000_000_000n + 4_000_000_000n + 50_000_000n;
+    const completedGram = BigInt((await e3.getOrder(oOk.orderId)).tonNano);
+    const refundedGram = BigInt((await e3.repo.getPayout('refund:c-dup')).amount);
+    const feeGram = BigInt((await e3.repo.getInbound('c-dup')).feeNano);
+    const closedNoRefundGram = BigInt((await e3.repo.getInbound('c-offband')).valueNano);
+    const pendingAnomGram = BigInt((await e3.repo.getInbound('c-open')).valueNano);
+    const dustGram = BigInt((await e3.repo.getInbound('c-dust')).valueNano);
+    assert.equal(completedGram + refundedGram + feeGram + closedNoRefundGram + pendingAnomGram + dustGram, totalIn);
+  });
 }
 
 await test('[d1-sqlite] restart after broadcast: new process resumes from DB, confirms without re-sending', async () => {
   const db = createSqliteD1(FRESH_SCHEMA);
-  const e1 = new D1PresaleStore({ db, hotWalletAddress: HOT });
+  const e1 = new D1PresaleStore({ db, hotWalletAddress: HOT, open: true });
   const o = await e1.createOrderIntent('EQ_RESTART', '5', 1000);
   await e1.ingestInbound(inbound(o), 1001);
   await e1.queueConfirmedPayouts(1002);
   await e1.processPayouts(1003, { a9Broadcaster: async () => ({ txHash: 'sent-before-crash' }) });
   assert.equal((await e1.getOrder(o.orderId)).status, PRESALE_STATUS.PAYOUT_SENT);
 
-  const e2 = new D1PresaleStore({ db, hotWalletAddress: HOT }); // "restarted process"
+  const e2 = new D1PresaleStore({ db, hotWalletAddress: HOT, open: true });
   let resend = 0;
   await e2.processPayouts(1010, { a9Broadcaster: async () => { resend += 1; return { txHash: 'x' }; }, verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
   assert.equal(resend, 0);
@@ -594,33 +829,438 @@ await test('[d1-sqlite] restart after broadcast: new process resumes from DB, co
   await e2.queueConfirmedPayouts(2002);
   const [p] = await e2.repo.listOpenPayouts();
   assert.ok(await e2.repo.claimPayout(p.payoutId, ['PENDING'], { status: 'BROADCASTING', attempts: 1, updatedAt: 2003 }));
-  const e3 = new D1PresaleStore({ db, hotWalletAddress: HOT });
+  const e3 = new D1PresaleStore({ db, hotWalletAddress: HOT, open: true });
   let sends = 0;
   const bc = async () => { sends += 1; return { txHash: 'resent' }; };
   await e3.processPayouts(2010, { a9Broadcaster: bc, verifier: async () => ({ state: 'NOT_FOUND' }) });
-  assert.equal(sends, 0); // still inside stale window: wait
+  assert.equal(sends, 0);
   await e3.processPayouts(2003 + STALE_BROADCAST_SEC, { a9Broadcaster: bc, verifier: async (q) => (q.txHash ? { state: 'CONFIRMED' } : { state: 'NOT_FOUND' }) });
   assert.equal(sends, 1);
   assert.equal((await e3.getOrder(o2.orderId)).status, PRESALE_STATUS.COMPLETED);
 });
 
-await test('[d1-sqlite] migration from the v15 baseline keeps legacy rows; legacy PAID_A9 is not treated as confirmed', async () => {
+// ---------------------------------------------------------------------------
+// P0-E: 退款确认原子性与各关键写入点崩溃恢复测试
+// ---------------------------------------------------------------------------
+await test('[d1-sqlite] P0-E: refund confirmation is atomic; crash at every write point recovers without double-send or orphaned state', async () => {
+  const rawDb = createSqliteD1(FRESH_SCHEMA);
+  let failRefundOrderCommitOnce = false;
+  const flakyDb = {
+    prepare: (sql) => rawDb.prepare(sql),
+    exec: (sql) => rawDb.exec(sql),
+    async batch(stmts) {
+      if (failRefundOrderCommitOnce && stmts.some((s) => /UPDATE presale_orders SET status = 'REFUNDED'/.test(s._sql))) {
+        failRefundOrderCommitOnce = false;
+        const sabotaged = [stmts[0], rawDb.prepare('UPDATE __nonexistent_crash_table SET x = 1')];
+        return rawDb.batch(sabotaged);
+      }
+      return rawDb.batch(stmts);
+    },
+  };
+
+  const e1 = new D1PresaleStore({ db: flakyDb, hotWalletAddress: HOT, open: true });
+  const untouched = await e1.createOrderIntent('EQ_INNOCENT', '10', 1000);
+
+  const oLate = await e1.createOrderIntent('EQ_CRASH_REFUND', '5', 1000);
+  await e1.ingestInbound(inbound(oLate), 1000 + 31 * 60);
+  assert.equal((await e1.getOrder(oLate.orderId)).status, PRESALE_STATUS.REFUND_PENDING);
+
+  // 崩溃点 1：BROADCASTING 落库后、广播前崩溃（钱尚未发出）
+  const pId = `refund:in-${oLate.orderId}`;
+  assert.ok(await e1.repo.claimPayout(pId, ['PENDING'], { status: 'BROADCASTING', attempts: 1, updatedAt: 3000 }));
+  const eAfterCrash1 = new D1PresaleStore({ db: flakyDb, hotWalletAddress: HOT, open: true });
+  let refundSends = 0;
+  await eAfterCrash1.processPayouts(3010, { refundBroadcaster: async () => { refundSends += 1; return { txHash: 'x' }; }, verifier: async () => ({ state: 'NOT_FOUND' }) });
+  assert.equal(refundSends, 0);
+  assert.equal((await eAfterCrash1.getOrder(oLate.orderId)).status, PRESALE_STATUS.REFUND_PENDING);
+
+  // 超时后 verifier=NOT_FOUND -> 广播 1 次并进入 SENT
+  await eAfterCrash1.processPayouts(3000 + STALE_BROADCAST_SEC, {
+    refundBroadcaster: async () => { refundSends += 1; return { txHash: 'rf-tx-1' }; },
+    verifier: async (p) => (p.txHash ? { state: 'PENDING' } : { state: 'NOT_FOUND' }),
+  });
+  assert.equal(refundSends, 1);
+  assert.equal((await eAfterCrash1.getOrder(oLate.orderId)).status, PRESALE_STATUS.REFUND_SENT);
+
+  // 崩溃点 4：在确认退款提交 completeRefund 时第二条语句崩溃 -> 整批回滚，绝不产生孤儿态
+  failRefundOrderCommitOnce = true;
+  const sCrash = await eAfterCrash1.processPayouts(3500, {
+    refundBroadcaster: async () => { refundSends += 1; return { txHash: 'dup' }; },
+    verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }),
+  });
+  assert.equal(sCrash.errors.length, 1);
+  assert.equal((await eAfterCrash1.repo.getPayout(pId)).status, 'SENT');
+  assert.equal((await eAfterCrash1.getOrder(oLate.orderId)).status, PRESALE_STATUS.REFUND_SENT);
+  assert.equal(refundSends, 1);
+
+  // 重启恢复后再次核验 -> 原子提交 CONFIRMED + REFUNDED，不重发
+  const eRecovered = new D1PresaleStore({ db: flakyDb, hotWalletAddress: HOT, open: true });
+  await eRecovered.processPayouts(3510, {
+    refundBroadcaster: async () => { refundSends += 1; return { txHash: 'dup2' }; },
+    verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }),
+  });
+  assert.equal(refundSends, 1);
+  assert.equal((await eRecovered.repo.getPayout(pId)).status, 'CONFIRMED');
+  assert.equal((await eRecovered.getOrder(oLate.orderId)).status, PRESALE_STATUS.REFUNDED);
+
+  // 崩溃点 2：已广播退款但回写 SENT 前崩溃 -> 重启超时查链返回 CONFIRMED -> 原子完成，不重发
+  const oLate2 = await eRecovered.createOrderIntent('EQ_CRASH_REFUND_2', '5', 4000);
+  await eRecovered.ingestInbound(inbound(oLate2), 4000 + 31 * 60);
+  const pId2 = `refund:in-${oLate2.orderId}`;
+  assert.ok(await eRecovered.repo.claimPayout(pId2, ['PENDING'], { status: 'BROADCASTING', attempts: 1, updatedAt: 6000 }));
+  let sends2 = 0;
+  const eRec2 = new D1PresaleStore({ db: flakyDb, hotWalletAddress: HOT, open: true });
+  await eRec2.processPayouts(6000 + STALE_BROADCAST_SEC, {
+    refundBroadcaster: async () => { sends2 += 1; return { txHash: 'dup3' }; },
+    verifier: async () => ({ state: 'CONFIRMED', txHash: 'landed-before-crash' }),
+  });
+  assert.equal(sends2, 0);
+  assert.equal((await eRec2.repo.getPayout(pId2)).status, 'CONFIRMED');
+  assert.equal((await eRec2.getOrder(oLate2.orderId)).status, PRESALE_STATUS.REFUNDED);
+  assert.equal((await eRec2.getOrder(untouched.orderId)).status, PRESALE_STATUS.PENDING_PAYMENT);
+});
+
+// ---------------------------------------------------------------------------
+// D5 + P0-C 增量迁移验证：真实合法友好地址旧数据兼容 + 0004 保留历史 payout 行
+// ---------------------------------------------------------------------------
+await test('[d1-sqlite] migration 0001->0004 (D5 & P0-C): real friendly-address legacy orders stay visible, count quota (OVER_QUOTA), and preserve payout rows', async () => {
+  const { readFileSync } = await import('node:fs');
+  const rawAddr = `0:${'ab'.repeat(32)}`;
+  const parsed = parseTonAddress(rawAddr);
+  const eqFriendly = formatTonAddress(parsed.workchain, parsed.hash, { bounceable: true, testOnly: false });
+  const uqFriendly = formatTonAddress(parsed.workchain, parsed.hash, { bounceable: false, testOnly: false });
+
   const db = createSqliteD1([MIGRATIONS[0]]);
   await db.prepare(`INSERT INTO presale_orders (order_id, wallet_address, referrer_id, ton_nano, a9_amount_raw, memo, status, inbound_tx_hash, payout_tx_hash, refund_ton_nano, created_at, updated_at)
-    VALUES ('legacy1', 'EQ_LEGACY', NULL, '5000000000', '10010000000000', 'buy:legacy1', 'PAID_A9', 'in-legacy', NULL, '0', 100, 100)`).run();
-  for (const m of MIGRATIONS.slice(1)) db.exec((await import('node:fs')).readFileSync(new URL(m, new URL('./helpers/test-env.mjs', import.meta.url)), 'utf8'));
-  const e = new D1PresaleStore({ db, hotWalletAddress: HOT, defaultQuotaTon: 7n });
-  const [legacy] = await e.listOrders('EQ_LEGACY');
-  assert.equal(legacy.legacyStatus, 'PAID_A9');
-  assert.equal(legacy.status, PRESALE_STATUS.NEEDS_REVIEW);
-  assert.equal(await e.hasCompletedPurchase('EQ_LEGACY'), false);
-  // Legacy paid volume still counts against the wallet quota (7 GRAM quota, 5 already used).
-  await assert.rejects(e.createOrderIntent('EQ_LEGACY', '5', 200), { code: 'OVER_QUOTA' });
+    VALUES ('legacy-paid', ?, NULL, '195000000000', '390390000000000', 'buy:legacy-paid', 'PAID_A9', 'in-leg-1', 'out-leg-1', '0', 100, 100)`).bind(eqFriendly).run();
+  await db.prepare(`INSERT INTO presale_orders (order_id, wallet_address, referrer_id, ton_nano, a9_amount_raw, memo, status, inbound_tx_hash, payout_tx_hash, refund_ton_nano, created_at, updated_at)
+    VALUES ('legacy-nohash', 'EQ_LEGACY', NULL, '5000000000', '10010000000000', 'buy:legacy-nohash', 'PAID_A9', 'in-leg-2', NULL, '0', 101, 101)`).run();
+
+  for (const m of MIGRATIONS.slice(1, 3)) db.exec(readFileSync(new URL(m, new URL('./helpers/test-env.mjs', import.meta.url)), 'utf8'));
+  await db.prepare(`INSERT INTO presale_payouts (payout_id, order_id, inbound_tx_hash, kind, recipient, amount, query_id, status, attempts, ambiguous, tx_hash, last_error, created_at, updated_at)
+    VALUES ('a9:legacy-paid', 'legacy-paid', 'in-leg-1', 'A9', ?, '390390000000000', '1', 'SENT', 1, 0, 'out-leg-1', NULL, 100, 100)`).bind(eqFriendly).run();
+  db.exec(readFileSync(new URL(MIGRATIONS[3], new URL('./helpers/test-env.mjs', import.meta.url)), 'utf8'));
+
+  const e = new D1PresaleStore({ db, hotWalletAddress: HOT, defaultQuotaTon: 200n, open: true });
+  assert.equal((await e.repo.getPayout('a9:legacy-paid')).txHash, 'out-leg-1');
+
+  for (const form of [eqFriendly, uqFriendly, rawAddr]) {
+    const orders = await e.listOrders(form);
+    assert.equal(orders.length, 1, form);
+    assert.equal(orders[0].legacyStatus, 'PAID_A9');
+    assert.equal(orders[0].status, PRESALE_STATUS.PAYOUT_SENT);
+    assert.equal(await e.hasCompletedPurchase(form), false);
+    assert.equal((await e.getQuota(form, 200)).usedQuotaTon, 195);
+    await assert.rejects(e.createOrderIntent(form, '10', 200), { code: 'OVER_QUOTA' });
+  }
+  const [noHash] = await e.listOrders('EQ_LEGACY');
+  assert.equal(noHash.status, PRESALE_STATUS.NEEDS_REVIEW);
+
+  assert.equal(await e.backfillLegacyWalletKeys(), 2);
+  assert.equal(await e.backfillLegacyWalletKeys(), 0);
+  assert.equal((await e.listOrders(uqFriendly)).length, 1);
+
+  const oNew = await e.createOrderIntent('EQ_MIG_A', '10', 300);
+  await e.ingestInbound({ txHash: 'm-s1', finality: 'finalized', to: HOT, from: 'EQ_MIG_B', valueNano: oNew.tonNano, memo: oNew.memo }, 301);
+  await e.ingestInbound({ txHash: 'm-s2', finality: 'finalized', to: HOT, from: 'EQ_MIG_C', valueNano: oNew.tonNano, memo: oNew.memo }, 302);
+  assert.equal((await e.resolveAnomaly('m-s1', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 303)).status, 'REFUND_QUEUED');
+  assert.equal((await e.resolveAnomaly('m-s2', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 304)).status, 'REFUND_QUEUED');
+});
+
+// 若环境安装了 miniflare，则在真实 Cloudflare D1 (workerd) 上实测 0001->0004 增量迁移、D5 历史友好地址、P0-C 与 P0-E 事务回滚！
+if (BACKENDS.some(([n]) => n === 'd1-miniflare')) {
+  await test('[d1-miniflare] real Cloudflare D1: migration 0001->0004 (D5 & P0-C) + atomic completeRefund rollback (P0-E)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const rawAddr = `0:${'cd'.repeat(32)}`;
+    const parsed = parseTonAddress(rawAddr);
+    const eqFriendly = formatTonAddress(parsed.workchain, parsed.hash, { bounceable: true, testOnly: false });
+    const uqFriendly = formatTonAddress(parsed.workchain, parsed.hash, { bounceable: false, testOnly: false });
+
+    const mf = await createMiniflareD1([MIGRATIONS[0]]);
+    MF_DISPOSE.push(mf.dispose);
+    const db = mf.db;
+    const applyMigration = async (rel) => {
+      const sql = readFileSync(new URL(rel, new URL('./helpers/test-env.mjs', import.meta.url)), 'utf8').replace(/--[^\n]*/g, '');
+      const stmts = sql.split(/;\s*(?:\n|$)/).map((x) => x.trim()).filter(Boolean);
+      await db.batch(stmts.map((x) => db.prepare(x)));
+    };
+
+    await db.prepare(`INSERT INTO presale_orders (order_id, wallet_address, referrer_id, ton_nano, a9_amount_raw, memo, status, inbound_tx_hash, payout_tx_hash, refund_ton_nano, created_at, updated_at)
+      VALUES ('mf-leg-1', ?, NULL, '195000000000', '390390000000000', 'buy:mf-leg-1', 'PAID_A9', 'in-mf-1', 'out-mf-1', '0', 100, 100)`).bind(eqFriendly).run();
+    await applyMigration(MIGRATIONS[1]);
+    await applyMigration(MIGRATIONS[2]);
+    await db.prepare(`INSERT INTO presale_payouts (payout_id, order_id, inbound_tx_hash, kind, recipient, amount, query_id, status, attempts, ambiguous, tx_hash, last_error, created_at, updated_at)
+      VALUES ('a9:mf-leg-1', 'mf-leg-1', 'in-mf-1', 'A9', ?, '390390000000000', '1', 'SENT', 1, 0, 'out-mf-1', NULL, 100, 100)`).bind(eqFriendly).run();
+    await applyMigration(MIGRATIONS[3]);
+
+    const e = new D1PresaleStore({ db, hotWalletAddress: HOT, defaultQuotaTon: 200n, open: true });
+    assert.equal((await e.repo.getPayout('a9:mf-leg-1')).txHash, 'out-mf-1');
+    assert.equal((await e.listOrders(uqFriendly)).length, 1);
+    assert.equal((await e.getQuota(uqFriendly, 200)).usedQuotaTon, 195);
+    await assert.rejects(e.createOrderIntent(uqFriendly, '10', 200), { code: 'OVER_QUOTA' });
+    assert.equal(await e.backfillLegacyWalletKeys(), 1);
+
+    // 真实 D1 上验证多笔错付同一订单均可独立退款
+    const oA = await e.createOrderIntent('EQ_MF_A', '10', 300);
+    await e.ingestInbound({ txHash: 'mf-b', finality: 'finalized', to: HOT, from: 'EQ_MF_B', valueNano: oA.tonNano, memo: oA.memo }, 301);
+    await e.ingestInbound({ txHash: 'mf-c', finality: 'finalized', to: HOT, from: 'EQ_MF_C', valueNano: oA.tonNano, memo: oA.memo }, 302);
+    assert.equal((await e.resolveAnomaly('mf-b', { decision: 'REFUND', faultParty: 'USER', operator: 'ops' }, 303)).refundNano, '10000000000');
+    assert.equal((await e.resolveAnomaly('mf-c', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 304)).refundNano, '10000000000');
+
+    // 真实 D1 上验证 db.batch() 崩溃回滚原子性（P0-E）
+    let crashOnce = true;
+    const wrapStmt = (rawStmt, sql) => ({
+      _sql: sql,
+      _raw: rawStmt,
+      bind(...a) { return wrapStmt(rawStmt.bind(...a), sql); },
+      first(...a) { return rawStmt.first(...a); },
+      all(...a) { return rawStmt.all(...a); },
+      run(...a) { return rawStmt.run(...a); },
+    });
+    const wrappedDb = {
+      prepare(sql) { return wrapStmt(db.prepare(sql), sql); },
+      async batch(stmts) {
+        if (crashOnce && stmts.some((s) => /UPDATE presale_orders SET status = 'REFUNDED'/.test(s?._sql || ''))) {
+          crashOnce = false;
+          return db.batch([stmts[0]._raw || stmts[0], db.prepare('UPDATE __mf_nonexistent_crash SET a = 1')]);
+        }
+        return db.batch(stmts.map((s) => s?._raw || s));
+      },
+    };
+    const oLate = await e.createOrderIntent('EQ_MF_LATE', '5', 400);
+    await e.ingestInbound(inbound(oLate), 400 + 31 * 60);
+    await e.processPayouts(400 + 32 * 60, { refundBroadcaster: async (inst) => ({ txHash: `mf-rf-${inst.payoutId}` }) });
+    const eCrash = new D1PresaleStore({ db: wrappedDb, hotWalletAddress: HOT, open: true });
+    const sFail = await eCrash.processPayouts(400 + 33 * 60, {
+      verifier: async (p) => (p.payoutId === `refund:in-${oLate.orderId}` ? { state: 'CONFIRMED', txHash: p.txHash } : { state: 'PENDING' }),
+    });
+    assert.equal(sFail.errors.length, 1);
+    assert.equal((await e.repo.getPayout(`refund:in-${oLate.orderId}`)).status, 'SENT');
+    assert.equal((await e.getOrder(oLate.orderId)).status, PRESALE_STATUS.REFUND_SENT);
+    // 恢复后原子提交完成
+    await e.processPayouts(400 + 34 * 60, {
+      verifier: async (p) => (p.payoutId === `refund:in-${oLate.orderId}` ? { state: 'CONFIRMED', txHash: p.txHash } : { state: 'PENDING' }),
+    });
+    assert.equal((await e.repo.getPayout(`refund:in-${oLate.orderId}`)).status, 'CONFIRMED');
+    assert.equal((await e.getOrder(oLate.orderId)).status, PRESALE_STATUS.REFUNDED);
+    assert.equal((await e.getOrder(oA.orderId)).status, PRESALE_STATUS.PENDING_PAYMENT);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// D6: 服务端兑换开关默认关闭且不回退复用推广热钱包
+// ---------------------------------------------------------------------------
+await test('D6: PresaleEngine defaults to closed; cf-worker refuses orders unless A9_PRESALE_OPEN=1 and never falls back to promo hot wallet', async () => {
+  const memClosed = new PresaleHotWalletEngine({ hotWalletAddress: HOT });
+  assert.equal(memClosed.open, false);
+  await assert.rejects(memClosed.createOrderIntent('EQ_X', '5', 1000), { code: 'PRESALE_CLOSED' });
+
+  const d1Closed = new D1PresaleStore({ db: createSqliteD1(FRESH_SCHEMA), hotWalletAddress: HOT });
+  assert.equal(d1Closed.open, false);
+  await assert.rejects(d1Closed.createOrderIntent('EQ_X', '5', 1000), { code: 'PRESALE_CLOSED' });
+
+  const rNoPresale = await cfWorker.fetch(new Request('https://a9.example/api/config'), {
+    A9_PROMO_HOT_WALLET_ADDRESS: 'EQ_PROMO_ONLY',
+  });
+  const cfg1 = await rNoPresale.json();
+  assert.equal(cfg1.data.presaleHotWallet.enabled, false);
+  assert.equal(cfg1.data.presaleHotWallet.open, false);
+
+  const db = createSqliteD1(FRESH_SCHEMA);
+  const idStore = new D1IdentityStore({ db });
+  await idStore.bindWallet('9901', 'EQ_TRY_BUY', 1000);
+  const envClosed = {
+    DB: db,
+    A9_BOT_TOKEN: TEST_BOT_TOKEN,
+    A9_PRESALE_HOT_WALLET_ADDRESS: 'EQ_PRESALE_ONLY',
+  };
+  const cfg2 = await (await cfWorker.fetch(new Request('https://a9.example/api/config'), envClosed)).json();
+  assert.equal(cfg2.data.presaleHotWallet.enabled, true);
+  assert.equal(cfg2.data.presaleHotWallet.open, false);
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const hdrs = await tgHeaders(9901, { nowSec });
+  const orderTry = await cfWorker.fetch(
+    new Request('https://a9.example/api/presale/intent', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...hdrs },
+      body: JSON.stringify({ gramAmount: '5' }),
+    }),
+    envClosed,
+  );
+  const orderBody = await orderTry.json();
+  assert.equal(orderTry.status, 400);
+  assert.equal(orderBody.error.code, 'PRESALE_CLOSED');
+});
+
+// ---------------------------------------------------------------------------
+// P0-F: 收紧 ton_proof 公钥信任边界（未知合约拒绝 + WalletTg 完整校验）
+// ---------------------------------------------------------------------------
+await test('P0-F: unknown non-standard contract with chain get_public_key is REJECTED; WalletTg requires active state + trampoline code + get_public_key', async () => {
+  const kp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+  const pub = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+  const pubHex = Array.from(pub, (b) => b.toString(16).padStart(2, '0')).join('');
+  const unknownCode = cellFromBits('1010101010101010');
+  const unknownData = cellFromBits('00000000');
+  const unknownRoot = cellFromBits('00110', [unknownCode, unknownData]);
+  const unknownWallet = { kp, pubHex, stateInit: await serializeBoc(unknownRoot), address: `0:${await unknownRoot.hashHex()}` };
+  const unknownProof = await signTonProof(unknownWallet, { payload: 'p-unk', domain: 'a9.example', timestamp: 1000 });
+
+  let chainGetterCalled = false;
+  await assert.rejects(
+    verifyTonProof({
+      address: unknownWallet.address,
+      network: '-3',
+      publicKey: pubHex,
+      proof: unknownProof,
+      expectedNetwork: '-3',
+      allowedDomains: ['a9.example'],
+      chainPublicKeyResolver: async () => { chainGetterCalled = true; return pubHex; },
+      walletStateResolver: async () => ({ state: 'active', codeBoc: await serializeBoc(unknownCode) }),
+      nowSec: 1000,
+    }),
+    { code: 'PROOF_UNSUPPORTED_WALLET' },
+  );
+  assert.equal(chainGetterCalled, false);
+
+  const trampolineHashBits = BigInt(`0x${WALLET_TG_TRAMPOLINE_HASH}`).toString(2).padStart(256, '0');
+  const libTypeBits = '00000010';
+  const tgCodeCell = cellFromBits(libTypeBits + trampolineHashBits, [], true);
+  const tgCodeBoc = await serializeBoc(tgCodeCell);
+  const tgDataCell = cellFromBits('00000000');
+  const tgRoot = cellFromBits('00110', [tgCodeCell, tgDataCell]);
+  const rotatedKp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+  const rotatedPub = new Uint8Array(await crypto.subtle.exportKey('raw', rotatedKp.publicKey));
+  const rotatedPubHex = Array.from(rotatedPub, (b) => b.toString(16).padStart(2, '0')).join('');
+  const tgWallet = { kp: rotatedKp, pubHex: rotatedPubHex, stateInit: await serializeBoc(tgRoot), address: `0:${await tgRoot.hashHex()}` };
+  const tgProof = await signTonProof(tgWallet, { payload: 'p-tg', domain: 'a9.example', timestamp: 1000 });
+
+  await assert.rejects(
+    verifyTonProof({
+      address: tgWallet.address, network: '-3', publicKey: rotatedPubHex, proof: tgProof,
+      expectedNetwork: '-3', allowedDomains: ['a9.example'],
+      walletStateResolver: async () => ({ state: 'uninitialized', codeBoc: null }),
+      chainPublicKeyResolver: async () => rotatedPubHex,
+      nowSec: 1000,
+    }),
+    { code: 'PROOF_WALLET_NOT_ACTIVE' },
+  );
+  await assert.rejects(
+    verifyTonProof({
+      address: tgWallet.address, network: '-3', publicKey: rotatedPubHex, proof: tgProof,
+      expectedNetwork: '-3', allowedDomains: ['a9.example'],
+      walletStateResolver: async () => ({ state: 'active', codeBoc: await serializeBoc(unknownCode) }),
+      chainPublicKeyResolver: async () => rotatedPubHex,
+      nowSec: 1000,
+    }),
+    { code: 'PROOF_CODE_MISMATCH' },
+  );
+  await assert.rejects(
+    verifyTonProof({
+      address: tgWallet.address, network: '-3', publicKey: rotatedPubHex, proof: tgProof,
+      expectedNetwork: '-3', allowedDomains: ['a9.example'],
+      walletStateResolver: async () => ({ state: 'active', codeBoc: tgCodeBoc }),
+      chainPublicKeyResolver: async () => null,
+      nowSec: 1000,
+    }),
+    { code: 'WALLET_PUBKEY_UNAVAILABLE' },
+  );
+  const tgOk = await verifyTonProof({
+    address: tgWallet.address, network: '-3', publicKey: rotatedPubHex, proof: tgProof,
+    expectedNetwork: '-3', allowedDomains: ['a9.example'],
+    walletStateResolver: async () => ({ state: 'active', codeBoc: tgCodeBoc }),
+    chainPublicKeyResolver: async () => rotatedPubHex,
+    nowSec: 1000,
+  });
+  assert.equal(tgOk.walletVersion, 'wallet_tg');
+  assert.equal(tgOk.keySource, 'wallet_tg_chain');
+  assert.equal(tgOk.publicKeyHex, rotatedPubHex);
+});
+
+// ---------------------------------------------------------------------------
+// P0-G: 无链上数据源时绝不伪造轮次、价格、奖池或人数（API + OG HTML/SVG/PNG）
+// ---------------------------------------------------------------------------
+await test('P0-G: without chain data source, cf-worker config/rounds/OG cards return unavailable/pending with zero fabricated numbers', async () => {
+  const cfgRes = await cfWorker.fetch(new Request('https://a9.example/api/config'), {});
+  const cfg = await cfgRes.json();
+  assert.equal(cfg.data.poolState.dataAvailable, false);
+  assert.equal(cfg.data.poolState.poolRemainingRaw, null);
+  assert.equal(cfg.data.poolState.currentRoundId, null);
+
+  const roundsRes = await cfWorker.fetch(new Request('https://a9.example/api/rounds'), {});
+  const rounds = await roundsRes.json();
+  assert.deepEqual(rounds.data, []);
+
+  const ogHtml = await (await cfWorker.fetch(new Request('https://a9.example/c/round/1'), { A9_PUBLIC_ORIGIN: 'https://a9.example' })).text();
+  assert.equal(ogHtml.includes('700,000,000'), false);
+  assert.ok(ogHtml.includes('pending verification'));
+
+  const ogSvg = await (await cfWorker.fetch(new Request('https://a9.example/c/img/round/1.svg'), {})).text();
+  assert.equal(ogSvg.includes('700,000,000'), false);
+  assert.equal(ogSvg.includes('0/24'), false);
+  assert.ok(ogSvg.includes('DATA PENDING'));
+
+  const ogPngRes = await cfWorker.fetch(new Request('https://a9.example/c/img/round/1.png'), {});
+  assert.equal(ogPngRes.status, 200);
+  assert.equal(ogPngRes.headers.get('content-type'), 'image/png');
+  const pngBytes = new Uint8Array(await ogPngRes.arrayBuffer());
+  assert.deepEqual(Array.from(pngBytes.subarray(0, 8)), [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+});
+
+// ---------------------------------------------------------------------------
+// P0-H: 商会访问边界（匿名拒绝、跨用户拒绝、成员不泄 tgChatId、会长本人可见）
+// ---------------------------------------------------------------------------
+await test('P0-H: GET /api/team/:wallet blocks anonymous & cross-user; hides tgChatId from non-captain members', async () => {
+  const { route, identityStore } = buildRouter();
+  await identityStore.bindWallet('8101', 'EQ_CAP_H', 900);
+  await identityStore.bindWallet('8102', 'EQ_MEM_H', 900);
+  await identityStore.bindWallet('8103', 'EQ_OUTSIDER_H', 900);
+
+  const hCap = await tgHeaders(8101, { nowSec: 1000 });
+  const hMem = await tgHeaders(8102, { nowSec: 1000 });
+  const hOut = await tgHeaders(8103, { nowSec: 1000 });
+  const hUnbound = await tgHeaders(8104, { nowSec: 1000 });
+
+  await route({
+    method: 'POST',
+    pathname: '/api/team/bind-tg',
+    body: { teamId: 'G-PRIV', name: 'Private Guild', tgGroupHandle: '@priv_guild', tgChatId: '-100999888777' },
+    headers: hCap,
+    nowSec: 1000,
+  });
+  const joinRes = await route({
+    method: 'POST',
+    pathname: '/api/team/join',
+    body: { teamId: 'G-PRIV' },
+    headers: hMem,
+    nowSec: 1001,
+  });
+  assert.equal(joinRes.status, 200);
+  assert.equal('tgChatId' in joinRes.body.data, false);
+
+  assert.equal((await route({ method: 'GET', pathname: '/api/team/EQ_CAP_H', nowSec: 1002 })).status, 401);
+  assert.equal((await route({ method: 'GET', pathname: '/api/team/EQ_CAP_H', headers: hUnbound, nowSec: 1002 })).status, 403);
+  assert.equal((await route({ method: 'GET', pathname: '/api/team/EQ_CAP_H', headers: hOut, nowSec: 1002 })).status, 403);
+  assert.equal((await route({ method: 'GET', pathname: '/api/team/EQ_CAP_H', headers: hMem, nowSec: 1002 })).status, 403);
+
+  const memView = await route({ method: 'GET', pathname: '/api/team/EQ_MEM_H', headers: hMem, nowSec: 1002 });
+  assert.equal(memView.status, 200);
+  assert.equal(memView.body.data.teamId, 'G-PRIV');
+  assert.equal(memView.body.data.role, 'member');
+  assert.equal('tgChatId' in memView.body.data, false);
+
+  const memUserView = await route({ method: 'GET', pathname: '/api/user/EQ_MEM_H', headers: hMem, nowSec: 1002 });
+  assert.equal('tgChatId' in memUserView.body.data.team, false);
+
+  const capView = await route({ method: 'GET', pathname: '/api/team/EQ_CAP_H', headers: hCap, nowSec: 1002 });
+  assert.equal(capView.status, 200);
+  assert.equal(capView.body.data.role, 'captain');
+  assert.equal(capView.body.data.tgChatId, '-100999888777');
 });
 
 await test('ineligible user (payout only broadcast, not confirmed) cannot activate A9 prediction reward', async () => {
   const pred = new PredictionEngine({ defaultPoolA9Raw: '10000000000000' });
-  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT });
+  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT, open: true });
   const { route, identityStore } = buildRouter({ predictionEngine: pred, presaleEngine: presale });
   await identityStore.bindWallet('9501', 'EQ_HALFWAY', 900);
   pred.placeBet({ roundId: 1, userId: '9501', side: 'PASS' }, 1000);
@@ -642,7 +1282,7 @@ await test('D1 social store: typed group handle stays verifying (no fake "bound"
 });
 
 await test('admin anomaly API requires the admin token and resolves with an audit trail', async () => {
-  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT });
+  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT, open: true });
   const { route } = buildRouter({ presaleEngine: presale });
   await presale.ingestInbound({ txHash: 'adm-1', finality: 'finalized', to: HOT, from: 'EQ_PAYER', valueNano: '7000000000', memo: 'buy:nope' }, 100);
   assert.equal((await route({ method: 'GET', pathname: '/api/admin/presale/anomalies', nowSec: 101 })).status, 401);

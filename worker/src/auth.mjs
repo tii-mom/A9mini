@@ -8,7 +8,7 @@
 //     the wallet's on-chain public key. Client-supplied userId / walletAddress never select
 //     the account that is read or mutated.
 import { addressKey, parseTonAddress } from './ton-address.mjs';
-import { inspectWalletStateInit } from './ton-cell.mjs';
+import { inspectWalletStateInit, inspectCodeBocIdentity, WALLET_TG_TRAMPOLINE_HASH } from './ton-cell.mjs';
 
 /** initData older than this is rejected (seconds). Owner to confirm; see phase-1 report. */
 export const INIT_DATA_MAX_AGE_SEC = 24 * 3600;
@@ -217,16 +217,17 @@ export async function verifyTonProofSignature({ address, proof, publicKeyHex, al
 }
 
 /**
- * Full ton_proof verification (P0-1, acceptance item 1):
- *   1. network: account.chain must equal the server's network (A9_NETWORK); a friendly address
- *      flagged test-only is refused on mainnet;
- *   2. StateInit: proof.state_init (walletStateInit) is required and its representation hash
- *      must equal the address hash (so the key below really belongs to this address);
- *   3. public key source: parsed from StateInit for known standard wallets (v3r1/v3r2/v4r2/
- *      v5beta/v5r1) and/or read on chain via get_public_key; when both exist they must match;
- *      the wallet-reported account.publicKey, if sent, must match too;
- *   4. domain allow-list, timestamp within ±maxSkewSec, ed25519 signature.
- * The single-use server payload is checked by the caller BEFORE this function.
+ * 完整 ton_proof 校验（P0-F 严格公钥信任边界，严格对照 TON 官方 ton-proof 文档）：
+ *   1. 网络：account.chain 必须等于服务端 A9_NETWORK；主网拒绝 test-only 地址；
+ *   2. StateInit：必须提供 walletStateInit 且其 cell 哈希等于钱包地址哈希；
+ *   3. 公钥信任边界：
+ *      - 已审核的标准固定公钥钱包（v3r1/v3r2/v4r2/v5beta/v5r1）：通过可信代码哈希识别版本，
+ *        从 StateInit data 解析公钥；若可读取链上 get_public_key 则校验二者一致；
+ *      - WalletTg（trampoline 代码哈希）：必须校验链上账户已部署且为 active、链上当前代码身份
+ *        仍匹配 trampoline 哈希，再通过 get_public_key() 获取当前活跃签名公钥；
+ *      - 未审核的非标准合约：默认拒绝（PROOF_UNSUPPORTED_WALLET），绝不因链上存在 get_public_key 而信任；
+ *   4. 若上报了 account.publicKey 必须与解析出的公钥一致；校验域名白名单、±maxSkewSec 时间戳与 Ed25519 签名。
+ * 一次性服务端挑战载荷须由调用方在进入本函数前先消费。
  */
 export async function verifyTonProof({
   address,
@@ -236,6 +237,7 @@ export async function verifyTonProof({
   expectedNetwork,
   allowedDomains = [],
   chainPublicKeyResolver = null,
+  walletStateResolver = null,
   nowSec = Math.floor(Date.now() / 1000),
   maxSkewSec = TON_PROOF_MAX_SKEW_SEC,
 }) {
@@ -259,27 +261,77 @@ export async function verifyTonProof({
   const addrHashHex = Array.from(parsed.hash, (b) => b.toString(16).padStart(2, '0')).join('');
   if (init.addressHashHex !== addrHashHex) throw new AuthError('PROOF_INVALID', 'walletStateInit does not hash to the wallet address', 400);
 
-  let chainKey = null;
-  if (typeof chainPublicKeyResolver === 'function') {
+  // 未审核的非标准合约默认拒绝，严禁仅凭链上 get_public_key 信任未知合约。
+  if (init.walletKind === 'unsupported') {
+    throw new AuthError('PROOF_UNSUPPORTED_WALLET', 'unsupported or unreviewed wallet contract', 400);
+  }
+
+  let publicKeyHex = '';
+  let keySource = '';
+
+  if (init.walletKind === 'standard') {
+    const initKey = init.publicKeyHex;
+    let chainKey = null;
+    if (typeof chainPublicKeyResolver === 'function') {
+      try {
+        chainKey = (await chainPublicKeyResolver(address)) || null;
+      } catch {
+        chainKey = null; // 未部署的标准钱包链上尚无 get-method，可凭可信 StateInit 校验
+      }
+    }
+    if (chainKey && initKey && chainKey.toLowerCase() !== initKey.toLowerCase()) {
+      throw new AuthError('PROOF_INVALID', 'on-chain public key differs from walletStateInit key', 400);
+    }
+    publicKeyHex = String(initKey || '').toLowerCase();
+    keySource = chainKey ? 'chain+state_init' : 'state_init';
+  } else if (init.walletKind === 'wallet_tg') {
+    // WalletTg（支持密钥轮换）：必须先校验链上账户为 active 且当前代码哈希等于 trampoline，再调 get_public_key()。
+    if (typeof walletStateResolver !== 'function' || typeof chainPublicKeyResolver !== 'function') {
+      throw new AuthError('WALLET_STATE_UNAVAILABLE', 'on-chain account state and public key resolvers are required for WalletTg', 503);
+    }
+    let liveState;
+    try {
+      liveState = await walletStateResolver(address);
+    } catch {
+      throw new AuthError('WALLET_STATE_UNAVAILABLE', 'failed to query live account state for WalletTg', 400);
+    }
+    if (!liveState || liveState.state !== 'active') {
+      throw new AuthError('PROOF_WALLET_NOT_ACTIVE', 'WalletTg account must be deployed and active on-chain', 400);
+    }
+    let liveCodeId = null;
+    if (liveState.codeId) {
+      liveCodeId = String(liveState.codeId).toLowerCase();
+    } else if (liveState.codeBoc) {
+      try {
+        liveCodeId = (await inspectCodeBocIdentity(liveState.codeBoc)).toLowerCase();
+      } catch {
+        liveCodeId = null;
+      }
+    }
+    if (!liveCodeId || liveCodeId !== WALLET_TG_TRAMPOLINE_HASH) {
+      throw new AuthError('PROOF_CODE_MISMATCH', 'live WalletTg code hash does not match trusted trampoline', 400);
+    }
+    let chainKey = null;
     try {
       chainKey = (await chainPublicKeyResolver(address)) || null;
     } catch {
-      chainKey = null; // undeployed wallet or missing get-method
+      chainKey = null;
     }
+    if (!chainKey) {
+      throw new AuthError('WALLET_PUBKEY_UNAVAILABLE', 'failed to read active public key from WalletTg', 400);
+    }
+    publicKeyHex = String(chainKey).toLowerCase();
+    keySource = 'wallet_tg_chain';
   }
-  const initKey = init.publicKeyHex;
-  if (chainKey && initKey && chainKey.toLowerCase() !== initKey.toLowerCase()) {
-    throw new AuthError('PROOF_INVALID', 'on-chain public key differs from walletStateInit key', 400);
-  }
-  const publicKeyHex = (chainKey || initKey || '').toLowerCase();
-  if (!publicKeyHex) throw new AuthError('WALLET_PUBKEY_UNAVAILABLE', 'wallet public key not available from chain or a known wallet StateInit', 400);
+
+  if (!publicKeyHex) throw new AuthError('WALLET_PUBKEY_UNAVAILABLE', 'wallet public key unavailable', 400);
   if (publicKey && String(publicKey).toLowerCase() !== publicKeyHex) {
     throw new AuthError('PROOF_INVALID', 'reported publicKey does not match wallet key', 400);
   }
   await verifyTonProofSignature({ address, proof, publicKeyHex, allowedDomains, nowSec, maxSkewSec });
   return {
     publicKeyHex,
-    keySource: chainKey && initKey ? 'chain+state_init' : chainKey ? 'chain' : 'state_init',
+    keySource,
     walletVersion: init.version,
   };
 }

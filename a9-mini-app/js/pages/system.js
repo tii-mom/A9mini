@@ -117,6 +117,10 @@ export function renderSettingsPage(root) {
 }
 
 export function renderRiskMatrix(root) {
+  if (!config.isDemo) {
+    root.innerHTML = `<section class="card col-gap"><h2>${L('风控保护说明', 'Risk Guard Reference')}</h2><p class="num-xs text-sec">${L('真实模式当前处于只读验收阶段，实时风控告警流待主网接入后开放展示；本页仅在演示模式支持模拟拦截。', 'Live mode is read-only; live risk telemetry awaits mainnet integration. Interactive simulations are demo-only.')}</p></section>`;
+    return;
+  }
   let filter = 'all';
   const render = () => {
     const list = filter === 'all' ? RISK_STATES : RISK_STATES.filter(x => x.cat === filter);

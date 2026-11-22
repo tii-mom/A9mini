@@ -29,10 +29,13 @@ API_BASE = os.getenv("A9_API_BASE", "").rstrip("/")
 PENDING = "待核验"
 STATE_LABELS = {
     "STAKING_OPEN": "参与开放中",
+    "STAKING_CLOSED": "参与已截止",
     "OBSERVING": "24H 观察中",
     "AWAITING_SETTLE": "等待结算",
     "SUCCEEDED": "已达标",
     "FAILED": "未达标",
+    "FAILED_PERMANENT": "未达标",
+    "TECHNICAL_ABORTED": "技术中止",
     "UNOPENED": "未开启",
 }
 
@@ -64,11 +67,15 @@ def current_round_summary():
         return {"round": PENDING, "state": PENDING, "target": PENDING, "twap": PENDING, "qualified": PENDING}
     r = rounds[-1]
     q = r.get("qualifiedCandles")
+    # 兼容 mapV15RoundDetail 输出的 priceUsdE8 以及旧字段 twap24hUsdE8，priceValid=False 时绝不输出 0
+    raw_twap = r.get("priceUsdE8") if r.get("priceValid") is not False else None
+    if raw_twap is None:
+        raw_twap = r.get("twap24hUsdE8")
     return {
         "round": f"#{r.get('roundId')}" if r.get("roundId") else PENDING,
         "state": STATE_LABELS.get(r.get("state"), r.get("state") or PENDING),
         "target": usd_e8(r.get("targetPriceUsdE8")),
-        "twap": usd_e8(r.get("twap24hUsdE8")),
+        "twap": usd_e8(raw_twap),
         "qualified": f"{q}/24" if isinstance(q, int) else PENDING,
     }
 

@@ -34,7 +34,8 @@ export class PresalePayoutRunner {
 
   async tick(nowSec = Math.floor(Date.now() / 1000)) {
     const summary = {
-      skipped: false, dryRun: 0, confirmed: 0, refundQueued: 0, ignored: 0, rejected: 0,
+      skipped: false, dryRun: 0, confirmed: 0, refundQueued: 0, anomalies: 0,
+      otherFlow: 0, dust: 0, ignored: 0, rejected: 0,
       queued: 0, paid: 0, refunded: 0, completed: 0, retry: 0, review: 0, credited: 0, plans: [], errors: [],
     };
     if (this.running) return { ...summary, skipped: true };
@@ -44,24 +45,25 @@ export class PresalePayoutRunner {
         throw new Error('a9Broadcaster callback is required when execute=true');
       }
       const txs = await this.tonCenter.fetchInboundTransfers(this.engine.hotWalletAddress);
+      // 所有到达热钱包的入账均交由引擎统一分类与持久化（不再提前按 buy: 前缀静默丢弃），
+      // 以确保无备注、错备注、错金额、错地址、推广流程与粉尘入账均按规则留痕防重放。
       for (const tx of txs) {
-        if (!tx?.memo || !String(tx.memo).startsWith('buy:')) {
-          // Other memos (e.g. promo "claim:") belong to other flows sharing the wallet.
-          summary.ignored += 1;
-          continue;
-        }
         try {
           if (!this.execute) {
             const plan = await this.engine.planInbound(tx, nowSec);
             if (plan.action === 'REPLAY') { summary.ignored += 1; continue; }
+            if (plan.action === 'OTHER_FLOW') { summary.otherFlow += 1; summary.ignored += 1; continue; }
             summary.dryRun += 1;
             summary.plans.push({ txHash: tx.txHash, action: plan.action, reason: plan.reason });
             this.logger.log?.(`[presale-runner][DRY-RUN] ${plan.action} (${plan.reason}) tx=${tx.txHash}`);
             continue;
           }
           const res = await this.engine.ingestInbound(tx, nowSec);
-          if (res.action === 'REPLAY' || res.action === 'IGNORE_DUST') summary.ignored += 1;
+          if (res.action === 'REPLAY') summary.ignored += 1;
+          else if (res.action === 'IGNORE_DUST') { summary.dust += 1; summary.ignored += 1; }
+          else if (res.action === 'OTHER_FLOW') { summary.otherFlow += 1; summary.ignored += 1; }
           else if (res.action === 'REJECT') summary.rejected += 1;
+          else if (res.action === 'ANOMALY') summary.anomalies += 1;
           else if (res.action === 'CONFIRM') summary.confirmed += 1;
           else if (res.action === 'REFUND') summary.refundQueued += 1;
         } catch (e) {
@@ -72,6 +74,7 @@ export class PresalePayoutRunner {
 
       summary.queued = await this.engine.queueConfirmedPayouts(nowSec);
       const before = await this._countCompleted();
+      const beforeRefunded = await this._countRefunded();
       const ps = await this.engine.processPayouts(nowSec, {
         a9Broadcaster: this.a9Broadcaster,
         refundBroadcaster: this.tonRefundBroadcaster,
@@ -82,6 +85,7 @@ export class PresalePayoutRunner {
       summary.retry = ps.retry;
       summary.review = ps.review;
       summary.completed = Math.max(0, (await this._countCompleted()) - before);
+      summary.refunded = Math.max(0, (await this._countRefunded()) - beforeRefunded);
       summary.errors.push(...ps.errors);
       const cs = await this.engine.processReferralCredits(nowSec, { promoEngine: this.promoEngine || this.engine.promoEngine });
       summary.credited = cs.credited;
@@ -96,6 +100,11 @@ export class PresalePayoutRunner {
 
   async _countCompleted() {
     const rows = await this.engine.repo.listOrdersByStatus('COMPLETED');
+    return rows.length;
+  }
+
+  async _countRefunded() {
+    const rows = await this.engine.repo.listOrdersByStatus('REFUNDED');
     return rows.length;
   }
 }

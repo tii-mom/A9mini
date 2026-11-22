@@ -232,7 +232,7 @@ await test('PresaleHotWalletEngine handles valid fill, passive free refund, no-o
   const { PresaleHotWalletEngine, PRESALE_STATUS } = await import('../src/presale-hotwallet.mjs');
   const HOT = 'EQ_PRESALE_HOT';
   const ALICE = 'EQ_ALICE';
-  const engine = new PresaleHotWalletEngine({ hotWalletAddress: HOT, rateA9PerTon: 2000n, minOrderTon: 5n, maxOrderTon: 200n, defaultQuotaTon: 100n });
+  const engine = new PresaleHotWalletEngine({ hotWalletAddress: HOT, rateA9PerTon: 2000n, minOrderTon: 5n, maxOrderTon: 200n, defaultQuotaTon: 100n, open: true });
 
   const order = await engine.createOrderIntent(ALICE, 10, 1000);
   assert.equal(order.status, PRESALE_STATUS.PENDING_PAYMENT);
@@ -261,8 +261,8 @@ await test('PresaleHotWalletEngine handles valid fill, passive free refund, no-o
   const [anomaly] = await engine.listAnomalies();
   assert.equal(anomaly.refundTo, ALICE);
   assert.equal(anomaly.valueNano, '95000000000');
-  await assert.rejects(engine.resolveAnomaly('p3', { decision: 'REFUND', faultParty: 'USER', operator: 'ops1' }, 1031), { code: 'FEE_RULE_NOT_PUBLISHED' });
-  const resolved = await engine.resolveAnomaly('p3', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops1' }, 1032);
+  // P0-D: 未配置已公示扣费规则时，USER 责任方也按零手续费全额退款，绝不阻止本金退还。
+  const resolved = await engine.resolveAnomaly('p3', { decision: 'REFUND', faultParty: 'USER', operator: 'ops1' }, 1032);
   assert.equal(resolved.refundNano, '95000000000');
   assert.equal(resolved.feeNano, '0');
 
@@ -394,7 +394,7 @@ await test('PresalePayoutRunner polls buy:<id> finalized GRAM, broadcasts A9 pay
   const { PresalePayoutRunner } = await import('../src/presale-runner.mjs');
   const HOT = 'EQ_PRESALE_HOT_RUNNER';
   const USER = 'EQ_BUYER_DAVE';
-  const engine = new PresaleHotWalletEngine({ hotWalletAddress: HOT, rateA9PerTon: 2002n, minOrderTon: 1n });
+  const engine = new PresaleHotWalletEngine({ hotWalletAddress: HOT, rateA9PerTon: 2002n, minOrderTon: 1n, open: true });
   const order = await engine.createOrderIntent(USER, 1, 2000);
 
   const fakeTc = {
@@ -445,7 +445,7 @@ await test('First-touch referral binding blocks self/mutual invites and credits 
 
   const social = new SocialStore();
   const promo = new PromoHotWalletEngine({ hotWalletAddress: HOT });
-  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT, rateA9PerTon: 2000n, minOrderTon: 5n, promoEngine: promo, socialStore: social });
+  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT, rateA9PerTon: 2000n, minOrderTon: 5n, open: true, promoEngine: promo, socialStore: social });
 
   // Self-referral rejected
   assert.equal(social.bindReferral(BUYER, BUYER, 100), null);
@@ -479,7 +479,7 @@ await test('POST /api/prediction/activate enforces anti-sybil capital check and 
   const WALLET2 = 'EQ_USER_ACT_2';
   const pred = new PredictionEngine({ defaultPoolA9Raw: '10000000000000' });
   const promo = new PromoHotWalletEngine({ hotWalletAddress: HOT });
-  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT, rateA9PerTon: 2000n, minOrderTon: 5n });
+  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT, rateA9PerTon: 2000n, minOrderTon: 5n, open: true });
   const stateStore = {
     getTiming: () => ({ observationSeconds: 86400 }),
     getProtocolState: () => ({ currentRoundId: 1, successCount: 0 }),
@@ -762,7 +762,7 @@ await test('D1 full-stack persistence loop (real SQLite): bindReferral -> placeB
   const promo = new D1PromoStore({ db, hotWalletAddress: HOT });
   const social = new D1SocialStore({ db });
   const pred = new D1PredictionEngine({ db, defaultPoolA9Raw: '20000000000000' });
-  const presale = new D1PresaleStore({ db, hotWalletAddress: HOT, rateA9PerTon: 2000n, minOrderTon: 5n, promoEngine: promo, socialStore: social });
+  const presale = new D1PresaleStore({ db, hotWalletAddress: HOT, rateA9PerTon: 2000n, minOrderTon: 5n, open: true, promoEngine: promo, socialStore: social });
   const identityStore = new D1IdentityStore({ db });
   await identityStore.bindWallet('2001', USER_W, 900);
 

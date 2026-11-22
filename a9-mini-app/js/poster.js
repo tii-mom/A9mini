@@ -100,12 +100,12 @@ export function renderProofFlexPoster(canvas, certInput) {
 export function renderStoryPoster(canvas, payload = {}) {
   const r = store.state.round;
   const id = payload.roundId ?? r.currentRound;
-  const same = id === r.currentRound;
+  const same = Boolean(id) && id === r.currentRound;
   paintPoster(
     canvas,
     L('轮次战报', 'Round Report'),
     [
-      L('轮次', 'Round') + ' ' + id,
+      id ? L('轮次', 'Round') + ' ' + id : L('轮次待核验', 'Round pending verification'),
       same
         ? stageLabel(r.stage)
         : L('历史状态待核验', 'Historical state awaits verification'),
@@ -116,7 +116,7 @@ export function renderStoryPoster(canvas, payload = {}) {
           ' / 24'
         : '',
     ],
-    'round_' + id,
+    id ? 'round_' + id : 'round',
     true,
   );
 }

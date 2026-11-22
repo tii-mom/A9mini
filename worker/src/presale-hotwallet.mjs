@@ -124,11 +124,11 @@ export class PresaleEngine {
     maxOrderTon = 200n,
     defaultQuotaTon = 200n,
     totalCapA9Raw = 200_000_000n * A9_RAW,
-    open = true,
+    open = false,
     promoEngine = null,
     socialStore = null,
     orderTtlSec = ORDER_TTL_SEC,
-    userFaultFeeNano = null, // published user-fault fee in GRAM nano; null = no approved rule
+    userFaultFeeNano = null, // published user-fault fee in GRAM nano; null = zero fee (full refund)
   } = {}) {
     if (!repo) throw new PresaleError('CONFIG_MISSING', 'presale repository required');
     if (!hotWalletAddress) throw new PresaleError('CONFIG_MISSING', 'presale hotWalletAddress required');
@@ -257,14 +257,40 @@ export class PresaleEngine {
     return rows.some((o) => o.status === PRESALE_STATUS.COMPLETED);
   }
 
+  async backfillLegacyWalletKeys() {
+    if (typeof this.repo.backfillLegacyWalletKeys === 'function') {
+      return this.repo.backfillLegacyWalletKeys();
+    }
+    return 0;
+  }
+
   _refundAmount(receivedNano, passive) {
     if (passive && receivedNano >= PASSIVE_FREE_MIN_NANO) return { refundNano: receivedNano, feeDeducted: false };
-    return { refundNano: receivedNano > USER_FAULT_FEE_NANO ? receivedNano - USER_FAULT_FEE_NANO : 0n, feeDeducted: true };
+    // 未经批准并公示扣费规则时，默认零手续费全额退款，绝不硬编码扣费。
+    const fee = this.userFaultFeeNano !== null && this.userFaultFeeNano > 0n ? this.userFaultFeeNano : 0n;
+    if (fee === 0n) return { refundNano: receivedNano, feeDeducted: false };
+    return { refundNano: receivedNano > fee ? receivedNano - fee : 0n, feeDeducted: true };
+  }
+
+  /**
+   * 识别是否属于原有推广领奖业务（claim:<id>）的合法付款，避免共用热钱包时误记为兑换异常。
+   * 大额（> 0.1 GRAM）但无对应合法推广单的 claim: 备注仍按兑换异常留痕处理，防止大额误转被吞。
+   */
+  async _isPromoFlowTransfer(memo, receivedNano) {
+    if (!memo.startsWith('claim:')) return false;
+    const claimId = memo.slice(6).trim();
+    if (!claimId) return false;
+    if (this.promoEngine && typeof this.promoEngine.getClaim === 'function') {
+      const claim = await this.promoEngine.getClaim(claimId);
+      if (claim) return true;
+    }
+    // 标准推广领奖费为 0.06 GRAM（<= 0.1 GRAM），在未挂载 promoEngine 实例时也归类为推广流程而非粉尘/兑换单。
+    return receivedNano <= DUST_LIMIT_NANO;
   }
 
   /**
    * Pure decision for one inbound transfer. Reads only — safe for dry-run.
-   * action: REJECT | REPLAY | IGNORE_DUST | ANOMALY | REFUND | CONFIRM
+   * action: REJECT | REPLAY | OTHER_FLOW | IGNORE_DUST | ANOMALY | REFUND | CONFIRM
    */
   async planInbound(tx, nowSec = Math.floor(Date.now() / 1000)) {
     if (!tx?.txHash) return { action: 'REJECT', reason: 'missing_tx_hash' };
@@ -275,12 +301,19 @@ export class PresaleEngine {
     let receivedNano;
     try {
       receivedNano = BigInt(String(tx.valueNano ?? '0'));
+      if (receivedNano < 0n) return { action: 'REJECT', reason: 'bad_value' };
     } catch {
       return { action: 'REJECT', reason: 'bad_value' };
     }
-    if (receivedNano <= DUST_LIMIT_NANO) return { action: 'IGNORE_DUST', reason: 'dust', receivedNano };
 
     const memo = String(tx.memo || '').trim();
+    if (await this._isPromoFlowTransfer(memo, receivedNano)) {
+      return { action: 'OTHER_FLOW', reason: 'promo_claim', txHash: tx.txHash, sender: tx.from || null, receivedNano, memo, orderId: null };
+    }
+    if (receivedNano <= DUST_LIMIT_NANO) {
+      return { action: 'IGNORE_DUST', reason: 'dust', txHash: tx.txHash, sender: tx.from || null, receivedNano, memo, orderId: null };
+    }
+
     const order = memo.startsWith('buy:') ? await this.repo.getOrderByMemo(memo) : null;
     const base = { txHash: tx.txHash, sender: tx.from, receivedNano, memo, orderId: order?.orderId || null };
     const refund = (reason, passive, touchesOrder) => ({
@@ -294,14 +327,13 @@ export class PresaleEngine {
     const anomaly = (reason, touchesOrder) => ({ ...base, action: 'ANOMALY', reason, touchesOrder, refundTo: tx.from || null });
 
     if (!order) return anomaly('no_matching_order', false);
-    // The memo alone is not proof: payer must be the order's wallet and pay the exact amount.
+    // 备注不能单独作为归属凭证：付款人必须匹配订单钱包且金额精确一致。
     if (addressKey(tx.from) !== order.walletKey) return anomaly('sender_mismatch', false);
     if (normalizeOrderStatus(order.status, order.payoutTxHash) !== PRESALE_STATUS.PENDING_PAYMENT) {
       return anomaly('order_not_payable', false);
     }
     if (receivedNano !== BigInt(order.tonNano)) return anomaly('amount_mismatch', true);
-    // Exact payment for a valid order that we can no longer fill: existing passive refund rule
-    // (order minimum is 5 GRAM, so this is always a full refund).
+    // 订单有效但已关闭或已过期：执行原被动全额退款规则（最低单 5 GRAM，恒为全额）。
     if (!this.open) return refund('closed', true, true);
     if (nowSec > Number(order.expiresAt || 0) && Number(order.expiresAt || 0) > 0) return refund('expired', true, true);
     return { ...base, action: 'CONFIRM', reason: 'valid', a9AmountRaw: BigInt(order.a9AmountRaw) };
@@ -336,6 +368,8 @@ export class PresaleEngine {
       orderUpdate = {
         orderId: d.orderId,
         from: [PRESALE_STATUS.PENDING_PAYMENT, PRESALE_STATUS.PENDING_TON],
+        // 过期竞争守卫：避免 plan 与 commit 之间订单刚过期释放池子后仍被错误确认导致超卖。
+        notExpiredAt: nowSec,
         patch: { status: PRESALE_STATUS.PAYMENT_CONFIRMED, inboundTxHash: tx.txHash, updatedAt: nowSec },
       };
     } else if (d.action === 'REFUND') {
@@ -373,7 +407,7 @@ export class PresaleEngine {
     }
     const res = await this.repo.commitInbound({ inbound, orderUpdate, payout });
     if (res === 'REPLAY') return { ...d, action: 'REPLAY', applied: false };
-    if (res === 'ORDER_RACE') return { ...d, applied: true, orderRace: true };
+    if (res === 'ORDER_RACE') return { ...d, action: 'ANOMALY', reason: 'order_state_race', applied: true, orderRace: true };
     return { ...d, applied: true };
   }
 
@@ -382,9 +416,12 @@ export class PresaleEngine {
   }
 
   /**
-   * Operator resolution of an anomalous inbound transfer.
-   * decision: 'REFUND' (to the original payer) | 'CLOSE_NO_REFUND' (e.g. already refunded off-band).
-   * faultParty USER may deduct ONLY the published userFaultFeeNano; SYSTEM / UNKNOWN never pay a fee.
+   * 人工处理异常入账：
+   * - decision: 'REFUND'（退回原付款人）| 'CLOSE_NO_REFUND'（例如已线下退款，必须写备注）。
+   * - 手续费规则（P0-D）：未配置已公示的扣费规则（userFaultFeeNano == null）时，USER / SYSTEM / UNKNOWN
+   *   均按零手续费全额退款；若未来配置了有效的扣费规则，也仅对 USER 责任方扣除，SYSTEM / UNKNOWN 恒全额退款。
+   * - 所有权隔离（P0-B）：仅当该异常入账就是订单本人的错额付款且该订单确实绑定了该 txHash（PAYMENT_EXCEPTION）时，
+   *   才关联该订单并驱动其状态；其他误付/重复付款的退款 orderId = null，绝不触碰原备注引用的任何订单。
    */
   async resolveAnomaly(txHash, { decision, faultParty, operator, note = '' } = {}, nowSec = Math.floor(Date.now() / 1000)) {
     const a = await this.repo.getInbound(txHash);
@@ -401,18 +438,31 @@ export class PresaleEngine {
       return { txHash, status: ANOMALY_STATUS.CLOSED_NO_REFUND };
     }
     if (decision !== 'REFUND') throw new PresaleError('BAD_REQUEST', 'decision must be REFUND or CLOSE_NO_REFUND');
-    let feeNano = 0n;
-    if (faultParty === FAULT_PARTY.USER) {
-      if (this.userFaultFeeNano === null) {
-        throw new PresaleError('FEE_RULE_NOT_PUBLISHED', 'no published user-fault fee rule; refund in full or publish the rule first');
-      }
-      feeNano = this.userFaultFeeNano;
-    }
+
+    const feeNano =
+      faultParty === FAULT_PARTY.USER && this.userFaultFeeNano !== null && this.userFaultFeeNano > 0n
+        ? this.userFaultFeeNano
+        : 0n;
     if (received <= feeNano) throw new PresaleError('BAD_AMOUNT', 'refund amount would be zero');
     const refundNano = received - feeNano;
+
+    // 严格核验资金归属与订单绑定关系：绝不凭“存在 a.orderId”就自动修改无关或已完成的订单。
+    let linkedOrderId = null;
+    if (a.orderId && a.reason === 'amount_mismatch') {
+      const o = await this.repo.getOrder(a.orderId);
+      if (
+        o &&
+        o.inboundTxHash === txHash &&
+        addressKey(a.sender) === o.walletKey &&
+        o.status === PRESALE_STATUS.PAYMENT_EXCEPTION
+      ) {
+        linkedOrderId = o.orderId;
+      }
+    }
+
     const payout = {
       payoutId: `refund:${txHash}`,
-      orderId: a.orderId || null,
+      orderId: linkedOrderId,
       inboundTxHash: txHash,
       kind: 'REFUND',
       recipient: a.refundTo || a.sender,
@@ -426,8 +476,13 @@ export class PresaleEngine {
       createdAt: nowSec,
       updatedAt: nowSec,
     };
-    const orderPatch = a.orderId
-      ? { orderId: a.orderId, from: [PRESALE_STATUS.PAYMENT_EXCEPTION], patch: { status: PRESALE_STATUS.REFUND_PENDING, refundTonNano: refundNano, updatedAt: nowSec } }
+    const orderPatch = linkedOrderId
+      ? {
+          orderId: linkedOrderId,
+          inboundTxHash: txHash,
+          from: [PRESALE_STATUS.PAYMENT_EXCEPTION],
+          patch: { status: PRESALE_STATUS.REFUND_PENDING, refundTonNano: refundNano, updatedAt: nowSec },
+        }
       : null;
     const ok = await this.repo.resolveAnomaly(txHash, { ...resolution, status: ANOMALY_STATUS.REFUND_QUEUED, feeNano }, payout, orderPatch);
     if (!ok) throw new PresaleError('ALREADY_RESOLVED', 'anomaly already resolved');
@@ -478,11 +533,6 @@ export class PresaleEngine {
     return { payoutId: p.payoutId, orderId: p.orderId, queryId: p.queryId, recipient: p.recipient, tonNano: p.amount };
   }
 
-  async _orderPatchForPayout(p, patch, expect = null) {
-    if (!p.orderId) return;
-    await this.repo.patchOrder(p.orderId, patch, expect);
-  }
-
   async _markConfirmed(p, txHash, nowSec) {
     if (p.kind === 'A9') {
       const order = await this.repo.getOrder(p.orderId);
@@ -494,13 +544,12 @@ export class PresaleEngine {
       await this.repo.completeA9(p.payoutId, p.orderId, txHash, credit, nowSec);
       return;
     }
-    await this.repo.patchPayout(p.payoutId, { status: PAYOUT_STATUS.CONFIRMED, txHash: txHash || p.txHash, updatedAt: nowSec });
-    await this._orderPatchForPayout(p, { status: PRESALE_STATUS.REFUNDED, updatedAt: nowSec });
+    // 退款确认必须原子提交 payout 与真正关联该入账的订单状态（无关异常退款 orderId 为 null，绝不触碰任何订单）。
+    await this.repo.completeRefund(p.payoutId, p.orderId, p.inboundTxHash, txHash || p.txHash, nowSec);
   }
 
   async _needsReview(p, reason, nowSec) {
-    await this.repo.patchPayout(p.payoutId, { status: PAYOUT_STATUS.NEEDS_REVIEW, lastError: reason, updatedAt: nowSec });
-    await this._orderPatchForPayout(p, { status: PRESALE_STATUS.NEEDS_REVIEW, lastError: reason, updatedAt: nowSec });
+    await this.repo.markPayoutNeedsReview(p.payoutId, p.kind, p.orderId, p.inboundTxHash, reason, nowSec);
   }
 
   /**
@@ -526,18 +575,17 @@ export class PresaleEngine {
           }
           const v = await verifier(p);
           if (v?.state === 'CONFIRMED') {
-            await this._markConfirmed(p, v.txHash, nowSec);
+            await this._markConfirmed(p, v.txHash || p.txHash, nowSec);
             s.confirmed += 1;
             continue;
           }
           if (v?.state === 'PENDING') {
-            await this.repo.patchPayout(p.payoutId, { status: PAYOUT_STATUS.SENT, txHash: v.txHash || p.txHash, ambiguous: false, updatedAt: nowSec });
-            await this._orderPatchForPayout(p, { status: p.kind === 'A9' ? PRESALE_STATUS.PAYOUT_SENT : PRESALE_STATUS.REFUND_SENT, updatedAt: nowSec });
+            await this.repo.markPayoutSent(p.payoutId, p.kind, p.orderId, p.inboundTxHash, v.txHash || p.txHash, nowSec);
             s.waiting += 1;
             continue;
           }
           // NOT_FOUND / FAILED -> safe to retry as a fresh attempt.
-          await this.repo.patchPayout(p.payoutId, { status: PAYOUT_STATUS.RETRY, ambiguous: false, updatedAt: nowSec });
+          await this.repo.markPayoutRetry(p.payoutId, p.kind, p.orderId, p.inboundTxHash, { ambiguous: false, lastError: p.lastError || null }, nowSec);
           p.status = PAYOUT_STATUS.RETRY;
           p.ambiguous = false;
         }
@@ -567,18 +615,14 @@ export class PresaleEngine {
           try {
             const sent = await broadcaster(this.buildInstruction(p));
             if (!sent?.txHash) throw Object.assign(new Error('broadcaster returned no txHash'), { notSent: false });
-            await this.repo.patchPayout(p.payoutId, { status: PAYOUT_STATUS.SENT, txHash: sent.txHash, ambiguous: false, lastError: null, updatedAt: nowSec });
-            await this._orderPatchForPayout(p, p.kind === 'A9'
-              ? { status: PRESALE_STATUS.PAYOUT_SENT, payoutTxHash: sent.txHash, lastError: null, updatedAt: nowSec }
-              : { status: PRESALE_STATUS.REFUND_SENT, payoutTxHash: sent.txHash, lastError: null, updatedAt: nowSec });
+            await this.repo.markPayoutSent(p.payoutId, p.kind, p.orderId, p.inboundTxHash, sent.txHash, nowSec);
             p.status = PAYOUT_STATUS.SENT;
             p.txHash = sent.txHash;
             p.updatedAt = nowSec;
             s.broadcast += 1;
           } catch (e) {
             const msg = String(e?.message || e).slice(0, 300);
-            await this.repo.patchPayout(p.payoutId, { status: PAYOUT_STATUS.RETRY, ambiguous: e?.notSent !== true, lastError: msg, updatedAt: nowSec });
-            await this._orderPatchForPayout(p, { status: p.kind === 'A9' ? PRESALE_STATUS.PAYOUT_RETRY : PRESALE_STATUS.REFUND_PENDING, lastError: msg, updatedAt: nowSec });
+            await this.repo.markPayoutRetry(p.payoutId, p.kind, p.orderId, p.inboundTxHash, { ambiguous: e?.notSent !== true, lastError: msg }, nowSec);
             s.retry += 1;
             logger?.log?.(`[presale] payout ${p.payoutId} broadcast failed: ${msg}`);
             continue;
@@ -596,8 +640,7 @@ export class PresaleEngine {
             await this._markConfirmed(p, v.txHash || p.txHash, nowSec);
             s.confirmed += 1;
           } else if (v?.state === 'FAILED') {
-            await this.repo.patchPayout(p.payoutId, { status: PAYOUT_STATUS.RETRY, ambiguous: false, lastError: 'on-chain transfer failed', updatedAt: nowSec });
-            await this._orderPatchForPayout(p, { status: p.kind === 'A9' ? PRESALE_STATUS.PAYOUT_RETRY : PRESALE_STATUS.REFUND_PENDING, updatedAt: nowSec });
+            await this.repo.markPayoutRetry(p.payoutId, p.kind, p.orderId, p.inboundTxHash, { ambiguous: false, lastError: 'on-chain transfer failed' }, nowSec);
             s.retry += 1;
           } else if (nowSec - Number(p.updatedAt || 0) > UNCONFIRMED_REVIEW_SEC) {
             await this._needsReview(p, 'sent but unconfirmed for too long', nowSec);
@@ -709,22 +752,45 @@ export class MemoryPresaleRepo {
   async listOrdersByStatus(status) { return [...this.orders.values()].filter((o) => o.status === status).map(clone); }
   async getInbound(txHash) { return clone(this.inbound.get(txHash)); }
 
+  _hasConflictingPayout(payout) {
+    if (!payout) return false;
+    if (this.payouts.has(payout.payoutId)) return true;
+    for (const existing of this.payouts.values()) {
+      if (payout.kind === 'A9' && payout.orderId && existing.kind === 'A9' && existing.orderId === payout.orderId) return true;
+      if (payout.kind === 'REFUND' && payout.inboundTxHash && existing.kind === 'REFUND' && existing.inboundTxHash === payout.inboundTxHash) return true;
+    }
+    return false;
+  }
+
+  _patchOwnedOrderSync(kind, orderId, inboundTxHash, allowedFrom, patch) {
+    if (!orderId) return false;
+    const o = this.orders.get(orderId);
+    if (!o || !allowedFrom.includes(o.status)) return false;
+    if (kind === 'REFUND' && (!inboundTxHash || o.inboundTxHash !== inboundTxHash)) return false;
+    Object.assign(o, patch);
+    return true;
+  }
+
   async commitInbound({ inbound, orderUpdate, payout }) {
     if (this.inbound.has(inbound.txHash)) return 'REPLAY';
-    if (payout && this.payouts.has(payout.payoutId)) return 'REPLAY';
+    if (this._hasConflictingPayout(payout)) return 'REPLAY';
     let race = false;
     if (orderUpdate) {
       const o = this.orders.get(orderUpdate.orderId);
-      if (o && orderUpdate.from.includes(o.status)) Object.assign(o, orderUpdate.patch);
+      const notExpired = !orderUpdate.notExpiredAt || !o?.expiresAt || Number(o.expiresAt) >= orderUpdate.notExpiredAt;
+      if (o && orderUpdate.from.includes(o.status) && notExpired) Object.assign(o, orderUpdate.patch);
       else race = true;
     }
-    const row = { ...inbound, decision: race ? 'NEEDS_REVIEW' : inbound.decision };
-    if (inbound.anomaly) {
-      delete row.anomaly;
+    const row = race
+      ? { ...inbound, decision: 'ANOMALY', reason: 'order_state_race', anomalyStatus: ANOMALY_STATUS.OPEN, refundTo: inbound.sender || null }
+      : { ...inbound, anomalyStatus: null, refundTo: null };
+    if (!race && inbound.anomaly) {
       Object.assign(row, { anomalyStatus: inbound.anomaly.status, refundTo: inbound.anomaly.refundTo });
     }
+    delete row.anomaly;
     this.inbound.set(inbound.txHash, row);
-    if (payout) this.payouts.set(payout.payoutId, { ...payout });
+    // 发生订单状态竞态时绝不插入孤儿 payout，统一转入 ANOMALY 供审核退款。
+    if (payout && !race) this.payouts.set(payout.payoutId, { ...payout });
     return race ? 'ORDER_RACE' : 'OK';
   }
 
@@ -734,8 +800,8 @@ export class MemoryPresaleRepo {
 
   async resolveAnomaly(txHash, resolution, payout, orderPatch) {
     const r = this.inbound.get(txHash);
-    if (!r || r.anomalyStatus !== 'OPEN') return false;
-    if (payout && this.payouts.has(payout.payoutId)) return false;
+    if (!r || r.decision !== 'ANOMALY' || r.anomalyStatus !== 'OPEN') return false;
+    if (this._hasConflictingPayout(payout)) return false;
     Object.assign(r, {
       anomalyStatus: resolution.status,
       faultParty: resolution.faultParty,
@@ -747,14 +813,15 @@ export class MemoryPresaleRepo {
     if (payout) this.payouts.set(payout.payoutId, { ...payout });
     if (orderPatch) {
       const o = this.orders.get(orderPatch.orderId);
-      if (o && orderPatch.from.includes(o.status)) Object.assign(o, orderPatch.patch);
+      const boundOk = !orderPatch.inboundTxHash || o?.inboundTxHash === orderPatch.inboundTxHash;
+      if (o && boundOk && orderPatch.from.includes(o.status)) Object.assign(o, orderPatch.patch);
     }
     return true;
   }
 
   async queuePayout(orderId, fromStatus, patch, payout) {
     const o = this.orders.get(orderId);
-    if (!o || o.status !== fromStatus || this.payouts.has(payout.payoutId)) return false;
+    if (!o || o.status !== fromStatus || this._hasConflictingPayout(payout)) return false;
     Object.assign(o, patch);
     this.payouts.set(payout.payoutId, { ...payout });
     return true;
@@ -785,12 +852,78 @@ export class MemoryPresaleRepo {
     return true;
   }
 
+  async markPayoutSent(payoutId, kind, orderId, inboundTxHash, txHash, nowSec) {
+    const p = this.payouts.get(payoutId);
+    if (!p || !['PENDING', 'BROADCASTING', 'RETRY', 'SENT'].includes(p.status)) return false;
+    const nextHash = txHash || p.txHash || null;
+    Object.assign(p, { status: 'SENT', txHash: nextHash, ambiguous: false, lastError: null, updatedAt: nowSec });
+    const o = orderId ? this.orders.get(orderId) : null;
+    const orderHash = nextHash || o?.payoutTxHash || null;
+    if (kind === 'A9') {
+      this._patchOwnedOrderSync('A9', orderId, inboundTxHash, ['PAYOUT_PENDING', 'PAYOUT_RETRY', 'PAYOUT_SENT'], {
+        status: 'PAYOUT_SENT', payoutTxHash: orderHash, lastError: null, updatedAt: nowSec,
+      });
+    } else {
+      this._patchOwnedOrderSync('REFUND', orderId, inboundTxHash, ['REFUND_PENDING', 'REFUND_SENT'], {
+        status: 'REFUND_SENT', payoutTxHash: orderHash, lastError: null, updatedAt: nowSec,
+      });
+    }
+    return true;
+  }
+
+  async markPayoutRetry(payoutId, kind, orderId, inboundTxHash, { ambiguous = false, lastError = null } = {}, nowSec) {
+    const p = this.payouts.get(payoutId);
+    if (!p || !['PENDING', 'BROADCASTING', 'RETRY', 'SENT'].includes(p.status)) return false;
+    Object.assign(p, { status: 'RETRY', ambiguous: Boolean(ambiguous), lastError, updatedAt: nowSec });
+    if (kind === 'A9') {
+      this._patchOwnedOrderSync('A9', orderId, inboundTxHash, ['PAYOUT_PENDING', 'PAYOUT_RETRY', 'PAYOUT_SENT'], {
+        status: 'PAYOUT_RETRY', lastError, updatedAt: nowSec,
+      });
+    } else {
+      this._patchOwnedOrderSync('REFUND', orderId, inboundTxHash, ['REFUND_PENDING', 'REFUND_SENT'], {
+        status: 'REFUND_PENDING', lastError, updatedAt: nowSec,
+      });
+    }
+    return true;
+  }
+
+  async markPayoutNeedsReview(payoutId, kind, orderId, inboundTxHash, reason, nowSec) {
+    const p = this.payouts.get(payoutId);
+    if (!p || !['PENDING', 'BROADCASTING', 'RETRY', 'SENT'].includes(p.status)) return false;
+    Object.assign(p, { status: 'NEEDS_REVIEW', lastError: reason, updatedAt: nowSec });
+    if (kind === 'A9') {
+      this._patchOwnedOrderSync('A9', orderId, inboundTxHash, ['PAYOUT_PENDING', 'PAYOUT_RETRY', 'PAYOUT_SENT'], {
+        status: 'NEEDS_REVIEW', lastError: reason, updatedAt: nowSec,
+      });
+    } else {
+      this._patchOwnedOrderSync('REFUND', orderId, inboundTxHash, ['REFUND_PENDING', 'REFUND_SENT'], {
+        status: 'NEEDS_REVIEW', lastError: reason, updatedAt: nowSec,
+      });
+    }
+    return true;
+  }
+
   async completeA9(payoutId, orderId, txHash, credit, nowSec) {
     const p = this.payouts.get(payoutId);
-    if (p) Object.assign(p, { status: 'CONFIRMED', txHash: txHash || p.txHash, updatedAt: nowSec });
+    if (!p || p.kind !== 'A9' || !['PENDING', 'BROADCASTING', 'RETRY', 'SENT'].includes(p.status)) return false;
+    Object.assign(p, { status: 'CONFIRMED', txHash: txHash || p.txHash, updatedAt: nowSec });
     const o = this.orders.get(orderId);
-    if (o) Object.assign(o, { status: 'COMPLETED', payoutTxHash: txHash || o.payoutTxHash, updatedAt: nowSec });
-    if (credit && !this.credits.has(credit.orderId)) this.credits.set(credit.orderId, { ...credit });
+    const completed = this._patchOwnedOrderSync('A9', orderId, p.inboundTxHash, ['PAYOUT_PENDING', 'PAYOUT_RETRY', 'PAYOUT_SENT'], {
+      status: 'COMPLETED', payoutTxHash: txHash || o?.payoutTxHash || null, updatedAt: nowSec,
+    });
+    if (completed && credit && !this.credits.has(credit.orderId)) this.credits.set(credit.orderId, { ...credit });
+    return true;
+  }
+
+  async completeRefund(payoutId, orderId, inboundTxHash, txHash, nowSec) {
+    const p = this.payouts.get(payoutId);
+    if (!p || p.kind !== 'REFUND' || !['PENDING', 'BROADCASTING', 'RETRY', 'SENT'].includes(p.status)) return false;
+    Object.assign(p, { status: 'CONFIRMED', txHash: txHash || p.txHash, updatedAt: nowSec });
+    const o = orderId ? this.orders.get(orderId) : null;
+    this._patchOwnedOrderSync('REFUND', orderId, inboundTxHash, ['REFUND_PENDING', 'REFUND_SENT'], {
+      status: 'REFUNDED', payoutTxHash: txHash || o?.payoutTxHash || null, updatedAt: nowSec,
+    });
+    return true;
   }
 
   async listCredits(status) { return [...this.credits.values()].filter((c) => c.status === status).map(clone); }

@@ -132,7 +132,11 @@ async function syncPredictionState(root, navigate) {
   const requestedCard = root.querySelector('#a9-prediction-card');
   if (!requestedCard) return;
   const { round, user } = store.state;
-  const roundId = round.currentRound || 1;
+  const roundId = config.isDemo ? (round.currentRound || 1) : round.currentRound;
+  if (!roundId) {
+    requestedCard.textContent = L('轮次数据待核验，暂无法读取预言状态', 'Round data pending verification');
+    return;
+  }
   const uid = getEffectiveUserId(user);
   try {
     const [rData, uData] = await Promise.all([

@@ -3,6 +3,7 @@
 import { rewardForWarmupRank } from './social-store.mjs';
 import { GrowthError, VOUCHER_TTL_MS } from './growth-engine.mjs';
 import { PresaleEngine, PresaleError, RESERVING_STATUSES } from './presale-hotwallet.mjs';
+import { addressKey, addressAliases } from './ton-address.mjs';
 
 // ---------------------------------------------------------------------------
 // 1. D1SocialStore (referrals, warmup_registrations, team_groups, team_members)
@@ -26,7 +27,7 @@ export class D1SocialStore {
   async bindReferral(subjectKey, referrerId, nowSec = Math.floor(Date.now() / 1000)) {
     const subj = String(subjectKey || '').trim();
     const ref = String(referrerId || '').trim();
-    if (!subj || !ref || subj === ref) return null;
+    if (!subj || !ref || subj === ref || addressKey(subj) === addressKey(ref)) return null;
 
     const existing = await this.db
       .prepare('SELECT subject_key, referrer_id, bound_at FROM referrals WHERE subject_key = ?')
@@ -42,10 +43,11 @@ export class D1SocialStore {
 
     // Anti-cycle walk up to depth 8
     let cursor = ref;
+    const subjKey = addressKey(subj);
     for (let depth = 0; depth < 8 && cursor; depth += 1) {
       const parent = await this.getReferrer(cursor);
       if (!parent) break;
-      if (parent === subj) return null;
+      if (parent === subj || addressKey(parent) === subjKey) return null;
       cursor = parent;
     }
 
@@ -595,7 +597,7 @@ function rowToOrder(r) {
   return {
     orderId: r.order_id,
     walletAddress: r.wallet_address,
-    walletKey: r.wallet_key || r.wallet_address,
+    walletKey: r.wallet_key || addressKey(r.wallet_address),
     tgUserId: r.tg_user_id || null,
     referrerId: r.referrer_id || null,
     tonNano: BigInt(r.ton_nano || '0'),
@@ -684,12 +686,16 @@ export class D1PresaleRepo {
     let userReservedNano = 0n;
     for (const r of res?.results || []) {
       reservedA9Raw += BigInt(r.a9_amount_raw || '0');
-      if ((r.wallet_key || r.wallet_address) === walletKey) userReservedNano += BigInt(r.ton_nano || '0');
+      const rowKey = r.wallet_key || addressKey(r.wallet_address);
+      if (rowKey === walletKey) userReservedNano += BigInt(r.ton_nano || '0');
     }
     return { reservedA9Raw, userReservedNano };
   }
 
   async insertOrderIfCapacity(o, { capA9Raw, userQuotaNano, nowSec }) {
+    // 同时覆盖新行（wallet_key）与尚未回填的历史友好地址行（EQ/UQ/kQ/0Q/raw 全部规范形式），保持单语句原子性。
+    const aliases = addressAliases(o.walletAddress);
+    const aliasPlaceholders = aliases.map(() => '?').join(', ');
     const res = await this.db
       .prepare(
         `INSERT INTO presale_orders
@@ -699,14 +705,14 @@ export class D1PresaleRepo {
          WHERE (SELECT COALESCE(SUM(CAST(a9_amount_raw AS INTEGER)), 0) FROM presale_orders WHERE ${RESERVING_SQL})
                  + CAST(? AS INTEGER) <= CAST(? AS INTEGER)
            AND (SELECT COALESCE(SUM(CAST(ton_nano AS INTEGER)), 0) FROM presale_orders
-                 WHERE (wallet_key = ? OR wallet_address = ?) AND ${RESERVING_SQL})
+                 WHERE (wallet_key = ? OR (wallet_key IS NULL AND wallet_address IN (${aliasPlaceholders}))) AND ${RESERVING_SQL})
                  + CAST(? AS INTEGER) <= CAST(? AS INTEGER)`,
       )
       .bind(
         o.orderId, o.walletAddress, o.walletKey, o.tgUserId, o.referrerId, o.tonNano.toString(), o.a9AmountRaw.toString(), o.memo,
         o.expiresAt, o.createdAt, o.updatedAt,
         nowSec, o.a9AmountRaw.toString(), BigInt(capA9Raw).toString(),
-        o.walletKey, o.walletAddress, nowSec, o.tonNano.toString(), BigInt(userQuotaNano).toString(),
+        o.walletKey, ...aliases, nowSec, o.tonNano.toString(), BigInt(userQuotaNano).toString(),
       )
       .run();
     return changes(res) === 1;
@@ -722,10 +728,28 @@ export class D1PresaleRepo {
 
   async listOrdersByWallet(walletKey) {
     const res = await this.db
-      .prepare('SELECT * FROM presale_orders WHERE wallet_key = ? OR (wallet_key IS NULL AND wallet_address = ?) ORDER BY created_at DESC')
-      .bind(walletKey, walletKey)
+      .prepare('SELECT * FROM presale_orders WHERE wallet_key = ? OR wallet_key IS NULL ORDER BY created_at DESC')
+      .bind(walletKey)
       .all();
-    return (res?.results || []).map(rowToOrder);
+    return (res?.results || [])
+      .filter((r) => (r.wallet_key ? r.wallet_key === walletKey : addressKey(r.wallet_address) === walletKey))
+      .map(rowToOrder);
+  }
+
+  /** 一次性幂等回填历史订单的 wallet_key，迁移后运维可随时执行。 */
+  async backfillLegacyWalletKeys() {
+    const res = await this.db
+      .prepare('SELECT order_id, wallet_address FROM presale_orders WHERE wallet_key IS NULL')
+      .all();
+    const rows = res?.results || [];
+    if (!rows.length) return 0;
+    const stmts = rows.map((r) =>
+      this.db
+        .prepare('UPDATE presale_orders SET wallet_key = ? WHERE order_id = ? AND wallet_key IS NULL')
+        .bind(addressKey(r.wallet_address), r.order_id),
+    );
+    const out = await this.db.batch(stmts);
+    return out.reduce((n, r) => n + changes(r), 0);
   }
 
   async listOrdersByStatus(status) {
@@ -744,7 +768,7 @@ export class D1PresaleRepo {
     return (res?.results || []).map(rowToInbound);
   }
 
-  /** One transaction: close the anomaly (only if still OPEN) + queue the refund + move the order. */
+  /** One transaction: close the anomaly (only if still OPEN) + queue the refund + move the owned order. */
   async resolveAnomaly(txHash, resolution, payout, orderPatch) {
     const stmts = [
       this.db
@@ -755,33 +779,38 @@ export class D1PresaleRepo {
         .bind(resolution.status, resolution.faultParty, resolution.feeNano.toString(), resolution.operator, resolution.resolvedAt, resolution.note, txHash),
     ];
     if (payout) {
-      // Inserted only if the UPDATE above actually closed an OPEN anomaly in this transaction.
+      // 仅当本事务中的异常记录处于目标已决态且该入账交易尚未生成退款 payout 时插入，彻底避免同秒并发触发脏冲突。
       stmts.push(
         this.db
           .prepare(
             `INSERT INTO presale_payouts
                (payout_id, order_id, inbound_tx_hash, kind, recipient, amount, query_id, status, attempts, ambiguous, tx_hash, last_error, created_at, updated_at)
              SELECT ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, ?, ?
-             WHERE EXISTS (SELECT 1 FROM presale_inbound_txs WHERE tx_hash = ? AND anomaly_status = ? AND resolved_at = ?)`,
+             WHERE EXISTS (
+               SELECT 1 FROM presale_inbound_txs
+               WHERE tx_hash = ? AND anomaly_status = ? AND resolved_by = ? AND resolved_at = ?
+             ) AND NOT EXISTS (
+               SELECT 1 FROM presale_payouts WHERE payout_id = ? OR (kind = 'REFUND' AND inbound_tx_hash = ?)
+             )`,
           )
-          .bind(payout.payoutId, payout.orderId, payout.inboundTxHash, payout.kind, payout.recipient, payout.amount, payout.queryId, payout.status, payout.createdAt, payout.updatedAt, txHash, resolution.status, resolution.resolvedAt),
+          .bind(
+            payout.payoutId, payout.orderId, payout.inboundTxHash, payout.kind, payout.recipient, payout.amount, payout.queryId, payout.status, payout.createdAt, payout.updatedAt,
+            txHash, resolution.status, resolution.operator, resolution.resolvedAt,
+            payout.payoutId, payout.inboundTxHash,
+          ),
       );
     }
     if (orderPatch) {
       const set = buildSet(orderPatch.patch, ORDER_COLS);
+      const inboundCond = orderPatch.inboundTxHash ? ' AND inbound_tx_hash = ?' : '';
+      const inboundArgs = orderPatch.inboundTxHash ? [orderPatch.inboundTxHash] : [];
       stmts.push(
         this.db
-          .prepare(`UPDATE presale_orders SET ${set.sql} WHERE order_id = ? AND status IN (${orderPatch.from.map(() => '?').join(', ')})`)
-          .bind(...set.vals, orderPatch.orderId, ...orderPatch.from),
+          .prepare(`UPDATE presale_orders SET ${set.sql} WHERE order_id = ?${inboundCond} AND status IN (${orderPatch.from.map(() => '?').join(', ')})`)
+          .bind(...set.vals, orderPatch.orderId, ...inboundArgs, ...orderPatch.from),
       );
     }
-    let out;
-    try {
-      out = await this.db.batch(stmts);
-    } catch (e) {
-      if (isUnique(e)) return false;
-      throw e;
-    }
+    const out = await this.db.batch(stmts);
     return changes(out?.[0]) === 1;
   }
 
@@ -809,25 +838,48 @@ export class D1PresaleRepo {
     ];
     if (orderUpdate) {
       const set = buildSet(orderUpdate.patch, ORDER_COLS);
+      const expCond = orderUpdate.notExpiredAt ? ' AND (expires_at = 0 OR expires_at >= ?)' : '';
+      const expArgs = orderUpdate.notExpiredAt ? [orderUpdate.notExpiredAt] : [];
       stmts.push(
         this.db
-          .prepare(`UPDATE presale_orders SET ${set.sql} WHERE order_id = ? AND status IN (${orderUpdate.from.map(() => '?').join(', ')})`)
-          .bind(...set.vals, orderUpdate.orderId, ...orderUpdate.from),
+          .prepare(`UPDATE presale_orders SET ${set.sql} WHERE order_id = ? AND status IN (${orderUpdate.from.map(() => '?').join(', ')})${expCond}`)
+          .bind(...set.vals, orderUpdate.orderId, ...orderUpdate.from, ...expArgs),
       );
     }
-    if (payout) stmts.push(this._insertPayoutStmt(payout));
+    if (payout) {
+      if (orderUpdate) {
+        // 若关联订单状态竞争更新失败，则绝不插入孤儿 payout。
+        stmts.push(
+          this.db
+            .prepare(
+              `INSERT INTO presale_payouts
+                 (payout_id, order_id, inbound_tx_hash, kind, recipient, amount, query_id, status, attempts, ambiguous, tx_hash, last_error, created_at, updated_at)
+               SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?
+               WHERE EXISTS (SELECT 1 FROM presale_orders WHERE order_id = ? AND inbound_tx_hash = ?)`,
+            )
+            .bind(
+              payout.payoutId, payout.orderId, payout.inboundTxHash, payout.kind, payout.recipient, payout.amount, payout.queryId, payout.status, payout.attempts, payout.ambiguous ? 1 : 0, payout.createdAt, payout.updatedAt,
+              orderUpdate.orderId, inbound.txHash,
+            ),
+        );
+      } else {
+        stmts.push(this._insertPayoutStmt(payout));
+      }
+    }
+    let out;
     try {
-      await this.db.batch(stmts);
+      out = await this.db.batch(stmts);
     } catch (e) {
       if (isUnique(e)) return 'REPLAY';
       throw e;
     }
-    if (orderUpdate) {
-      const o = await this.getOrder(orderUpdate.orderId);
-      if (!o || o.inboundTxHash !== inbound.txHash) {
-        await this.db.prepare("UPDATE presale_inbound_txs SET decision = 'NEEDS_REVIEW' WHERE tx_hash = ?").bind(inbound.txHash).run();
-        return 'ORDER_RACE';
-      }
+    if (orderUpdate && changes(out?.[1]) !== 1) {
+      // 竞态（订单过期释放或已被另一笔入账占用）：转入 OPEN 异常队列供人工退款，绝不超卖或遗漏资金。
+      await this.db
+        .prepare("UPDATE presale_inbound_txs SET decision = 'ANOMALY', reason = 'order_state_race', anomaly_status = 'OPEN', refund_to = ? WHERE tx_hash = ?")
+        .bind(inbound.sender || null, inbound.txHash)
+        .run();
+      return 'ORDER_RACE';
     }
     return 'OK';
   }
@@ -884,19 +936,125 @@ export class D1PresaleRepo {
     return changes(res) === 1;
   }
 
+  async markPayoutSent(payoutId, kind, orderId, inboundTxHash, txHash, nowSec) {
+    const stmts = [
+      this.db
+        .prepare("UPDATE presale_payouts SET status = 'SENT', tx_hash = COALESCE(?, tx_hash), ambiguous = 0, last_error = NULL, updated_at = ? WHERE payout_id = ? AND status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT')")
+        .bind(txHash || null, nowSec, payoutId),
+    ];
+    if (orderId) {
+      if (kind === 'A9') {
+        stmts.push(
+          this.db
+            .prepare("UPDATE presale_orders SET status = 'PAYOUT_SENT', payout_tx_hash = COALESCE(?, payout_tx_hash), last_error = NULL, updated_at = ? WHERE order_id = ? AND status IN ('PAYOUT_PENDING', 'PAYOUT_RETRY', 'PAYOUT_SENT')")
+            .bind(txHash || null, nowSec, orderId),
+        );
+      } else if (inboundTxHash) {
+        stmts.push(
+          this.db
+            .prepare("UPDATE presale_orders SET status = 'REFUND_SENT', payout_tx_hash = COALESCE(?, payout_tx_hash), last_error = NULL, updated_at = ? WHERE order_id = ? AND inbound_tx_hash = ? AND status IN ('REFUND_PENDING', 'REFUND_SENT')")
+            .bind(txHash || null, nowSec, orderId, inboundTxHash),
+        );
+      }
+    }
+    const out = await this.db.batch(stmts);
+    return changes(out?.[0]) === 1;
+  }
+
+  async markPayoutRetry(payoutId, kind, orderId, inboundTxHash, { ambiguous = false, lastError = null } = {}, nowSec) {
+    const stmts = [
+      this.db
+        .prepare("UPDATE presale_payouts SET status = 'RETRY', ambiguous = ?, last_error = ?, updated_at = ? WHERE payout_id = ? AND status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT')")
+        .bind(ambiguous ? 1 : 0, lastError, nowSec, payoutId),
+    ];
+    if (orderId) {
+      if (kind === 'A9') {
+        stmts.push(
+          this.db
+            .prepare("UPDATE presale_orders SET status = 'PAYOUT_RETRY', last_error = ?, updated_at = ? WHERE order_id = ? AND status IN ('PAYOUT_PENDING', 'PAYOUT_RETRY', 'PAYOUT_SENT')")
+            .bind(lastError, nowSec, orderId),
+        );
+      } else if (inboundTxHash) {
+        stmts.push(
+          this.db
+            .prepare("UPDATE presale_orders SET status = 'REFUND_PENDING', last_error = ?, updated_at = ? WHERE order_id = ? AND inbound_tx_hash = ? AND status IN ('REFUND_PENDING', 'REFUND_SENT')")
+            .bind(lastError, nowSec, orderId, inboundTxHash),
+        );
+      }
+    }
+    const out = await this.db.batch(stmts);
+    return changes(out?.[0]) === 1;
+  }
+
+  async markPayoutNeedsReview(payoutId, kind, orderId, inboundTxHash, reason, nowSec) {
+    const stmts = [
+      this.db
+        .prepare("UPDATE presale_payouts SET status = 'NEEDS_REVIEW', last_error = ?, updated_at = ? WHERE payout_id = ? AND status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT')")
+        .bind(reason, nowSec, payoutId),
+    ];
+    if (orderId) {
+      if (kind === 'A9') {
+        stmts.push(
+          this.db
+            .prepare("UPDATE presale_orders SET status = 'NEEDS_REVIEW', last_error = ?, updated_at = ? WHERE order_id = ? AND status IN ('PAYOUT_PENDING', 'PAYOUT_RETRY', 'PAYOUT_SENT')")
+            .bind(reason, nowSec, orderId),
+        );
+      } else if (inboundTxHash) {
+        stmts.push(
+          this.db
+            .prepare("UPDATE presale_orders SET status = 'NEEDS_REVIEW', last_error = ?, updated_at = ? WHERE order_id = ? AND inbound_tx_hash = ? AND status IN ('REFUND_PENDING', 'REFUND_SENT')")
+            .bind(reason, nowSec, orderId, inboundTxHash),
+        );
+      }
+    }
+    const out = await this.db.batch(stmts);
+    return changes(out?.[0]) === 1;
+  }
+
   async completeA9(payoutId, orderId, txHash, credit, nowSec) {
     const stmts = [
-      this.db.prepare("UPDATE presale_payouts SET status = 'CONFIRMED', tx_hash = COALESCE(?, tx_hash), updated_at = ? WHERE payout_id = ?").bind(txHash || null, nowSec, payoutId),
-      this.db.prepare("UPDATE presale_orders SET status = 'COMPLETED', payout_tx_hash = COALESCE(?, payout_tx_hash), updated_at = ? WHERE order_id = ?").bind(txHash || null, nowSec, orderId),
+      this.db
+        .prepare("UPDATE presale_payouts SET status = 'CONFIRMED', tx_hash = COALESCE(?, tx_hash), updated_at = ? WHERE payout_id = ? AND kind = 'A9' AND status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT')")
+        .bind(txHash || null, nowSec, payoutId),
+      this.db
+        .prepare("UPDATE presale_orders SET status = 'COMPLETED', payout_tx_hash = COALESCE(?, payout_tx_hash), updated_at = ? WHERE order_id = ? AND status IN ('PAYOUT_PENDING', 'PAYOUT_RETRY', 'PAYOUT_SENT')")
+        .bind(txHash || null, nowSec, orderId),
     ];
     if (credit) {
       stmts.push(
         this.db
-          .prepare('INSERT OR IGNORE INTO presale_referral_credits (order_id, referrer, amount_raw, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-          .bind(credit.orderId, credit.referrer, credit.amountRaw, credit.status, credit.createdAt, credit.updatedAt),
+          .prepare(
+            `INSERT OR IGNORE INTO presale_referral_credits (order_id, referrer, amount_raw, status, created_at, updated_at)
+             SELECT ?, ?, ?, ?, ?, ?
+             WHERE EXISTS (SELECT 1 FROM presale_orders WHERE order_id = ? AND status = 'COMPLETED')`,
+          )
+          .bind(credit.orderId, credit.referrer, credit.amountRaw, credit.status, credit.createdAt, credit.updatedAt, orderId),
       );
     }
-    await this.db.batch(stmts);
+    const out = await this.db.batch(stmts);
+    return changes(out?.[0]) === 1;
+  }
+
+  /**
+   * 原子确认退款（P0-E）：同一事务中更新退款 payout 为 CONFIRMED，
+   * 且仅当 orderId 与 inboundTxHash 绑定吻合且处于 REFUND_PENDING/REFUND_SENT 时才更新该订单为 REFUNDED。
+   * 任一步失败整个 batch 回滚，重启后可安全重新核验而不重复广播。
+   */
+  async completeRefund(payoutId, orderId, inboundTxHash, txHash, nowSec) {
+    const stmts = [
+      this.db
+        .prepare("UPDATE presale_payouts SET status = 'CONFIRMED', tx_hash = COALESCE(?, tx_hash), updated_at = ? WHERE payout_id = ? AND kind = 'REFUND' AND status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT')")
+        .bind(txHash || null, nowSec, payoutId),
+    ];
+    if (orderId && inboundTxHash) {
+      stmts.push(
+        this.db
+          .prepare("UPDATE presale_orders SET status = 'REFUNDED', payout_tx_hash = COALESCE(?, payout_tx_hash), updated_at = ? WHERE order_id = ? AND inbound_tx_hash = ? AND status IN ('REFUND_PENDING', 'REFUND_SENT')")
+          .bind(txHash || null, nowSec, orderId, inboundTxHash),
+      );
+    }
+    const out = await this.db.batch(stmts);
+    return changes(out?.[0]) === 1;
   }
 
   async listCredits(status) {

@@ -177,7 +177,7 @@ CREATE TABLE IF NOT EXISTS presale_inbound_txs (
   sender TEXT,
   value_nano TEXT NOT NULL,
   memo TEXT,
-  decision TEXT NOT NULL, -- CONFIRM | REFUND | IGNORE_DUST | ANOMALY | NEEDS_REVIEW
+  decision TEXT NOT NULL, -- CONFIRM | REFUND | IGNORE_DUST | OTHER_FLOW | ANOMALY | NEEDS_REVIEW
   reason TEXT,
   created_at INTEGER NOT NULL,
   anomaly_status TEXT, -- OPEN | REFUND_QUEUED | CLOSED_NO_REFUND
@@ -204,8 +204,7 @@ CREATE TABLE IF NOT EXISTS presale_payouts (
   tx_hash TEXT UNIQUE,
   last_error TEXT,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  UNIQUE (order_id, kind)
+  updated_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS presale_referral_credits (
@@ -219,3 +218,7 @@ CREATE TABLE IF NOT EXISTS presale_referral_credits (
 
 CREATE INDEX IF NOT EXISTS idx_presale_orders_status ON presale_orders(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_presale_payouts_status ON presale_payouts(status, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_presale_payouts_a9_order
+  ON presale_payouts(order_id) WHERE kind = 'A9' AND order_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_presale_payouts_refund_inbound
+  ON presale_payouts(inbound_tx_hash) WHERE kind = 'REFUND' AND inbound_tx_hash IS NOT NULL;

@@ -15,39 +15,20 @@ import { MemoryIdentityStore } from './auth.mjs';
 const port = Number(process.env.A9_PORT || 8799);
 const host = process.env.A9_HOST || '127.0.0.1';
 
-const A9 = 1_000_000_000n;
-const now = Math.floor(Date.now() / 1000);
-
+// 未配置链上数据源时默认返回空状态（dataAvailable=false），绝不伪造示例轮次、价格、质押额或人数（P0-G）。
 let liveState = {
   protocolState: {
-    currentRoundId: 1,
-    successCount: 0,
-    poolRemainingRaw: String(6_300_000_000n * A9),
-    carryRaw: '0',
-    teamPoolRemainingRaw: String(1_200_000_000n * A9),
-    teamCarryRaw: '0',
-    lastSuccessAt: 0,
-    endAt: 0,
+    dataAvailable: false,
+    currentRoundId: null,
+    successCount: null,
+    poolRemainingRaw: null,
+    carryRaw: null,
+    teamPoolRemainingRaw: null,
+    teamCarryRaw: null,
+    lastSuccessAt: null,
+    endAt: null,
   },
-  rounds: new Map([
-    [1, {
-      roundId: 1,
-      round: {
-        status: 1,
-        targetPriceUsdE8: '232000',
-        twap24hUsdE8: '116000',
-        stakeOpenAt: now - 3600,
-        stakeCloseAt: now + 126000,
-        settledAt: 0,
-        totalStakeRaw: String(1_250_000n * A9),
-        totalWeightRaw: String(2_500_000n * A9),
-        rewardBudgetRaw: String(700_000_000n * A9),
-        qualifiedCandles: 0,
-        stakeCount: 18,
-      },
-      candles: [],
-    }],
-  ]),
+  rounds: new Map(),
 };
 
 const stateStore = {
@@ -68,13 +49,15 @@ const promoEngine = process.env.A9_PROMO_HOT_WALLET_ADDRESS
 const socialStore = new SocialStore();
 const predictionEngine = new PredictionEngine();
 
-const presaleHotAddr = process.env.A9_PRESALE_HOT_WALLET_ADDRESS || process.env.A9_PROMO_HOT_WALLET_ADDRESS;
+// 兑换业务须独立配置 A9_PRESALE_HOT_WALLET_ADDRESS 且默认关闭（A9_PRESALE_OPEN=1 显式开启）。
+const presaleHotAddr = process.env.A9_PRESALE_HOT_WALLET_ADDRESS || null;
 const presaleEngine = presaleHotAddr
   ? new PresaleHotWalletEngine({
       hotWalletAddress: presaleHotAddr,
       rateA9PerTon: BigInt(process.env.A9_PRESALE_RATE_A9_PER_TON || '2002'),
       minOrderTon: BigInt(process.env.A9_PRESALE_MIN_ORDER_TON || '5'),
       maxOrderTon: BigInt(process.env.A9_PRESALE_MAX_ORDER_TON || '200'),
+      open: process.env.A9_PRESALE_OPEN === '1',
       userFaultFeeNano: process.env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
       promoEngine,
       socialStore,
@@ -83,6 +66,7 @@ const presaleEngine = presaleHotAddr
 
 let userReader = null;
 let publicKeyResolver = null;
+let walletStateResolver = null;
 const identityStore = new MemoryIdentityStore();
 
 // Optional live TonCenter chain sync + promo/presale hot-wallet dry-run/live runners
@@ -94,6 +78,7 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
   const rcAddr = process.env.A9_ROUND_CONTROLLER_ADDRESS;
   const jmAddr = process.env.A9_JETTON_MASTER_ADDRESS || null;
   publicKeyResolver = (addr) => tc.fetchWalletPublicKey(addr);
+  walletStateResolver = (addr) => tc.fetchWalletAccountState(addr);
 
   userReader = (wallet) => tc.fetchUserPortfolio(wallet, {
     jettonMasterAddress: jmAddr,
@@ -104,7 +89,7 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
   const syncChain = async () => {
     try {
       const ps = await tc.fetchProtocolState(rcAddr);
-      liveState.protocolState = ps;
+      liveState.protocolState = { dataAvailable: true, ...ps };
       if (ps.currentRoundId > 0) {
         // Refresh recent rounds & any active locked rounds so burnedSlices / unlockedSlices stay fresh
         const startId = Math.max(1, ps.currentRoundId - 5);
@@ -180,7 +165,7 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
   }
 }
 
-const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, userReader, identityStore, publicKeyResolver });
+const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, userReader, identityStore, publicKeyResolver, walletStateResolver });
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${host}:${port}`);

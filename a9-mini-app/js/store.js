@@ -18,6 +18,8 @@ const REF_SESSION_KEY = 'a9_referrer_id_v1';
 const DEFAULT_STATE = {
   user: {
     connected: false,
+    walletVerified: false,
+    walletVerificationState: 'unverified', // 'fresh_proof' | 'restored_binding' | 'unverified'
     tgBound: false,
     address: null,
     shortAddress: null,
@@ -37,10 +39,10 @@ const DEFAULT_STATE = {
     warmupDistStatus: 'pending_freeze'
   },
   round: {
-    currentRound: 1,
+    currentRound: null,
     openEnded: true,
     totalRounds: null,
-    stage: 'participation',
+    stage: null,
     targetPrice: null,
     twap24h: null,
     livePrice: null,
@@ -50,8 +52,8 @@ const DEFAULT_STATE = {
     tonUsd: null,
     poolA9: null,
     teamPoolA9: null,
-    totalStakedTon: 0,
-    totalTraders: 0,
+    totalStakedTon: null,
+    totalTraders: null,
     countdownSec: null,
     earlyBirdSec: null,
     activeCandleSec: 0,
@@ -60,10 +62,10 @@ const DEFAULT_STATE = {
     myWeight: 0,
     myEarlyTier: 2.0,
     // 服务端驱动字段（由 js/data.js 的 mapRoundView 注入）
-    qualifiedCandles: 0,
-    candlesConfirmed: 0,
+    qualifiedCandles: null,
+    candlesConfirmed: null,
     minQualifiedCandles: 16,
-    needMore: 16,
+    needMore: null,
     source: null,
     sourceLabel: null,
     fetchedAt: null,

@@ -56,11 +56,8 @@ export const A9TMA = {
   getUser() {
     const real = this.getRealTelegramUser();
     if (real) return real;
-    return {
-      id: 4402919,
-      username: '@ton_whale_01',
-      firstName: 'TON Whale'
-    };
+    // 非真实 Telegram 环境绝不默认伪造用户 ID（演示模式如需样例由 demo-data.js 提供）。
+    return null;
   },
 
   /**

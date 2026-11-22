@@ -15,9 +15,43 @@ function publicBinding(b) {
   if (!b) return null;
   return {
     address: b.walletAddress,
+    walletKey: b.walletKey,
     boundAt: b.boundAt,
     pendingSwitch: b.pending ? { address: b.pending.walletAddress, effectiveAt: b.pending.effectiveAt } : null,
   };
+}
+
+/**
+ * 商会视图权限裁剪（P0-H）：
+ * 仅对商会会长本人返回内部 tgChatId；普通成员仅可见商会公开/成员信息，绝不泄露内部群 ID。
+ */
+function sanitizeTeamView(team, viewerWalletKey) {
+  if (!team) return null;
+  const isCaptain = Boolean(viewerWalletKey) && addressKey(team.captainWallet) === viewerWalletKey;
+  const base = {
+    teamId: team.teamId,
+    name: team.name,
+    captainWallet: team.captainWallet,
+    tgGroupHandle: team.tgGroupHandle || null,
+    bindStatus: team.bindStatus,
+    memberCount: Number(team.memberCount || 0),
+    role: isCaptain ? 'captain' : 'member',
+    createdAt: team.createdAt,
+    updatedAt: team.updatedAt,
+  };
+  if (isCaptain) base.tgChatId = team.tgChatId || null;
+  return base;
+}
+
+function formatWholeA9FromRaw(raw) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  try {
+    const n = BigInt(String(raw));
+    if (n <= 0n) return null;
+    return (n / 1_000_000_000n).toLocaleString('en-US');
+  } catch {
+    return null;
+  }
 }
 
 function err(code, message, status = 400) {
@@ -45,6 +79,7 @@ export function createApiRouter({
   userReader = null,
   identityStore = new MemoryIdentityStore(),
   publicKeyResolver = null,
+  walletStateResolver = null,
 }) {
   return async function handleRequest({ method, pathname, query = {}, body = null, headers = {}, nowSec = Math.floor(Date.now() / 1000) }) {
     const auth = createRequestAuth({ env, headers, identityStore, nowSec });
@@ -121,6 +156,7 @@ export function createApiRouter({
           expectedNetwork: expectedChainId(env),
           allowedDomains: allowedProofDomains(env),
           chainPublicKeyResolver: publicKeyResolver,
+          walletStateResolver,
           nowSec,
         });
         if (purpose === 'bind') {
@@ -146,15 +182,18 @@ export function createApiRouter({
         const wallet = decodeURIComponent(userMatch[1]);
         const onchain = userReader ? await userReader(wallet) : { jettonWallet: null, a9BalanceRaw: null, tickets: [] };
         let owner = false;
+        let viewerKey = null;
         try {
-          await auth.wallet(wallet);
+          const verifiedWallet = await auth.wallet(wallet);
           owner = true;
+          viewerKey = verifiedWallet.binding.walletKey;
         } catch (_) {
           owner = false;
         }
         const promo = owner && promoEngine ? await promoEngine.getBalance(wallet) : null;
         const presaleQuota = owner && presaleEngine ? await presaleEngine.getQuota(wallet, nowSec) : null;
-        const team = owner && socialStore ? await socialStore.getTeamByWallet(wallet) : null;
+        const rawTeam = owner && socialStore ? await socialStore.getTeamByWallet(wallet) : null;
+        const team = sanitizeTeamView(rawTeam, viewerKey);
         return ok({ walletAddress: wallet, ...onchain, promo, presaleQuota, team, privateDataVisible: owner });
       }
 
@@ -238,14 +277,19 @@ export function createApiRouter({
 
       if (method === 'POST' && pathname === '/api/team/join') {
         if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
-        const { walletAddress } = await auth.wallet(body?.walletAddress || null);
-        return ok(await socialStore.joinTeam({ teamId: body?.teamId, walletAddress, referrerId: body?.referrerId || null }, nowSec));
+        const { binding, walletAddress } = await auth.wallet(body?.walletAddress || null);
+        const team = await socialStore.joinTeam({ teamId: body?.teamId, walletAddress, referrerId: body?.referrerId || null }, nowSec);
+        return ok(sanitizeTeamView(team, binding.walletKey));
       }
 
+      // 商会查询访问边界（P0-H）：必须为已验签且绑定该钱包的本人，严禁向匿名或跨用户泄露内部 tgChatId、私人关联与后台绑定状态。
       const teamMatch = method === 'GET' && pathname.match(/^\/api\/team\/(.+)$/);
       if (teamMatch) {
         if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
-        return ok(await socialStore.getTeamByWallet(decodeURIComponent(teamMatch[1])));
+        const requestedWallet = decodeURIComponent(teamMatch[1]);
+        const { binding, walletAddress } = await auth.wallet(requestedWallet);
+        const team = await socialStore.getTeamByWallet(walletAddress);
+        return ok(sanitizeTeamView(team, binding.walletKey));
       }
 
       // 24H PASS/BURN prediction (free entry). userId = verified Telegram user id, never the body.
@@ -343,16 +387,21 @@ export function createApiRouter({
       const ogPngMatch = method === 'GET' && pathname.match(/^\/c\/img\/(round|burn|proof|bet)\/([^/]+)\.png$/);
       if (ogPngMatch) {
         const [, type, id] = ogPngMatch;
-        const rId = Number(id) || stateStore.getProtocolState().currentRoundId || 1;
-        const item = stateStore.getRound(rId);
+        const parsedId = Number(id);
+        const curId = Number(stateStore.getProtocolState()?.currentRoundId || 0);
+        const rId = Number.isInteger(parsedId) && parsedId > 0 ? parsedId : (curId > 0 ? curId : null);
+        const item = rId ? stateStore.getRound(rId) : null;
         const detail = item ? mapV15RoundDetail(rId, item.round, item.candles, nowSec, stateStore.getTiming()) : null;
         const ratio = query.ratio === '9x16' ? '9x16' : '16x9';
+        const targetNum = detail?.targetPriceUsdE8 ? Number(detail.targetPriceUsdE8) : 0;
         const pngBytes = await renderOgCardPng({
           type,
           roundId: rId,
-          state: detail?.state || 'OBSERVING',
-          qualified: detail?.qualifiedCandles || 0,
-          targetUsd: detail?.targetPriceUsdE8 ? `$${(Number(detail.targetPriceUsdE8) / 1e8).toFixed(4)}` : '--',
+          hasData: Boolean(detail),
+          state: detail?.state || 'UNVERIFIED',
+          qualified: detail ? detail.qualifiedCandles : null,
+          targetUsd: targetNum > 0 ? `$${(targetNum / 1e8).toFixed(4)}` : '--',
+          budgetA9: formatWholeA9FromRaw(detail?.rewardBudgetRaw),
           ratio,
         });
         return { status: 200, contentType: 'image/png', rawBody: pngBytes };
@@ -362,15 +411,20 @@ export function createApiRouter({
       const ogImgMatch = method === 'GET' && pathname.match(/^\/c\/img\/(round|burn|proof|bet)\/([^/]+)\.svg$/);
       if (ogImgMatch) {
         const [, type, id] = ogImgMatch;
-        const rId = Number(id) || stateStore.getProtocolState().currentRoundId || 1;
-        const item = stateStore.getRound(rId);
+        const parsedId = Number(id);
+        const curId = Number(stateStore.getProtocolState()?.currentRoundId || 0);
+        const rId = Number.isInteger(parsedId) && parsedId > 0 ? parsedId : (curId > 0 ? curId : null);
+        const item = rId ? stateStore.getRound(rId) : null;
         const detail = item ? mapV15RoundDetail(rId, item.round, item.candles, nowSec, stateStore.getTiming()) : null;
+        const targetNum = detail?.targetPriceUsdE8 ? Number(detail.targetPriceUsdE8) : 0;
         const svg = renderOgCardSvg({
           type,
           roundId: rId,
-          state: detail?.state || 'OBSERVING',
-          qualified: detail?.qualifiedCandles || 0,
-          targetUsd: detail?.targetPriceUsdE8 ? `$${(Number(detail.targetPriceUsdE8) / 1e8).toFixed(4)}` : '—',
+          hasData: Boolean(detail),
+          state: detail?.state || 'UNVERIFIED',
+          qualified: detail ? detail.qualifiedCandles : null,
+          targetUsd: targetNum > 0 ? `$${(targetNum / 1e8).toFixed(4)}` : '—',
+          budgetA9: formatWholeA9FromRaw(detail?.rewardBudgetRaw),
         });
         return { status: 200, contentType: 'image/svg+xml; charset=utf-8', rawBody: svg };
       }
@@ -378,15 +432,25 @@ export function createApiRouter({
       const ogPageMatch = method === 'GET' && pathname.match(/^\/c\/(round|burn|proof|bet)\/([^/]+)$/);
       if (ogPageMatch) {
         const [, type, id] = ogPageMatch;
-        const rId = Number(id) || stateStore.getProtocolState().currentRoundId || 1;
+        const parsedId = Number(id);
+        const curId = Number(stateStore.getProtocolState()?.currentRoundId || 0);
+        const rId = Number.isInteger(parsedId) && parsedId > 0 ? parsedId : (curId > 0 ? curId : null);
+        const item = rId ? stateStore.getRound(rId) : null;
+        const detail = item ? mapV15RoundDetail(rId, item.round, item.candles, nowSec, stateStore.getTiming()) : null;
+        const budgetA9 = formatWholeA9FromRaw(detail?.rewardBudgetRaw);
         const base = (env.A9_PUBLIC_ORIGIN || '').replace(/\/+$/, '');
         const botHandle = env.A9_TG_BOT_HANDLE || 'A9ProtocolBot';
         const ref = query.ref ? `_${String(query.ref).replace(/[^a-zA-Z0-9_-]/g, '')}` : '';
+        const roundLabel = rId ? `Round #${rId}` : 'Live Status';
+        // 无真实链上数据源时，绝不输出硬编码的固定奖池数字（P0-G）。
+        const description = detail
+          ? `24H 16/24 Hourly Slots${budgetA9 ? ` · ${budgetA9} A9 Pool` : ''} · 100% On-Chain TON TEP-74`
+          : 'A9 Protocol on TON · On-chain round data pending verification';
         const html = renderOgLandingHtml({
           type,
           id,
-          title: `A9 Protocol · Round #${rId} (${type.toUpperCase()})`,
-          description: '24H 16/24 Hourly Slots · 700,000,000 A9 Pool · 100% On-Chain TON TEP-74',
+          title: `A9 Protocol · ${roundLabel} (${type.toUpperCase()})`,
+          description,
           imageUrl: `${base}/c/img/${type}/${encodeURIComponent(id)}.png`,
           tgDeepLink: `https://t.me/${botHandle}?startapp=${type}_${encodeURIComponent(id)}${ref}`,
           width: 1200,

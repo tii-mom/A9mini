@@ -73,6 +73,44 @@ export function addressKey(input) {
   return normalizeTonAddress(input) || String(input || '').trim();
 }
 
+function bytesToB64Url(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 1) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+/** 将已解析的 TON 地址编码为标准 48 字符 base64url 友好地址。 */
+export function formatTonAddress(workchain, hash, { bounceable = true, testOnly = false } = {}) {
+  const out = new Uint8Array(36);
+  out[0] = (bounceable ? 0x11 : 0x51) | (testOnly ? 0x80 : 0x00);
+  out[1] = workchain === -1 ? 0xff : workchain & 0xff;
+  out.set(hash, 2);
+  const crc = crc16(out.subarray(0, 34));
+  out[34] = (crc >> 8) & 0xff;
+  out[35] = crc & 0xff;
+  return bytesToB64Url(out);
+}
+
+/**
+ * 返回同一 TON 地址的所有规范表示（raw + 主网/测试网 bounceable/non-bounceable + 原始输入），
+ * 用于兼容尚未回填 wallet_key 的历史记录单语句原子匹配。
+ */
+export function addressAliases(input) {
+  const trimmed = String(input || '').trim();
+  const p = parseTonAddress(trimmed);
+  if (!p) return trimmed ? [trimmed] : [];
+  const raw = `${p.workchain}:${hex(p.hash)}`;
+  const forms = [
+    raw,
+    formatTonAddress(p.workchain, p.hash, { bounceable: true, testOnly: false }),
+    formatTonAddress(p.workchain, p.hash, { bounceable: false, testOnly: false }),
+    formatTonAddress(p.workchain, p.hash, { bounceable: true, testOnly: true }),
+    formatTonAddress(p.workchain, p.hash, { bounceable: false, testOnly: true }),
+  ];
+  if (trimmed && !forms.includes(trimmed)) forms.push(trimmed);
+  return forms;
+}
+
 export function sameAddress(a, b) {
   const ka = addressKey(a);
   return Boolean(ka) && ka === addressKey(b);

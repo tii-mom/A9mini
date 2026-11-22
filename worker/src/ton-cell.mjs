@@ -229,23 +229,42 @@ export const KNOWN_WALLETS = Object.freeze({
   '20834b7b72b112147e1b2fb457b84e74d1a30f04f737d4f62a668e9552d2b72f': { version: 'v5r1', keyOffset: 1 + 32 + 32 },
 });
 
+/**
+ * Telegram Wallet (WalletTg) 不可变 trampoline 合约代码哈希（来源：TON 官方 ton_proof 文档）。
+ * WalletTg 支持密钥轮换，因此严禁仅凭 StateInit 静态取公钥，必须校验链上活跃状态与代码哈希后调用 get_public_key()。
+ */
+export const WALLET_TG_TRAMPOLINE_HASH = '9149ae51c1e4689710cebf7830297b16acfbadb363a920a537893e7ffeeca768';
+
 export async function codeIdentity(code) {
   if (code.exotic) return hex(code.data.subarray(1, 33)); // library cell: type byte + 256-bit hash
   return code.hashHex();
 }
 
+/** 解析单个链上合约代码 BoC 并返回其规范代码身份哈希（支持普通 cell 与 library cell）。 */
+export async function inspectCodeBocIdentity(codeBoc) {
+  const roots = parseBoc(codeBoc);
+  if (roots.length !== 1) throw new CellError('code BoC must have exactly one root');
+  return codeIdentity(roots[0]);
+}
+
 /**
- * Decode a wallet StateInit (base64 BoC). Returns { addressHashHex, version, publicKeyHex }.
- * version/publicKeyHex are null when the code is not a known standard wallet.
+ * Decode a wallet StateInit (base64 BoC).
+ * Returns { addressHashHex, codeId, walletKind, version, publicKeyHex }.
+ * walletKind: 'standard' | 'wallet_tg' | 'unsupported'
  */
 export async function inspectWalletStateInit(stateInitB64) {
   const roots = parseBoc(stateInitB64);
   if (roots.length !== 1) throw new CellError('StateInit BoC must have exactly one root');
   const root = roots[0];
   const { code, data } = parseStateInit(root);
-  const id = await codeIdentity(code);
+  const id = (await codeIdentity(code)).toLowerCase();
   const known = KNOWN_WALLETS[id] || null;
-  let publicKeyHex = null;
-  if (known) publicKeyHex = data.readBits(known.keyOffset, 256).toString(16).padStart(64, '0');
-  return { addressHashHex: await root.hashHex(), codeId: id, version: known?.version || null, publicKeyHex };
+  if (known) {
+    const publicKeyHex = data.readBits(known.keyOffset, 256).toString(16).padStart(64, '0');
+    return { addressHashHex: await root.hashHex(), codeId: id, walletKind: 'standard', version: known.version, publicKeyHex };
+  }
+  if (id === WALLET_TG_TRAMPOLINE_HASH) {
+    return { addressHashHex: await root.hashHex(), codeId: id, walletKind: 'wallet_tg', version: 'wallet_tg', publicKeyHex: null };
+  }
+  return { addressHashHex: await root.hashHex(), codeId: id, walletKind: 'unsupported', version: null, publicKeyHex: null };
 }

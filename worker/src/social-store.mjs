@@ -1,5 +1,6 @@
 // A9 Protocol v15 — Warm-Up Leaderboard, Team / TG-Group Binding & First-Touch Referral Store.
 // Backed by in-memory maps locally and schema.sql tables in D1 production.
+import { addressKey } from './ton-address.mjs';
 
 export const WARMUP_TIERS = Object.freeze([
   { minRank: 1, maxRank: 10, rewardA9: 400000 },
@@ -32,17 +33,18 @@ export class SocialStore {
   bindReferral(subjectKey, referrerId, nowSec = Math.floor(Date.now() / 1000)) {
     const subj = String(subjectKey || '').trim();
     const ref = String(referrerId || '').trim();
-    if (!subj || !ref || subj === ref) return null;
+    if (!subj || !ref || subj === ref || addressKey(subj) === addressKey(ref)) return null;
 
     const existing = this.referrals.get(subj);
     if (existing) return existing;
 
     // Anti-cycle walk: ensure `subj` is not already an ancestor of `ref`
     let cursor = ref;
+    const subjKey = addressKey(subj);
     for (let depth = 0; depth < 8 && cursor; depth += 1) {
       const parent = this.referrals.get(cursor)?.referrerId || null;
       if (!parent) break;
-      if (parent === subj) return null;
+      if (parent === subj || addressKey(parent) === subjKey) return null;
       cursor = parent;
     }
 

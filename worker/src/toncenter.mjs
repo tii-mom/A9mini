@@ -51,6 +51,19 @@ export class TonCenterClient {
     return n.toString(16).padStart(64, '0');
   }
 
+  /** 读取链上账户活跃状态与当前已部署代码 BoC（供 WalletTg 等合约身份校验使用）。 */
+  async fetchWalletAccountState(walletAddress) {
+    const q = new URLSearchParams({ address: walletAddress });
+    const body = await this._request(`/getAddressInformation?${q.toString()}`, { method: 'GET' });
+    if (!body?.ok || !body?.result) {
+      throw new Error('getAddressInformation returned invalid response');
+    }
+    return {
+      state: String(body.result.state || 'uninitialized'),
+      codeBoc: body.result.code || null,
+    };
+  }
+
   /** Parse num entry from TonCenter stack: ['num', '0x...' | '-0x...'] -> BigInt */
   static parseNum(item) {
     if (!Array.isArray(item) || item[0] !== 'num') return 0n;

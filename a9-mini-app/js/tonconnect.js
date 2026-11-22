@@ -12,12 +12,24 @@ import { demoWalletSendResult } from './demo-data.js';
 import { A9Haptic } from './tma.js';
 import { escapeHtml, showToast, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
-import { buildV15StakeTx, buildV15ClaimTx, buildV15PromoFeeTx } from './v15-tx.js';
+import { buildV15StakeTx, buildV15ClaimTx, buildV15PromoFeeTx, parseTonAddress } from './v15-tx.js';
 import { A9TMA as TMA } from './tma.js';
 import { fetchMe, requestTonProofPayload, submitTonProof } from './data.js';
 
 /** 真实模式且在 Telegram 内：钱包归属需通过 ton_proof 由服务端验证。 */
 const proofFlowEnabled = () => !config.isDemo && Boolean(TMA.getRawInitData());
+
+function canonicalWalletKey(addr) {
+  const s = String(addr || '').trim();
+  if (!s) return '';
+  try {
+    const p = parseTonAddress(s);
+    const hex = Array.from(p.hash, (b) => b.toString(16).padStart(2, '0')).join('');
+    return `${p.wc}:${hex}`;
+  } catch (_) {
+    return s;
+  }
+}
 
 export const LIVE_READONLY_REASON = '当前真实模式处于只读验收阶段，资金交易与钱包签名入口暂未开放（支持连接钱包与只读查询）。';
 
@@ -63,6 +75,7 @@ class A9TonConnect {
               s.user.address = addr;
               s.user.shortAddress = short;
               s.user.walletVerified = false;
+              s.user.walletVerificationState = 'unverified';
             });
             showToast(`TON Connect 2.0 已连接: ${short}`);
             await this._verifyOwnership(wallet);
@@ -73,6 +86,7 @@ class A9TonConnect {
               s.user.address = null;
               s.user.shortAddress = null;
               s.user.walletVerified = false;
+              s.user.walletVerificationState = 'unverified';
             });
           }
           if (this._onChanged) this._onChanged();
@@ -100,14 +114,17 @@ class A9TonConnect {
   }
 
   /**
-   * 钱包归属验证：新连接提交 ton_proof；恢复的旧连接只认可服务端已有的同一钱包绑定。
-   * 验证失败时保持“已连接但未验证”，不得访问任何私有资产。
+   * 钱包归属验证（P0-F）：
+   * - 新连接携带新鲜 ton_proof：由服务端验签确认后才标记为本次已验证（fresh_proof）；
+   * - 恢复旧钱包连接（无本次 ton_proof）：绝不凭前端缓存宣称本次所有权已重新验证！
+   *   仅向服务端 /api/me 核对是否存在同一钱包的历史绑定（restored_binding），否则保持 unverified 并提示重新签名。
    */
   async _verifyOwnership(wallet) {
     if (!proofFlowEnabled()) return;
     const proof = wallet?.connectItems?.tonProof;
     try {
-      let verified = false;
+      let freshVerified = false;
+      let verificationState = 'unverified';
       let pending = false;
       if (proof && 'proof' in proof) {
         const res = await submitTonProof({
@@ -117,19 +134,35 @@ class A9TonConnect {
           walletStateInit: wallet.account.walletStateInit,
           proof: proof.proof,
         });
-        verified = res?.status === 'BOUND' || res?.status === 'UNCHANGED';
+        freshVerified = res?.status === 'BOUND' || res?.status === 'UNCHANGED';
+        if (freshVerified) verificationState = 'fresh_proof';
         if (res?.status === 'PENDING_REBIND') {
           pending = true;
           showToast(`换绑申请已提交，将于 ${new Date(res.wallet.pendingSwitch.effectiveAt * 1000).toLocaleString()} 生效；原钱包可签名取消`, 'amber');
         }
       } else {
+        // 恢复的本地钱包连接没有本次 ton_proof：不标为本次已重新验证，仅核对服务端既有绑定。
         const me = await fetchMe();
-        verified = Boolean(me?.wallet?.address) && String(me.wallet.address) === String(wallet.account.address);
+        const boundKey = me?.wallet?.walletKey || canonicalWalletKey(me?.wallet?.address);
+        const restoredKey = canonicalWalletKey(wallet.account.address);
+        if (boundKey && restoredKey && boundKey === restoredKey) {
+          verificationState = 'restored_binding';
+        }
       }
-      store.update(s => { s.user.walletVerified = verified; });
-      if (!verified && !pending) showToast('钱包尚未完成归属验证，请断开后重新连接', 'amber');
+      store.update(s => {
+        s.user.walletVerified = freshVerified;
+        s.user.walletVerificationState = verificationState;
+      });
+      if (verificationState === 'restored_binding') {
+        showToast('已恢复连接（沿用服务端历史绑定，本次未重新签名验证）', 'amber');
+      } else if (!freshVerified && !pending) {
+        showToast('钱包尚未完成归属验证，请断开后重新连接并签名', 'amber');
+      }
     } catch (e) {
-      store.update(s => { s.user.walletVerified = false; });
+      store.update(s => {
+        s.user.walletVerified = false;
+        s.user.walletVerificationState = 'unverified';
+      });
       showToast(`钱包归属验证失败：${e?.message || '请重试'}`, 'error');
     } finally {
       this._prepareProofPayload();
@@ -147,6 +180,14 @@ class A9TonConnect {
     const { user } = store.state;
     const canSandbox = config.isDemo;
 
+    const verifyChip = !user.connected
+      ? ''
+      : user.walletVerificationState === 'fresh_proof'
+        ? '<span class="chip chip-green">本次已验签</span>'
+        : user.walletVerificationState === 'restored_binding'
+          ? '<span class="chip chip-amber">历史绑定 · 本次未重验</span>'
+          : '<span class="chip chip-red">未验证归属</span>';
+
     openModal(`
       <div class="sheet-handle"></div>
       <div class="row-between">
@@ -158,6 +199,7 @@ class A9TonConnect {
           <span class="caps text-muted">CONNECTION STATUS</span>
           <span class="chip ${user.connected ? 'chip-green' : 'chip-amber'}">${user.connected ? 'CONNECTED' : 'DISCONNECTED'}</span>
         </div>
+        ${!canSandbox && user.connected ? `<div class="row-between" style="margin-top:6px;"><span class="caps text-muted">OWNERSHIP PROOF</span>${verifyChip}</div>` : ''}
         <div class="num-sm text-cyan" style="margin-top:6px;word-break:break-all;">${user.connected ? escapeHtml(user.address) : '尚未连接非托管 TON 钱包'}</div>
         ${!this.sdkReady ? `<div class="num-xs text-muted" style="margin-top:6px;">${escapeHtml(this.lastError || 'SDK 未就绪')}</div>` : ''}
         ${canSandbox ? `<div class="num-xs text-gold" style="margin-top:6px;">当前为演示模式：沙盒连接与资金结果均由本地演示数据生成，不会触发真实钱包签名。</div>` : `<div class="num-xs text-muted" style="margin-top:6px;">当前为真实只读模式：仅支持连接钱包与只读数据查看，不会发起任何资金交易签名。</div>`}

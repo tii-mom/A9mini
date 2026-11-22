@@ -397,6 +397,8 @@ export function renderProofDetail(root, navigate, certId) {
 
 export function renderRenewPage(root) {
   const { user, round } = store.state;
+  const nextRoundZh = round.currentRound ? `第 ${round.currentRound + 1} 轮` : '下一轮';
+  const nextRoundEn = round.currentRound ? `round ${round.currentRound + 1}` : 'the next round';
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
       <div class="card card-hero">
@@ -404,7 +406,7 @@ export function renderRenewPage(root) {
           <div class="card-title">${icon('refresh', 16, 'text-gold')} ${L('自动续期', 'Auto-Rollover')}</div>
           <div class="a9-switch ${user.autoRenew ? 'on' : ''}" id="global-renew-sw"></div>
         </div>
-        <div class="text-sec" style="font-size:12px;">${L(`达标结算后自动将当前质押转入第 ${round.currentRound + 1} 轮，按参与时段锁定早鸟权重。`, `Auto-rolls stake into round ${round.currentRound + 1} after a passing settlement.`)}</div>
+        <div class="text-sec" style="font-size:12px;">${L(`达标结算后自动将当前质押转入${nextRoundZh}，按参与时段锁定早鸟权重。`, `Auto-rolls stake into ${nextRoundEn} after a passing settlement.`)}</div>
       </div>
     </div>
   `;

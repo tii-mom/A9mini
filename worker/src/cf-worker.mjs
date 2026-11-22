@@ -44,17 +44,22 @@ export default {
 
     const rcAddr = env.A9_ROUND_CONTROLLER_ADDRESS || null;
     const jmAddr = env.A9_JETTON_MASTER_ADDRESS || null;
-    let ps = { currentRoundId: 0, successCount: 0, poolRemainingRaw: '7000000000000000000', carryRaw: '0' };
+    // 无链上数据源时不伪造剩余奖池或轮次（P0-G）。
+    let ps = { dataAvailable: false, currentRoundId: null, successCount: null, poolRemainingRaw: null, carryRaw: null, teamPoolRemainingRaw: null, teamCarryRaw: null };
     const rounds = [];
 
     if (tc && rcAddr) {
-      ps = await tc.fetchProtocolState(rcAddr);
-      if (ps.currentRoundId > 0) {
-        const startId = Math.max(1, ps.currentRoundId - 5);
-        for (let rId = startId; rId <= ps.currentRoundId; rId += 1) {
-          const rd = await tc.fetchRound(rcAddr, rId);
-          rounds.push({ roundId: rId, round: rd, candles: [] });
+      try {
+        ps = { dataAvailable: true, ...(await tc.fetchProtocolState(rcAddr)) };
+        if (ps.currentRoundId > 0) {
+          const startId = Math.max(1, ps.currentRoundId - 5);
+          for (let rId = startId; rId <= ps.currentRoundId; rId += 1) {
+            const rd = await tc.fetchRound(rcAddr, rId);
+            rounds.push({ roundId: rId, round: rd, candles: [] });
+          }
         }
+      } catch {
+        ps = { dataAvailable: false, currentRoundId: null, successCount: null, poolRemainingRaw: null, carryRaw: null, teamPoolRemainingRaw: null, teamCarryRaw: null };
       }
     }
 
@@ -83,12 +88,14 @@ export default {
             }))
       : null;
 
-    const presaleHotAddr = env.A9_PRESALE_HOT_WALLET_ADDRESS || env.A9_PROMO_HOT_WALLET_ADDRESS;
+    // 兑换业务必须显式配置独立热钱包，不再静默回退到推广热钱包；默认关闭，须显式设置 A9_PRESALE_OPEN=1 才开启。
+    const presaleHotAddr = env.A9_PRESALE_HOT_WALLET_ADDRESS || null;
     const presaleOpts = {
       hotWalletAddress: presaleHotAddr,
       rateA9PerTon: BigInt(env.A9_PRESALE_RATE_A9_PER_TON || '2002'),
       minOrderTon: BigInt(env.A9_PRESALE_MIN_ORDER_TON || '5'),
       maxOrderTon: BigInt(env.A9_PRESALE_MAX_ORDER_TON || '200'),
+      open: env.A9_PRESALE_OPEN === '1',
       // Only set after the user-fault fee rule is published and approved (unset = full refunds).
       userFaultFeeNano: env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
       promoEngine,
@@ -116,6 +123,7 @@ export default {
       userReader,
       identityStore: hasD1 ? new D1IdentityStore({ db: env.DB }) : memIdentityStore,
       publicKeyResolver: tc ? (addr) => tc.fetchWalletPublicKey(addr) : null,
+      walletStateResolver: tc ? (addr) => tc.fetchWalletAccountState(addr) : null,
     });
     const out = await router({ method: request.method, pathname: url.pathname, query, body, headers });
 

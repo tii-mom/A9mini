@@ -239,22 +239,38 @@ function escapeXml(str) {
 }
 
 /** Generate high-contrast obsidian + copper-orange 1200x630 SVG card (backward-compatible). */
-export function renderOgCardSvg({ type = 'round', roundId = 1, state = 'OBSERVING', qualified = 0, totalSlots = 24, targetUsd = '—', budgetA9 = '700,000,000', subtitle = '' }) {
-  const isBurn = type === 'burn' || state === 'FAILED_PERMANENT';
+export function renderOgCardSvg({
+  type = 'round',
+  roundId = null,
+  hasData = true,
+  state = 'UNVERIFIED',
+  qualified = null,
+  totalSlots = 24,
+  targetUsd = '—',
+  budgetA9 = null,
+  subtitle = '',
+}) {
+  const verified = Boolean(hasData && roundId);
+  const isBurn = verified && (type === 'burn' || state === 'FAILED_PERMANENT');
   const accent = isBurn ? '#FF3B5C' : '#FA660F';
+  const qualNum = verified && Number.isInteger(qualified) ? qualified : null;
+  const roundLabel = roundId ? `#${roundId}` : 'PENDING';
   const titleMap = {
-    round: `A9 ROUND #${roundId} · ${qualified}/${totalSlots} SLOTS`,
-    burn: `A9 ROUND #${roundId} · 100% BURN MONUMENT`,
-    proof: `A9 ROUND #${roundId} · ON-CHAIN STAKE PROOF`,
-    bet: `A9 ROUND #${roundId} · 24H PASS vs BURN`,
+    round: verified ? `A9 ROUND ${roundLabel} · ${qualNum ?? '—'}/${totalSlots} SLOTS` : `A9 ROUND ${roundLabel} · DATA PENDING`,
+    burn: verified ? `A9 ROUND ${roundLabel} · 100% BURN MONUMENT` : `A9 ROUND ${roundLabel} · DATA PENDING`,
+    proof: verified ? `A9 ROUND ${roundLabel} · ON-CHAIN STAKE PROOF` : `A9 ROUND ${roundLabel} · DATA PENDING`,
+    bet: verified ? `A9 ROUND ${roundLabel} · 24H PASS vs BURN` : `A9 ROUND ${roundLabel} · DATA PENDING`,
   };
   const title = titleMap[type] || titleMap.round;
-  const sub = subtitle || (isBurn ? 'Principal & Pool Burned On-Chain · Witnessed on TON' : `Target ${targetUsd} · Pool ${budgetA9} A9 · Up to 15x`);
+  const poolPart = budgetA9 ? `Pool ${budgetA9} A9` : 'Pool Pending Verification';
+  const sub = subtitle || (!verified
+    ? 'On-Chain Data Pending Verification · TON TEP-74'
+    : (isBurn ? 'Principal & Pool Burned On-Chain · Witnessed on TON' : `Target ${targetUsd || '—'} · ${poolPart} · Up to 15x`));
 
   const bars = [];
   for (let i = 0; i < 24; i += 1) {
     const x = 60 + i * 45;
-    const fill = i < qualified ? '#00C076' : (isBurn ? '#FF3B5C' : '#26262E');
+    const fill = qualNum !== null && i < qualNum ? '#00C076' : (isBurn ? '#FF3B5C' : '#26262E');
     bars.push(`<rect x="${x}" y="380" width="32" height="92" rx="6" fill="${fill}" />`);
   }
 
@@ -416,11 +432,13 @@ async function zlibCompress(raw) {
  */
 export async function renderOgCardPng({
   type = 'round',
-  roundId = 1,
-  state = 'OBSERVING',
-  qualified = 0,
+  roundId = null,
+  hasData = true,
+  state = 'UNVERIFIED',
+  qualified = null,
   totalSlots = 24,
   targetUsd = '--',
+  budgetA9 = null,
   ratio = '16x9',
 } = {}) {
   const portrait = ratio === '9x16';
@@ -429,7 +447,8 @@ export async function renderOgCardPng({
   const stride = 1 + width * 3;
   const raw = new Uint8Array(height * stride);
 
-  const isBurn = type === 'burn' || state === 'FAILED_PERMANENT';
+  const verified = Boolean(hasData && roundId);
+  const isBurn = verified && (type === 'burn' || state === 'FAILED_PERMANENT');
   const accent = isBurn ? [0xff, 0x3b, 0x5c] : [0xfa, 0x66, 0x0f];
   const green = [0x00, 0xc0, 0x76];
   const mutedBar = isBurn ? [0x5a, 0x16, 0x24] : [0x26, 0x26, 0x2e];
@@ -493,23 +512,30 @@ export async function renderOgCardPng({
   fillRect(pad, pad, bw, height - pad * 2, accent);
   fillRect(width - pad - bw, pad, bw, height - pad * 2, accent);
 
+  const roundLabel = roundId ? `#${roundId}` : 'PENDING';
   const headlineMap = {
-    round: `ROUND #${roundId}`,
-    burn: `ROUND #${roundId} BURN`,
-    proof: `ROUND #${roundId} PROOF`,
-    bet: `ROUND #${roundId} BET`,
+    round: `ROUND ${roundLabel}`,
+    burn: `ROUND ${roundLabel} BURN`,
+    proof: `ROUND ${roundLabel} PROOF`,
+    bet: `ROUND ${roundLabel} BET`,
   };
-  const headline = headlineMap[type] || headlineMap.round;
-  const slotText = `${qualified}/${totalSlots} SLOTS`;
-  const cleanTarget = String(targetUsd || '0.0023').replace(/[^0-9.$]/g, '');
+  const headline = verified ? (headlineMap[type] || headlineMap.round) : `ROUND ${roundLabel}`;
+  const qualNum = verified && Number.isInteger(qualified) ? qualified : null;
+  const slotText = verified && qualNum !== null ? `${qualNum}/${totalSlots} SLOTS` : 'DATA PENDING';
+  const cleanTarget = verified ? (String(targetUsd || '--').replace(/[^0-9.$-]/g, '') || '--') : '--';
+  const cleanBudget = verified && budgetA9 ? String(budgetA9).replace(/[^0-9A-Za-z]/g, '') : null;
+  const poolLine = cleanBudget ? `POOL ${cleanBudget} A9  UP TO 15X` : 'ON-CHAIN DATA PENDING';
+  const landscapeMeta = !verified
+    ? 'ON-CHAIN DATA PENDING VERIFICATION'
+    : (isBurn ? '100% BURN MONUMENT  ON-CHAIN TON' : `TARGET ${cleanTarget}${cleanBudget ? `  POOL ${cleanBudget} A9` : '  POOL PENDING'}`);
 
   if (portrait) {
     // 1080x1920 TG Story vertical layout
     drawText('A9 PROTOCOL // TON', 96, 160, 6, accent);
     drawText(headline, 96, 300, 12, white);
     drawText(slotText, 96, 450, 14, isBurn ? accent : green);
-    drawText(isBurn ? '100% BURN MONUMENT' : `TARGET ${cleanTarget}`, 96, 610, 6, silver);
-    drawText('POOL 700M A9  UP TO 15X', 96, 690, 5, silver);
+    drawText(!verified ? 'PENDING VERIFICATION' : (isBurn ? '100% BURN MONUMENT' : `TARGET ${cleanTarget}`), 96, 610, 6, silver);
+    drawText(poolLine, 96, 690, 5, silver);
 
     // 24H crystal grid: 6 columns x 4 rows
     const cellW = 132;
@@ -520,7 +546,7 @@ export async function renderOgCardPng({
     for (let i = 0; i < 24; i += 1) {
       const col = i % 6;
       const row = Math.floor(i / 6);
-      const fill = i < qualified ? green : mutedBar;
+      const fill = qualNum !== null && i < qualNum ? green : mutedBar;
       fillRect(gridX + col * (cellW + gap), gridY + row * (cellH + gap), cellW, cellH, fill);
     }
 
@@ -530,18 +556,12 @@ export async function renderOgCardPng({
     // 1200x630 X / Telegram OG landscape layout
     drawText('A9 PROTOCOL // TON', 64, 72, 4, accent);
     drawText(`${headline}  ${slotText}`, 64, 150, 8, white);
-    drawText(
-      isBurn ? '100% BURN MONUMENT  ON-CHAIN TON' : `TARGET ${cleanTarget}  POOL 700M A9  15X`,
-      64,
-      250,
-      4,
-      silver,
-    );
+    drawText(landscapeMeta, 64, 250, 4, silver);
 
     // 24 slot bars across 1072px
     for (let i = 0; i < 24; i += 1) {
       const bx = 64 + i * 45;
-      const fill = i < qualified ? green : mutedBar;
+      const fill = qualNum !== null && i < qualNum ? green : mutedBar;
       fillRect(bx, 340, 32, 128, fill);
     }
 

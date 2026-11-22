@@ -69,8 +69,14 @@ export function mapV15RoundDetail(roundId, round, candles = [], nowSec = Math.fl
   };
 }
 
-export function buildV15ConfigPayload(env = {}, protocolState = {}) {
+export function buildV15ConfigPayload(env = {}, protocolState = null) {
   const A9 = 1_000_000_000n;
+  const ps = protocolState && typeof protocolState === 'object' ? protocolState : null;
+  const dataAvailable = Boolean(
+    ps &&
+      ps.dataAvailable !== false &&
+      (ps.poolRemainingRaw !== undefined && ps.poolRemainingRaw !== null),
+  );
   return {
     protocolVersion: 'v15',
     network: env.A9_NETWORK || 'testnet',
@@ -91,18 +97,32 @@ export function buildV15ConfigPayload(env = {}, protocolState = {}) {
     promoHotWallet: {
       enabled: Boolean(env.A9_PROMO_HOT_WALLET_ADDRESS),
       address: env.A9_PROMO_HOT_WALLET_ADDRESS || null,
-      userFeeNano: String(env.A9_PROMO_USER_FEE_NANO || '60000000'), // 0.06 TON
+      userFeeNano: String(env.A9_PROMO_USER_FEE_NANO || '60000000'), // 0.06 GRAM
       userFeeTon: '0.06',
     },
-    poolState: {
-      currentRoundId: Number(protocolState.currentRoundId || 0),
-      successCount: Number(protocolState.successCount || 0),
-      poolRemainingRaw: String(protocolState.poolRemainingRaw ?? String(7_000_000_000n * A9)),
-      carryRaw: String(protocolState.carryRaw ?? '0'),
-      teamPoolRemainingRaw: String(protocolState.teamPoolRemainingRaw ?? String(1_200_000_000n * A9)),
-      teamCarryRaw: String(protocolState.teamCarryRaw ?? '0'),
-      lastSuccessAt: Number(protocolState.lastSuccessAt || 0),
-      endAt: Number(protocolState.endAt || 0),
-    },
+    // 无链上数据源时明确返回 dataAvailable=false 和 null，绝不用默认 70 亿/12 亿伪造实时链上剩余奖池（P0-G）。
+    poolState: dataAvailable
+      ? {
+          dataAvailable: true,
+          currentRoundId: Number(ps.currentRoundId || 0),
+          successCount: Number(ps.successCount || 0),
+          poolRemainingRaw: String(ps.poolRemainingRaw),
+          carryRaw: ps.carryRaw !== undefined && ps.carryRaw !== null ? String(ps.carryRaw) : null,
+          teamPoolRemainingRaw: ps.teamPoolRemainingRaw !== undefined && ps.teamPoolRemainingRaw !== null ? String(ps.teamPoolRemainingRaw) : null,
+          teamCarryRaw: ps.teamCarryRaw !== undefined && ps.teamCarryRaw !== null ? String(ps.teamCarryRaw) : null,
+          lastSuccessAt: Number(ps.lastSuccessAt || 0),
+          endAt: Number(ps.endAt || 0),
+        }
+      : {
+          dataAvailable: false,
+          currentRoundId: null,
+          successCount: null,
+          poolRemainingRaw: null,
+          carryRaw: null,
+          teamPoolRemainingRaw: null,
+          teamCarryRaw: null,
+          lastSuccessAt: null,
+          endAt: null,
+        },
   };
 }

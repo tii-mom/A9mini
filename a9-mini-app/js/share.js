@@ -36,11 +36,13 @@ export function buildStartAppLink(type, id, userRef = getShareRef()) {
 function buildAngles(type, id, ctx = {}) {
   const r = store.state.round;
   const pred = store.state.prediction || {};
-  const roundNum = ctx.roundId || r.currentRound || 1;
-  const passed = ctx.qualified ?? r.qualifiedCandles ?? 0;
+  const rawRound = ctx.roundId ?? r.currentRound;
+  const roundNum = rawRound ? rawRound : L('待核验', 'TBD');
+  const rawPassed = ctx.qualified ?? r.qualifiedCandles;
+  const passed = rawPassed !== null && rawPassed !== undefined ? rawPassed : '—';
   const required = ctx.required ?? r.minQualifiedCandles ?? 16;
   const target = r.targetPrice ? `$${Number(r.targetPrice).toFixed(4)}` : L('待定', 'TBD');
-  const pool = r.rewardBudgetA9 === null || r.rewardBudgetA9 === undefined ? L('待核验', 'pending') : formatNum(r.rewardBudgetA9);
+  const pool = r.rewardBudgetA9 === null || r.rewardBudgetA9 === undefined ? L('待核验', 'pending') : `${formatNum(r.rewardBudgetA9)} A9`;
   const streak = Number(ctx.streak ?? pred.streak) || 0;
   const rawWr = ctx.winRate ?? pred.winRate;
   const winRate = rawWr !== null && rawWr !== undefined && Number.isFinite(Number(rawWr)) ? Number(rawWr) : null;
@@ -64,8 +66,8 @@ function buildAngles(type, id, ctx = {}) {
         key: 'bull',
         label: L('看多派', 'Bullish'),
         text: L(
-          `已锁定 A9 第 ${roundNum} 轮 ${mult}x 早鸟权重，本轮奖池 ${pool} A9，24H 观察窗口正在推进中，凭链上质押凭证看最终结算。`,
-          `Locked ${mult}x early weight in A9 Round #${roundNum} (${pool} A9 pool). Watching the 24H slot matrix unfold on-chain.`
+          `已锁定 A9 第 ${roundNum} 轮 ${mult}x 早鸟权重，本轮奖池 ${pool}，24H 观察窗口正在推进中，凭链上质押凭证看最终结算。`,
+          `Locked ${mult}x early weight in A9 Round #${roundNum} (${pool} pool). Watching the 24H slot matrix unfold on-chain.`
         )
       },
       {
@@ -93,7 +95,7 @@ function buildAngles(type, id, ctx = {}) {
         key: 'bull',
         label: L('看多派', 'Bullish'),
         text: L(
-          `A9 第 ${roundNum} 轮严格按合约执行销毁，通缩逻辑说到做到。见证销毁并分享，下轮 ${pool} A9 奖池内盘享优先通道与额度加成。`,
+          `A9 第 ${roundNum} 轮严格按合约执行销毁，通缩逻辑说到做到。见证销毁并分享，下轮 ${pool} 奖池内盘享优先通道与额度加成。`,
           `A9 Round #${roundNum} executed on-chain burn strictly by contract rules. Witness & share for next-round presale priority and quota boost.`
         )
       },
@@ -126,7 +128,7 @@ function buildAngles(type, id, ctx = {}) {
         key: 'bull',
         label: L('看多派', 'Bullish'),
         text: L(
-          `0 TON 也能参战 A9 第 ${roundNum} 轮 24H 生死预言！我已锁定 ${sideLabel}${slotNote}，本轮奖池 ${pool} A9，看看谁的判断更准。`,
+          `0 TON 也能参战 A9 第 ${roundNum} 轮 24H 生死预言！我已锁定 ${sideLabel}${slotNote}，本轮奖池 ${pool}，看看谁的判断更准。`,
           `0 TON entry for A9 Round #${roundNum} 24H Prediction. Locked ${sideLabel}${slotNote}—let us see whose read holds up.`
         )
       },
@@ -147,8 +149,8 @@ function buildAngles(type, id, ctx = {}) {
       key: 'data',
       label: L('数据派', 'Data'),
       text: L(
-        `A9 第 ${roundNum} 轮 24H 赛点实况${rankTag}：已达标 ${passed}/${required} 段，目标底价 ${target}，本轮用户奖励池 ${pool} A9。`,
-        `A9 Round #${roundNum} 24H Match Point${rankTag}: ${passed}/${required} qualified slots, target ${target}, pool ${pool} A9.`
+        `A9 第 ${roundNum} 轮 24H 赛点实况${rankTag}：已达标 ${passed}/${required} 段，目标底价 ${target}，本轮用户奖励池 ${pool}。`,
+        `A9 Round #${roundNum} 24H Match Point${rankTag}: ${passed}/${required} qualified slots, target ${target}, pool ${pool}.`
       )
     },
     {
