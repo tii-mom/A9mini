@@ -11,8 +11,14 @@ import { renderProfileHome, renderClaimPage, renderProofDetail, renderRenewPage,
 import { renderSettingsPage, renderRiskMatrix, renderRiskAudit, renderRulesPage, renderNotFoundPage } from './pages/system.js';
 import { t, L } from './i18n.js';
 
+import { city, gallery, rewards } from './pages/wealthverse.js';
+
+
 export const ROUTES = [
-  { path: '/challenge',           title: () => 'A9 // TERMINAL',    shell: 'tab',   tab: 'challenge',   ticker: false, render: renderChallengeHome },
+  { path: '/challenge',           title: () => L('财富主城','Wealth City'),    shell: 'tab',   tab: 'challenge',   ticker: false, render: root => { root.innerHTML = city(); } },
+  { path: '/round', title: () => L('轮次挑战','Round Challenge'), shell: 'stack', tab: 'challenge', render: renderChallengeHome },
+  { path: '/gallery', title: () => L('身份图鉴','Identity Gallery'), shell: 'stack', tab: 'challenge', render: gallery },
+  { path: '/rewards', title: () => L('奖励宝库','Reward Vault'), shell: 'stack', tab: 'profile', render: rewards },
   { path: '/challenge/confirm',   title: () => t('rt_confirm'),     shell: 'stack', tab: 'challenge',   ticker: false, render: renderParticipateConfirm },
   { path: '/challenge/success',   title: () => t('rt_success'),     shell: 'stack', tab: 'challenge',   ticker: false, render: renderParticipateSuccess },
   { path: '/observation/records', title: () => L('24H 时段记录', '24H Slot Records'), shell: 'stack', tab: 'challenge', ticker: false, render: renderObservationRecords },

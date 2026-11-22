@@ -16,20 +16,20 @@ import { renderCurrentRoute } from '../app.js';
 
 const RISK_STATES = [
   { id: '01', code: 'ERR_0x1301_TON_REJECTED', cat: 'wallet', title: '钱包未连接 / 签名主动拒绝', desc: '用户在 TON Connect 2.0 握手时关闭窗口或拒绝签名。', action: '快速重新连接钱包' },
-  { id: '02', code: 'ERR_0x1302_INSUFFICIENT_GAS', cat: 'wallet', title: '余额不足支付 Gas / 本金', desc: '钱包可用 GRAM 不足覆盖质押下限及 0.08 GRAM 合约调用 Gas。', action: '唤起 GRAM 快捷充值' },
+  { id: '02', code: 'ERR_0x1302_INSUFFICIENT_GAS', cat: 'wallet', title: '余额不足支付 Gas / 本金', desc: '钱包可用 TON 不足覆盖质押下限及 0.08 TON 合约调用 Gas。', action: '唤起 TON 快捷充值' },
   { id: '03', code: 'ERR_0x1303_MEMPOOL_TIMEOUT', cat: 'wallet', title: '链上 RPC 广播超时 / 拥堵', desc: 'Toncenter 节点延迟超过 8000ms，交易滞留 Mempool。', action: '自动切换备用 L1 RPC' },
-  { id: '04', code: 'ERR_0x1304_BELOW_MIN_STAKE', cat: 'wallet', title: '质押金额低于 10 GRAM 最小门槛', desc: '单次执行需确保至少 10 GRAM 完整单元。', action: '一键补齐至 10 GRAM' },
+  { id: '04', code: 'ERR_0x1304_BELOW_MIN_STAKE', cat: 'wallet', title: '质押金额低于 10 TON 最小门槛', desc: '单次执行需确保至少 10 TON 完整单元。', action: '一键补齐至 10 TON' },
   { id: '05', code: 'ERR_0x1305_EXCEED_15X_HARDCAP', cat: 'wallet', title: '超过 15x 单人单轮收益硬顶', desc: '复合倍率触达协议硬顶，超额部分划入协议流动性缓冲。', action: '查看收益上限说明' },
-  { id: '06', code: 'ERR_0x7E4F_QUOTA_EXHAUSTED', cat: 'quota', title: '个人单轮额度已达 1,000 GRAM 上限', desc: '触发防巨鲸熔断算法 (Anti-Whale Guard v2)。', action: '前往主挑战池' },
+  { id: '06', code: 'ERR_0x7E4F_QUOTA_EXHAUSTED', cat: 'quota', title: '个人单轮额度已达 1,000 TON 上限', desc: '触发防巨鲸熔断算法 (Anti-Whale Guard v2)。', action: '前往主挑战池' },
   { id: '07', code: 'ERR_0x2207_STAGE_CLOSED_LOCKOUT', cat: 'quota', title: '参与阶段已截单 / 进入观察期', desc: '本轮入场通道关闭，转入连续 24 小时观察结算。', action: '追踪当前观察仓位' },
   { id: '08', code: 'ERR_0x2208_OBSERVE_FAILED_BURN', cat: 'quota', title: '24小时观察期未达标 (K线 < 16根)', desc: '触发流动性清算与下轮扩容补偿机制。', action: '查看清算存证哈希' },
   { id: '09', code: 'ERR_0x2209_ORACLE_CIRCUIT_BREAK', cat: 'quota', title: '预言机喂价异常熔断 (Pyth/RedStone)', desc: '跨链报价偏差 > 8.5%，系统自动开启安全隔离并 100% 锁定退还本金。', action: '查看熔断审计报告' },
   { id: '10', code: 'ERR_0x2210_NO_CLAIMABLE_BAL', cat: 'quota', title: '待领取奖励为空', desc: '当前可提取额度为 0，其余资产仍在 80% 线性归属周期。', action: '查看线性释放计划' },
-  { id: '11', code: 'ERR_0x2211_GAS_ESTIMATE_FAIL', cat: 'quota', title: '智能合约领取 Gas 估算失败', desc: 'TVM 预执行抛出 Out-of-gas 警告，建议提高 Gas 上限至 0.15 GRAM。', action: '以 0.15 GRAM 重试' },
+  { id: '11', code: 'ERR_0x2211_GAS_ESTIMATE_FAIL', cat: 'quota', title: '智能合约领取 Gas 估算失败', desc: 'TVM 预执行抛出 Out-of-gas 警告，建议提高 Gas 上限至 0.15 TON。', action: '以 0.15 TON 重试' },
   { id: '12', code: 'ERR_0x3312_TG_AUTH_REQUIRED', cat: 'market', title: '未绑定 TG 账号阻断内盘认购', desc: '独立外部钱包缺少 Telegram InitData 签名校验。', action: '绑定 Telegram 账号' },
   { id: '13', code: 'ERR_0x3313_PRESALE_SOLD_OUT', cat: 'market', title: '内盘瞬时超募售罄 (Sold Out)', desc: '内盘总额度已被抢空，后发交易由合约原路免手续费退还。', action: '查询自动退款流水' },
-  { id: '14', code: 'ERR_0x3314_USER_CANCELLATION', cat: 'market', title: '用户主动取消内盘认购', desc: '锁仓前主动撤单，扣除固定 0.05 GRAM 计算损耗费后退回余额。', action: '确认撤单规则' },
-  { id: '15', code: 'ERR_0x3315_DUST_NON_REFUNDABLE', cat: 'market', title: '粉尘金额认购 (≤0.1 GRAM 拦截)', desc: '微小数额低于链上拆单成本，协议直接拦截。', action: '调整至 ≥5 GRAM' },
+  { id: '14', code: 'ERR_0x3314_USER_CANCELLATION', cat: 'market', title: '用户主动取消内盘认购', desc: '锁仓前主动撤单，扣除固定 0.05 TON 计算损耗费后退回余额。', action: '确认撤单规则' },
+  { id: '15', code: 'ERR_0x3315_DUST_NON_REFUNDABLE', cat: 'market', title: '粉尘金额认购 (≤0.1 TON 拦截)', desc: '微小数额低于链上拆单成本，协议直接拦截。', action: '调整至 ≥5 TON' },
   { id: '16', code: 'ERR_0x4416_CAPTAIN_CANNOT_EXIT', cat: 'team', title: '团队队长试图退团阻断', desc: '队长绑定分润金库，需先移交队长权限方可离团。', action: '前往移交队长权限' },
   { id: '17', code: 'ERR_0x4417_TEAM_SWITCH_QUOTA', cat: 'team', title: '赛季内切换团队超过 1 次限制', desc: '每个赛季严格限制仅可迁移团队 1 次，防止套利。', action: '等待下赛季重置' },
   { id: '18', code: 'ERR_0x4418_PREHEAT_ELIGIBILITY', cat: 'team', title: '预热未达到 ≥1 名有效直邀门槛', desc: '需至少邀请 1 位完成入金认证的真实伙伴以激活排位资格。', action: '分享专属邀请链' },
@@ -82,6 +82,7 @@ export function renderSettingsPage(root) {
 
   root.querySelector('#set-wallet-row').onclick = () => tonConnect.openConnectModal(renderCurrentRoute);
   root.querySelector('#set-tg-row').onclick = () => {
+    if (!config.isDemo) { showToast(L('请在 Telegram 内核验身份','Verify identity in Telegram'));return; }
     A9Haptic.success();
     store.update(s => { s.user.tgBound = !s.user.tgBound; });
     showToast(store.state.user.tgBound ? L('Telegram 已绑定', 'Telegram bound') : L('已模拟解绑 Telegram', 'Telegram unbound'));
@@ -186,6 +187,10 @@ export function renderRiskMatrix(root) {
 }
 
 export function renderRiskAudit(root) {
+  if (!config.isDemo) {
+    root.innerHTML=`<section class="card"><h2>${L('审计记录','Audit events')}</h2><p>${L('链上审计事件流待接入。','On-chain audit feed awaits integration.')}</p></section>`;
+    return;
+  }
   const { risk } = store.state;
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
@@ -221,28 +226,26 @@ export function renderRulesPage(root) {
     <div class="col-gap anim-page-enter">
       <div class="card card-hero">
         <div class="card-title" style="margin-bottom:6px;">${icon('book', 16, 'text-gold')} ${L('3 步玩转 A9 挑战', 'How A9 Works in 3 Steps')}</div>
-        <div class="text-sec" style="font-size:12px;">${L('最低 10 GRAM 即可参与，零滑点上链，自动派奖。', 'Start from 10 GRAM. 0% slippage, automated payouts.')}</div>
+        <div class="text-sec" style="font-size:12px;">${L('v15 使用 A9 质押。失败轮销毁该轮全部质押本金。', 'v15 stakes A9. Failure burns the entire principal of the failed round.')}</div>
       </div>
 
       <div class="card">
-        <div class="card-title" style="margin-bottom:10px;">${icon('bolt', 15, 'text-gold')} ${L('1. 36H 早鸟阶梯权重', '1. 36H Early Bird Boost')}</div>
+        <div class="card-title" style="margin-bottom:10px;">${icon('bolt', 15, 'text-gold')} ${L('1. 早鸟阶梯权重', '1. Early allocation weights')}</div>
         <div class="col-gap">
-          <div class="list-row"><span>0 – 12H</span><span class="chip chip-gold">2.0x</span></div>
-          <div class="list-row"><span>12 – 24H</span><span class="chip chip-muted">1.4x</span></div>
-          <div class="list-row"><span>24 – 36H</span><span class="chip chip-muted">1.0x</span></div>
+          <div class="list-row"><span>${L('首段','Early')}</span><span class="chip chip-gold">2.0x</span></div>
+          <div class="list-row"><span>${L('中段','Middle')}</span><span class="chip chip-muted">1.4x</span></div>
+          <div class="list-row"><span>${L('末段','Late')}</span><span class="chip chip-muted">1.0x</span></div>
         </div>
       </div>
 
       <div class="card">
         <div class="card-title" style="margin-bottom:8px;">${icon('radar', 15, 'text-green')} ${L('2. 24H 达标判定 (≥16/24 时段)', '2. 24H Target (≥16/24 slots)')}</div>
-        <div class="text-sec" style="font-size:12px;">${L('24 个时段中至少 16 个判定均价达到目标价即本轮达标；奖励按权重分配，单轮上限为实缴本金 15 倍，未分配部分滚存；20% 即时可领，80% 待后续轮达标线性解锁。', '16+ of 24 slots must meet the target; rewards are weight-shared with a 15x principal cap; 20% instant, 80% vesting.')}</div>
+        <div class="text-sec" style="font-size:12px;">${L('24 个时段中至少 16 个判定均价达到目标价即本轮达标；奖励按权重分配，单轮上限为实缴本金 15 倍，未分配部分滚存；全网第 1–5 胜即时解锁 20%，第 6–10 胜解锁 40%，第 11 胜起新奖励即时解锁 100%。', '16+ of 24 slots must meet the target; rewards are weight-shared with a 15x principal cap; immediate vesting is 20% for wins 1–5, 40% for wins 6–10 and 100% for new rewards thereafter.')}</div>
       </div>
 
       <div class="card">
-        <div class="card-title" style="margin-bottom:10px;">${icon('team', 15, 'text-gold')} ${L('3. 团队加成与邀请返佣', '3. Squad Boost & Referrals')}</div>
-        <div class="col-gap">
-          <div class="list-row"><span>${L('团队奖励', 'Team Reward')}</span><span class="num-sm text-green">18%</span></div>
-          <div class="list-row"><span>${L('邀请奖励 / 单人奖励上限', 'Referral / Reward Cap')}</span><span class="num-sm text-gold">12% / 15x</span></div>
+        <div class="card-title" style="margin-bottom:10px;">${icon('team', 15, 'text-gold')} ${L('3. 推广奖励', '3. Referral rewards')}</div>
+        <div class="text-sec">${L('后台单独核算推广奖励。领取时支付 0.06 TON 网络费用，由推广热钱包发放 A9。当前真实领取入口关闭。','Referral rewards are accounted for separately. A claim pays a 0.06 TON network fee and the promotion wallet sends A9. Live claims are disabled.')}
         </div>
       </div>
 

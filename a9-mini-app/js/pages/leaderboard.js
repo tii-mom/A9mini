@@ -7,33 +7,15 @@ import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { openChoiceSheet } from '../components.js';
 
-const ROUND_META = {
-  R3: { zh: '第 3 轮 · 观察中', en: 'Round #3 · Live', target: '$0.1850', est: '$0.1895', bars: '12/16', pct: 75 },
-  R2: { zh: '第 2 轮 · 已清算', en: 'Round #2 · Paid', target: '$0.1420', est: '$0.1618', bars: '19/16', pct: 100 },
-  R1: { zh: '第 1 轮 · 创世轮', en: 'Round #1 · Genesis', target: '$0.1100', est: '$0.1325', bars: '21/16', pct: 100 }
-};
-
-const DATA = {
-  personal: [
-    { rank: '01', name: 'UQ...9F21', ton: '52,000 GRAM', a9: '13,104,000 A9' },
-    { rank: '02', name: 'EQ...4A18', ton: '38,000 GRAM', a9: '9,576,000 A9' },
-    { rank: '03', name: 'UQ...B702', ton: '25,000 GRAM', a9: '6,300,000 A9' },
-    { rank: '04', name: 'EQ...81E3', ton: '18,500 GRAM', a9: '4,662,000 A9' },
-    { rank: '08', name: 'UQ...489f (Me)', ton: '5,000 GRAM', a9: '1,260,000 A9', me: true }
-  ],
-  team: [
-    { rank: '01', name: 'Genesis Alpha Node', ton: '580,000 GRAM', a9: '120,000,000 A9', me: true },
-    { rank: '02', name: 'TON Quant Syndicate', ton: '462,000 GRAM', a9: '94,200,000 A9' },
-    { rank: '03', name: 'Obsidian Whales DAO', ton: '295,000 GRAM', a9: '61,500,000 A9' }
-  ],
-  invite: [
-    { rank: '01', name: 'UQ...9F21', ton: '42 Invites', a9: '320,000 A9' },
-    { rank: '02', name: 'EQ...4A18', ton: '36 Invites', a9: '284,000 A9' },
-    { rank: '03', name: 'UQ...489f (Me)', ton: '18 Invites', a9: '96,500 A9', me: true }
-  ]
-};
+import { characterArt } from '../wealth-art.js';
+import { config } from '../config.js';
+import { ROUND_META, DEMO_RANKS as DATA } from '../demo-data.js';
 
 export function renderLeaderboard(root) {
+  if (!config.isDemo) {
+    root.innerHTML = '<section class="wv-tower"><small>A9 / HALL OF FAME</small><h2>'+L('财富排行榜','Wealth Rankings')+'</h2><p>'+L('个人榜、商会榜及邀请榜等待核验。','Personal, guild and invitation rankings await verification.')+'</p></section>';
+    return;
+  }
   let activeTab = 'personal';
   let activeRound = 'R3';
 
@@ -44,7 +26,7 @@ export function renderLeaderboard(root) {
       <div class="col-gap anim-page-enter">
         <div class="card card-hero">
           <div class="row-between" style="margin-bottom:4px;">
-            <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('本轮战报', 'Round Stats')}</span>
+            <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('演示战报', 'Demo Round Stats')}</span>
             <button class="pill-trigger neutral" id="btn-lb-round" type="button">${L(meta.zh, meta.en)} ${icon('chevronDown', 12)}</button>
           </div>
           <div class="metric-strip cols-3" style="margin-bottom:10px;">
@@ -61,6 +43,7 @@ export function renderLeaderboard(root) {
           <button class="seg-tab ${activeTab === 'invite' ? 'active' : ''}" data-ltab="invite">${L('邀请榜', 'Invites')}</button>
         </div>
 
+        <div class="wv-podium">${[1,0,2].map(i=>`<div class="rank-${i+1}"><img class="wv-person" src="${characterArt(i+1)}" alt=""><b>#${i+1}</b><small>${rows[i].name}</small></div>`).join('')}</div>
         <div class="card">
           <div class="col-gap">
             ${rows.map(r => `

@@ -1,3 +1,4 @@
+import { tower } from './wealthverse.js';
 import { store } from '../store.js';
 import { config } from '../config.js';
 import { formatNum, formatTimer, renderCorridorRadar, renderViralStrip, renderLiveSparkline } from '../components.js';
@@ -25,11 +26,14 @@ function priceOrDash(v) {
 }
 
 /**
- * 方案一：24H 生死预言局嵌入式卡片（0 GRAM 参战 + 防薅激活闭环）
+ * 方案一：24H 生死预言局嵌入式卡片（0 TON 参战 + 防薅激活闭环）
  * - 未质押用户默认展开操作区；已质押用户默认折叠为紧凑单行状态条（点击可展开）
  * - 完整覆盖 4 种状态：未下注 / 已下注锁定 / 已结算 / 待激活补贴
  */
 export function renderPredictionCard(round, pred, user) {
+  if (!config.isDemo && (!pred?.loaded || pred.roundId !== round.currentRound)) {
+    return `<div class="card" id="a9-prediction-card"><h3>${L('24 小时预言','24H prediction')}</h3><p>${L('正在读取预言数据','Reading prediction data')}</p></div>`;
+  }
   const p = pred || {};
   const roundNum = round?.currentRound || 1;
   const hasStaked = Number(round?.myStakeTon) > 0 || store.state.certificates.some(c => Number(c.round) === Number(roundNum));
@@ -76,7 +80,7 @@ export function renderPredictionCard(round, pred, user) {
       ? `<span class="chip chip-muted">${L('已结算', 'Settled')}</span>`
       : bet
         ? `<span class="chip ${bet.side === 'BURN' ? 'chip-red' : 'chip-green'}">${bet.side === 'BURN' ? L('已押 BURN', 'BURN') : L('已押 PASS', 'PASS')}</span>`
-        : `<span class="chip chip-green">${L('0 GRAM 参战', '0 GRAM')}</span>`;
+        : `<span class="chip chip-green">${L('0 TON 参战', '0 TON')}</span>`;
 
   const pendingBlock = pendingA9 > 0 ? `
     <div class="sub-tile" style="border-color:var(--green-border);margin-top:12px;">
@@ -85,11 +89,11 @@ export function renderPredictionCard(round, pred, user) {
         <span class="num-md text-green mono">${formatNum(pendingA9)} A9${usdEst !== null ? ` <span class="num-xs text-sec">(${L('约', '~')} $${formatNum(usdEst, 2)})</span>` : ''}</span>
       </div>
       <div class="num-xs text-muted" style="margin-bottom:6px;">${expRemSec !== null ? `<span id="pred-exp-cd" class="mono text-red">${L('距过期', 'Expires')} ${formatTimer(expRemSec)}</span>` : L('2 轮内未激活将自动过期回流奖池', 'Expires after 2 rounds if unactivated')}</div>
-      <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('完成 1 笔内盘买币（5 GRAM 起）或链上质押即可激活，走 0.06 GRAM 提现。', 'Complete 1 presale buy (5 GRAM+) or on-chain stake to activate via 0.06 GRAM.')}</div>
+      <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('完成 1 笔内盘买币（5 TON 起）或链上质押即可激活，走 0.06 TON 提现。', 'Complete 1 presale buy (5 TON+) or on-chain stake to activate via 0.06 TON.')}</div>
       <div class="col-gap" style="gap:8px;">
         <button class="btn btn-primary btn-sm" id="btn-pred-activate" type="button" style="width:100%;min-height:40px;">${icon('bolt', 14)} ${L('立即激活奖励', 'Activate Reward')}</button>
         <div class="grid-2">
-          <button class="btn btn-secondary btn-sm" data-nav="/internal/market" type="button" style="width:100%;">${icon('swap', 13)} ${L('去内盘 (5 GRAM 起)', 'Presale (5 GRAM+)')}</button>
+          <button class="btn btn-secondary btn-sm" data-nav="/internal/market" type="button" style="width:100%;">${icon('swap', 13)} ${L('去内盘 (5 TON 起)', 'Presale (5 TON+)')}</button>
           <button class="btn btn-secondary btn-sm" data-nav="/challenge/confirm" type="button" style="width:100%;">${icon('shieldCheck', 13)} ${L('链上质押', 'Stake')}</button>
         </div>
       </div>
@@ -129,7 +133,7 @@ export function renderPredictionCard(round, pred, user) {
   } else if (needsIdentity) {
     bodyHtml = `
       <div class="sub-tile" style="margin-top:12px;border-color:var(--gold-border);">
-        <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('请在 Telegram 内打开或先连接 TON 钱包，即可 0 GRAM 参战 24H 生死预言局。', 'Open in Telegram or connect a TON wallet to join the 0 GRAM prediction.')}</div>
+        <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('请在 Telegram 内打开或先连接 TON 钱包，即可 0 TON 参战 24H 生死预言局。', 'Open in Telegram or connect a TON wallet to join the 0 TON prediction.')}</div>
         <button class="btn btn-primary btn-sm" id="btn-pred-connect" type="button" style="width:100%;min-height:40px;">${icon('wallet', 14)} ${L('连接 TON 钱包参战', 'Connect Wallet')}</button>
       </div>
     `;
@@ -147,7 +151,7 @@ export function renderPredictionCard(round, pred, user) {
         <input id="pred-guess-slots" class="pred-slot-input" type="number" min="0" max="24" placeholder="0-24" aria-label="${L('精准达标格数', 'Exact qualified slots')}" />
       </div>
       ${weightHintHtml}
-      <button class="btn btn-primary" id="btn-pred-submit" type="button" style="margin-top:12px;min-height:46px;">${icon('bolt', 15)} ${L('0 GRAM 锁定本轮预言', 'Lock 0 GRAM Prediction')}</button>
+      <button class="btn btn-primary" id="btn-pred-submit" type="button" style="margin-top:12px;min-height:46px;">${icon('bolt', 15)} ${L('0 TON 锁定本轮预言', 'Lock 0 TON Prediction')}</button>
     `;
   }
 
@@ -155,7 +159,7 @@ export function renderPredictionCard(round, pred, user) {
     <div class="card" id="a9-prediction-card">
       <div class="pred-card-head" id="pred-toggle-head" role="button" tabindex="0" aria-expanded="${isExpanded}">
         <div class="row-start" style="gap:8px;">
-          <span class="card-title">${icon('radar', 15, 'text-green')} ${L('24H 生死预言局', '24H Prediction')}</span>
+          <span class="card-title">${icon('radar', 15, 'text-green')} ${L('24H 预言星盘', '24H prediction')}</span>
           ${headerTag}
         </div>
         <div class="row-start num-xs text-muted">
@@ -246,11 +250,11 @@ export function renderParticipation(round) {
 
       <div class="hero-amt-pills">
         ${[100, 500, 1000].map(v => `
-          <button class="hero-amt-pill ${qAmt === v ? 'active' : ''}" data-hero-amt="${v}" type="button">${formatNum(v)} GRAM</button>
+          <button class="hero-amt-pill ${qAmt === v ? 'active' : ''}" data-hero-amt="${v}" type="button">${formatNum(v)} TON</button>
         `).join('')}
       </div>
 
-      <button class="btn btn-primary" id="hero-stake-cta" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L(`立即参与 ${formatNum(qAmt)} GRAM`, `Participate ${formatNum(qAmt)} GRAM`)}</button>
+      <button class="btn btn-primary" id="hero-stake-cta" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L(`立即参与 ${formatNum(qAmt)} TON`, `Participate ${formatNum(qAmt)} TON`)}</button>
       <div class="num-xs text-muted" style="margin-top:8px;">
         ${est === null
           ? L('预计奖励：等待服务端参与数据', 'Estimate: awaiting participation data')
@@ -292,26 +296,18 @@ export function renderObservation(round) {
   const est = round.myWeight > 0 ? estimateRewardA9(round.myStakeTon) : null;
 
   return `
-    <div class="card card-hero">
-      <div class="row-between" style="margin-bottom:14px;">
-        ${stagePillTrigger('observation', round.currentRound)}
-        <span class="row-start num-xs text-sec mono">${icon('clock', 13)} ${L('距结束', 'Ends')} <b id="round-cd" style="color:var(--text-primary);">${round.countdownSec === null ? '—' : formatTimer(round.countdownSec)}</b></span>
+    <section class="observatory-stage">
+      <div class="observatory-hud">${stagePillTrigger('observation', round.currentRound)}
+        <span>${L('距结束','Time left')} <b id="round-cd">${round.countdownSec == null ? '—' : formatTimer(round.countdownSec)}</b></span>
       </div>
-
-      <div class="num-hero obs-hero-ratio"><span id="obs-passed-num" data-val="${passed}"><span class="ratio-cur">${passed}</span><span class="ratio-sep">/</span><span class="ratio-req">${required}</span></span><span class="obs-hero-unit">${L('个达标时段', 'qualified slots')}</span></div>
-
-      <div class="progress-track" style="margin:14px 0 10px;">
-        <div class="progress-fill no-anim" id="obs-progress-fill" style="width:${pct}%;"></div>
+      <div class="observatory-status">
+        <h1>${L('星塔观测','Star Observatory')}</h1>
+        <div class="obs-hero-ratio"><span id="obs-passed-num" data-val="${passed}"><span class="ratio-cur">${passed}</span><span class="ratio-sep">/</span><span class="ratio-req">${required}</span></span> ${L('达标时段','qualified slots')}</div>
+        <div class="progress-track"><div class="progress-fill" id="obs-progress-fill" style="width:${pct}%"></div></div>
+        <span id="obs-need-text">${need === 0 ? L('已达门槛，等待结算','Awaiting settlement') : L(`还差 ${need} 个达标时段`,`${need} more qualifying slots needed`)}</span>
+        ${est !== null ? `<span> · ${L('估算','Est.')} ~${formatNum(est)} A9</span>` : ''}
       </div>
-
-      <div class="row-between num-xs">
-        <span class="${need === 0 ? 'text-green' : 'text-sec'}" id="obs-need-text">${need === 0
-          ? L('已达本轮达标门槛，等待结算确认', 'Threshold met, awaiting settlement')
-          : L(`还差 ${need} 个达标时段`, `${need} more qualified slots needed`)}</span>
-        ${est !== null ? `<span class="text-muted">${L('估算', 'Est.')} ~${formatNum(Math.round(est))} A9</span>` : ''}
-      </div>
-    </div>
-
+    </section>
     ${renderCorridorRadar(round.candles || [], round.targetPrice, round.activeCandleSec || 0, round.livePrice, {
       qualified: passed,
       minQualified: required,
@@ -322,9 +318,9 @@ export function renderObservation(round) {
 
     ${renderPredictionCard(round, store.state.prediction, store.state.user)}
 
-    <div class="grid-2">
-      <button class="btn btn-secondary" data-nav="/proof">${icon('shieldCheck', 16, 'text-green')} ${L('质押凭证', 'Certificate')}</button>
-      <button class="btn btn-secondary" data-nav="/team/invite">${icon('qr', 16, 'text-green')} ${L('邀请海报', 'Poster')}</button>
+    <div class="grid-2 realm-actions">
+      <button class="btn btn-secondary" data-nav="/proof"><img src="./assets/wealthverse/game/scroll.webp" alt=""> ${L('质押凭证', 'Certificate')}</button>
+      <button class="btn btn-secondary" data-nav="/team/invite"><img src="./assets/wealthverse/game/letter.webp" alt=""> ${L('邀请海报', 'Poster')}</button>
     </div>
   `;
 }
@@ -333,37 +329,49 @@ export function renderObservation(round) {
 export function renderObservationRecords(root) {
   const round = store.state.round;
   const candles = round.candles || [];
-  const required = round.minQualifiedCandles || 16;
-  const passed = round.qualifiedCandles || 0;
-  const need = Math.max(0, required - passed);
-
-  root.innerHTML = `
-    <div class="col-gap anim-page-enter">
-      <div class="card card-hero">
-        <div class="row-between"><span class="chip chip-muted">${L('第', 'R')} ${round.currentRound} ${L('轮 / 24H 时段', ' / 24H Slots')}</span><span class="chip ${need === 0 ? 'chip-green' : 'chip-gold'}">${L('还差', 'Need')} ${need}</span></div>
-        <div class="num-xs text-muted" style="margin-top:10px;">${L('目标底价', 'Target')}</div>
-        <div class="num-lg">${priceOrDash(round.targetPrice)}</div>
-        <div class="num-xs text-sec" style="margin-top:4px;">${L('判定均价', 'Judge TWAP')} ${priceOrDash(round.twap24h)}</div>
-      </div>
-
-      <div class="card">
-        <div class="card-header"><div class="card-title">${icon('radar', 15, 'text-green')} ${L('时段明细', 'Slot Details')}</div><span class="num-xs text-muted">${candles.length}</span></div>
-        <div class="col-gap">
-          ${candles.map(c => {
-            const stateLabel = c.status === 'closed' ? L('已确认', 'Confirmed') : c.status === 'active' ? L('进行中', 'In progress') : L('未开始', 'Pending');
-            const cls = c.status === 'closed' ? (c.bull ? 'chip-green' : 'chip-red') : c.status === 'active' ? 'chip-gold' : 'chip-muted';
-            return `
-              <div class="list-row">
-                <div><div class="num-sm">${L('第', '#')} ${c.index} ${L('时段', 'slot')}</div><div class="num-xs text-muted">${c.p === null ? L('暂无均价', 'No TWAP') : priceOrDash(c.p)}</div></div>
-                <div style="text-align:right;"><span class="chip ${cls}">${stateLabel}</span><div class="num-xs ${c.status !== 'closed' ? 'text-muted' : (c.bull ? 'text-green' : 'text-red')}" style="margin-top:3px;">${c.status !== 'closed' ? '—' : (c.bull ? L('达标', 'Met') : L('未达标', 'Missed'))}</div></div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      </div>
-      <button class="btn btn-secondary" data-nav="/challenge">${icon('arrowLeft', 15)} ${L('返回首页', 'Back')}</button>
+  const states = {
+    pass: L('已确认达标','Confirmed · met'), miss: L('已确认未达标','Confirmed · missed'),
+    active: L('观察中，尚未确认','Observing · unconfirmed'), pending: L('尚未开始','Upcoming'),
+    unknown: L('数据暂缺','Unavailable')
+  };
+  const slots = Array.from({length:24}, (_,i) => {
+    const candle = candles.find(c=>c.index===i+1);
+    const state = candle?.confirmed ? (candle.bull?'pass':'miss') :
+      ['active','pending'].includes(candle?.status) ? candle.status : 'unknown';
+    return {number:i+1, state, price:candle?.p};
+  });
+  const prior = root.querySelector('.star-journal')?.dataset;
+  const active = slots.find(slot=>slot.state==='active');
+  let selected = prior?.round===String(round.currentRound) ? Number(prior.slot) : active?.number || 1;
+  root.innerHTML = `<section class="star-journal wv-tower" data-round="${round.currentRound}">
+    <header><small>${L('第','Round')} ${round.currentRound} · 24H</small><h1>${L('星轨观测志','Celestial log')}</h1></header>
+    <div class="star-dial wv-windows" role="group" aria-label="${L('选择观测时段','Select observation slot')}">
+      <div class="dial-core"><i class="dial-pointer" aria-hidden="true"></i><img src="./assets/wealthverse/game/orb.webp" alt=""><b>${round.qualifiedCandles ?? '—'} / ${round.minQualifiedCandles || 16}</b><small>${L('达标时段','Qualified')}</small></div>
+      ${slots.map(({number,state},i)=>{
+        const angle=(i%12)*Math.PI/6-Math.PI/2;
+        const radius=i<12?43:28;
+        return `<button type="button" style="left:${50+radius*Math.cos(angle)}%;top:${50+radius*Math.sin(angle)}%" data-slot="${number}" data-state="${state}" aria-label="${L('第','Slot')} ${number} · ${states[state]}"><span>${String(number).padStart(2,'0')}</span></button>`;
+      }).join('')}
     </div>
-  `;
+    <div class="star-key">${Object.entries(states).map(([key,label])=>`<i class="key-${key}"></i>${label.split('，')[0]}`).join(' ')}</div>
+    ${round.stage==='observation' && round.qualifiedCandles >= (round.minQualifiedCandles||16) ? `<p>${L('已达门槛，等待结算','Threshold met · awaiting settlement')}</p>`:''}
+    </section><section class="star-reading" aria-live="polite"></section>
+    <a class="btn btn-secondary" href="#/round">${L('返回轮次挑战','Back to round')}</a>`;
+  const journal=root.querySelector('.star-journal');
+  function select(number) {
+    selected=number; journal.dataset.slot=String(number);
+    const slot=slots[number-1];
+    journal.style.setProperty('--slot-angle', ((number-1)%12)*30+'deg');
+    journal.querySelector('.dial-pointer').classList.toggle('inner', number>12);
+    journal.querySelectorAll('[data-slot]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.slot)===number)));
+    root.querySelector('.star-reading').innerHTML=`<header><img src="./assets/wealthverse/game/scroll.webp" alt=""><div><small>${L('时段记录','Slot record')}</small><h2>${L('第','Slot')} ${number} ${L('时段','')}</h2></div><b>${states[slot.state]}</b></header>
+      <dl>${[[L('时段均价','Slot TWAP'),slot.price],[L('目标底价','Target'),round.targetPrice],[L('轮次判定均价','Round TWAP'),round.twap24h]].map(([label,v])=>`<div><dt>${label}</dt><dd>${v>0?'$'+Number(v).toLocaleString('en-US',{maximumFractionDigits:12}):'—'}</dd></div>`).join('')}</dl>`;
+  }
+  journal.addEventListener('click',event=>{
+    const button=event.target.closest('[data-slot]');
+    if(button)select(Number(button.dataset.slot));
+  });
+  select(selected);
 }
 
 export function renderSettlementSuccess(round, user) {
@@ -377,7 +385,7 @@ export function renderSettlementSuccess(round, user) {
       <div class="num-hero" style="margin-top:4px;">${formatNum(user.a9Claimable)} <span class="num-md text-green">A9</span></div>
       <div class="metric-strip">
         <div class="metric-cell"><span class="num-xs text-muted">${L('达标时段', 'Qualified slots')}</span><span class="num-md">${round.qualifiedCandles}/${round.minQualifiedCandles || 16}</span></div>
-        <div class="metric-cell"><span class="num-xs text-muted">${L('待解锁奖励 (80%)', 'Locked (80%)')}</span><span class="num-md text-sec">${formatNum(user.a9Locked)} A9</span></div>
+        <div class="metric-cell"><span class="num-xs text-muted">${L('待解锁奖励', 'Locked')}</span><span class="num-md text-sec">${formatNum(user.a9Locked)} A9</span></div>
       </div>
       <button class="btn btn-primary" data-nav="/claim">${icon('bolt', 16)} ${L('立即领取奖励', 'Claim Rewards')}</button>
     </div>

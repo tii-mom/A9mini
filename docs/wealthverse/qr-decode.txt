@@ -1,0 +1,3 @@
+invite http://127.0.0.1:18761/?mode=demo&startapp=invite_TM-0001_489f
+flex http://127.0.0.1:18761/?mode=demo&startapp=proof_A9-STAKE-R03-882419
+story http://127.0.0.1:18761/?mode=demo&startapp=round_3

@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="light">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#E8ECF4" />
-  <title>A9 // TON Terminal</title>
+  <meta name="theme-color" content="#211935" />
+  <title>A9 · 财富进化世界</title>
   <script>
-    (function(){try{var t=localStorage.getItem('a9_theme_mode');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',t==='dark'?'#030304':'#E8ECF4');}}catch(e){}})();
+    (function(){try{var t=localStorage.getItem('a9_theme_mode');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',t==='dark'?'#211935':'#f1ecf9');}}catch(e){}})();
   </script>
   <!-- Telegram WebApp SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -19,6 +19,8 @@
   <link rel="stylesheet" href="./css/tokens.css" />
   <link rel="stylesheet" href="./css/animations.css" />
   <link rel="stylesheet" href="./css/components.css" />
+  <link rel="stylesheet" href="./css/wealthverse.css" />
+  <link rel="stylesheet" href="./css/game.css">
 </head>
 <body>
   <div id="tma-shell" class="tma-shell">
@@ -30,6 +32,7 @@
 
     <header id="app-header" class="app-header"></header>
     <div id="ticker-bar" class="ticker-bar hidden"></div>
+    <section class="realm-banner" id="realm-banner" hidden></section>
     <main id="app-main" class="app-main" role="main"></main>
     <nav id="app-tabbar" class="app-tabbar" aria-label="Primary Navigation"></nav>
     <div id="toast-container" class="toast-container" aria-live="polite"></div>

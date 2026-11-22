@@ -147,9 +147,9 @@ const STAGE_BY_STATE = {
   STAKING_CLOSED: 'participation',
   OBSERVING: 'observation',
   ORACLE_PAUSED: 'observation',
-  SETTLING_SUCCESS: 'settlement_success',
+  SETTLING_SUCCESS: 'observation',
   SUCCEEDED: 'settlement_success',
-  SETTLING_FAILURE: 'settlement_burn',
+  SETTLING_FAILURE: 'observation',
   FAILED_PERMANENT: 'settlement_burn',
   TECHNICAL_ABORTED: 'halted'
 };
@@ -165,22 +165,23 @@ export function mapRoundView(snapshot) {
   const judgePrice = d.priceValid === false ? null : e8ToUsd(d.priceUsdE8);
   const seen = Number(d.candlesSeen) || 0;
   const confirmed = Array.isArray(d.candles) ? d.candles.length : seen;
-  const qualified = Number(d.qualifiedCandles) || 0;
-  const liveIndex = d.live ? Number(d.live.candleIndex) : (d.state === 'OBSERVING' ? seen : -1);
+  const qualified = Number.isInteger(d.qualifiedCandles) && d.qualifiedCandles >= 0 && d.qualifiedCandles <= 24 ? d.qualifiedCandles : null;
+  const liveIndex = d.live ? Number(d.live.candleIndex) : -1;
   const livePrice = d.live ? e8ToUsd(d.live.twapPriceUsdE8) : judgePrice;
 
   const confirmedMap = new Map(
     (d.candles || []).map(x => [Number(x.candleIndex), {
       index: Number(x.candleIndex) + 1,
-      status: 'closed',
-      confirmed: true,
-      bull: Boolean(x.qualified),
+      status: typeof x.qualified === 'boolean' ? 'closed' : 'unknown',
+      confirmed: typeof x.qualified === 'boolean',
+      bull: typeof x.qualified === 'boolean' ? x.qualified : null,
       p: e8ToUsd(x.twapPriceUsdE8),
       coverageBps: x.coverageBps,
       digest: x.dataDigest
     }])
   );
 
+  const periodEnded = ['SUCCEEDED','FAILED_PERMANENT','TECHNICAL_ABORTED','SETTLING_SUCCESS','SETTLING_FAILURE'].includes(d.state);
   const candles = [];
   for (let i = 0; i < candleCount; i++) {
     if (confirmedMap.has(i)) {
@@ -196,14 +197,16 @@ export function mapRoundView(snapshot) {
         progressBps: Number(d.live?.progressBps) || 0
       });
     } else {
-      candles.push({ index: i + 1, status: 'pending', confirmed: false, bull: false, p: null });
+      const missing = !Array.isArray(d.candles) || periodEnded || i < seen ||
+        (d.state === 'OBSERVING' && (liveIndex < 0 || i < liveIndex));
+      candles.push({ index: i + 1, status: missing ? 'unknown' : 'pending', confirmed: false, bull: null, p: null });
     }
   }
 
   const view = {
-    stage: STAGE_BY_STATE[d.state] || 'participation',
+    stage: STAGE_BY_STATE[d.state] || null,
     rawState: d.state || null,
-    currentRound: Number(d.roundId) || 1,
+    currentRound: Number(d.roundId) || null,
     openEnded: c.openEnded !== false,
     totalRounds: c.openEnded !== false ? null : (Number(c.roundCount) || null),
     targetPrice: target,
@@ -211,21 +214,24 @@ export function mapRoundView(snapshot) {
     livePrice: livePrice ?? judgePrice,
     priceValid: d.priceValid !== false,
     priceChangePct: null,
+    stakeOpenAt: d.stakeOpenAt ?? null,
+    stakeCloseAt: d.stakeCloseAt ?? null,
     countdownSec: d.secondsRemaining === null || d.secondsRemaining === undefined ? null : Number(d.secondsRemaining),
     nextState: d.nextState || null,
     candlesSeen: seen,
     candlesConfirmed: confirmed,
     qualifiedCandles: qualified,
     minQualifiedCandles: minQualified,
-    needMore: Math.max(0, minQualified - qualified),
+    needMore: qualified === null ? null : Math.max(0, minQualified - qualified),
     candles,
     activeCandleSec: liveIndex >= 0 && d.secondsRemaining !== null ? Math.max(0, Number(d.secondsRemaining)) : 0,
     rewardBudgetRaw: d.rewardBudgetRaw || c.roundRewardRaw || null,
-    rewardBudgetA9: rawToA9(d.rewardBudgetRaw || c.roundRewardRaw, decimals) ?? 700000000,
-    totalStakedRaw: d.totalAcceptedStakeRaw || '0',
-    totalWeightRaw: d.totalWeightRaw || '0',
+    rewardBudgetA9: rawToA9(d.rewardBudgetRaw, decimals),
+    totalStakedRaw: d.totalAcceptedStakeRaw ?? null,
+    totalWeightRaw: d.totalWeightRaw ?? null,
     stakerCount: Number(d.stakerCount) || 0,
     entryCount: Number(d.entryCount) || 0,
+    successCount: Number.isInteger(c.poolState?.successCount) ? c.poolState.successCount : null,
     unlock: d.unlock || null,
     poolState: c.poolState || null,
     promoHotWallet: c.promoHotWallet || null,
@@ -379,4 +385,8 @@ export function estimateRewardA9(amountTon, view = currentView) {
   const distributable = Math.min(budget, (totalStake + amountA9) * capMultiplier);
   const denom = totalWeight + amountA9;
   return denom > 0 ? (distributable * amountA9) / denom : 0;
+}
+
+export function fetchWarmupRank(roundId) {
+  return request(ENDPOINTS.warmupLeaderboard + '?roundId=' + encodeURIComponent(roundId));
 }

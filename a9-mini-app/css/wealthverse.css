@@ -1,0 +1,421 @@
+:root,
+[data-theme='light'] {
+  --outer-bg: #ddd5ef;
+  --bg-canvas: #f1ecf9;
+  --bg-surface: #fffaff;
+  --bg-panel: #fbf7ff;
+  --green: #8151bd;
+  --green-text: #65339b;
+  --green-dim: #64379b;
+  --green-border: #9a72b8;
+  --green-soft: #8d65cd19;
+  --gold: #926018;
+}
+[data-theme='dark'] {
+  --outer-bg: #100d20;
+  --bg-canvas: #171329;
+  --bg-surface: #25203a;
+  --bg-panel: #2c2345;
+  --bg-header: #211935;
+  --bg-subtile: #ffffff0d;
+  --green: #bb90fa;
+  --green-text: #d1afff;
+  --green-dim: #9c6cde;
+  --gold: #ffda85;
+}
+.wv-hero,
+.wv-location,
+.wv-tower {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  color: #fff6e2;
+  border: 1px solid #dfbc89;
+  border-radius: 22px;
+  background: #332455;
+}
+.wv-hero {
+  min-height: 340px;
+  display: flex;
+  align-items: flex-end;
+  padding: 22px;
+  box-shadow: 0 5px 0 #483261;
+}
+.wv-scenery,
+.wv-location:before {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(0deg, #21132f 0%, transparent 54%),
+    url('../assets/wealthverse/world/city.svg') center/cover;
+}
+.wv-hero .wv-person {
+  position: absolute;
+  width: 39%;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  filter: drop-shadow(0 3px 2px #241339);
+  animation: wv-idle 4s ease-in-out infinite;
+}
+.wv-copy {
+  max-width: 77%;
+}
+.wv-copy h1,
+.wv-location h2,
+.wv-tower h2 {
+  font-size: clamp(29px, 8vw, 48px);
+  line-height: 1.1;
+  margin: 8px 0;
+  color: #fff1c9;
+  text-shadow: 0 3px #4b2849;
+}
+.wv-copy p,
+.wv-tower p {
+  font-size: 13px;
+}
+.wv-hero small,
+.wv-location small,
+.wv-tower small {
+  letter-spacing: 0.18em;
+  font: 700 10px monospace;
+  color: #ffe1a3;
+}
+.wv-gold,
+.wv-links a,
+.wv-gallery a,
+.wv-strip {
+  color: inherit;
+  text-decoration: none;
+}
+.wv-gold {
+  display: inline-block;
+  padding: 11px 18px;
+  background: linear-gradient(#ffe699, #ffc267);
+  box-shadow: 0 4px #a56b39;
+  border-radius: 12px;
+  color: #40263d;
+  font-weight: 800;
+}
+.wv-gold:active,
+.wv-links a:active {
+  transform: translateY(2px);
+}
+.wv-links,
+.wv-gallery,
+.wv-steps {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.wv-links a,
+.wv-gallery a,
+.wv-steps article {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 6px;
+  text-align: center;
+  border: 1px solid #9471be77;
+  border-radius: 13px;
+  padding: 13px 3px;
+  background: var(--bg-panel);
+  box-shadow: 0 3px #8a689645;
+  font-weight: 650;
+  font-size: 13px;
+}
+.wv-links svg {
+  color: var(--green-text);
+}
+.wv-strip {
+  display: flex;
+  justify-content: space-between;
+  padding: 17px;
+  background: #39295d;
+  color: #ffdf99;
+  border-radius: 14px;
+}
+.wv-gallery,
+.wv-steps {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.wv-gallery img {
+  width: 100%;
+  height: 85px;
+}
+.wv-gallery a[aria-current='true'],
+.wv-steps .current {
+  outline: 2px solid var(--green);
+}
+.wv-location {
+  padding: 17px 20px;
+  margin-bottom: 13px;
+}
+.wv-location:before {
+  content: '';
+  background-position: center 46%;
+  filter: brightness(0.63);
+}
+.wv-location h2 {
+  font-size: 25px;
+}
+.wv-steps strong {
+  font-size: 23px;
+  color: var(--green-text);
+}
+.wv-steps p {
+  margin: 0;
+}
+.wv-tower {
+  padding: 18px;
+  text-align: center;
+  background: linear-gradient(140deg, #574078, #221b3d);
+}
+.wv-windows {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.wv-windows span {
+  display: grid;
+  padding: 5px;
+  background: #312945;
+  border: 1px solid #8c789d;
+  border-radius: 9px 9px 3px 3px;
+  font-size: 10px;
+}
+.wv-windows b {
+  font: 700 16px monospace;
+}
+.wv-windows [data-state='pass'] {
+  background: #225b52;
+}
+.wv-windows [data-state='miss'] {
+  background: #75354e;
+}
+.wv-windows [data-state='active'] {
+  background: #74511f;
+}
+.app-main {
+  overflow-wrap: anywhere;
+}
+.header-title small {
+  font: 9px monospace;
+}
+.wv-gallery + .card {
+  margin-bottom: 12px;
+}
+@keyframes wv-idle {
+  50% {
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wv-hero .wv-person {
+    animation: none;
+  }
+}
+.wv-map {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 10px;
+  margin: 14px 0;
+}
+.wv-map a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px;
+  background: var(--bg-panel);
+  border: 1px solid #9f78b750;
+  border-radius: 15px;
+  text-decoration: none;
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 13px;
+}
+.wv-map img {
+  width: 48px;
+  height: 54px;
+}
+.wv-map small {
+  display: block;
+  color: var(--green-text);
+  margin-top: 5px;
+  font-weight: 500;
+}
+.wv-gold:focus-visible,
+.wv-links a:focus-visible,
+.wv-gallery a:focus-visible {
+  outline: 3px solid #24b9df;
+}
+.wv-gallery img {
+  background: radial-gradient(ellipse at bottom, #ac89d94a, transparent 70%);
+}
+.wv-vault .wv-scenery {
+  background-image:
+    linear-gradient(0deg, #261935, transparent 60%),
+    url('../assets/wealthverse/reward/vault.svg');
+}
+.wv-vault {
+  min-height: 250px;
+}
+.wv-gallery-hero {
+  min-height: 320px;
+}
+.wv-gallery-hero .wv-person {
+  width: 54%;
+  right: -2%;
+  bottom: 13%;
+}
+.wv-gallery-hero .wv-scenery {
+  filter: hue-rotate(var(--wv-hue, 0deg));
+}
+.wv-location.guild:after {
+  content: '';
+  position: absolute;
+  right: 14px;
+  top: 2px;
+  width: 68px;
+  height: 96%;
+  background: url('../assets/wealthverse/guild/banner.svg') center/contain
+    no-repeat;
+}
+.wv-missing {
+  display: grid;
+  place-content: center;
+  font-size: 12px;
+  color: inherit;
+}
+.wv-tower [data-state='active'] {
+  box-shadow: inset 0 0 0 1px #fcdba2;
+}
+.wv-steps .current {
+  background: var(--green-soft);
+  animation: wv-unseal 0.3s ease-out;
+}
+.wv-gallery-hero .wv-person {
+  animation: wv-turn 0.25s ease-out;
+}
+.wv-location h2 {
+  margin-right: 48px;
+}
+@keyframes wv-turn {
+  from {
+    transform: perspective(700px) rotateY(-22deg);
+    opacity: 0.5;
+  }
+}
+@keyframes wv-unseal {
+  from {
+    transform: translateY(4px);
+    opacity: 0.6;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wv-gallery-hero .wv-person,
+  .wv-steps .current {
+    animation: none;
+  }
+}
+:root {
+  --wv-safe-top: max(
+    env(safe-area-inset-top, 0px),
+    var(--tg-safe-area-inset-top, 0px),
+    var(--tg-content-safe-area-inset-top, 0px)
+  );
+  --wv-safe-bottom: max(
+    env(safe-area-inset-bottom, 0px),
+    var(--tg-safe-area-inset-bottom, 0px),
+    var(--tg-content-safe-area-inset-bottom, 0px)
+  );
+}
+.app-header {
+  height: calc(var(--header-h) + var(--wv-safe-top));
+  padding-top: var(--wv-safe-top);
+}
+.app-tabbar {
+  bottom: calc(14px + var(--wv-safe-bottom));
+}
+.app-main {
+  padding-bottom: calc(92px + var(--wv-safe-bottom));
+}
+.app-main.no-tabbar {
+  padding-bottom: calc(28px + var(--wv-safe-bottom));
+}
+.modal-sheet {
+  padding-bottom: calc(26px + var(--wv-safe-bottom));
+}
+.wv-hero .wv-scenery {
+  background-color: #49366b;
+}
+.wv-location.guild {
+  min-height: 95px;
+}
+.wv-missing {
+  min-height: 32px;
+}
+.wv-gallery a:nth-child(n + 7) {
+  border-color: #ca9864;
+  background: linear-gradient(145deg, var(--bg-panel), var(--gold-soft));
+}
+form.card input {
+  appearance: none;
+  background: var(--bg-panel);
+  border: 1px solid var(--green-border);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 8px;
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .wv-hero:hover .wv-scenery {
+    transform: scale(1.025) translateY(-2px);
+  }
+  .wv-scenery {
+    transition: transform 0.45s ease;
+  }
+}
+.wv-podium {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  background: radial-gradient(ellipse at bottom, #875581, #34234e);
+  border: 1px solid #a17bb5;
+  border-radius: 20px;
+  padding: 13px 10px 0;
+  color: #fff2d3;
+}
+.wv-podium > div {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  padding: 4px;
+  gap: 2px;
+}
+.wv-podium img {
+  width: 64px;
+  height: 74px;
+}
+.wv-podium .rank-1 img {
+  width: 85px;
+  height: 94px;
+}
+.wv-podium b {
+  color: #ffdf98;
+}
+.wv-podium small {
+  min-height: 32px;
+  width: 100%;
+  background: #57416e;
+  padding: 4px;
+  border-top: 2px solid #d3b4d5;
+  border-radius: 5px 5px 0 0;
+}
+.wv-podium .rank-1 small {
+  border-color: #ffdc88;
+}
+.wv-windows [data-state='pass']{animation:wv-light .32s ease-out}@keyframes wv-light{from{box-shadow:inset 0 0 10px #92eaca}}@media(prefers-reduced-motion:reduce){.wv-windows [data-state='pass']{animation:none}}
+.app-main .card{border:1px solid color-mix(in srgb,var(--green-text) 21%,transparent);box-shadow:0 3px 0 color-mix(in srgb,var(--green-text) 13%,transparent);background:var(--bg-panel);backdrop-filter:none}.app-main .btn-primary{background:linear-gradient(170deg,#ffe49a,#ffc76b);color:#39233b;border:1px solid #dbab6b;box-shadow:0 3px 0 #95683f}.app-main .btn-primary:active{transform:translateY(2px)}.app-main .btn-secondary,.app-main .cmd-tile{border-color:color-mix(in srgb,var(--green-text) 25%,transparent)}.tab-item.active{color:var(--green-text)}.wv-steps article:last-child{border-color:#ac854d}

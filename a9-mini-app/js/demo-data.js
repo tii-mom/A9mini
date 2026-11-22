@@ -70,7 +70,9 @@ export function demoFixture() {
     token: { name: 'A9', symbol: 'A9', decimals: 9 },
     p0UsdE8: '116000',
     priceMultiplier: 2,
-    roundCount: 10,
+    openEnded: true,
+    roundCount: null,
+    poolState: { successCount: 2 },
     candleCount: 24,
     minQualifiedCandles: 16,
     candleSeconds: 3600,
@@ -79,7 +81,6 @@ export function demoFixture() {
     network: 'demo',
     dataSource: 'demo',
     tonUsdE8: '300000000',
-    finalTargetUsdE8: '50000000',
     maxRewardCapMultiplier: 15,
     earlyBirdWeightsBps: { first: 20000, second: 14000, last: 10000 },
     corridorMinBps: 15000,
@@ -177,9 +178,9 @@ export function demoFundsClaim(state) {
 export function demoFundsBuy(state, tonAmount) {
   const amt = Number(tonAmount);
   const availQuota = state.market.unlockedQuotaTon - state.market.usedQuotaTon;
-  if (amt < state.market.minOrderTon || amt > state.market.maxOrderTon) return { error: '单笔金额须在 5 - 200 GRAM 之间' };
-  if (amt > availQuota) return { error: `超出当前可用额度 (${availQuota} GRAM)` };
-  if (amt > state.user.tonBalance) return { error: 'GRAM 余额不足' };
+  if (amt < state.market.minOrderTon || amt > state.market.maxOrderTon) return { error: '单笔金额须在 5 - 200 TON 之间' };
+  if (amt > availQuota) return { error: `超出当前可用额度 (${availQuota} TON)` };
+  if (amt > state.user.tonBalance) return { error: 'TON 余额不足' };
   const receivedA9 = amt * state.market.rateA9PerTon;
   state.user.tonBalance = Number((state.user.tonBalance - amt).toFixed(2));
   state.user.a9Available += receivedA9;
@@ -196,14 +197,56 @@ export function demoFundsBuy(state, tonAmount) {
 }
 
 export const DEMO_SOCIAL_FEEDS = [
-  'UQ...8892 刚质押 500 GRAM · 2.0x',
+  'UQ...8892 刚质押 500 TON · 2.0x',
   'EQ...3312 刚领取 128,400 A9',
   'UQ...77ea 加入 Genesis Alpha Node',
   'EQ...9F21 购买 200,200 A9'
 ];
 
 /** 仅在 config.isDemo === true 时用于初始化可体验的演示持仓、凭证与收益记录（绝不落盘、绝不进入真实模式） */
+function createInitialCandles() {
+  // 演示模式初始雷达（真实模式由 data.js 的服务端快照覆盖）
+  const pattern = [
+    { h: 24, bull: true,  p: 0.1868 },
+    { h: 28, bull: true,  p: 0.1892 },
+    { h: 18, bull: false, p: 0.1821 },
+    { h: 26, bull: true,  p: 0.1880 },
+    { h: 22, bull: true,  p: 0.1874 },
+    { h: 30, bull: true,  p: 0.1912 },
+    { h: 20, bull: false, p: 0.1835 },
+    { h: 25, bull: true,  p: 0.1888 },
+    { h: 21, bull: true,  p: 0.1869 },
+    { h: 29, bull: true,  p: 0.1904 },
+    { h: 17, bull: false, p: 0.1819 },
+    { h: 26, bull: true,  p: 0.1891 },
+    { h: 24, bull: true,  p: 0.1886 },
+    { h: 27, bull: true,  p: 0.1901 },
+    { h: 23, bull: true,  p: 0.1895 },
+    { h: 26, bull: true,  p: 0.1910, active: true }
+  ];
+  const candles = [];
+  for (let i = 1; i <= 24; i++) {
+    if (i <= 16) {
+      candles.push({ index: i, status: i === 16 ? 'active' : 'closed', confirmed: i < 16, ...pattern[i - 1] });
+    } else {
+      candles.push({ index: i, status: 'pending', confirmed: false, h: 12, bull: true, p: null });
+    }
+  }
+  return candles;
+}
+
 export function applyDemoInitialState(state) {
+  state.round.candles = createInitialCandles();
+  state.round.quickStakeTon = 100;
+  state.round.tonUsd = 3.00;
+  state.round.poolA9 = 700000000;
+  state.round.teamPoolA9 = 120000000;
+  state.market.rateA9PerTon = 2002;
+  state.market.minOrderTon = 5;
+  state.market.maxOrderTon = 200;
+  state.market.hardCapTon = 1000;
+  state.market.unlockedQuotaTon = 750;
+  state.market.usedQuotaTon = 150;
   state.user.connected = true;
   state.user.tgBound = true;
   state.user.shortAddress = 'UQ...489f';
@@ -416,4 +459,55 @@ export function demoPredictionActivate(userId, walletAddress) {
     pendingActivationRaw: '0',
     activatedRaw: u.activatedRaw
   };
+}
+
+export const ROUND_META = {
+  R3: { zh: '第 3 轮 · 观察中', en: 'Round #3 · Live', target: '$0.1850', est: '$0.1895', bars: '12/16', pct: 75 },
+  R2: { zh: '第 2 轮 · 已清算', en: 'Round #2 · Paid', target: '$0.1420', est: '$0.1618', bars: '19/16', pct: 100 },
+  R1: { zh: '第 1 轮 · 创世轮', en: 'Round #1 · Genesis', target: '$0.1100', est: '$0.1325', bars: '21/16', pct: 100 }
+};
+
+export const DEMO_RANKS = {
+  personal: [
+    { rank: '01', name: 'UQ...9F21', ton: '52,000 TON', a9: '13,104,000 A9' },
+    { rank: '02', name: 'EQ...4A18', ton: '38,000 TON', a9: '9,576,000 A9' },
+    { rank: '03', name: 'UQ...B702', ton: '25,000 TON', a9: '6,300,000 A9' },
+    { rank: '04', name: 'EQ...81E3', ton: '18,500 TON', a9: '4,662,000 A9' },
+    { rank: '08', name: 'UQ...489f (Me)', ton: '5,000 TON', a9: '1,260,000 A9', me: true }
+  ],
+  team: [
+    { rank: '01', name: 'Genesis Alpha Node', ton: '580,000 TON', a9: '120,000,000 A9', me: true },
+    { rank: '02', name: 'TON Quant Syndicate', ton: '462,000 TON', a9: '94,200,000 A9' },
+    { rank: '03', name: 'Obsidian Whales DAO', ton: '295,000 TON', a9: '61,500,000 A9' }
+  ],
+  invite: [
+    { rank: '01', name: 'UQ...9F21', ton: '42 Invites', a9: '320,000 A9' },
+    { rank: '02', name: 'EQ...4A18', ton: '36 Invites', a9: '284,000 A9' },
+    { rank: '03', name: 'UQ...489f (Me)', ton: '18 Invites', a9: '96,500 A9', me: true }
+  ]
+};
+
+
+export const personalRanks = [
+    { r: '01', addr: 'UQ...9F21', invites: 42, reward: '400,000 A9' },
+    { r: '02', addr: 'EQ...4A18', invites: 36, reward: '400,000 A9' },
+    { r: '03', addr: 'UQ...B702', invites: 29, reward: '400,000 A9' },
+    { r: '08', addr: 'UQ...489f (我)', invites: 18, reward: '400,000 A9', me: true },
+    { r: '50', addr: 'EQ...19d4', invites: 6, reward: '64,000 A9', cutoff: true }
+  ];
+export const teamRanks = [
+    { r: '01', addr: 'Genesis Alpha Node', invites: 186, reward: 'Lv.4 · +15%', me: true },
+    { r: '02', addr: 'TON Quant Syndicate', invites: 142, reward: 'Lv.4 · +15%' },
+    { r: '03', addr: 'Cyber Capitalist DAO', invites: 94, reward: 'Lv.3 · +10%' }
+  ];
+
+export function tickDemoPrice(r) {
+  const base = r.twap24h || 0.0045;
+  const delta = (Math.random() - 0.48) * 0.00002;
+  const nextPrice = Math.max(0.004, Number((base + delta).toFixed(6)));
+  r.livePrice = nextPrice;
+  if (!Array.isArray(r.priceHistory) || r.priceHistory.length === 0) r.priceHistory = [nextPrice];
+  r.priceHistory.push(nextPrice);
+  if (r.priceHistory.length > 10) r.priceHistory.shift();
+  return nextPrice;
 }

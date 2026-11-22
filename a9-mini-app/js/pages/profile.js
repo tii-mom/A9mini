@@ -1,3 +1,4 @@
+import { portfolioPanel } from './wealthverse.js';
 /**
  * 我的 / 资产 / 结算页
  * 顺序：可领取金额与操作 → 参与中 / 待解锁奖励与下一步 → 凭证 / 海报 / 设置。
@@ -18,6 +19,7 @@ import { tonConnect } from '../tonconnect.js';
 const amountOrDash = (v, suffix = '') => (v === null || v === undefined ? L('未获取', 'Unavailable') : `${formatNum(v)}${suffix}`);
 
 export function renderProfileHome(root, navigate) {
+  if (!config.isDemo) { root.replaceChildren(); portfolioPanel(root); return; }
   const { user, certificates } = store.state;
   const round = store.state.round;
   const isEmpty = user.profileMode === 'empty';
@@ -35,7 +37,7 @@ export function renderProfileHome(root, navigate) {
           <div class="empty-state" style="padding:18px 8px 8px;">
             <div class="icon-badge" style="width:48px;height:48px;border-radius:12px;">${icon('wallet', 24)}</div>
             <div style="font-size:17px;font-weight:700;margin-top:4px;">${L('还没有持仓与收益', 'No Active Position Yet')}</div>
-            <div class="text-sec" style="font-size:12px;max-width:260px;">${L('最低 10 GRAM 即可参与，达标后按权重瓜分本轮奖励。', 'Join from 10 GRAM; rewards are shared by weight if the round passes.')}</div>
+            <div class="text-sec" style="font-size:12px;max-width:260px;">${L('最低 10 TON 即可参与，达标后按权重瓜分本轮奖励。', 'Join from 10 TON; rewards are shared by weight if the round passes.')}</div>
             <button class="btn btn-primary" style="margin-top:10px;" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L('立即参与', 'Stake Now')}</button>
             <button class="btn btn-secondary" data-nav="/internal/market">${icon('swap', 15)} ${L('内盘购买 A9', 'Presale Swap')}</button>
           </div>
@@ -61,9 +63,9 @@ export function renderProfileHome(root, navigate) {
             <button class="btn btn-primary btn-sm" id="profile-connect">${L('连接', 'Connect')}</button>
           </div>
         ` : `
-          <div class="card card-hero">
+          <div class="card card-hero vault-claim">
             <div class="row-between" style="margin-bottom:10px;">
-              <span class="chip chip-gold">${user.tonBalance === null ? L('GRAM 余额未知', 'GRAM balance unknown') : `${formatNum(user.tonBalance, 2)} GRAM`}</span>
+              <span class="chip chip-gold">${user.tonBalance === null ? L('TON 余额未知', 'TON balance unknown') : `${formatNum(user.tonBalance, 2)} TON`}</span>
               ${modePill}
             </div>
             <div class="num-xs text-muted">${L('当前可领取', 'Claimable Now')}</div>
@@ -78,13 +80,15 @@ export function renderProfileHome(root, navigate) {
         `}
 
         <div class="card">
-          <div class="card-header"><div class="card-title">${icon('radar', 15, 'text-green')} ${L('参与中', 'Active Positions')}</div><span class="num-xs text-muted">${certificates.filter(c => c.status === 'observation').length}</span></div>
+          <div class="card-header"><div class="card-title">${icon('shieldCheck', 16)} ${L('凭证收藏册','Ticket collection')}</div><span>${certificates.length}</span></div>
+          <nav class="ticket-tabs" aria-label="${L('筛选凭证','Filter tickets')}">${[['all',L('全部','All')],['observation',L('观察中','Observing')],['settled',L('已结算','Settled')]].map(([value,label])=>`<button type="button" data-ticket-filter="${value}" aria-pressed="${value==='all'}">${label}</button>`).join('')}</nav>
+          <p class="ticket-empty" hidden>${L('此状态暂无凭证','No tickets in this state')}</p>
           ${certificates.length === 0
             ? `<div class="empty-state" style="padding:14px;"><div class="num-xs text-muted">${L('暂无参与中的质押', 'No active stake')}</div><button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/challenge">${L('去参与', 'Join')}</button></div>`
             : certificates.map(c => `
-              <div class="list-row clickable" data-nav="/proof/${c.id}">
-                <div><div class="num-sm">#${c.id}</div><div class="num-xs text-muted">${L('第', 'R')} ${c.round} ${L('轮', '')} · ${formatNum(c.stakeTon)} GRAM</div></div>
-                <div style="text-align:right;"><div class="num-sm text-green">${formatNum(c.estRewardA9)} A9</div><span class="chip ${c.status === 'settled' ? 'chip-green' : 'chip-gold'}" style="height:17px;font-size:9px;">${c.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</span></div>
+              <div class="list-row clickable collectible-ticket" data-ticket-state="${c.status}" data-nav="/proof/${c.id}"><img src="./assets/wealthverse/game/scroll.webp" alt="">
+                <div><div class="num-sm">#${c.id}</div><div class="num-xs text-muted">${L('第', 'R')} ${c.round} ${L('轮', '')} · ${formatNum(c.stakeTon)} TON</div></div>
+                <div style="text-align:right;"><div class="num-xs text-muted">${L('预计奖励','Est. reward')}</div><div class="num-sm text-green">${formatNum(c.estRewardA9)} A9</div><span class="chip ${c.status === 'settled' ? 'chip-green' : 'chip-gold'}" style="height:17px;font-size:9px;">${c.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</span></div>
               </div>
             `).join('')}
         </div>
@@ -92,7 +96,7 @@ export function renderProfileHome(root, navigate) {
         <div class="card">
           <div class="card-header"><div class="card-title">${icon('lock', 15, 'text-gold')} ${L('待解锁奖励', 'Locked Rewards')}</div></div>
           <div class="metric-strip cols-2" style="margin-top:0;">
-            <div class="metric-cell"><span class="num-xs text-muted">${L('待解锁 (80%)', 'Vesting (80%)')}</span><span class="num-md">${unknown ? L('—', '—') : formatNum(user.a9Locked)} A9</span></div>
+            <div class="metric-cell"><span class="num-xs text-muted">${L('待解锁', 'Vesting')}</span><span class="num-md">${unknown ? L('—', '—') : formatNum(user.a9Locked)} A9</span></div>
             <div class="metric-cell"><span class="num-xs text-muted">${L('下一步', 'Next step')}</span><span class="num-xs text-sec">${L('任一后续轮达标后线性解锁', 'Unlocks on a later passing round')}</span></div>
           </div>
         </div>
@@ -106,6 +110,18 @@ export function renderProfileHome(root, navigate) {
       </div>
     `;
 
+    root.querySelector('.ticket-tabs')?.addEventListener('click', e=>{
+      const button=e.target.closest('[data-ticket-filter]');
+      if (!button) return;
+      const filter=button.dataset.ticketFilter;
+      let visible=0;
+      root.querySelectorAll('[data-ticket-state]').forEach(ticket=>{
+        ticket.hidden=filter!=='all' && ticket.dataset.ticketState!==filter;
+        if(!ticket.hidden) visible++;
+      });
+      root.querySelectorAll('[data-ticket-filter]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));
+      root.querySelector('.ticket-empty').hidden=visible>0 || certificates.length===0;
+    });
     if (hasClaim) {
       animateSlotCounter(root.querySelector('#a9-claim-num'), claimable, { duration: 420 });
     }
@@ -143,7 +159,7 @@ export function renderProfileHome(root, navigate) {
 
 export function renderClaimPage(root) {
   const { user } = store.state;
-  const claimable = user.connected || config.isDemo ? (user.a9Claimable || 0) : null;
+  const claimable = config.isDemo ? user.a9Claimable : null;
 
   if (!config.isDemo || !store.fundsEnabled) {
     root.innerHTML = `
@@ -232,7 +248,7 @@ export function renderProofDetail(root, navigate, certId) {
         <div class="card empty-state">
           <div class="icon-badge orange" style="width:48px;height:48px;border-radius:14px;">${icon('shieldCheck', 22)}</div>
           <div style="font-weight:700;font-size:15px;margin-top:4px;">${L('暂无质押凭证', 'No Certificate Yet')}</div>
-          <div class="num-xs text-muted" style="max-width:240px;">${L('完成任意一轮 GRAM 参与后，将自动铸造链上 SBT 质押凭证。', 'Complete any round stake to mint your on-chain SBT certificate.')}</div>
+          <div class="num-xs text-muted" style="max-width:240px;">${L('完成任意一轮 TON 参与后，将自动铸造链上 SBT 质押凭证。', 'Complete any round stake to mint your on-chain SBT certificate.')}</div>
           <button class="btn btn-primary btn-sm" style="margin-top:10px;" data-nav="/challenge/confirm">${icon('bolt', 14)} ${L('立即参与获取凭证', 'Stake to Mint')}</button>
         </div>
         <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回我的', 'Back')}</button>
@@ -260,7 +276,7 @@ export function renderProofDetail(root, navigate, certId) {
               <span>${L('轻点翻转核验', 'Tap to flip')} ${icon('refresh', 11)}</span>
             </div>
             <div class="metric-strip cols-3" style="margin-bottom:0;border-bottom:none;padding-bottom:0;">
-              <div class="metric-cell"><span class="num-xs text-muted">${L('本金', 'Stake')}</span><span class="num-md">${formatNum(cert.stakeTon)} GRAM</span></div>
+              <div class="metric-cell"><span class="num-xs text-muted">${L('本金', 'Stake')}</span><span class="num-md">${formatNum(cert.stakeTon)} TON</span></div>
               <div class="metric-cell"><span class="num-xs text-muted">${L('权重', 'Boost')}</span><span class="num-md text-gold">${(Number(cert.multiplier) || 1).toFixed(1)}x</span></div>
               <div class="metric-cell"><span class="num-xs text-muted">${estLabel}</span><span class="num-md text-green">${formatNum(cert.estRewardA9)}</span></div>
             </div>
@@ -400,6 +416,10 @@ export function renderRenewPage(root) {
 }
 
 export function renderLedgerPage(root) {
+  if (!config.isDemo) {
+    root.innerHTML=`<section class="card"><p>${L('领取历史等待核验','Claim history awaits verification')}</p><a href="#/profile">${L('查看钱包资产','View wallet assets')}</a></section>`;
+    return;
+  }
   let viewMode = 'ledger';
   let activeFilter = 'all';
   const rowsAll = store.state.ledger.length ? store.state.ledger : [
@@ -419,13 +439,13 @@ export function renderLedgerPage(root) {
           </div>
           <div class="card card-hero">
             <div class="num-xs text-muted">${L('累计质押本金', 'Total Staked')}</div>
-            <div class="num-hero">${formatNum(history.reduce((s, c) => s + (c.stakeTon || 0), 0), 2)} <span class="num-md text-green">GRAM</span></div>
+            <div class="num-hero">${formatNum(history.reduce((s, c) => s + (c.stakeTon || 0), 0), 2)} <span class="num-md text-green">TON</span></div>
           </div>
           <div class="col-gap">
             ${history.length === 0 ? `<div class="card empty-state"><div class="num-xs text-muted">${L('暂无参与记录', 'No records')}</div></div>` : history.map(h => `
               <div class="card clickable" data-nav="/proof/${h.id}">
                 <div class="row-between">
-                  <div><div style="font-weight:700;">${L('第', 'R')} ${h.round} ${L('轮', '')} · <span class="text-sec">${formatNum(h.stakeTon)} GRAM</span></div><div class="num-xs text-muted">${h.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</div></div>
+                  <div><div style="font-weight:700;">${L('第', 'R')} ${h.round} ${L('轮', '')} · <span class="text-sec">${formatNum(h.stakeTon)} TON</span></div><div class="num-xs text-muted">${h.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</div></div>
                   <div style="text-align:right;"><div class="num-sm text-green">${formatNum(h.estRewardA9)} A9</div><div class="num-xs text-muted">${L('凭证', 'Proof')} ${icon('chevronRight', 11)}</div></div>
                 </div>
               </div>
@@ -462,6 +482,10 @@ export function renderLedgerPage(root) {
 }
 
 export function renderRecordsPage(root) {
+  if (!config.isDemo) {
+    root.innerHTML=`<section class="card"><p>${L('领取历史等待核验','Claim history awaits verification')}</p><a href="#/profile">${L('查看钱包资产','View wallet assets')}</a></section>`;
+    return;
+  }
   let activeFilter = 'all';
   const history = store.state.certificates;
   const paint = () => {
@@ -470,7 +494,7 @@ export function renderRecordsPage(root) {
       <div class="col-gap anim-page-enter">
         <div class="card card-hero">
           <div class="num-xs text-muted">${L('累计质押本金', 'Total Staked')}</div>
-          <div class="num-hero">${formatNum(history.reduce((s, c) => s + (c.stakeTon || 0), 0), 2)} <span class="num-md text-green">GRAM</span></div>
+          <div class="num-hero">${formatNum(history.reduce((s, c) => s + (c.stakeTon || 0), 0), 2)} <span class="num-md text-green">TON</span></div>
         </div>
         <div class="filter-row">
           <button class="filter-pill ${activeFilter === 'all' ? 'active' : ''}" data-rf="all">${L('全部', 'All')}</button>
@@ -481,7 +505,7 @@ export function renderRecordsPage(root) {
           ${list.length === 0 ? `<div class="card empty-state"><div class="num-xs text-muted">${L('暂无记录', 'No records')}</div></div>` : list.map((h, i) => `
             <div class="card clickable" data-drawer="${i}">
               <div class="row-between">
-                <div><div style="font-weight:700;">${L('第', 'R')} ${h.round} ${L('轮', '')} · <span class="text-sec">${formatNum(h.stakeTon)} GRAM</span></div><div class="num-xs text-muted">${h.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</div></div>
+                <div><div style="font-weight:700;">${L('第', 'R')} ${h.round} ${L('轮', '')} · <span class="text-sec">${formatNum(h.stakeTon)} TON</span></div><div class="num-xs text-muted">${h.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</div></div>
                 <div style="text-align:right;"><div class="num-sm text-green">${formatNum(h.estRewardA9)} A9</div><div class="num-xs text-muted">${L('存证', 'Proof')} ${icon('chevronDown', 11)}</div></div>
               </div>
               <div class="drawer-body hidden" id="drawer-${i}" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border-subtle);">

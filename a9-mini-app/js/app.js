@@ -1,3 +1,5 @@
+import { paintScene } from './game-scenes.js';
+import { tickDemoPrice } from './demo-data.js';
 /**
  * A9 Telegram Mini App Bootstrapper — Slim Header, Race-Safe Dual-Theme & Quiet Telemetry
  */
@@ -19,6 +21,15 @@ const mainEl = document.getElementById('app-main');
 const tabbarEl = document.getElementById('app-tabbar');
 const simDrawerEl = document.getElementById('sim-drawer');
 
+mainEl.addEventListener('error', event => {
+  const image = event.target;
+  if (!(image instanceof HTMLImageElement) || !image.matches('.wv-person')) return;
+  const label = document.createElement('span');
+  label.className = 'wv-missing';
+  label.textContent = image.alt + ' · ' + L('立绘暂缺', 'Art unavailable');
+  image.replaceWith(label);
+}, true);
+
 const THEME_KEY = 'a9_theme_mode';
 
 const TABS = [
@@ -29,6 +40,7 @@ const TABS = [
 ];
 
 let dataReady = false;
+let lastLoadError = null;
 let isSyncing = false;
 let lastDataKey = '';
 let activeViewTransition = null;
@@ -113,7 +125,7 @@ function renderHeader(route) {
       ${isStack && !inTelegram ? `<button class="icon-btn" id="hdr-back" aria-label="Back">${icon('arrowLeft', 16)}</button>` : ''}
       ${!isStack
         ? `<div class="header-brand"><span class="brand-mark">A9</span>${config.isDemo ? `<span class="chip chip-muted" style="height:20px;font-size:10px;padding:0 7px;">DEMO</span>` : ''}</div>`
-        : `<div class="header-title">${titleText}</div>`
+        : `<div class="header-title">${titleText} ${config.isDemo ? '<small>DEMO</small>' : ''}</div>`
       }
     </div>
     <div class="header-right">
@@ -164,7 +176,7 @@ function renderTabBar(route) {
   if (!tabbarEl.querySelector('.dock-pill')) {
     tabbarEl.innerHTML = `<div class="dock-pill" id="dock-pill"></div>` + TABS.map(item => `
       <button class="tab-item" data-tab-key="${item.key}" data-nav="${item.path}">
-        ${icon(item.ic, 21)}
+        <img class="realm-nav-icon" src="./assets/wealthverse/game/${{challenge:'castle',market:'scales',team:'flag',profile:'purse'}[item.key]}.webp" alt="">
         <span class="tab-lbl">${t(item.labelKey)}</span>
         ${item.key === 'profile' ? '<span class="tab-badge hidden" id="profile-tab-badge"></span>' : ''}
       </button>
@@ -182,6 +194,7 @@ function renderTabBar(route) {
   tabbarEl.querySelectorAll('.tab-item').forEach((btn, idx) => {
     const item = TABS[idx];
     btn.classList.toggle('active', item.key === route.tab);
+    btn.setAttribute('aria-current', item.key === route.tab ? 'page' : 'false');
     const lbl = btn.querySelector('.tab-lbl');
     if (lbl) lbl.textContent = t(item.labelKey);
   });
@@ -193,7 +206,7 @@ function renderLoading() {
       <div class="card card-hero">
         <div class="row-between"><span class="chip chip-muted">${L('读取中', 'LOADING')}</span>${icon('radar', 18, 'text-green')}</div>
         <div style="font-size:16px;font-weight:700;margin-top:10px;">${L('正在读取当前轮次…', 'Reading current round…')}</div>
-        <div class="num-xs text-muted" style="margin-top:4px;">${L('数据来源：BAM 只读接口', 'Source: BAM read-only API')}</div>
+        <div class="num-xs text-muted" style="margin-top:4px;">${L('正在准备轮次视图', 'Preparing the round view')}</div>
         <div class="progress-track" style="margin-top:14px;"><div class="progress-fill no-anim" style="width:42%"></div></div>
       </div>
     </div>
@@ -210,7 +223,7 @@ function renderDataError(error) {
           <span class="chip chip-red">${code}</span>
         </div>
         <div class="text-sec" style="font-size:12px;line-height:1.6;">${escapeHtml(error?.message || L('无法读取轮次数据', 'Cannot load round data'))}</div>
-        <div class="num-xs text-muted" style="margin-top:8px;word-break:break-all;">${escapeHtml(config.apiBase || L('未配置 API 地址', 'No API base configured'))}</div>
+        <div class="num-xs text-muted" style="margin-top:8px;word-break:break-all;">${escapeHtml(config.apiBase || L('当前站点只读接口', 'Same-origin read-only API'))}</div>
       </div>
       <button class="btn btn-primary" id="data-retry">${icon('refresh', 16)} ${L('重试读取', 'Retry')}</button>
       <div class="card row-between">
@@ -234,19 +247,27 @@ function staleBanner() {
   `;
 }
 
+let lastRenderedPath;
 export function renderCurrentRoute() {
   cleanupActiveInteractions();
   cleanupKineticSurfaces();
   const { route, param } = matchRoute(window.location.hash);
+  document.body.dataset.gameRoute = route.path;
+  paintScene(document.getElementById('realm-banner'), dataReady ? route.path : null);
   renderHeader(route);
   renderTicker(route.ticker);
   renderTabBar(route);
 
   if (!dataReady) {
-    renderLoading();
+    if (lastLoadError) renderDataError(lastLoadError);
+    else renderLoading();
     return;
   }
   route.render(mainEl, navigate, param);
+  if (route.path !== lastRenderedPath && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    mainEl.animate?.([{opacity:0.7, transform:'translateY(5px)'},{opacity:1, transform:'none'}],{duration:180,easing:'ease-out'});
+  }
+  lastRenderedPath = route.path;
   bindKineticSurfaces(mainEl);
   requestAnimationFrame(() => syncSlidingSegTabs(mainEl));
 
@@ -260,20 +281,21 @@ export function renderCurrentRoute() {
 }
 
 async function syncData({ forceRender = false } = {}) {
-  if (isSyncing && !forceRender) return;
+  if (isSyncing) return;
   isSyncing = true;
   try {
     const snapshot = await loadSnapshot();
     const view = mapRoundView(snapshot);
-    const key = [view.rawState, view.currentRound, view.qualifiedCandles, view.candlesSeen, view.source, view.stale, view.result].join('|');
+    const key = [view.rawState, view.currentRound, view.qualifiedCandles, view.candlesSeen, view.source, view.stale, view.result, view.targetPrice, view.twap24h, view.priceValid, view.successCount, JSON.stringify(view.unlock), JSON.stringify(view.candles)].join('|');
     const changed = key !== lastDataKey;
 
     store.update(s => { Object.assign(s.round, view); });
     dataReady = true;
+    lastLoadError = null;
     lastDataKey = key;
 
     // If staying on observation/proof radar with only slot/count progression, update in-place without full DOM rebuild
-    if (!forceRender && changed && document.getElementById('a9-radar-grid')) {
+    if (!forceRender && !changed && document.getElementById('a9-radar-grid')) {
       syncRadarInPlace(store.state.round);
       return;
     }
@@ -282,6 +304,7 @@ async function syncData({ forceRender = false } = {}) {
     else renderHeader(matchRoute(window.location.hash).route);
   } catch (error) {
     if (!dataReady) {
+      lastLoadError = error;
       dataReady = false;
       renderDataError(error);
     } else {
@@ -397,15 +420,15 @@ function openSimDrawer() {
     b.onclick = () => {
       store.update(s => { s.round.stage = b.dataset.simStage; });
       simDrawerEl.classList.add('hidden');
-      navigate('/challenge');
+      navigate('/round');
     };
   });
   simDrawerEl.querySelectorAll('[data-sim-radar]').forEach(b => {
     b.onclick = () => {
       simDrawerEl.classList.add('hidden');
-      if (store.state.round.stage !== 'observation') {
+      if (store.state.round.stage !== 'observation' || window.location.hash !== '#/round') {
         store.update(s => { s.round.stage = 'observation'; });
-        navigate('/challenge');
+        navigate('/round');
       }
       setTimeout(() => simulateRadarEvent(b.dataset.simRadar), 40);
     };
@@ -472,13 +495,7 @@ function startDisplayLoop() {
   setInterval(() => {
     if (document.hidden) return;
     const r = store.state.round;
-    const base = r.twap24h || 0.0045;
-    const delta = (Math.random() - 0.48) * 0.00002;
-    const nextPrice = Math.max(0.004, Number((base + delta).toFixed(6)));
-    r.livePrice = nextPrice;
-    if (!Array.isArray(r.priceHistory) || r.priceHistory.length === 0) r.priceHistory = [nextPrice];
-    r.priceHistory.push(nextPrice);
-    if (r.priceHistory.length > 10) r.priceHistory.shift();
+    const nextPrice = tickDemoPrice(r);
 
     const sLine = document.getElementById('spark-line');
     const sArea = document.getElementById('spark-area');
@@ -503,7 +520,7 @@ window.addEventListener('scroll', () => {
 
 // Bootstrap
 initAutoLanguage();
-applyTheme(localStorage.getItem(THEME_KEY) || 'light');
+applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
 A9TMA.init();
 tonConnect.init();
 
@@ -525,5 +542,5 @@ if (startParsed?.route) {
 
 window.addEventListener('hashchange', renderCurrentRoute);
 syncData({ forceRender: true });
-setInterval(() => syncData(), config.pollMs);
+if (!config.isDemo) setInterval(() => syncData(), config.pollMs);
 startDisplayLoop();

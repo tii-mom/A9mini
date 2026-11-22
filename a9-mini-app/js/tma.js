@@ -25,7 +25,7 @@ export const A9TMA = {
   },
 
   syncTheme(theme) {
-    const bg = theme === 'dark' ? '#030304' : '#E8ECF4';
+    const bg = theme === 'dark' ? '#211935' : '#f1ecf9';
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', bg);
     const tg = getTg();
@@ -79,9 +79,9 @@ export const A9TMA = {
     const id = sanitizeToken(parts[1], 48);
     const ref = sanitizeToken(parts.slice(2).join('_'), 64);
 
-    if (type === 'bet') return { type, id, ref, route: '/challenge', scrollTarget: 'prediction' };
-    if (type === 'round') return { type, id, ref, route: '/challenge', scrollTarget: 'prediction' };
-    if (type === 'burn') return { type, id, ref, route: '/challenge', scrollTarget: 'burn' };
+    if (type === 'bet') return { type, id, ref, route: '/round', scrollTarget: 'prediction' };
+    if (type === 'round') return { type, id, ref, route: '/round', scrollTarget: 'prediction' };
+    if (type === 'burn') return { type, id, ref, route: '/round', scrollTarget: 'burn' };
     if (type === 'proof') {
       const certId = id ? (id.startsWith('A9-STAKE-') ? id : `A9-STAKE-${id}`) : '';
       return { type, id: certId, ref, route: certId ? `/proof/${certId}` : '/proof', scrollTarget: null };

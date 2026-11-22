@@ -15,37 +15,6 @@ import { demoFundsStake, demoFundsClaim, demoFundsBuy, demoFundsClaimPromo, appl
 const STORAGE_KEY = 'a9_ui_prefs_v1';
 const REF_SESSION_KEY = 'a9_referrer_id_v1';
 
-function createInitialCandles() {
-  // 演示模式初始雷达（真实模式由 data.js 的服务端快照覆盖）
-  const pattern = [
-    { h: 24, bull: true,  p: 0.1868 },
-    { h: 28, bull: true,  p: 0.1892 },
-    { h: 18, bull: false, p: 0.1821 },
-    { h: 26, bull: true,  p: 0.1880 },
-    { h: 22, bull: true,  p: 0.1874 },
-    { h: 30, bull: true,  p: 0.1912 },
-    { h: 20, bull: false, p: 0.1835 },
-    { h: 25, bull: true,  p: 0.1888 },
-    { h: 21, bull: true,  p: 0.1869 },
-    { h: 29, bull: true,  p: 0.1904 },
-    { h: 17, bull: false, p: 0.1819 },
-    { h: 26, bull: true,  p: 0.1891 },
-    { h: 24, bull: true,  p: 0.1886 },
-    { h: 27, bull: true,  p: 0.1901 },
-    { h: 23, bull: true,  p: 0.1895 },
-    { h: 26, bull: true,  p: 0.1910, active: true }
-  ];
-  const candles = [];
-  for (let i = 1; i <= 24; i++) {
-    if (i <= 16) {
-      candles.push({ index: i, status: i === 16 ? 'active' : 'closed', confirmed: i < 16, ...pattern[i - 1] });
-    } else {
-      candles.push({ index: i, status: 'pending', confirmed: false, h: 12, bull: true, p: null });
-    }
-  }
-  return candles;
-}
-
 const DEFAULT_STATE = {
   user: {
     connected: false,
@@ -55,11 +24,11 @@ const DEFAULT_STATE = {
     username: null,
     vipLevel: '—',
     weightMultiplier: 1,
-    tonBalance: 0,
-    a9Available: 0,
-    a9Claimable: 0,
-    a9Locked: 0,
-    a9TotalEarned: 0,
+    tonBalance: null,
+    a9Available: null,
+    a9Claimable: null,
+    a9Locked: null,
+    a9TotalEarned: null,
     profileMode: 'active', // 'active' | 'empty'
     autoRenew: true,
     renewMultiplier: 2.0,
@@ -76,17 +45,17 @@ const DEFAULT_STATE = {
     twap24h: null,
     livePrice: null,
     priceHistory: [],
-    quickStakeTon: 100,
+    quickStakeTon: null,
     priceChangePct: null,
-    tonUsd: 3.00,
-    poolA9: 700000000,
-    teamPoolA9: 120000000,
+    tonUsd: null,
+    poolA9: null,
+    teamPoolA9: null,
     totalStakedTon: 0,
     totalTraders: 0,
     countdownSec: null,
     earlyBirdSec: null,
     activeCandleSec: 0,
-    candles: createInitialCandles(),
+    candles: [],
     myStakeTon: 0,
     myWeight: 0,
     myEarlyTier: 2.0,
@@ -104,12 +73,12 @@ const DEFAULT_STATE = {
   certificates: [],
   ledger: [],
   market: {
-    rateA9PerTon: 2002,
-    minOrderTon: 5,
-    maxOrderTon: 200,
-    hardCapTon: 1000,
-    unlockedQuotaTon: 750,
-    usedQuotaTon: 150,
+    rateA9PerTon: null,
+    minOrderTon: null,
+    maxOrderTon: null,
+    hardCapTon: null,
+    unlockedQuotaTon: null,
+    usedQuotaTon: null,
     soldOut: false,
     records: []
   },

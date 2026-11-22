@@ -1,3 +1,4 @@
+import { liveRound } from './wealthverse.js';
 import { store } from '../store.js';
 import { config } from '../config.js';
 import { estimateRewardA9, fetchPredictionRound, fetchPredictionUser, submitPredictionBet, activatePredictionReward, getEffectiveUserId, rawToA9 } from '../data.js';
@@ -21,7 +22,18 @@ import {
 export function renderChallengeHome(root, navigate) {
   const { round, user } = store.state;
   const stage = round.stage;
+  if (!stage) {
+    root.textContent = L('轮次状态等待核验','Round state awaits verification');
+    return;
+  }
 
+  if (!config.isDemo) {
+    root.innerHTML = liveRound(round) + renderPredictionCard(round,store.state.prediction,user);
+    bindPredictionCardEvents(root,navigate);
+    syncPredictionState(root,navigate);
+    handlePendingDeepLinkScroll(root);
+    return;
+  }
   const body = stage === 'warmup'
     ? renderWarmupStage(round, user)
     : stage === 'participation'
@@ -66,16 +78,16 @@ export function renderChallengeHome(root, navigate) {
       const selEl = root.querySelector('#hero-sel-stake');
       const estEl = root.querySelector('#hero-est-a9');
       const ctaEl = root.querySelector('#hero-stake-cta');
-      if (selEl) selEl.textContent = `${formatNum(amt)} GRAM`;
+      if (selEl) selEl.textContent = `${formatNum(amt)} TON`;
       if (estEl) estEl.textContent = est === null ? L('—', '—') : `~${formatNum(Math.round(est))} A9`;
-      if (ctaEl) ctaEl.innerHTML = `${icon('bolt', 16)} ${L(`立即参与 ${formatNum(amt)} GRAM`, `Participate ${formatNum(amt)} GRAM`)}`;
+      if (ctaEl) ctaEl.innerHTML = `${icon('bolt', 16)} ${L(`立即参与 ${formatNum(amt)} TON`, `Participate ${formatNum(amt)} TON`)}`;
     };
   });
 
   root.querySelectorAll('[data-step-stage]').forEach(step => {
     step.onclick = () => {
       const targetStage = step.dataset.stepStage;
-      if (targetStage && targetStage !== store.state.round.stage) {
+      if (config.isDemo && targetStage && targetStage !== store.state.round.stage) {
         store.update(s => { s.round.stage = targetStage; });
         renderChallengeHome(root, navigate);
       }
@@ -117,7 +129,8 @@ function repaintPredictionCard(root, navigate) {
 }
 
 async function syncPredictionState(root, navigate) {
-  if (!root.querySelector('#a9-prediction-card')) return;
+  const requestedCard = root.querySelector('#a9-prediction-card');
+  if (!requestedCard) return;
   const { round, user } = store.state;
   const roundId = round.currentRound || 1;
   const uid = getEffectiveUserId(user);
@@ -126,6 +139,7 @@ async function syncPredictionState(root, navigate) {
       fetchPredictionRound(roundId, round.stage),
       fetchPredictionUser(uid, roundId)
     ]);
+    if (!requestedCard.isConnected || store.state.round.currentRound !== roundId) return;
     store.update(s => {
       Object.assign(s.prediction, {
         roundId,
@@ -153,7 +167,11 @@ async function syncPredictionState(root, navigate) {
     }
     repaintPredictionCard(root, navigate);
   } catch (_) {
-    // 预言接口暂不可用时静默保留卡片，不阻断主页面
+    if (!config.isDemo && requestedCard.isConnected) {
+      requestedCard.textContent=L('预言数据暂不可读取','Prediction data unavailable');
+      const retry=document.createElement('button');retry.className='btn btn-secondary';retry.textContent=L('重试','Retry');
+      retry.onclick=()=>syncPredictionState(root,navigate);requestedCard.append(retry);
+    }
   }
 }
 
@@ -254,8 +272,8 @@ function bindPredictionCardEvents(root, navigate) {
       const ogUrl = buildOgShareUrl('bet', roundId);
       const sideText = bet.side === 'BURN' ? L('押销毁 BURN', 'BURN') : L('押达标 PASS', 'PASS');
       const text = L(
-        `我在 A9 第 ${roundId} 轮 24H 生死预言局押了「${sideText}」${bet.guessSlots !== null && bet.guessSlots !== undefined ? `（精准 ${bet.guessSlots} 段）` : ''}，0 GRAM 也能参战，来群里对赌站队：`,
-        `I locked ${sideText} on A9 Round #${roundId} 24H Prediction (0 GRAM entry). Join the showdown:`
+        `我在 A9 第 ${roundId} 轮 24H 生死预言局押了「${sideText}」${bet.guessSlots !== null && bet.guessSlots !== undefined ? `（精准 ${bet.guessSlots} 段）` : ''}，0 TON 也能参战，来群里对赌站队：`,
+        `I locked ${sideText} on A9 Round #${roundId} 24H Prediction (0 TON entry). Join the showdown:`
       );
       A9TMA.shareInvite(ogUrl, text);
       showToast(L('已调起 Telegram 群约战分享', 'Opened Telegram group challenge share'));
@@ -301,12 +319,12 @@ function bindPredictionCardEvents(root, navigate) {
         A9Haptic.success();
         A9Audio.confirm();
         const deltaA9 = rawToA9(res?.activatedRaw ?? res?.activatedDeltaRaw ?? prediction.pendingActivationRaw) || 0;
-        showToast(L(`已激活 ${formatNum(deltaA9)} A9 至推广奖励账户，可走 0.06 GRAM 提现`, `Activated ${formatNum(deltaA9)} A9 to promo balance`));
+        showToast(L(`已激活 ${formatNum(deltaA9)} A9 至推广奖励账户，可走 0.06 TON 提现`, `Activated ${formatNum(deltaA9)} A9 to promo balance`));
         await syncPredictionState(root, navigate);
       } catch (e) {
         A9Haptic.error();
         if (e?.code === 'ACTIVATION_REQUIREMENT_UNMET') {
-          showToast(L('请先完成 1 笔内盘买币（5 GRAM 起）或链上质押后再激活', 'Complete 1 presale buy (from 5 GRAM) or on-chain stake before activating'), 'amber');
+          showToast(L('请先完成 1 笔内盘买币（5 TON 起）或链上质押后再激活', 'Complete 1 presale buy (from 5 TON) or on-chain stake before activating'), 'amber');
           actBtn.disabled = false;
         } else if (e?.code === 'VOUCHER_EXPIRED') {
           showToast(L('待激活预言券已过期并回流奖池', 'Pending prediction voucher has expired and returned to the pool'), 'amber');
@@ -345,7 +363,7 @@ function openTransactionSheet(amount, view) {
     <div class="empty-state" style="padding:12px 8px;">
       <div class="icon-badge orange" id="tx-stage-badge" style="width:48px;height:48px;border-radius:14px;">${icon('wallet', 22)}</div>
       <div id="tx-stage-title" style="font-size:16px;font-weight:700;margin-top:6px;">${L('1/3 等待钱包签名…', '1/3 Awaiting wallet signature…')}</div>
-      <div id="tx-stage-sub" class="num-xs text-muted">${L(`正在唤起 TON Connect 确认 ${formatNum(amount)} GRAM`, `Confirm ${formatNum(amount)} GRAM in wallet`)}</div>
+      <div id="tx-stage-sub" class="num-xs text-muted">${L(`正在唤起 TON Connect 确认 ${formatNum(amount)} TON`, `Confirm ${formatNum(amount)} TON in wallet`)}</div>
     </div>
     <div class="col-gap">
       <button class="btn btn-secondary" id="tx-go-profile">${L('关闭并返回「我的」查看', 'Close & view in Vault')}</button>
@@ -384,14 +402,20 @@ function openTransactionSheet(amount, view) {
 export function renderParticipateConfirm(root, navigate) {
   const { user } = store.state;
   const round = store.state.round;
+  if (!config.isDemo) {
+    root.innerHTML=liveRound(round);
+    return;
+  }
   let amount = round.quickStakeTon || 100;
   let riskAgreed = false;
   let submitting = false;
 
   const paintEstimate = () => {
     const est = estimateRewardA9(amount);
-    const inst = est === null ? null : Math.round(est * 0.2);
-    const lock = est === null ? null : Math.round(est) - inst;
+    const successes = round.successCount;
+    const fraction = successes === null ? null : successes < 5 ? 0.2 : successes < 10 ? 0.4 : 1;
+    const inst = est === null || fraction === null ? null : Math.round(est * fraction);
+    const lock = inst === null ? null : Math.round(est) - inst;
     const set = (id, val) => { const el = root.querySelector(id); if (el) el.textContent = val; };
     set('#est-instant', inst === null ? '—' : `${formatNum(inst)} A9`);
     set('#est-locked', lock === null ? '—' : `${formatNum(lock)} A9`);
@@ -403,11 +427,11 @@ export function renderParticipateConfirm(root, navigate) {
       <div class="card card-hero">
         <div class="row-between" style="margin-bottom:10px;">
           <span class="chip chip-gold">${L(`第 ${round.currentRound} 轮`, `Round ${round.currentRound}`)}</span>
-          <span class="num-xs text-sec">${L('可用余额', 'Available')}: ${user.tonBalance === null || user.tonBalance === undefined ? L('未获取', 'Unavailable') : `${formatNum(user.tonBalance, 2)} GRAM`}</span>
+          <span class="num-xs text-sec">${L('可用余额', 'Available')}: ${user.tonBalance === null || user.tonBalance === undefined ? L('未获取', 'Unavailable') : `${formatNum(user.tonBalance, 2)} TON`}</span>
         </div>
         <div class="input-box">
           <input id="stake-input" type="number" min="10" value="${amount}" aria-label="${L('参与金额', 'Stake amount')}" />
-          <span class="caps text-sec">GRAM</span>
+          <span class="caps text-sec">TON</span>
         </div>
         <div class="grid-4" style="margin-top:8px;">
           <button class="quick-btn ${amount === 100 ? 'active' : ''}" data-amt="100" type="button">100</button>
@@ -420,10 +444,10 @@ export function renderParticipateConfirm(root, navigate) {
       <div class="card">
         <div class="card-title" style="margin-bottom:6px;">${icon('receipt', 15, 'text-green')} ${L('核对参与清单', 'Participation Checklist')}</div>
         <div class="check-list">
-          <div class="check-row"><span class="text-sec">${L('参与金额 / 币种', 'Amount / Asset')}</span><span class="mono" id="chk-amt" style="font-weight:700;">${formatNum(amount)} GRAM</span></div>
-          <div class="check-row"><span class="text-sec">${L('预计网络费用', 'Est. Network Fee')}</span><span class="mono text-sec">~0.06 GRAM</span></div>
+          <div class="check-row"><span class="text-sec">${L('参与金额 / 币种', 'Amount / Asset')}</span><span class="mono" id="chk-amt" style="font-weight:700;">${formatNum(amount)} TON</span></div>
+          <div class="check-row"><span class="text-sec">${L('预计网络费用', 'Est. Network Fee')}</span><span class="mono text-sec">~0.06 TON</span></div>
           <div class="check-row"><span class="text-sec">${L('预计总奖励（估算）', 'Est. Total (est.)')}</span><span class="mono text-green" id="est-total" style="font-weight:700;">—</span></div>
-          <div class="check-row"><span class="text-sec">${L('20% 即时 / 80% 待解锁', '20% Instant / 80% Vesting')}</span><span class="mono num-xs"><span id="est-instant">—</span> / <span id="est-locked">—</span></span></div>
+          <div class="check-row"><span class="text-sec">${L('预计即时 / 待解锁', 'Est. immediate / locked')}</span><span class="mono num-xs"><span id="est-instant">—</span> / <span id="est-locked">—</span></span></div>
           <div class="check-row"><span class="text-sec">${L('目标底价 / 奖励上限', 'Target / Cap')}</span><span class="mono num-xs">${round.targetPrice === null ? L('待定', 'TBD') : '$' + round.targetPrice.toFixed(4)} · 15x</span></div>
         </div>
         <div class="num-xs text-muted" style="margin-top:8px;">${L('以上奖励为当前参与量估算，结算后以实际到账为准。', 'Estimated from current pool; settled on-chain at round close.')}</div>
@@ -443,7 +467,7 @@ export function renderParticipateConfirm(root, navigate) {
 
       ${store.fundsEnabled
         ? `<div id="stake-slider-mount"></div>
-           <button class="btn btn-secondary" id="btn-confirm-accessible" type="button">${icon('check', 15)} <span id="acc-confirm-lbl">${L(`点击确认参与 ${formatNum(amount)} GRAM`, `Confirm ${formatNum(amount)} GRAM`)}</span></button>`
+           <button class="btn btn-secondary" id="btn-confirm-accessible" type="button">${icon('check', 15)} <span id="acc-confirm-lbl">${L(`点击确认参与 ${formatNum(amount)} TON`, `Confirm ${formatNum(amount)} TON`)}</span></button>`
         : `<button class="btn btn-secondary" id="btn-confirm-accessible" type="button">${icon('lock', 15)} <span id="acc-confirm-lbl">${L('真实模式只读 · 暂未开放质押', 'Read-Only Mode · Staking Disabled')}</span></button>`
       }
     </div>
@@ -471,15 +495,15 @@ export function renderParticipateConfirm(root, navigate) {
   const syncAll = (val) => {
     amount = Math.max(0, Number(val) || 0);
     paintEstimate();
-    if (chkAmt) chkAmt.textContent = `${formatNum(amount)} GRAM`;
-    if (accLbl && store.fundsEnabled) accLbl.textContent = L(`点击确认参与 ${formatNum(amount)} GRAM`, `Confirm ${formatNum(amount)} GRAM`);
+    if (chkAmt) chkAmt.textContent = `${formatNum(amount)} TON`;
+    if (accLbl && store.fundsEnabled) accLbl.textContent = L(`点击确认参与 ${formatNum(amount)} TON`, `Confirm ${formatNum(amount)} TON`);
     const maxBal = user.tonBalance !== null && user.tonBalance !== undefined ? Math.floor(Number(user.tonBalance) || 0) : 0;
     root.querySelectorAll('[data-amt]').forEach(b => {
       b.classList.toggle('active', b.dataset.amt === 'max' ? (maxBal > 0 && amount === maxBal) : Number(b.dataset.amt) === amount);
     });
     const sliderTxt = sliderMount?.querySelector('.slider-text');
     if (sliderTxt) {
-      const next = L(`右滑确认参与 ${formatNum(amount)} GRAM`, `Slide to Stake ${formatNum(amount)} GRAM`);
+      const next = L(`右滑确认参与 ${formatNum(amount)} TON`, `Slide to Stake ${formatNum(amount)} TON`);
       sliderTxt.textContent = next;
       sliderTxt.dataset.orig = next;
     }
@@ -520,12 +544,12 @@ export function renderParticipateConfirm(root, navigate) {
       return;
     }
     if (amount < 10) {
-      showToast(L('最低参与 10 GRAM', 'Minimum 10 GRAM'), 'error');
+      showToast(L('最低参与 10 TON', 'Minimum 10 TON'), 'error');
       initSlider();
       return;
     }
     if (user.tonBalance !== null && user.tonBalance !== undefined && amount > Number(user.tonBalance)) {
-      showToast(L('GRAM 余额不足', 'Insufficient GRAM balance'), 'error');
+      showToast(L('TON 余额不足', 'Insufficient TON balance'), 'error');
       initSlider();
       return;
     }
@@ -550,7 +574,7 @@ export function renderParticipateConfirm(root, navigate) {
         }
         A9Audio.confirm();
         sheet.done(L('演示结果 · 已确认', 'Demo · Confirmed'),
-          `${cert.id} · ${formatNum(cert.stakeTon, 2)} GRAM`);
+          `${cert.id} · ${formatNum(cert.stakeTon, 2)} TON`);
         setTimeout(() => {
           closeModal();
           navigate(`/challenge/success/${cert.id}`);
@@ -568,7 +592,7 @@ export function renderParticipateConfirm(root, navigate) {
   const initSlider = () => {
     if (!sliderMount || !store.fundsEnabled) return;
     mountSlider(sliderMount, {
-      label: L(`右滑确认参与 ${formatNum(amount)} GRAM`, `Slide to Stake ${formatNum(amount)} GRAM`),
+      label: L(`右滑确认参与 ${formatNum(amount)} TON`, `Slide to Stake ${formatNum(amount)} TON`),
       onConfirm: handleConfirmSubmit
     });
   };
@@ -592,7 +616,7 @@ export function renderParticipateSuccess(root, navigate, certId) {
         <span class="cert-corner bl"></span><span class="cert-corner br"></span>
         <div class="icon-badge neon" style="width:50px;height:50px;margin:0 auto 10px;border-radius:14px;">${icon('checkCircle', 26)}</div>
         <div style="font-size:18px;font-weight:700;">${L('参与成功 · 质押凭证已生成', 'Participation Confirmed')}</div>
-        <div class="num-lg text-green" style="margin:6px 0;">${formatNum(cert.stakeTon, 2)} GRAM · ${cert.multiplier.toFixed(1)}x</div>
+        <div class="num-lg text-green" style="margin:6px 0;">${formatNum(cert.stakeTon, 2)} TON · ${cert.multiplier.toFixed(1)}x</div>
         <div class="num-xs text-sec clickable" id="copy-tx">#${cert.id} ${icon('copy', 12)}</div>
         <div class="num-xs text-muted" style="margin-top:4px;">${config.isDemo ? L('演示模式 · 凭证与哈希为模拟数据', 'DEMO · certificate and hash are simulated') : L('等待链上确认后开放凭证分享', 'Proof sharing opens after on-chain confirmation')}</div>
       </div>

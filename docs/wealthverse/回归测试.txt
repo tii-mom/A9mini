@@ -1,0 +1,56 @@
+✔ Production blocks arbitrary ?api= URL override while preserving deployed apiBase (43.390292ms)
+✔ Production allows ?api= only when origin is explicitly allowlisted (37.5055ms)
+✔ Local dev preserves loopback ?api= override but rejects remote untrusted origin and bad protocols (127.08925ms)
+✔ Live mode blocks all wallet sends and fund order requests even with connected wallet (47.147333ms)
+✔ Demo mode NEVER triggers real wallet sendTransaction even when wallet SDK is connected (41.534542ms)
+✔ Telegram deep-link parser sanitizes untrusted start_param values (36.040833ms)
+Running A9 v15 frontend tx-builder tests...
+  PASS  encodeTicketClaimBoc encodes valid BOC magic, op 0x52540303, and 64-bit queryId
+  PASS  encodeTextCommentBoc encodes 0x00000000 prefix + UTF-8 claim memo
+  PASS  parseTonAddress decodes both friendly base64url and raw 0:hex TON addresses
+  PASS  buildV15StakeTx builds valid 2-cell TEP-74 AskToTransfer BOC with 0x5254000F child ref
+  PASS  buildV15ClaimTx and buildV15PromoFeeTx produce valid TON Connect 2.0 message payloads
+  PASS  encodeSingleCellBoc rejects payloads > 127 bytes
+All 6 v15 frontend tx-builder tests passed.
+✔ a9-mini-app/js/v15-tx.test.mjs (51.752583ms)
+Running A9 v15 worker unit tests...
+  PASS  v15 round stage derives STAKING_OPEN -> OBSERVING -> SUCCEEDED without CloseStaking/Settling
+  PASS  promo hot-wallet full flow: 0.06 TON fee -> finalized verify -> TEP-74 payout with excesses back to hot wallet
+  PASS  API router serves /api/health, /api/config, /api/rounds/:id, and /api/promo/intent
+  PASS  TonCenterClient parses v15 get_protocol_state, get_round, and finalized inbound txs
+  PASS  PromoPayoutRunner polls 0.06 TON inbound fee, pays A9 with excesses to hot wallet, and ignores replays
+  PASS  createActonPromoBroadcaster passes --net and parses PROMO_PAYOUT_TX cleanly
+  PASS  PresaleHotWalletEngine handles valid fill, passive free refund, user-fault -0.05 TON refund, and dust ignore
+  PASS  SocialStore handles warmup registration, invite leaderboard, and captain TG-group binding
+  PASS  PredictionEngine settles PASS/BURN with 1.5x exact-slot boost and activates into promoEngine
+  PASS  Dynamic OG card routes /c/round/1 and /c/img/burn/2.svg render valid HTML & SVG
+  PASS  TonCenterClient encodes/decodes TON address BOC and reads user JettonWallet + StakeTicket
+  PASS  PresalePayoutRunner polls buy:<id> finalized TON, broadcasts A9 payout, and ignores replays
+  PASS  First-touch referral binding blocks self/mutual invites and credits 12% presale commission to promoEngine
+  PASS  POST /api/prediction/activate enforces anti-sybil capital check and voucher expiry
+  PASS  PredictionEngine applies up to 2.0x invite+exact boost and returns streak, winRate, pendingExpiresAt, winningSide
+  PASS  GET /c/img/burn/2.png returns valid PNG (1200x630 & 9x16 1080x1920) and /c/burn/2 points og:image to .png
+  PASS  D1PromoStore.creditReward preserves BigInt precision across multiple credits
+  PASS  POST /api/admin/prediction/settle rejects unauthorized calls (401) and settles with valid admin token
+  PASS  D1 full-stack persistence loop: bindReferral -> placeBet -> admin settle -> PAID_A9 presale + 12% credit -> activateToPromo
+All 19 A9 v15 worker tests passed.
+✔ worker/tests/worker.test.mjs (2327.569834ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2337.727417
+Running A9 v15 ops offline self-test...
+  PASS  v15 compiled artifacts match ci/artifacts.sha256 (4 contracts)
+  PASS  testnet / testnet-fast / mainnet param profiles validate cleanly
+  PASS  OpenRound [1.5x, 2.5x] corridor math and bounds check
+  PASS  24-candle off-chain aggregation produces deterministic candleHash
+  PASS  v15 win settlement math matches on-chain 15x cap, team ratio, and 3-tier unlock
+All 5 v15 ops self-tests passed.
+build/JettonMaster.json: OK
+build/JettonWallet.json: OK
+build/RoundController.json: OK
+build/StakeTicket.json: OK

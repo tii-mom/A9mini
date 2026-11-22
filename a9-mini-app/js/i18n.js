@@ -43,11 +43,11 @@ export function toggleLang() {
 
 const DICT = {
   'zh-CN': {
-    tab_challenge: '挑战',
-    tab_market: '内盘',
-    tab_team: '团队',
+    tab_challenge: '主城',
+    tab_market: '商行',
+    tab_team: '商会',
     tab_leaderboard: '榜单',
-    tab_profile: '我的',
+    tab_profile: '资产库',
     connect_wallet: '连接钱包',
     rt_confirm: '参与确认',
     rt_success: '参与成功',
@@ -69,11 +69,11 @@ const DICT = {
     rt_rules: '规则说明'
   },
   'en-US': {
-    tab_challenge: 'Challenge',
+    tab_challenge: 'City',
     tab_market: 'Market',
-    tab_team: 'Team',
+    tab_team: 'Guild',
     tab_leaderboard: 'Rankings',
-    tab_profile: 'Me',
+    tab_profile: 'Vault',
     connect_wallet: 'Connect',
     rt_confirm: 'Confirm Participation',
     rt_success: 'Success',

@@ -1,3 +1,4 @@
+import { portfolioPanel } from './wealthverse.js';
 /**
  * Team & Referral Pages — 99-Point Pure Hero First (Zero Top Debug Tabs, Custom Action Sheet, SVG Progress Ring)
  */
@@ -14,6 +15,25 @@ import { renderReferralPoster, renderProofFlexPoster, renderStoryPoster, downloa
 import { triggerStoryShare } from '../share.js';
 
 export function renderTeamHome(root, navigate) {
+  if (!config.isDemo) {
+    root.innerHTML=`<form class="card col-gap"><label>${L('商会编号','Guild ID')} <input name="guild" required maxlength="64"></label><button class="btn btn-primary">${L('申请加入','Join guild')}</button><output></output></form>`;
+    portfolioPanel(root,true);
+    const form=root.querySelector('form');
+    form.onsubmit=async event=>{
+      event.preventDefault();
+      const wallet=store.state.user.address;
+      if(!wallet){tonConnect.openConnectModal(()=>renderTeamHome(root,navigate));return;}
+      const button=form.querySelector('button');
+      button.disabled=true;
+      try {
+        await joinTeam({teamId:form.elements.guild.value.trim(),walletAddress:wallet,userId:getEffectiveUserId(store.state.user),referrerId:store.state.referral.referrerId});
+        renderTeamHome(root,navigate);
+      } catch {
+        form.querySelector('output').textContent=L('加入失败，请核对商会编号后重试','Join failed. Check the guild ID and retry.');
+        button.disabled=false;
+      }
+    };return;
+  }
   const { team } = store.state;
   const role = team.role;
 
@@ -30,7 +50,7 @@ export function renderTeamHome(root, navigate) {
     const target = Number(team.teamStakedTarget) || 1;
     const progressPct = Math.min(100, Math.round(((Number(team.teamStakedTon) || 0) / target) * 100));
     html = `
-      <div class="card card-hero">
+      <div class="card card-hero guild-board">
         <div class="row-between" style="margin-bottom:12px;">
           <span class="chip chip-green">Lv.${team.level || 1} · +${team.boostPct || 0}%</span>
           ${rolePill}
@@ -39,7 +59,7 @@ export function renderTeamHome(root, navigate) {
           <div>
             <div class="row-start" style="font-size:16px;font-weight:700;">${escapeHtml(team.name || L('我的团队', 'My Squad'))} ${icon('shieldCheck', 16, 'text-green')}</div>
             <div class="num-xs text-muted" style="margin-top:6px;">${L('本轮队长预估分红 (1%)', 'Est. Captain Fee (1%)')}</div>
-            <div class="num-hero" id="captain-dividend-val" style="margin-top:3px;font-size:30px;">${formatNum(team.captainDividendTon || 0, 2)} <span class="num-sm text-green">GRAM</span></div>
+            <div class="num-hero" id="captain-dividend-val" style="margin-top:3px;font-size:30px;">${formatNum(team.captainDividendTon || 0, 2)} <span class="num-sm text-green">TON</span></div>
           </div>
           ${renderProgressRing(progressPct, `${progressPct}%`, 'var(--green)')}
         </div>
@@ -61,13 +81,12 @@ export function renderTeamHome(root, navigate) {
             <button class="btn btn-secondary btn-sm" data-nav="/team/bind-tg">${icon('send', 12)} ${L('TG 群', 'Group')}</button>
           </div>
         </div>
-        <div class="col-gap">
+        <div class="guild-roster">
           ${(team.topMembers || []).length === 0
             ? `<div class="empty-state" style="padding:14px;"><div class="num-xs text-muted">${L('暂无成员数据', 'No members yet')}</div></div>`
-            : (team.topMembers || []).map(m => `
-            <div class="list-row">
-              <div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
-              <div class="num-sm text-green">${formatNum(m.ton)} GRAM</div>
+            : (team.topMembers || []).map((m,i) => `
+            <div class="guild-member"><img src="./assets/wealthverse/game/a${[5,2,3][i%3]}.webp" alt=""><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
+              <div class="num-sm text-green">${formatNum(m.ton)} TON</div>
             </div>
           `).join('')}
         </div>
@@ -77,7 +96,7 @@ export function renderTeamHome(root, navigate) {
     `;
   } else if (role === 'member') {
     html = `
-      <div class="card card-hero">
+      <div class="card card-hero guild-board">
         <div class="row-between" style="margin-bottom:12px;">
           <span class="chip chip-gold">Lv.3 · +10%</span>
           ${rolePill}
@@ -114,7 +133,7 @@ export function renderTeamHome(root, navigate) {
       { id: 'TM-3042', name: 'TON Quant Syndicate', lv: 'Lv.3', boost: '+10%', members: '66/100' }
     ];
     html = `
-      <div class="card card-hero">
+      <div class="card card-hero guild-board">
         <div class="row-between" style="margin-bottom:8px;">
           <span class="chip chip-gold">${L('最高 +15% 加成', 'Up to +15% Boost')}</span>
           ${rolePill}
@@ -148,7 +167,7 @@ export function renderTeamHome(root, navigate) {
   root.innerHTML = `<div class="col-gap anim-page-enter">${html}</div>`;
 
   const divEl = root.querySelector('#captain-dividend-val');
-  if (divEl) animateSlotCounter(divEl, Number(team.captainDividendTon) || 0, { duration: 600, decimals: 2, suffix: ' GRAM' });
+  if (divEl) animateSlotCounter(divEl, Number(team.captainDividendTon) || 0, { duration: 600, decimals: 2, suffix: ' TON' });
 
   const roleBtn = root.querySelector('#btn-role-sheet');
   if (roleBtn) {
@@ -230,6 +249,7 @@ export function renderTeamHome(root, navigate) {
 }
 
 export function renderTeamProfile(root, navigate, id) {
+  if(!config.isDemo){root.replaceChildren();portfolioPanel(root,true);return;}
   const safeId = escapeHtml(id || 'TM-0001');
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
@@ -249,6 +269,10 @@ export function renderTeamProfile(root, navigate, id) {
 
 export function renderBindTgGroup(root) {
   const { team } = store.state;
+  if (!config.isDemo) {
+    root.innerHTML=`<div class="card">${L('群组绑定状态等待服务端核验','Group binding awaits server verification')}</div>`;
+    return;
+  }
   let bindState = team.tgGroupBound ? 'bound' : 'unbound';
   const stateMeta = {
     bound:     { chip: 'chip-green', label: L('已绑定', 'Bound'),    desc: L('Bot 权限正常，整点收盘自动播报。', 'Bot active. Hourly pushes enabled.'), btn: L('重新校验', 'Re-verify') },
@@ -292,31 +316,19 @@ export function renderBindTgGroup(root) {
 export function renderInviteShare(root) {
   const { user, team } = store.state;
   const addrTail = (user.shortAddress || 'A9USER').slice(-4);
-  const inviteLink = `${window.location.origin}${window.location.pathname}?startapp=invite_${team.id || 'A9'}_${addrTail}`;
+  const inviteLink = `${window.location.origin}${window.location.pathname}?mode=${config.mode}&startapp=invite_${team.id || 'A9'}_${addrTail}`;
   let template = 'invite';
 
   const pitchText = L(
-    `我在 A9 第 ${store.state.round.currentRound} 轮锁了早鸟权重！点我的链接进团队，团队奖励 18%：${inviteLink}`,
-    `Join my A9 squad for an 18% team reward: ${inviteLink}`
+    `来 A9 财富主城查看轮次挑战与商会：${inviteLink}`,
+    `Explore the A9 Wealth City and Guild: ${inviteLink}`
   );
 
   const paint = () => {
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         <div class="card card-hero">
-          <div class="row-between" style="margin-bottom:6px;">
-            <span class="chip chip-gold">${L('邀请奖励 12%', '12% Referral')}</span>
-            <span class="chip chip-green">${L('团队奖励 18%', '18% Team')}</span>
-          </div>
-          <div class="metric-strip">
-            <div class="metric-cell"><span class="num-xs text-muted">${L('邀请奖励 (12%)', 'Referral (12%)')}</span><span class="num-md text-green">96,500 A9</span></div>
-            <div class="metric-cell"><span class="num-xs text-muted">${L('团队奖励 (18%)', 'Team (18%)')}</span><span class="num-md text-gold">184,200 A9</span></div>
-          </div>
-          <div class="row-between num-xs" style="margin-bottom:5px;">
-            <span class="text-muted">${L('本轮推广奖励上限', 'Round Promo Cap')}</span>
-            <span class="mono">96,500 / 320,000 A9</span>
-          </div>
-          <div class="progress-track"><div class="progress-fill gold" style="width:30%"></div></div>
+          ${config.isDemo ? L('演示推广奖励','Demo promotion rewards') : L('推广奖励等待核验','Promotion rewards await verification')}
           <button class="btn btn-secondary btn-sm" id="btn-claim-promo-hot" style="width:100%;margin-top:12px;">${icon(config.isDemo ? 'wallet' : 'lock', 14)} ${config.isDemo
             ? L('领取推广奖励（演示模拟 0.06 TON）', 'Claim Promo Rewards (Demo 0.06 TON)')
             : L('真实模式只读 · 推广领奖暂未开放', 'Read-Only Mode · Promo Claim Disabled')}</button>
@@ -352,9 +364,9 @@ export function renderInviteShare(root) {
             <span class="num-xs text-muted">${L('有效 16 人', '16 Valid')}</span>
           </div>
           <div class="col-gap">
-            <div class="list-row"><div><div class="num-sm">UQ...8892</div><div class="num-xs text-muted">5,000 GRAM · 2.0x</div></div><span class="chip chip-green">${L('已达标', 'Passed')}</span></div>
-            <div class="list-row"><div><div class="num-sm">EQ...3312</div><div class="num-xs text-muted">2,000 GRAM · 2.0x</div></div><span class="chip chip-gold">${L('观察中', 'Live')}</span></div>
-            <div class="list-row"><div><div class="num-sm">UQ...77ea</div><div class="num-xs text-muted">0 GRAM</div></div><span class="chip chip-muted">${L('待参与', 'Pending')}</span></div>
+            <div class="list-row"><div><div class="num-sm">UQ...8892</div><div class="num-xs text-muted">5,000 TON · 2.0x</div></div><span class="chip chip-green">${L('已达标', 'Passed')}</span></div>
+            <div class="list-row"><div><div class="num-sm">EQ...3312</div><div class="num-xs text-muted">2,000 TON · 2.0x</div></div><span class="chip chip-gold">${L('观察中', 'Live')}</span></div>
+            <div class="list-row"><div><div class="num-sm">UQ...77ea</div><div class="num-xs text-muted">0 TON</div></div><span class="chip chip-muted">${L('待参与', 'Pending')}</span></div>
           </div>
         </div>
       </div>

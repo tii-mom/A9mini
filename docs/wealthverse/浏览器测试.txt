@@ -1,0 +1,1 @@
+52 route/viewport checks passed. Gallery export, demo preview, image fallback, offline retry and live read-only states passed.

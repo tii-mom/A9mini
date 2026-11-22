@@ -35,7 +35,8 @@ export function escapeHtml(str) {
 
 export function formatNum(n, decimals = 0) {
   const num = Number(n);
-  const safe = Number.isFinite(num) ? num : 0;
+  if (n === null || n === undefined || n === '' || !Number.isFinite(num)) return '—';
+  const safe = num;
   return safe.toLocaleString('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
@@ -71,6 +72,8 @@ export function burstParticles(originEl) {
     setTimeout(() => p.remove(), 580);
   }
 }
+
+
 
 export function showToast(message, type = 'success') {
   const root = document.getElementById('toast-container');
