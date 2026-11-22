@@ -90,3 +90,23 @@ Running A9 v15 frontend tx-builder tests...
   PASS  encodeSingleCellBoc rejects payloads > 127 bytes
 All 6 v15 frontend tx-builder tests passed.
 
+
+$ bot template render (A9_API_BASE unset)
+*A9 链上挑战协议*
+基于 TON 区块链智能合约。以下数据来自协议接口，缺失时显示“待核验”。
+
+• 当前轮次：`待核验`（待核验）
+• 目标价：`待核验`
+• 24H 判定均价：`待核验`
+
+进入小程序查看实时详情。参与有风险，结果以链上结算为准。
+---
+*轮次 待核验 实时状态*
+• 阶段：待核验
+• 目标价：`待核验`
+• 达标时段：`待核验`（需 ≥ 16/24）
+数据来自协议接口；缺失项显示“待核验”。
+---
+*领取入口*
+你的可领取数额只在小程序内、完成 Telegram 身份与钱包验证后显示。
+机器人消息不会展示任何个人收益数字。

@@ -1,7 +1,8 @@
 # 第一阶段报告：基线清点 + P0 安全与数据真实性
 
 **基线：** `9f138fb4bd673aefe91d02ab59842f33ddd84adb`（本地 `main` = `origin/main`，开工前无新提交）
-**提交 SHA：** 尚无。本机 git 是 Xcode 占位程序，无法建分支和提交（见“需要业主处理”）。
+**实施分支：** `feat/gamification-v1`
+**第一阶段代码提交：** `16c62e4599bcc130f3b64840a6d251e0ff9845d4`（29 个文件，+2978 / −586）。本报告的 SHA 记录另有一次文档提交。
 **原始测试输出：** `docs/gamification/phase-1-test-output.txt`
 
 ## 1. 完成内容
@@ -74,6 +75,7 @@
 | `node a9-mini-app/js/batch-a-live-guard.test.mjs` | 6/6 通过 |
 | `node a9-mini-app/js/v15-tx.test.mjs` | 6/6 通过 |
 | `node a9-mini-app/tests/wealthverse-browser.mjs` | **未运行**：本机没有安装 Playwright |
+| 机器人模板实际输出（未配置 `A9_API_BASE`） | 三条消息全部显示“待核验”，不含任何数字（输出附在 phase-1-test-output.txt 末尾） |
 
 原测试有 7 处为适配新身份和状态机做了修改，原有的安全语义全部保留：
 - 推广/预售/激活接口改为必须带签名身份；
