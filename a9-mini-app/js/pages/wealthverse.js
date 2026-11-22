@@ -12,7 +12,7 @@ function portrait(n) {
   return `<img class="wv-person" src="${characterArt(n)}" alt="A${n}"> `;
 }
 function hero(title, tag, content = '', figure = '', cls = '') {
-  return `<section class="wv-hero ${cls}"><div class="wv-scenery"></div>${figure}<div class="wv-copy"><small>${tag}</small><h1>${title}</h1>${content}</div></section>`;
+  return `<section class="wv-hero ${cls}"><div class="wv-scenery"></div>${figure}<div class="wv-copy"><small>${tag}</small><h1>${title}</h1>${content}</section>`;
 }
 export function stageLabel(stage) {
   const stages = {
@@ -36,12 +36,15 @@ export function city() {
     ['/rules','city',L('玩法规则','Rules')]
   ];
   return `<section class="wv-hero game-city">
-    <div class="city-sky"></div>
-    <div class="city-mast"><small>A9 WEALTHVERSE</small><h1>${L('财富进化世界','Wealthverse')}</h1></div>
-    <a class="city-profile" href="#/gallery"><b>${title}</b><span>${config.isDemo ? L('演示试穿','Demo preview') : L('持仓待核验','Holdings unverified')}</span></a>
-    ${config.isDemo && tier === 1 ? '<img class="city-sticker" src="./assets/game-v2/city-sticker.webp" alt="A1">' : config.isDemo ? portrait(tier) : ''}
-    <div class="city-controls"><div class="city-round"><i></i>${L('第','Round')} ${r.currentRound ?? '—'} · ${stageLabel(r.stage)}<a href="#/observation/records">${r.qualifiedCandles ?? '—'} / ${r.minQualifiedCandles ?? 16} ›</a></div>
-    <a class="game-play" href="#/round">${L('进入轮次挑战','Enter challenge')} <b>›</b></a>
+    <header class="edition-heading"><h1>${L('财富进化世界','Wealthverse')}</h1>
+      <a href="#/gallery">${L('身份图鉴','Gallery')} ›</a></header>
+    <div class="edition-art">
+      ${config.isDemo ? (tier === 1 ? '<img class="edition-cover" src="./assets/game-v2/city-sticker.webp" alt="A1">' : portrait(tier)) : '<img class="edition-cover" src="./assets/game-v2/city.webp" alt="">'}
+    </div>
+    <div class="edition-caption"><b>${title}</b><span>${config.isDemo ? L('演示试穿','Demo preview') : L('持仓待核验','Holdings unverified')}</span></div>
+    <section class="edition-round"><div><small>${L('第','Round')} ${r.currentRound ?? '—'}</small><h2>${stageLabel(r.stage)}</h2></div>
+      <a href="#/observation/records">${r.qualifiedCandles ?? '—'} / ${r.minQualifiedCandles ?? 16}<small>${L('达标时段','Qualified slots')} ›</small></a>
+      <a class="game-play" href="#/round">${L('进入轮次挑战','Enter challenge')}　›</a></section>
     <nav class="game-gates">${gates.map(([path,asset,label])=>`<a href="#${path}"><img src="./assets/game-v2/stickers/${asset}.webp" alt=""><span>${label}</span></a>`).join('')}</nav>
 </div></section>`;
 }

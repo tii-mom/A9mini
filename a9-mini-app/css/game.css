@@ -190,3 +190,38 @@ body[data-game-route] .wv-vault .wv-scenery{background:#28213b url('../assets/ga
 body[data-game-route] .wv-gallery-hero .wv-scenery{background:#29213c}
 body[data-game-route] .guild-member,body[data-game-route] .wv-gallery a{border:1px solid #d1b794;border-radius:8px 15px 8px 6px;background:#382e4b}
 .studio-nav{display:flex;justify-content:space-around;border:1px solid var(--rule);border-radius:8px;background:#231c34;padding:8px}.studio-nav a{color:var(--paper);padding:8px}
+
+/* Jade ink, warm paper and a single action colour across the application. */
+body[data-game-route],[data-theme=light] body[data-game-route]{
+ --bg-canvas:#172724;--bg-panel:#223630;--bg-header:#182823;--bg-surface:#243934;--paper:#f4e9ce;--ink:#182b25;--rule:#788d80;
+ --text-primary:#f6f1df;--text-secondary:#d1dace;--text-muted:#b6c4b9;--gold:#e7c991;--green-text:#b7e8ce
+}
+body[data-game-route] .tma-shell,body[data-game-route="/challenge"] .tma-shell{background:var(--bg-canvas)}
+body[data-game-route] :is(.app-header,.app-tabbar),body[data-game-route="/challenge"] :is(.app-header,.app-tabbar){background:#172822;border-color:#54695d}
+body[data-game-route] .app-header :is(.icon-btn,.wallet-pill){background:#233a31;border-color:#506457;color:#eee7d4}
+body[data-game-route] .dock-pill,body[data-game-route="/challenge"] .dock-pill{background:#344e41;border-color:#748e79}
+body[data-game-route] .app-main .card,body[data-game-route] :is(.modal-sheet,.cert-pass,.star-reading,.guild-board,.vault-claim),body[data-game-route] #a9-radar-card{background:var(--bg-panel);border:1px solid #455e50;border-radius:14px;box-shadow:none}
+body[data-game-route] .app-main .card-title{padding:0;background:none;border:0;color:#f3ead4;font-size:16px}
+body[data-game-route] :is(.metric-strip,.candle-inspector,.sub-tile,.cmd-tile,.sheet-option,.input-box,.hero-amt-pill,.quick-btn,.filter-pill,.seg-tabs,.btn-secondary,.check-list){background:#192d26;border-color:#4c6455;color:#e4e9dc}
+body[data-game-route] .btn-primary,body[data-game-route] .game-play{background:#c7e7ad;color:#1a321f;border:0;box-shadow:none;border-radius:9px;text-shadow:none}
+body[data-game-route] :is(.realm-banner,.observatory-stage,.star-journal.wv-tower,.counter-keeper){background-color:#21362e}
+body[data-game-route] .realm-banner h1,.observatory-status h1{font-size:clamp(26px,7vw,36px);font-style:normal;text-shadow:none}
+.game-city.wv-hero{display:grid;align-content:start;gap:0;height:auto;min-height:0;max-height:none;padding:16px;color:#213129;background:#f1ebdb}
+.edition-heading,.edition-caption,.edition-round{display:flex;justify-content:space-between;align-items:center}
+.edition-heading{gap:10px;padding:4px 0 14px}.edition-heading h1{margin:0;font:700 clamp(25px,7vw,35px)/1.2 Georgia,"Songti SC",serif}.edition-heading a{color:#375844;font-size:13px;padding:12px 0;text-decoration:none}
+.edition-art{border-radius:13px;overflow:hidden;aspect-ratio:1.9;background:#29213e;display:grid;place-items:center}
+.edition-cover,.game-city.wv-hero .edition-art .wv-person{position:static;width:100%;height:100%;max-height:100%;min-height:0;object-fit:contain;animation:none;filter:none}
+.edition-caption{font-size:12px;padding:9px 1px 15px}.edition-caption span{color:#566455}
+.edition-round{display:grid;grid-template-columns:1fr auto;gap:12px;background:#233c30;color:#f7eed9;padding:16px;border-radius:12px}
+.edition-round h2{margin:3px 0 0;font-size:22px}.edition-round small{display:block;color:#c2d0bd;font-size:12px;line-height:1.5;letter-spacing:0}
+.edition-round>a:first-of-type{text-align:right;font:700 23px/1.2 monospace;text-decoration:none;color:#f1e8ce}
+.edition-round .game-play{grid-column:1/-1;width:100%;min-height:44px;font-size:16px}
+.game-gates{width:100%;border:0;margin:15px 0 0;padding:0;gap:6px}.game-gates a{border:1px solid #c9cebb;background:#faf7ec;border-radius:9px;padding:8px 1px}.game-gates a span{background:none;color:#293b30;font-size:12px}.game-gates img{width:41px;height:41px;filter:none}
+body[data-game-route="/gallery"] .wv-gallery-hero{display:grid;grid-template-columns:1fr 1.25fr;align-items:center;min-height:180px;padding:14px;margin:0;border:0;border-radius:12px;box-shadow:none;background:#f1ebda}
+.wv-gallery-hero .wv-scenery{display:none}.wv-gallery-hero .wv-copy{grid-column:1;grid-row:1;background:none;max-width:none;color:#435443;padding:0}
+.wv-gallery-hero .wv-copy :is(h1,small){color:#263d2f;text-shadow:none}.wv-gallery-hero .wv-copy h1{font-size:26px}
+body[data-game-route] .wv-gallery-hero .wv-person{position:static;grid-column:2;grid-row:1;width:100%;height:168px;z-index:auto;animation:none;filter:none;object-fit:contain}
+body[data-game-route] .wv-gallery a{background:#253b31;padding:8px 4px;border:1px solid #526958;box-shadow:none;border-radius:10px;color:#f2ecd9;gap:3px}
+body[data-game-route] .wv-gallery a[aria-current=true]{outline:2px solid #b6d993}
+body[data-game-route="/challenge"] .app-main{background:#f1ebdb}
+.game-gates img{background:#30293d;border-radius:9px;width:48px;height:48px;padding:3px}
