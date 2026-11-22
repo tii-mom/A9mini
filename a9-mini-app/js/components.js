@@ -401,24 +401,77 @@ export function animateSlotCounter(el, target, { duration = 420, decimals = 0, p
 }
 
 /**
- * Signature 24H Qualification Slot Matrix (2x12)
- * - 4 unmistakable shape + color states: bull (solid green), bear (solid red + notch), active (orange outline), pending (hollow gray)
- * - Explicit dual progress labels: 已确认 X/24 · 已达标 Y/16
- * - Clean data freshness indicator & top-right "全部记录 ›" link
+ * A9 标志性 24H 手盖圆章观测矩阵 (4x6)
+ * - 双分母顶标：已确认 X/24 · 已达标 Y/16
+ * - 每格同时用编号 + 几何状态符号（✓ 达标 / × 未达标 / ◉ 观察中青蓝 / · 未开始），颜色只作辅助
+ * - 固定高度底部判定依据栏：并列展示本段均价、目标底价与明确结论，切格绝不跳动
  */
+function slotSymbol(status, bull) {
+  if (status === 'pending') return '·';
+  if (status === 'active') return '◉';
+  return bull ? '✓' : '×';
+}
+
+function buildInspectorHtml(slotInfo, targetPrice, activeCandleSec) {
+  const targetStr = targetPrice === null || targetPrice === undefined || !Number.isFinite(Number(targetPrice)) || Number(targetPrice) <= 0
+    ? L('待定', 'TBD') : `$${Number(targetPrice).toFixed(4)}`;
+  const idx = slotInfo.index;
+  const status = slotInfo.status;
+  const confirmed = status === 'closed';
+  const bull = Boolean(slotInfo.bull);
+  const priceStr = slotInfo.priceText;
+
+  let verdictText = L('尚未开始', 'Upcoming');
+  let verdictCls = 'text-muted';
+  let explain = L('等待到达该时段后再开始采集判定均价', 'Awaiting slot window');
+
+  if (confirmed) {
+    if (bull) {
+      verdictText = L('已核验达标 ✓', 'Met ✓');
+      verdictCls = 'text-green';
+      explain = `${L('本段均价', 'Slot')} ${priceStr} ≥ ${L('目标', 'Target')} ${targetStr}`;
+    } else {
+      verdictText = L('已确认未达标 ×', 'Missed ×');
+      verdictCls = 'text-red';
+      explain = `${L('本段均价', 'Slot')} ${priceStr} < ${L('目标', 'Target')} ${targetStr}`;
+    }
+  } else if (status === 'active') {
+    verdictText = L('观察中 · 待确认', 'Observing · pending');
+    verdictCls = 'text-cyan';
+    explain = `${L('当前均价', 'Now')} ${priceStr} · ${L('目标', 'Target')} ${targetStr}`;
+  } else if (status === 'unknown') {
+    verdictText = L('数据待核验', 'Awaiting verification');
+    verdictCls = 'text-muted';
+    explain = L('该时段数据暂缺，请稍后重试核验', 'Slot data pending verification');
+  }
+
+  const rightTimer = status === 'active'
+    ? `<span class="text-cyan mono" id="active-candle-cd">${L('剩余', 'Left')} ${formatTimer(activeCandleSec || 0).slice(3)}</span>`
+    : `<span class="mono ${verdictCls}">${verdictText}</span>`;
+
+  return `
+    <div class="inspector-top">
+      <span>${L(`第 ${idx} 时段`, `Slot #${idx}`)}</span>
+      ${rightTimer}
+    </div>
+    <div class="inspector-basis">
+      <span>${explain}</span>
+      ${status === 'active' ? `<span class="text-cyan">${L('整点盖章', 'Hourly seal')}</span>` : ''}
+    </div>
+  `;
+}
+
 export function renderCorridorRadar(candles, targetPrice, activeCandleSec, livePrice, meta = {}) {
   const required = Number(meta.minQualified) || 16;
   const passed = Number.isFinite(meta.qualified) ? Number(meta.qualified)
     : candles.filter(c => c.status === 'closed' && c.bull).length;
   const confirmedSlots = candles.filter(c => c.status === 'closed').length;
   const activeCandle = candles.find(c => c.status === 'active');
-  const activeIdx = activeCandle?.index || meta.seen || 0;
-  const hasActive = Boolean(activeCandle);
+  const defaultSlot = activeCandle || candles[Math.max(0, confirmedSlots - 1)] || candles[0] || { index: 1, status: 'pending', p: null, bull: false };
   const priceText = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)))
-    ? L('暂不可用', 'Unavailable') : `$${Number(v).toFixed(4)}`;
-  const freshLabel = meta.stale
-    ? L('更新中', 'Updating')
-    : (livePrice === null || livePrice === undefined ? L('暂不可用', 'Unavailable') : L('实时', 'Live'));
+    ? L('待核验', 'Pending') : `$${Number(v).toFixed(4)}`;
+  const targetStr = (targetPrice === null || targetPrice === undefined || !Number.isFinite(Number(targetPrice)) || Number(targetPrice) <= 0)
+    ? L('待定', 'TBD') : `$${Number(targetPrice).toFixed(4)}`;
 
   const cellsHtml = candles.map(c => {
     const cls = c.status === 'pending'
@@ -426,85 +479,84 @@ export function renderCorridorRadar(candles, targetPrice, activeCandleSec, liveP
       : c.status === 'active'
         ? 'active'
         : (c.bull ? 'bull' : 'bear');
-    const priceAttr = c.p === null || c.p === undefined ? L('未开始', 'Pending') : priceText(c.p);
+    const isSel = c.index === defaultSlot.index;
+    const pText = c.p === null || c.p === undefined ? L('未开始', 'Pending') : priceText(c.p);
+    const sym = slotSymbol(c.status, c.bull);
     return `
-      <div class="candle-cell ${cls}" role="button" tabindex="0"
+      <div class="candle-cell ${cls}${isSel ? ' selected' : ''}" role="button" tabindex="0"
         data-candle-idx="${c.index}"
-        data-candle-price="${priceAttr}"
+        data-candle-price="${pText}"
         data-candle-bull="${Boolean(c.bull)}"
         data-candle-status="${c.status}"
         data-candle-confirmed="${c.status === 'closed'}"
         aria-label="${L(`第 ${c.index} 时段`, `Slot ${c.index}`)}">
-        <div class="candle-body-wrap">
-          <div class="candle-bar"></div>
-        </div>
-        <span class="candle-idx">${c.status === 'active' ? `${c.index}*` : c.index}</span>
+        <span class="candle-sym" aria-hidden="true">${sym}</span>
+        <span class="candle-idx">${String(c.index).padStart(2, '0')}</span>
       </div>
     `;
   }).join('');
 
   const sprintBadge = meta.sprint4h
-    ? `<span class="chip chip-red" style="height:20px;font-size:10px;padding:0 7px;">${L('最后 4H 赛点冲刺', 'Last 4H Sprint')}</span>`
+    ? `<span class="chip chip-red" style="height:20px;font-size:10px;padding:0 7px;">${L('最后 4H 冲刺', 'Last 4H')}</span>`
     : '';
 
+  const initSlotInfo = {
+    index: defaultSlot.index,
+    status: defaultSlot.status,
+    bull: defaultSlot.bull,
+    priceText: defaultSlot.p === null || defaultSlot.p === undefined ? L('待核验', 'Pending') : priceText(defaultSlot.p)
+  };
+
   return `
-    <div class="card" id="a9-radar-card">
+    <div class="card" id="a9-radar-card" data-target-price="${targetPrice ?? ''}">
       <div class="card-header" style="margin-bottom:8px;">
         <div class="row-start" style="gap:6px;flex-wrap:wrap;">
-          <div class="card-title">${icon('radar', 15, 'text-green')} ${L('24H 时段记录', '24H Slot Record')}</div>
+          <div class="card-title">${icon('radar', 15, 'text-cyan')} ${L('24H 观测盘', '24H Observation Board')}</div>
           ${sprintBadge}
         </div>
         <div class="row-start" style="gap:10px;">
-          <button class="text-link-btn" type="button" data-x-share="round" style="color:var(--text-secondary);">${icon('xBrand', 12)} ${L('晒赛点', 'Share')}</button>
-          <button class="text-link-btn" type="button" data-nav="/observation/records">${L('全部记录', 'All')} ${icon('chevronRight', 13)}</button>
+          <button class="text-link-btn" type="button" data-x-share="round" style="color:var(--text-secondary);">${icon('xBrand', 12)} ${L('分享', 'Share')}</button>
+          <button class="text-link-btn" type="button" data-nav="/observation/records">${L('集章明细', 'Details')} ${icon('chevronRight', 13)}</button>
         </div>
       </div>
 
-      <div class="metric-strip" style="margin:6px 0 10px;padding:9px 0;">
-        <div class="metric-cell">
-          <span class="num-xs text-muted">${L('目标底价', 'Target Price')}</span>
-          <span class="num-md">${targetPrice === null || targetPrice === undefined ? L('待定', 'TBD') : priceText(targetPrice)}</span>
+      <div class="radar-dual-counts" id="radar-counts">
+        <div class="radar-count-box">
+          <small>${L('已确认时段', 'Confirmed')}</small>
+          <b>${confirmedSlots} / 24</b>
         </div>
-        <div class="metric-cell">
-          <div class="row-between">
-            <span class="num-xs text-muted">${L('判定均价', 'Judge TWAP')}</span>
-            <span class="num-xs text-muted">${freshLabel}</span>
-          </div>
-          <span class="num-md text-green" id="live-twap-val">${priceText(livePrice)}</span>
+        <div class="radar-count-box pass">
+          <small>${L('已达标门槛', 'Qualified')}</small>
+          <b>${passed} / ${required}</b>
         </div>
-      </div>
-
-      <div class="row-between num-xs" style="margin-bottom:8px;" id="radar-counts">
-        <span class="text-sec">${L(`已确认 ${confirmedSlots}/24 段`, `${confirmedSlots}/24 confirmed`)}</span>
-        <span class="text-green mono" style="font-weight:600;">${L(`已达标 ${passed}/${required} 段`, `${passed}/${required} qualified`)}</span>
       </div>
 
       <div class="corridor-wrap">
         <div class="candle-grid" id="a9-radar-grid">${cellsHtml}</div>
       </div>
 
-      <div class="candle-inspector" id="candle-inspector" style="margin-top:10px;margin-bottom:0;">
-        <span class="text-sec">${hasActive
-          ? L(`第 ${activeIdx} 段 · 进行中（尚未确认）`, `Slot #${activeIdx} · In progress`)
-          : L(`已确认 ${confirmedSlots}/24 段 · 点按任意格查看依据`, `${confirmedSlots}/24 confirmed · Tap a slot`)}</span>
-        <span class="text-green mono" id="active-candle-cd">${hasActive ? `${L('剩余', 'Left')} ${formatTimer(activeCandleSec || 0).slice(3)}` : '—'}</span>
+      <div class="candle-inspector" id="candle-inspector" aria-live="polite">
+        ${buildInspectorHtml(initSlotInfo, targetPrice, activeCandleSec)}
       </div>
 
       <div class="radar-legend" aria-hidden="true">
-        <span class="legend-item"><span class="legend-dot bull"></span>${L('达标', 'Met')}</span>
-        <span class="legend-item"><span class="legend-dot bear"></span>${L('未达标', 'Missed')}</span>
-        <span class="legend-item"><span class="legend-dot active"></span>${L('进行中', 'Live')}</span>
-        <span class="legend-item"><span class="legend-dot pending"></span>${L('未开始', 'Pending')}</span>
+        <span class="legend-item"><span class="legend-dot bull"></span>${L('达标 ✓', 'Met ✓')}</span>
+        <span class="legend-item"><span class="legend-dot bear"></span>${L('未达 ×', 'Miss ×')}</span>
+        <span class="legend-item"><span class="legend-dot active"></span>${L('观察中 ◉', 'Live ◉')}</span>
+        <span class="legend-item"><span class="legend-dot pending"></span>${L('未开始', 'Soon')}</span>
+      </div>
+
+      <div class="row-between num-xs text-muted" style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--card-border);">
+        <span>${L('目标底价', 'Target')} <b class="mono" style="color:var(--ink);">${targetStr}</b></span>
+        <span>${L('判定均价', 'TWAP')} <b class="mono text-green" id="live-twap-val">${priceText(livePrice)}</b></span>
       </div>
     </div>
   `;
 }
 
 /**
- * In-Place Incremental 24H Radar & Observation Progress Updater
- * - Smooth 210ms transition ONLY when a slot actually transitions active -> closed
- * - Progress bar advances ONLY when qualified count actually changes
- * - Silent & vibration-free for all automatic/background updates
+ * 增量原位更新 24H 观测盘
+ * - 平时保持安静，仅当某格真实从 active 转为 closed 时触发短促盖章动画
  */
 export function syncRadarInPlace(round, { batch = false } = {}) {
   const grid = document.getElementById('a9-radar-grid');
@@ -515,7 +567,7 @@ export function syncRadarInPlace(round, { batch = false } = {}) {
   const need = Math.max(0, required - passed);
   const confirmedSlots = round.candles.filter(c => c.status === 'closed').length;
   const priceText = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)))
-    ? L('暂不可用', 'Unavailable') : `$${Number(v).toFixed(4)}`;
+    ? L('待核验', 'Pending') : `$${Number(v).toFixed(4)}`;
 
   const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
@@ -532,25 +584,31 @@ export function syncRadarInPlace(round, { batch = false } = {}) {
     cell.dataset.candleConfirmed = String(c.status === 'closed');
     cell.dataset.candlePrice = c.p === null || c.p === undefined ? L('未开始', 'Pending') : priceText(c.p);
 
+    const symEl = cell.querySelector('.candle-sym');
+    if (symEl) symEl.textContent = slotSymbol(c.status, c.bull);
     const idxEl = cell.querySelector('.candle-idx');
-    if (idxEl) idxEl.textContent = c.status === 'active' ? `${c.index}*` : String(c.index);
+    if (idxEl) idxEl.textContent = String(c.index).padStart(2, '0');
 
     if (!batch && !reduced && prevStatus === 'active' && c.status === 'closed') {
       cell.classList.add('anim-slot-confirmed');
-      setTimeout(() => cell.classList.remove('anim-slot-confirmed'), 240);
+      setTimeout(() => cell.classList.remove('anim-slot-confirmed'), 260);
     }
   });
 
-  // Update dual counts
   const countsEl = document.getElementById('radar-counts');
   if (countsEl) {
     countsEl.innerHTML = `
-      <span class="text-sec">${L(`已确认 ${confirmedSlots}/24 段`, `${confirmedSlots}/24 confirmed`)}</span>
-      <span class="text-green mono" style="font-weight:600;">${L(`已达标 ${passed}/${required} 段`, `${passed}/${required} qualified`)}</span>
+      <div class="radar-count-box">
+        <small>${L('已确认时段', 'Confirmed')}</small>
+        <b>${confirmedSlots} / 24</b>
+      </div>
+      <div class="radar-count-box pass">
+        <small>${L('已达标门槛', 'Qualified')}</small>
+        <b>${passed} / ${required}</b>
+      </div>
     `;
   }
 
-  // Update hero observation count & progress bar ONLY when qualified count changed
   const heroNum = document.getElementById('obs-passed-num');
   const prevPassed = heroNum ? Number(heroNum.dataset.val) : passed;
   if (heroNum && prevPassed !== passed) {
@@ -580,29 +638,27 @@ export function syncRadarInPlace(round, { batch = false } = {}) {
   }
 }
 
-/** Bind tap & keyboard inspection on any rendered 24H crystal slot matrix (Home & Proof Detail) */
+/** 绑定 24H 观测盘点选事件（稳态输出判定依据，零跳动） */
 export function bindCorridorRadarEvents(root) {
   if (!root) return;
+  const card = root.querySelector('#a9-radar-card');
+  const rawTarget = card?.dataset?.targetPrice;
+  const targetPrice = rawTarget ? Number(rawTarget) : null;
+
   const selectCandle = (cell) => {
     A9Haptic.light();
     if (cell.dataset.candleConfirmed === 'true') A9Audio.stamp();
     else A9Audio.tick();
     root.querySelectorAll('.candle-cell.selected').forEach(c => c.classList.remove('selected'));
     cell.classList.add('selected');
-    const idx = cell.dataset.candleIdx;
-    const p = cell.dataset.candlePrice;
-    const status = cell.dataset.candleStatus;
-    const confirmed = cell.dataset.candleConfirmed === 'true';
-    const stateLabel = status === 'pending'
-      ? L('未开始', 'Pending')
-      : confirmed
-        ? L('已确认', 'Confirmed')
-        : L('进行中（尚未确认）', 'In progress');
-    const resultLabel = !confirmed ? '' : (cell.dataset.candleBull === 'true' ? L(' · 达标', ' · Met') : L(' · 未达标', ' · Missed'));
     const insp = root.querySelector('#candle-inspector');
     if (insp) {
-      const valCls = confirmed ? (cell.dataset.candleBull === 'true' ? 'text-green' : 'text-red') : 'text-sec';
-      insp.innerHTML = `<span class="text-sec">${L(`第 ${idx} 段`, `Slot #${idx}`)} · ${stateLabel}</span><span class="${valCls} mono">${p}${resultLabel}</span>`;
+      insp.innerHTML = buildInspectorHtml({
+        index: Number(cell.dataset.candleIdx),
+        status: cell.dataset.candleStatus,
+        bull: cell.dataset.candleBull === 'true',
+        priceText: cell.dataset.candlePrice
+      }, targetPrice, 0);
     }
   };
 

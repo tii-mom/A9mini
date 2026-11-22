@@ -377,7 +377,7 @@ export async function joinTeam({ teamId, walletAddress, userId, referrerId }) {
   });
 }
 
-/** 请求生成内盘买币支付单（live 只读阶段统一拦截，不发网络订单请求）。 */
+/** 请求生成商行支付单（live 只读阶段统一拦截，不发网络订单请求）。 */
 export async function requestPresaleIntent(walletAddress, tonAmount, referrerId = null) {
   assertFundsAllowedInMode();
   return request(ENDPOINTS.presaleIntent, {
@@ -386,7 +386,7 @@ export async function requestPresaleIntent(walletAddress, tonAmount, referrerId 
   });
 }
 
-/** 读取用户统一持仓与额度（A9 JettonWallet / 质押凭证 / 推广 / 内盘 / 团队）。 */
+/** 读取用户统一持仓与额度（A9 JettonWallet / 质押凭证 / 推广 / 商行 / 商会）。 */
 export async function fetchUserPortfolio(walletAddress) {
   return request(`/api/user/${encodeURIComponent(walletAddress)}`);
 }

@@ -1,6 +1,6 @@
 /**
  * A9 Lightweight Real-Time Bilingual Engine (zh-CN / en-US + 8-Language Registry)
- * Strictly aligned to official A9 terminology: 挑战 / 团队 / 榜单 / 我的
+ * Strictly aligned to official A9 terminology: 主城 / 挑战 / 商会 / 背包
  */
 
 import { store } from './store.js';
@@ -49,15 +49,15 @@ const DICT = {
     tab_backpack: '背包',
     tab_team: '商会',
     tab_leaderboard: '榜单',
-    tab_profile: '资产库',
+    tab_profile: '背包',
     connect_wallet: '连接钱包',
     rt_confirm: '参与确认',
     rt_success: '参与成功',
     rt_warmup: '预热',
     rt_warmup_rank: '预热榜',
-    rt_market: '内盘购买',
-    rt_market_rec: '内盘记录',
-    rt_team_profile: '团队门面',
+    rt_market: '主城商行',
+    rt_market_rec: '商行订单',
+    rt_team_profile: '商会主页',
     rt_bind_tg: '群绑定',
     rt_invite: '邀请与推广奖励',
     rt_claim: '领取奖励',
@@ -77,15 +77,15 @@ const DICT = {
     tab_backpack: 'Backpack',
     tab_team: 'Guild',
     tab_leaderboard: 'Rankings',
-    tab_profile: 'Vault',
+    tab_profile: 'Backpack',
     connect_wallet: 'Connect',
     rt_confirm: 'Confirm Participation',
     rt_success: 'Success',
     rt_warmup: 'Warm-Up',
     rt_warmup_rank: 'Warm-Up Board',
-    rt_market: 'Internal Market',
-    rt_market_rec: 'Market Records',
-    rt_team_profile: 'Team Profile',
+    rt_market: 'City Market',
+    rt_market_rec: 'Market Orders',
+    rt_team_profile: 'Guild Profile',
     rt_bind_tg: 'Group Binding',
     rt_invite: 'Invite & Rewards',
     rt_claim: 'Claim Rewards',

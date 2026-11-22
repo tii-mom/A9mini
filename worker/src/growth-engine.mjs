@@ -172,7 +172,7 @@ export class PredictionEngine {
     if (qualified !== true) {
       throw new GrowthError(
         'ACTIVATION_REQUIREMENT_UNMET',
-        '请先完成至少 1 笔内盘买币（5 GRAM 起）或链上质押后再激活',
+        '请先完成至少 1 笔商行兑换或链上质押后再激活',
       );
     }
 
@@ -238,7 +238,7 @@ function escapeXml(str) {
     .replace(/"/g, '&quot;');
 }
 
-/** Generate high-contrast obsidian + copper-orange 1200x630 SVG card (backward-compatible). */
+/** Generate warm cotton paper (#F5F0E6) + coral red (#E8453C) 1200x630 SVG card. */
 export function renderOgCardSvg({
   type = 'round',
   roundId = null,
@@ -252,7 +252,7 @@ export function renderOgCardSvg({
 }) {
   const verified = Boolean(hasData && roundId);
   const isBurn = verified && (type === 'burn' || state === 'FAILED_PERMANENT');
-  const accent = isBurn ? '#FF3B5C' : '#FA660F';
+  const accent = isBurn ? '#D94860' : '#E8453C';
   const qualNum = verified && Number.isInteger(qualified) ? qualified : null;
   const roundLabel = roundId ? `#${roundId}` : 'PENDING';
   const titleMap = {
@@ -270,25 +270,19 @@ export function renderOgCardSvg({
   const bars = [];
   for (let i = 0; i < 24; i += 1) {
     const x = 60 + i * 45;
-    const fill = qualNum !== null && i < qualNum ? '#00C076' : (isBurn ? '#FF3B5C' : '#26262E');
-    bars.push(`<rect x="${x}" y="380" width="32" height="92" rx="6" fill="${fill}" />`);
+    const fill = qualNum !== null && i < qualNum ? '#2DA069' : (isBurn ? '#D94860' : '#E4DDD0');
+    bars.push(`<rect x="${x}" y="380" width="32" height="92" rx="8" fill="${fill}" />`);
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#14100E"/>
-      <stop offset="55%" stop-color="#09090B"/>
-      <stop offset="100%" stop-color="#050506"/>
-    </linearGradient>
-  </defs>
-  <rect width="1200" height="630" fill="url(#bg)"/>
-  <rect x="28" y="28" width="1144" height="574" rx="28" fill="none" stroke="${accent}" stroke-opacity="0.35" stroke-width="2"/>
-  <text x="60" y="108" fill="${accent}" font-family="monospace" font-size="28" font-weight="700" letter-spacing="4">A9 PROTOCOL // TON</text>
-  <text x="60" y="210" fill="#FFFFFF" font-family="sans-serif" font-size="56" font-weight="700">${escapeXml(title)}</text>
-  <text x="60" y="276" fill="#A6A6B2" font-family="monospace" font-size="28">${escapeXml(sub)}</text>
+  <rect width="1200" height="630" fill="#F5F0E6"/>
+  <rect x="28" y="34" width="1144" height="568" rx="32" fill="#D8CEBC"/>
+  <rect x="28" y="26" width="1144" height="568" rx="32" fill="#FFFFFF" stroke="#E4DDD0" stroke-width="2"/>
+  <text x="60" y="108" fill="${accent}" font-family="monospace" font-size="28" font-weight="700" letter-spacing="4">A9 PAPER CRAFT // TON</text>
+  <text x="60" y="210" fill="#2B2523" font-family="sans-serif" font-size="56" font-weight="700">${escapeXml(title)}</text>
+  <text x="60" y="276" fill="#675E58" font-family="monospace" font-size="28">${escapeXml(sub)}</text>
   ${bars.join('\n  ')}
-  <text x="60" y="546" fill="#7C7C8A" font-family="monospace" font-size="24">16 / 24 HOURLY SLOTS TO PASS · 100% ON-CHAIN TON TEP-74</text>
+  <text x="60" y="546" fill="#9A8F86" font-family="monospace" font-size="24">16 / 24 HOURLY SLOTS TO PASS · 100% ON-CHAIN TON TEP-74</text>
 </svg>`;
 }
 
@@ -316,11 +310,11 @@ export function renderOgLandingHtml({ type, id, title, description, imageUrl, tg
   <meta name="twitter:image" content="${safeImg}" />
   <meta http-equiv="refresh" content="1;url=${safeLink}" />
 </head>
-<body style="background:#050506;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
-  <div style="text-align:center;padding:24px;">
+<body style="background:#F5F0E6;color:#2B2523;font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
+  <div style="text-align:center;padding:28px;background:#FFFFFF;border:2px solid #E4DDD0;border-bottom:6px solid #D8CEBC;border-radius:24px;max-width:520px;">
     <h2>${safeTitle}</h2>
-    <p style="color:#9898A2;">${safeDesc}</p>
-    <a href="${safeLink}" style="display:inline-block;margin-top:16px;padding:12px 24px;border-radius:12px;background:#FA660F;color:#fff;text-decoration:none;font-weight:700;">Open A9 Mini App on Telegram</a>
+    <p style="color:#675E58;">${safeDesc}</p>
+    <a href="${safeLink}" style="display:inline-block;margin-top:16px;padding:12px 24px;border-radius:14px;background:#E8453C;border-bottom:4px solid #B82D25;color:#fff;text-decoration:none;font-weight:700;">Open A9 Mini App on Telegram</a>
   </div>
 </body>
 </html>`;
@@ -449,25 +443,21 @@ export async function renderOgCardPng({
 
   const verified = Boolean(hasData && roundId);
   const isBurn = verified && (type === 'burn' || state === 'FAILED_PERMANENT');
-  const accent = isBurn ? [0xff, 0x3b, 0x5c] : [0xfa, 0x66, 0x0f];
-  const green = [0x00, 0xc0, 0x76];
-  const mutedBar = isBurn ? [0x5a, 0x16, 0x24] : [0x26, 0x26, 0x2e];
-  const white = [0xff, 0xff, 0xff];
-  const silver = [0xa6, 0xa6, 0xb2];
+  const accent = isBurn ? [0xd9, 0x48, 0x60] : [0xe8, 0x45, 0x3c];
+  const green = [0x2d, 0xa0, 0x69];
+  const mutedBar = isBurn ? [0xf2, 0xd4, 0xd9] : [0xe4, 0xdd, 0xd0];
+  const white = [0x2b, 0x25, 0x23]; // cocoa ink text on warm cotton paper
+  const silver = [0x67, 0x5e, 0x58];
 
-  // 1. Background fill (#09090B obsidian with subtle top-left accent tint)
+  // 1. Background fill (#F5F0E6 warm cotton paper)
   for (let y = 0; y < height; y += 1) {
     const rowOff = y * stride;
     raw[rowOff] = 0; // PNG filter type 0 (None)
-    const gy = Math.max(0, 1 - y / (height * 0.55));
-    const rTint = Math.round((isBurn ? 26 : 24) * gy);
-    const gTint = Math.round((isBurn ? 8 : 13) * gy);
-    const bTint = Math.round((isBurn ? 14 : 9) * gy);
     for (let x = 0; x < width; x += 1) {
       const p = rowOff + 1 + x * 3;
-      raw[p] = 9 + rTint;
-      raw[p + 1] = 9 + gTint;
-      raw[p + 2] = 11 + bTint;
+      raw[p] = 0xf5;
+      raw[p + 1] = 0xf0;
+      raw[p + 2] = 0xe6;
     }
   }
 

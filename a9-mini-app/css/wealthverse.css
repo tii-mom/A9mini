@@ -1,23 +1,25 @@
 /* ==========================================================================
-   A9 · 方案 A 主城立体书态势沙盘、背包个人身份舞台、图鉴集邮册、宝库与星轨观测志
+   A9 · 纯任天堂暖棉纸立体书专项布局
+   - 主城随阶段变化焦点卡 / 任天堂 24H 集章手账板 / 紧凑背包身份栏 / 图鉴与宝库
+   - 彻底移除旧版圆形星轨罗盘样式
    ========================================================================== */
 
 /* --------------------------------------------------------------------------
-   一、共享立体书舞台 (.diorama-stage) 与主城态势沙盘 (.city-hub-stage)
+   一、主城首屏：随轮次阶段变化的立体书主卡 (.city-hub-stage)
    -------------------------------------------------------------------------- */
 .wv-hero.game-city {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 11px;
 }
 
 .diorama-stage {
   position: relative;
-  border-radius: 24px;
+  border-radius: 22px;
   border: 1px solid var(--card-border);
   background: linear-gradient(180deg, var(--card-soft) 0%, var(--paper-bg) 100%);
-  box-shadow: var(--card-shadow);
-  padding: 15px 15px 14px;
+  box-shadow: var(--interactive-shadow);
+  padding: 14px 15px 13px;
   overflow: hidden;
 }
 
@@ -25,7 +27,7 @@
   content: '';
   position: absolute;
   inset: 5px;
-  border-radius: 19px;
+  border-radius: 17px;
   border: 1px dashed var(--card-stitch);
   pointer-events: none;
   z-index: 1;
@@ -38,8 +40,8 @@
   background: linear-gradient(
     115deg,
     transparent 24%,
-    rgba(243, 184, 44, 0.14) 44%,
-    rgba(58, 136, 214, 0.10) 56%,
+    rgba(243, 184, 44, 0.13) 44%,
+    rgba(58, 136, 214, 0.09) 56%,
     transparent 76%
   );
   background-size: 230% 230%;
@@ -58,12 +60,10 @@
   z-index: 0;
 }
 
-/* 主城态势沙盘专属内容层 */
 .city-hub-stage {
   display: flex;
   flex-direction: column;
-  gap: 9px;
-  padding: 13px 15px 12px;
+  gap: 10px;
 }
 
 .city-hub-stage > *:not(.diorama-svg) {
@@ -82,11 +82,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4.5px 11px;
+  padding: 4px 10px;
   border-radius: 999px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  box-shadow: 0 2px 0 var(--card-thickness);
   font-size: 11.5px;
   font-weight: 800;
   color: var(--ink);
@@ -97,17 +96,25 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4.5px 10px;
+  padding: 4px 10px;
   border-radius: 999px;
   background: var(--paper-tray);
-  border: 1px solid var(--card-border);
   color: var(--ink-soft);
   font-size: 11.5px;
   font-weight: 800;
   white-space: nowrap;
 }
 
-.city-pool-hero {
+.diorama-kicker {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.10em;
+  color: var(--ink-muted);
+}
+
+/* 中央唯一焦点数字区 */
+.city-focus-block {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -115,53 +122,123 @@
   padding: 2px 2px 0;
 }
 
-.city-pool-copy {
+.city-focus-copy {
   min-width: 0;
   flex: 1;
 }
 
-.city-pool-val {
+.city-focus-val {
   margin-top: 3px;
   font-family: var(--font-mono);
-  font-size: clamp(23px, 6.6vw, 29px);
+  font-size: clamp(28px, 8vw, 34px);
   font-weight: 900;
-  letter-spacing: -0.028em;
-  line-height: 1.15;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
   color: var(--ink);
-  word-break: break-word;
 }
 
-.city-pool-unit {
+.focus-accent-green { color: var(--nt-green); }
+.focus-accent-gold  { color: var(--nt-gold-ink); }
+.focus-accent-rose  { color: var(--nt-rose); }
+.focus-slash { color: var(--ink-muted); margin: 0 3px; font-weight: 700; }
+.focus-denom { color: var(--ink-soft); font-size: 0.72em; }
+.focus-unit {
   font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 900;
-  color: var(--nt-green);
-}
-
-.city-pool-pending {
-  font-family: var(--font-sans);
-  font-size: 20px;
+  font-size: 13.5px;
   font-weight: 800;
   color: var(--ink-soft);
+  margin-left: 2px;
 }
 
-.city-pool-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 7px;
+.city-focus-sub {
+  margin: 5px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  line-height: 1.4;
 }
 
 .city-hub-emblem {
-  width: 62px;
-  height: 62px;
+  width: 56px;
+  height: 56px;
   object-fit: contain;
   flex-shrink: 0;
   filter: var(--paper-cut-shadow);
-  animation: paper-stand 4.2s ease-in-out infinite;
 }
 
-/* 价格与走势双槽 */
+/* 24 格微型进度轨 + 行内价格对照（轻边 L2，点进详情有反馈） */
+.city-slot-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--surface-shadow);
+  transition: transform 0.12s var(--ease-spring);
+}
+
+.city-slot-strip:active {
+  transform: translateY(1.5px);
+}
+
+.city-slot-dots {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  gap: 3px;
+  align-items: center;
+}
+
+.slot-dot {
+  position: relative;
+  display: block;
+  height: 10px;
+  border-radius: 99px;
+  background: var(--paper-tray-deep);
+}
+
+.slot-dot.pass { background: var(--nt-green); }
+.slot-dot.miss { background: var(--nt-rose); }
+.slot-dot.active {
+  background: var(--nt-blue);
+  box-shadow: 0 0 0 2px var(--nt-blue-soft);
+}
+.slot-dot.pending,
+.slot-dot.unknown {
+  background: var(--paper-tray);
+  border: 1px dashed rgba(147, 137, 129, 0.45);
+}
+
+.slot-dot.threshold::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  right: -2.5px;
+  width: 1.5px;
+  border-radius: 99px;
+  background: var(--nt-gold-edge);
+  opacity: 0.72;
+}
+
+.city-price-inline {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+.city-price-inline b {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.city-price-inline .sparkline-svg {
+  width: 58px;
+  height: 20px;
+}
+
+/* 参与/预热阶段双价格凹槽 */
 .city-price-strip {
   display: grid;
   grid-template-columns: 0.9fr 1.25fr;
@@ -170,10 +247,9 @@
 
 .city-price-cell {
   padding: 9px 11px;
-  border-radius: 14px;
+  border-radius: 13px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  box-shadow: inset 0 1px 0 var(--card-highlight), 0 2px 0 var(--card-thickness);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -182,7 +258,7 @@
 }
 
 .city-price-cell strong {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 800;
   color: var(--ink);
 }
@@ -202,112 +278,28 @@
 }
 
 .city-price-cell .sparkline-svg {
-  width: 66px;
-  height: 24px;
+  width: 60px;
+  height: 22px;
 }
 
-/* 24H 微型打孔战况进度条 */
-.city-slot-strip {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  padding: 10px 12px;
-  border-radius: 15px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  box-shadow: inset 0 1px 0 var(--card-highlight), 0 2px 0 var(--card-thickness);
-  transition: transform 0.12s var(--ease-spring);
-}
-
-.city-slot-strip:active {
-  transform: translateY(1.5px);
-}
-
-.city-slot-title {
-  font-size: 11.5px;
-  font-weight: 800;
-  color: var(--ink-soft);
-}
-
-.city-slot-title b {
-  font-family: var(--font-mono);
-  font-size: 13.5px;
-  color: var(--ink);
-  margin-right: 3px;
-}
-
-.city-slot-hint {
-  font-size: 11px;
-  font-weight: 800;
-  color: var(--nt-green);
-  white-space: nowrap;
-}
-
-.city-slot-dots {
-  display: grid;
-  grid-template-columns: repeat(24, minmax(0, 1fr));
-  gap: 3px;
-  align-items: center;
-}
-
-.slot-dot {
-  position: relative;
-  display: block;
-  height: 11px;
-  border-radius: 99px;
-  background: var(--paper-tray-deep);
-}
-
-.slot-dot.pass {
-  background: var(--nt-green);
-}
-
-.slot-dot.miss {
-  background: var(--nt-rose);
-}
-
-.slot-dot.active {
-  background: var(--nt-gold);
-  box-shadow: 0 0 0 2px var(--nt-gold-soft);
-}
-
-.slot-dot.pending,
-.slot-dot.unknown {
-  background: var(--paper-tray);
-  border: 1px dashed rgba(152, 142, 134, 0.45);
-}
-
-/* 第 16 格达标门槛细腻分割线 */
-.slot-dot.threshold::after {
-  content: '';
-  position: absolute;
-  top: -3px;
-  bottom: -3px;
-  right: -2.5px;
-  width: 1.5px;
-  border-radius: 99px;
-  background: var(--nt-gold-edge);
-  opacity: 0.72;
-}
-
-/* 唯一任天堂朱红厚纸主行动键帽 */
+/* 唯一珊瑚红厚纸主行动按钮 */
 .game-play {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   width: 100%;
-  min-height: 48px;
+  min-height: 47px;
   padding: 10px 16px;
-  border-radius: 16px;
+  border-radius: 15px;
   background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
   color: #FFFFFF;
   font-size: 14.5px;
   font-weight: 900;
   box-shadow:
     inset 0 2px 0 rgba(255, 255, 255, 0.34),
-    0 4.5px 0 var(--nt-red-edge),
-    0 10px 18px rgba(232, 69, 60, 0.24);
+    0 4px 0 var(--nt-red-edge),
+    0 8px 16px rgba(232, 69, 60, 0.22);
   transition: transform 0.11s var(--ease-spring), box-shadow 0.11s ease;
 }
 
@@ -316,7 +308,20 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 0 var(--nt-red-edge);
 }
 
-/* 主城四宫格厚卡纸贴纸入口（附清爽微副标） */
+/* 奖池与规则降权为底部 L3 轻摘要行 */
+.city-pool-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--card-border);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+/* L1 四宫格厚纸贴纸服务入口 */
 .game-gates {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -330,26 +335,22 @@
   justify-content: center;
   gap: 3px;
   padding: 10px 4px 9px;
-  border-radius: 17px;
+  border-radius: 16px;
   border: 1px solid var(--card-border);
   background: var(--card-bg);
   color: var(--ink);
   box-shadow: var(--card-shadow-sm);
-  transition: transform 0.14s var(--ease-spring), box-shadow 0.14s ease;
-}
-
-.game-gates a:hover {
-  transform: translateY(-3px);
+  transition: transform 0.13s var(--ease-spring), box-shadow 0.13s ease;
 }
 
 .game-gates a:active {
   transform: translateY(2px);
-  box-shadow: 0 1px 0 var(--card-thickness);
+  box-shadow: 0 0.5px 0 var(--card-thickness);
 }
 
 .game-gates img {
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   object-fit: contain;
   filter: var(--paper-cut-shadow);
   margin-bottom: 2px;
@@ -370,15 +371,9 @@
   line-height: 1.15;
 }
 
-/* 主城 24H 预言速览卡与底部双格生态胶囊 */
+/* 第二浏览层：24H 预言速览卡与双格生态卡 */
 .city-pred-card {
-  cursor: pointer;
-  padding: 11px 14px;
-  transition: transform 0.14s var(--ease-spring);
-}
-
-.city-pred-card:active {
-  transform: translateY(2px);
+  padding: 12px 14px;
 }
 
 .city-pred-title {
@@ -390,21 +385,19 @@
 .city-pred-go {
   font-size: 11.5px;
   font-weight: 800;
-  color: var(--nt-red);
+  color: var(--nt-blue);
   white-space: nowrap;
 }
 
 .city-pred-desc {
-  margin: 7px 0 0;
+  margin: 6px 0 0;
   font-size: 11.5px;
   font-weight: 600;
   color: var(--ink-soft);
   line-height: 1.45;
 }
 
-.city-pred-bar-wrap {
-  margin-top: 9px;
-}
+.city-pred-bar-wrap { margin-top: 8px; }
 
 .city-meta-grid {
   display: grid;
@@ -413,20 +406,20 @@
 }
 
 .city-meta-tile {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 10px 12px;
-  border-radius: 18px;
+  padding: 11px 12px;
+  border-radius: 16px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   box-shadow: var(--card-shadow-sm);
-  transition: transform 0.12s var(--ease-spring);
+  transition: transform 0.12s var(--ease-spring), box-shadow 0.12s ease;
 }
 
 .city-meta-tile:active {
   transform: translateY(2px);
+  box-shadow: 0 0.5px 0 var(--card-thickness);
 }
 
 .city-meta-tile small {
@@ -437,7 +430,7 @@
 
 .city-meta-tile strong {
   font-family: var(--font-mono);
-  font-size: 16px;
+  font-size: 15.5px;
   font-weight: 900;
   color: var(--ink);
 }
@@ -446,55 +439,119 @@
   margin-top: 2px;
   font-size: 10.5px;
   font-weight: 800;
-  color: var(--nt-green);
+  color: var(--nt-blue);
 }
 
 /* --------------------------------------------------------------------------
-   二、个人身份立体书展示台（背包顶部 & 身份图鉴）
+   二、背包顶部紧凑横向身份铭牌栏 (.profile-identity-bar)
    -------------------------------------------------------------------------- */
-.edition-heading {
+.profile-identity-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--card-border);
+  background: linear-gradient(135deg, var(--card-bg) 0%, var(--card-soft) 100%);
+  box-shadow: var(--surface-shadow);
+  min-height: 102px;
+}
+
+.identity-thumb {
+  position: relative;
+  width: 78px;
+  height: 82px;
+  border-radius: 15px;
+  background: linear-gradient(180deg, var(--paper-bg) 0%, var(--diorama-hill-sage) 100%);
+  border: 1px solid var(--card-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  perspective: 600px;
+}
+
+.identity-base {
+  position: absolute;
+  bottom: 5px;
+  width: 54px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 2px 0 var(--card-thickness);
+}
+
+.identity-thumb .wv-person {
   position: relative;
   z-index: 2;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
+  height: 74px;
+  width: auto;
+  object-fit: contain;
+  filter: var(--paper-cut-shadow);
+  cursor: pointer;
 }
 
-.diorama-kicker {
-  display: block;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.11em;
-  color: var(--ink-muted);
+.identity-meta {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-.edition-heading h1 {
-  margin: 2px 0 0;
-  font-size: 19px;
+.identity-meta h1 {
+  margin: 2px 0 2px;
+  font-size: 16.5px;
   font-weight: 900;
-  letter-spacing: -0.015em;
   color: var(--ink);
   line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* 可微翘贴纸角标（精修右侧内距，箭号绝不碰到右上折角） */
+.identity-meta p {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.identity-meta small {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.identity-gallery-link {
+  align-self: flex-start;
+}
+
+/* 可微翘贴纸角标 */
 .peel-badge {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 5.5px 15px 5.5px 11px;
-  border-radius: 11px 4px 11px 11px;
+  gap: 3px;
+  padding: 5px 14px 5px 10px;
+  border-radius: 10px 4px 10px 10px;
   background: var(--card-bg);
   color: var(--ink);
-  border: 1.5px solid #FFFFFF;
-  font-size: 11.5px;
+  border: 1px solid var(--card-border);
+  font-size: 11px;
   font-weight: 800;
   white-space: nowrap;
   flex-shrink: 0;
-  box-shadow: 0 2.5px 0 var(--card-thickness), 0 4px 10px rgba(43, 37, 35, 0.08);
-  transition: transform 0.14s var(--ease-spring);
+  box-shadow: 0 2.5px 0 var(--card-thickness);
+  transition: transform 0.13s var(--ease-spring);
 }
 
 .peel-badge::after {
@@ -502,39 +559,42 @@
   position: absolute;
   top: 0;
   right: 0;
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   background: linear-gradient(225deg, var(--paper-bg) 46%, var(--card-thickness) 52%, var(--card-bg) 100%);
-  border-bottom-left-radius: 3.5px;
+  border-bottom-left-radius: 3px;
 }
 
-.peel-badge:active {
-  transform: translateY(1px);
-}
+.peel-badge:active { transform: translateY(1.5px); box-shadow: none; }
 
-/* 角色厚卡纸立牌展示区 + 实体纸板插槽底座 */
+/* --------------------------------------------------------------------------
+   三、身份图鉴舞台（压缩高度让 3×3 缩略图更易选）
+   -------------------------------------------------------------------------- */
 .edition-art {
   position: relative;
   z-index: 2;
-  height: 168px;
+  height: 150px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 4px 0 10px;
+  margin: 0 0 6px;
   perspective: 800px;
+}
+
+.gallery-compact-art {
+  width: 100%;
+  height: 146px;
 }
 
 .standee-slot {
   position: absolute;
   bottom: 2px;
-  width: 122px;
-  height: 16px;
+  width: 114px;
+  height: 14px;
   border-radius: 50%;
   background: var(--card-bg);
   border: 1.5px solid var(--card-border);
-  box-shadow:
-    0 3px 0 var(--card-thickness),
-    0 7px 14px rgba(43, 37, 35, 0.13);
+  box-shadow: 0 3px 0 var(--card-thickness), 0 6px 12px rgba(43, 37, 35, 0.12);
 }
 
 .standee-slot::after {
@@ -549,132 +609,33 @@
   transform: translateY(-50%);
 }
 
-.edition-art .wv-person {
-  position: relative;
-  z-index: 2;
-  height: 158px;
-  width: auto;
-  object-fit: contain;
-  filter: var(--paper-cut-shadow);
-  cursor: pointer;
-  animation: paper-stand 3.8s ease-in-out infinite;
-  transition: transform 0.18s var(--ease-spring);
-}
-
-.edition-art.unverified-standee .wv-person {
-  filter: saturate(0.55) opacity(0.86) var(--paper-cut-shadow);
-  cursor: default;
-}
-
-.standee-verify-stamp {
-  position: absolute;
-  bottom: 10px;
-  z-index: 3;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--card-bg);
-  border: 1px dashed var(--card-border-strong);
-  box-shadow: 0 2px 0 var(--card-thickness);
-  font-size: 10px;
-  font-weight: 800;
-  color: var(--ink-soft);
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-.edition-caption {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 9px 12px;
-  border-radius: 14px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  box-shadow: inset 0 1px 0 var(--card-highlight), 0 2.5px 0 var(--card-thickness);
-}
-
-.identity-caption-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.identity-caption-copy b {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.identity-caption-copy span {
-  font-size: 10.5px;
-  font-weight: 700;
-  color: var(--ink-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* --------------------------------------------------------------------------
-   三、身份图鉴立体舞台 & 3×3 贴纸集邮册 (.wv-gallery)
-   -------------------------------------------------------------------------- */
-.wv-hero:not(.game-city):not(.profile-identity-stage) {
-  position: relative;
-  border-radius: 24px;
-  border: 1px solid var(--card-border);
-  background: var(--card-bg);
-  box-shadow: var(--card-shadow);
-  padding: 16px;
-  overflow: hidden;
+.wv-gallery-hero {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 8px;
+  gap: 6px;
+  padding: 12px 15px 14px;
 }
 
-.wv-hero:not(.game-city):not(.profile-identity-stage)::before {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: 19px;
-  border: 1px dashed var(--card-stitch);
-  pointer-events: none;
-  z-index: 1;
-}
-
-.wv-hero:not(.game-city):not(.profile-identity-stage) > *:not(.diorama-svg) {
+.wv-gallery-hero > *:not(.diorama-svg) {
   position: relative;
   z-index: 2;
 }
 
-.wv-scenery {
-  display: none;
-}
-
-.wv-gallery-hero {
-  background: linear-gradient(180deg, var(--card-soft) 0%, var(--paper-bg) 100%) !important;
-}
-
 .wv-gallery-hero .wv-person {
-  height: 164px;
+  position: relative;
+  z-index: 2;
+  height: 138px;
   width: auto;
   object-fit: contain;
   filter: var(--paper-cut-shadow);
   cursor: pointer;
-  animation: paper-stand 3.8s ease-in-out infinite;
 }
 
 .wv-copy small {
   display: inline-block;
-  padding: 2px 10px;
+  padding: 2px 9px;
   border-radius: 999px;
   background: var(--paper-tray);
   color: var(--ink-soft);
@@ -684,15 +645,15 @@
 }
 
 .wv-copy h1 {
-  margin: 6px 0 4px;
-  font-size: 21px;
+  margin: 5px 0 3px;
+  font-size: 20px;
   font-weight: 900;
   color: var(--ink);
 }
 
 .wv-copy p {
   margin: 0;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--ink-soft);
 }
@@ -701,9 +662,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 120px;
+  min-height: 104px;
   padding: 14px 18px;
-  border-radius: 16px;
+  border-radius: 15px;
   border: 1.5px dashed var(--card-thickness);
   background: var(--paper-tray);
   color: var(--ink-soft);
@@ -714,15 +675,15 @@
 .wv-gallery {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 9px;
+  gap: 8px;
 }
 
 .wv-gallery a {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 9px 4px 8px;
-  border-radius: 16px;
+  padding: 8px 4px 7px;
+  border-radius: 15px;
   border: 1px solid var(--card-border);
   background: var(--card-bg);
   color: var(--ink-soft);
@@ -730,33 +691,33 @@
   font-weight: 700;
   text-align: center;
   box-shadow: var(--card-shadow-sm);
-  transition: transform 0.14s var(--ease-spring), border-color 0.14s ease;
+  transition: transform 0.13s var(--ease-spring), border-color 0.13s ease;
 }
 
 .wv-gallery a[aria-current="true"] {
-  border: 2px solid var(--nt-red);
-  background: var(--nt-red-soft);
+  border: 2px solid var(--nt-blue);
+  background: var(--nt-blue-soft);
   color: var(--ink);
   transform: translateY(-2px);
 }
 
 .wv-gallery img {
-  width: 72px;
-  height: 72px;
+  width: 64px;
+  height: 64px;
   object-fit: contain;
   filter: var(--paper-cut-shadow);
 }
 
 .wv-gallery b {
-  margin-top: 4px;
+  margin-top: 3px;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 800;
   color: var(--ink);
 }
 
 /* --------------------------------------------------------------------------
-   四、奖励宝库 3 阶解锁纸牌 & 折纸水晶架 (.wv-steps / .crystal-preview)
+   四、奖励宝库：三阶解锁卡 & 概念水晶预览 (.wv-steps / .crystal-preview)
    -------------------------------------------------------------------------- */
 .wv-steps {
   display: grid;
@@ -765,20 +726,19 @@
 }
 
 .wv-steps article {
-  padding: 11px 6px;
-  border-radius: 16px;
+  padding: 10px 6px;
+  border-radius: 14px;
   border: 1px solid var(--card-border);
-  background: var(--card-bg);
+  background: var(--paper-tray);
   text-align: center;
   font-size: 11px;
   font-weight: 700;
   color: var(--ink-soft);
-  box-shadow: var(--card-shadow-sm);
 }
 
 .wv-steps article.current {
-  border: 2px solid var(--nt-red);
-  background: var(--nt-red-soft);
+  border: 2px solid var(--nt-gold-edge);
+  background: var(--nt-gold-soft);
   color: var(--ink);
 }
 
@@ -790,21 +750,19 @@
 
 .wv-steps strong {
   display: block;
-  margin: 4px 0 2px;
+  margin: 3px 0 2px;
   font-family: var(--font-mono);
-  font-size: 21px;
-  font-weight: 800;
+  font-size: 20px;
+  font-weight: 900;
   color: var(--ink);
 }
 
-.wv-steps article.current strong {
-  color: var(--nt-red);
-}
+.wv-steps article.current strong { color: var(--nt-gold-ink); }
 
 .wv-steps p {
-  margin: 4px 0 0;
+  margin: 3px 0 0;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--ink-muted);
 }
 
@@ -812,13 +770,13 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .crystal-preview figure {
   margin: 0;
   padding: 10px 4px;
-  border-radius: 15px;
+  border-radius: 14px;
   background: var(--paper-tray);
   display: flex;
   flex-direction: column;
@@ -827,15 +785,15 @@
 }
 
 .crystal-preview img {
-  width: 64px;
-  height: 64px;
+  width: 58px;
+  height: 58px;
   object-fit: contain;
   filter: var(--paper-cut-shadow);
 }
 
 .crystal-preview figcaption {
   margin-top: 6px;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 800;
   color: var(--ink-soft);
 }
@@ -853,7 +811,7 @@
   gap: 6px;
   min-height: 42px;
   padding: 8px 10px;
-  border-radius: 14px;
+  border-radius: 13px;
   border: 1px solid var(--card-border);
   background: var(--card-bg);
   color: var(--ink);
@@ -863,216 +821,152 @@
 }
 
 /* --------------------------------------------------------------------------
-   五、财富挑战塔 (.wv-tower) & 星轨观测志纸艺罗盘 (.star-journal)
+   五、任天堂 24H 集章手账板 (.wv-tower / .stamp-logbook / .star-reading)
    -------------------------------------------------------------------------- */
 .wv-tower {
   position: relative;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: 22px;
-  padding: 15px 16px;
-  box-shadow: var(--card-shadow);
+  border-radius: 20px;
+  padding: 15px 15px;
+  box-shadow: var(--surface-shadow);
 }
 
-.wv-tower::before {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: 17px;
-  border: 1px dashed var(--card-stitch);
-  pointer-events: none;
-}
-
-.wv-tower > * {
-  position: relative;
-  z-index: 1;
-}
-
-.wv-tower > small, .star-journal header small {
+.wv-tower > small, .stamp-logbook header small {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
   color: var(--ink-muted);
 }
 
-.wv-tower > h2, .star-journal header h1 {
-  margin: 3px 0 8px;
-  font-size: 19px;
+.wv-tower > h2 {
+  margin: 2px 0 8px;
+  font-size: 18px;
   font-weight: 900;
   color: var(--ink);
 }
 
 .wv-tower > p {
-  margin: 6px 0 0;
-  font-size: 12.5px;
+  margin: 8px 0 0;
+  font-size: 12px;
   color: var(--ink-soft);
   line-height: 1.5;
 }
 
-.wv-windows:not(.star-dial) {
+/* 静态 24 格（liveRound 使用） */
+.wv-windows:not(.stamp-board) {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 6px;
-  margin: 12px 0;
+  margin: 10px 0;
 }
 
-.wv-windows:not(.star-dial) span {
+.wv-windows:not(.stamp-board) span {
+  aspect-ratio: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 7px 2px;
-  border-radius: 12px;
+  gap: 1px;
+  border-radius: 50%;
   background: var(--paper-tray);
   color: var(--ink-muted);
-  font-size: 9px;
+  border: 1px dashed rgba(147, 137, 129, 0.4);
+  font-size: 10px;
   font-weight: 800;
-  text-align: center;
 }
 
-.wv-windows:not(.star-dial) span b {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: inherit;
-}
+.wv-windows:not(.stamp-board) span i { font-style: normal; font-size: 11px; line-height: 1; }
+.wv-windows:not(.stamp-board) span b { font-family: var(--font-mono); font-size: 10px; line-height: 1; }
 
-.wv-windows:not(.star-dial) span[data-state="pass"] {
+.wv-windows:not(.stamp-board) span[data-state="pass"] {
   background: var(--nt-green-soft);
+  border: 1.5px solid rgba(45, 160, 105, 0.30);
   color: var(--nt-green);
 }
-.wv-windows:not(.star-dial) span[data-state="miss"] {
+.wv-windows:not(.stamp-board) span[data-state="miss"] {
   background: var(--nt-rose-soft);
+  border: 1.5px solid rgba(217, 72, 96, 0.28);
   color: var(--nt-rose);
 }
-.wv-windows:not(.star-dial) span[data-state="active"] {
-  background: var(--nt-gold-soft);
-  color: var(--nt-gold-ink);
-  border: 1px solid var(--gold-border);
+.wv-windows:not(.stamp-board) span[data-state="active"] {
+  border-radius: 12px;
+  background: var(--nt-blue);
+  border: 1.5px solid #FFFFFF;
+  color: #FFFFFF;
 }
 
-.star-dial {
-  position: relative;
-  width: min(304px, 100%);
+/* 交互式 4×6 任天堂大号集章速选板 (#/observation/records) */
+.stamp-board {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 7px;
+  margin: 10px 0 8px;
+}
+
+.stamp-pad {
   aspect-ratio: 1;
-  margin: 10px auto 12px;
+  padding: 0;
   border-radius: 50%;
-  background: radial-gradient(circle, var(--card-soft) 0%, var(--paper-tray) 100%);
-  border: 1.5px dashed var(--card-thickness);
-}
-
-.dial-core {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  background: var(--card-bg);
-  border: 1.5px solid var(--card-border);
-  box-shadow: var(--card-shadow-sm);
+  border: 1.5px solid transparent;
+  background: var(--paper-tray);
+  color: var(--ink-muted);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  text-align: center;
-  z-index: 2;
-}
-
-.dial-core img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-}
-
-.dial-core b {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--ink);
-  line-height: 1.15;
-}
-
-.dial-core small {
-  font-size: 9.5px;
-  font-weight: 800;
-  color: var(--ink-muted);
-}
-
-.dial-pointer {
-  position: absolute;
-  left: 50%;
-  bottom: 50%;
-  width: 3px;
-  height: 62px;
-  border-radius: 99px;
-  background: var(--nt-red);
-  transform-origin: bottom center;
-  transform: translateX(-50%) rotate(var(--slot-angle, 0deg));
-  opacity: 0.45;
-  pointer-events: none;
-  z-index: 1;
-  transition: transform 220ms var(--ease-spring), height 220ms ease;
-}
-
-.dial-pointer.inner {
-  height: 44px;
-}
-
-.star-dial button[data-slot] {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border-radius: 50%;
-  border: 1.5px solid var(--card-border);
-  background: var(--card-bg);
-  color: var(--ink-muted);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 800;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  gap: 1px;
   cursor: pointer;
-  z-index: 3;
-  box-shadow: 0 2px 0 var(--card-thickness);
+  transition: transform 0.12s var(--ease-spring);
 }
 
-.star-dial button[data-state="pass"] {
+.stamp-pad:active { transform: scale(0.93); }
+.stamp-pad em { font-style: normal; font-size: 11px; font-weight: 900; line-height: 1; }
+.stamp-pad span { font-family: var(--font-mono); font-size: 10px; font-weight: 800; line-height: 1; }
+
+.stamp-pad[data-state="pass"] {
   background: var(--nt-green-soft);
-  border-color: rgba(45, 160, 105, 0.4);
   color: var(--nt-green);
+  border-color: rgba(45, 160, 105, 0.30);
+  box-shadow: inset 0 0 0 2px rgba(45, 160, 105, 0.14), 0 2px 0 rgba(45, 160, 105, 0.22);
 }
 
-.star-dial button[data-state="miss"] {
+.stamp-pad[data-state="miss"] {
   background: var(--nt-rose-soft);
-  border-color: rgba(217, 72, 96, 0.4);
   color: var(--nt-rose);
+  border-color: rgba(217, 72, 96, 0.28);
+  box-shadow: inset 0 0 0 2px rgba(217, 72, 96, 0.12), 0 2px 0 rgba(217, 72, 96, 0.18);
 }
 
-.star-dial button[data-state="active"] {
-  background: linear-gradient(180deg, var(--nt-gold-top) 0%, var(--nt-gold) 100%);
+.stamp-pad[data-state="active"] {
+  border-radius: 13px;
+  background: linear-gradient(180deg, var(--nt-blue-top) 0%, var(--nt-blue) 100%);
+  color: #FFFFFF;
   border-color: #FFFFFF;
-  color: #4A3002;
+  box-shadow: 0 3px 0 var(--nt-blue-edge);
 }
 
-.star-dial button[aria-pressed="true"] {
-  outline: 2.5px solid var(--nt-red);
+.stamp-pad[data-state="pending"],
+.stamp-pad[data-state="unknown"] {
+  border: 1px dashed rgba(147, 137, 129, 0.45);
+}
+
+.stamp-pad[aria-pressed="true"] {
+  outline: 2.5px solid var(--nt-blue);
   outline-offset: 2px;
-  z-index: 4;
+  transform: translateY(-2px);
+  z-index: 2;
 }
 
 .star-key {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px 12px;
+  justify-content: space-between;
+  gap: 6px 10px;
   font-size: 11px;
   font-weight: 700;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
 }
 
 .star-key i {
@@ -1085,28 +979,32 @@
 }
 .key-pass { background: var(--nt-green); }
 .key-miss { background: var(--nt-rose); }
-.key-active { background: var(--nt-gold); }
+.key-active { background: var(--nt-blue); border-radius: 2px; }
 .key-pending { background: var(--card-thickness); }
-.key-unknown { background: var(--ink-muted); }
 
+/* 固定高度单段判定明细纸卡（切格零跳动） */
 .star-reading {
+  min-height: 174px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: 20px;
   padding: 14px 15px;
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--surface-shadow);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .star-reading header {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 10px;
 }
 
 .star-reading header img {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   object-fit: contain;
   flex-shrink: 0;
 }
@@ -1117,7 +1015,7 @@
 }
 
 .star-reading header small {
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 800;
   color: var(--ink-muted);
 }
@@ -1129,16 +1027,6 @@
   color: var(--ink);
 }
 
-.star-reading header b {
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: var(--paper-tray);
-  color: var(--ink);
-  font-size: 11px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
 .star-reading dl {
   margin: 0;
   display: grid;
@@ -1147,7 +1035,7 @@
 }
 
 .star-reading dl div {
-  padding: 9px 7px;
+  padding: 8px 6px;
   border-radius: 12px;
   background: var(--paper-tray);
   text-align: center;
@@ -1162,14 +1050,23 @@
 .star-reading dd {
   margin: 3px 0 0;
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 800;
   color: var(--ink);
   word-break: break-all;
 }
 
+.stamp-explain {
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--card-border);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
 /* --------------------------------------------------------------------------
-   六、荣誉排行领奖台 (.wv-podium)
+   六、荣誉排行 Top 3 成员立牌领奖台 (.wv-podium)
    -------------------------------------------------------------------------- */
 .wv-podium {
   display: grid;
@@ -1177,10 +1074,10 @@
   align-items: end;
   gap: 8px;
   padding: 12px 10px 0;
-  border-radius: 22px;
+  border-radius: 20px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--surface-shadow);
   overflow: hidden;
 }
 
@@ -1189,35 +1086,35 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 10px 4px 12px;
-  border-radius: 16px 16px 0 0;
+  padding: 10px 4px 11px;
+  border-radius: 15px 15px 0 0;
   background: var(--paper-tray);
 }
 
 .wv-podium .rank-1 {
   background: var(--nt-gold-soft);
   padding-top: 14px;
-  padding-bottom: 18px;
+  padding-bottom: 16px;
   border: 1px solid var(--gold-border);
   border-bottom: 0;
 }
 
 .wv-podium img {
-  width: 66px;
-  height: 66px;
+  width: 60px;
+  height: 60px;
   object-fit: contain;
   filter: var(--paper-cut-shadow);
 }
 
 .wv-podium .rank-1 img {
-  width: 78px;
-  height: 78px;
+  width: 72px;
+  height: 72px;
 }
 
 .wv-podium b {
   margin-top: 4px;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 800;
   color: var(--ink);
 }

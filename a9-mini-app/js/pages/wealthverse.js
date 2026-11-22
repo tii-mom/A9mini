@@ -10,22 +10,18 @@ import { DIORAMA_BACKDROP, CITY_SANDTABLE_BACKDROP } from '../paper-art.js';
 import { tiers, characterArt } from '../wealth-art.js';
 
 const link = (path, label, glyph) =>
-  `<a href="#${path}">${icon(glyph, 18)}${label}</a>`;
-const waiting = () => L('等待核验', 'Awaiting verification');
+  `<a href="#${path}">${icon(glyph, 16)}${label}</a>`;
+const waiting = () => L('待核验', 'Awaiting verification');
 
 function portrait(n) {
   return `<img class="wv-person" src="${characterArt(n)}" alt="A${n}">`;
 }
 
-function hero(title, tag, content = '', figure = '', cls = '') {
-  return `<section class="wv-hero ${cls}"><div class="wv-scenery"></div>${figure}<div class="wv-copy"><small>${tag}</small><h1>${title}</h1>${content}</div></section>`;
-}
-
 export function stageLabel(stage) {
   const stages = {
-    warmup: ['预热', 'Warm-up'],
-    participation: ['参与中', 'Entry open'],
-    observation: ['观察中', 'Observing'],
+    warmup: ['预热阶段', 'Warm-up'],
+    participation: ['参与阶段', 'Entry open'],
+    observation: ['观察阶段', 'Observing'],
     settlement_success: ['已结算 · 达标', 'Settled · passed'],
     settlement_burn: ['已结算 · 未达标', 'Settled · missed'],
     halted: ['技术中止', 'Aborted'],
@@ -47,47 +43,37 @@ function unlockPctByWins(n) {
 }
 
 /**
- * 个人身份立体书展示台（供「背包 / 我的」页面顶部使用）
- * - 完整保留方案 A 三层景深立体剧场、厚卡纸立牌插槽与右上角微翘贴纸「身份图鉴 ›」
- * - 演示模式支持轻点立牌 360° 翻身切换 A1–A9 试穿；实时模式严格标注持仓待核验
+ * 背包顶部紧凑横向「个人身份纸艺铭牌栏」(~112px)
+ * - 不与下方待处理领取、资产与凭证抢夺首屏，同时完整保留角色立牌 + 360° 翻身试穿 + 图鉴入口
  */
 export function identityStage({ modePill = '', walletTag = '' } = {}) {
   const tier = store.state.user.previewTier || 1;
   const shownTier = config.isDemo ? tier : 1;
   const [zh, en, traitZh, traitEn] = tiers[shownTier - 1];
-  const isPrism = config.isDemo && shownTier >= 7;
   const heading = config.isDemo ? `A${shownTier} · ${L(zh, en)}` : L('身份待核验', 'Identity pending');
   const subtitle = config.isDemo
-    ? `${L(traitZh, traitEn)} · ${L('轻点立牌翻身换装', 'Tap to flip')}`
+    ? `${L(traitZh, traitEn)} · ${L('轻点立牌换装', 'Tap to flip')}`
     : L('连接钱包后核验持仓阶位', 'Connect wallet to verify tier');
 
-  return `<section class="wv-hero profile-identity-stage">
-    <div class="diorama-stage ${isPrism ? 'prism' : ''}">
-      ${DIORAMA_BACKDROP}
-      <header class="edition-heading">
-        <div>
-          <span class="diorama-kicker">MY IDENTITY · ${config.isDemo ? `STICKER 0${shownTier}` : 'ON-CHAIN'}</span>
-          <h1>${heading}</h1>
-        </div>
-        <a class="peel-badge" href="#/gallery">${L('身份图鉴', 'Gallery')} ›</a>
-      </header>
-      <div class="edition-art ${config.isDemo ? '' : 'unverified-standee'}" id="identity-standee-stage">
-        <div class="standee-slot" aria-hidden="true"></div>
-        ${portrait(shownTier)}
-        ${config.isDemo ? '' : `<span class="standee-verify-stamp">${L('示意立牌 · 阶位待核验', 'Preview · tier pending')}</span>`}
-      </div>
-      <div class="edition-caption">
-        <div class="identity-caption-copy">
-          <b>${walletTag || (config.isDemo ? L('演示试穿形态', 'Demo preview') : L('只读核验视图', 'Read-only view'))}</b>
-          <span>${subtitle}</span>
-        </div>
+  return `<section class="wv-hero profile-identity-bar">
+    <div class="identity-thumb" id="identity-standee-stage">
+      <div class="identity-base" aria-hidden="true"></div>
+      ${portrait(shownTier)}
+    </div>
+    <div class="identity-meta">
+      <div class="row-between" style="gap:6px;">
+        <span class="diorama-kicker">${config.isDemo ? `STICKER 0${shownTier}` : 'ON-CHAIN ID'}</span>
         ${modePill || ''}
       </div>
+      <h1>${heading}</h1>
+      <p>${walletTag || subtitle}</p>
+      ${walletTag ? `<small>${subtitle}</small>` : ''}
     </div>
+    <a class="peel-badge identity-gallery-link" href="#/gallery">${L('图鉴', 'Gallery')} ›</a>
   </section>`;
 }
 
-/** 为背包身份立体台绑定 360° 纸片翻身试穿交互（仅演示模式生效） */
+/** 为背包身份栏立牌绑定 360° 翻身试穿交互（仅演示模式） */
 export function bindIdentityStage(root, onRerender) {
   if (!config.isDemo || !root) return;
   const img = root.querySelector('#identity-standee-stage .wv-person');
@@ -115,17 +101,20 @@ export function bindIdentityStage(root, onRerender) {
 }
 
 /**
- * 方案 A · 主城首屏立体书态势沙盘（从项目转化与用户心智重构）
- * 1. 核心态势沙盘：轮次阶段 + 实时倒计时 + 奖池总额 + 目标价/判定均价/迷你走势 + 24H 微型打孔战况轨 + 唯一朱红主 CTA
- * 2. 四宫格厚卡纸生态入口：商行 / 奖励宝库 / 荣誉排行 / 玩法规则（附清晰业务微副标）
- * 3. 高转化副卡：0 TON 24H 生死预言速览 + 全网解锁阶段 / 邀友 12% 双格卡片
+ * 主城首屏（#/challenge）：重心看「轮次进展」
+ * 第一张主卡随阶段动态切换唯一视觉大数字焦点，奖池/权重/上限收为轻摘要；
+ * 中层 4 枚折纸服务入口；第二层为 24H 预言、全局解锁与返佣。
  */
 export function city() {
   const r = store.state.round;
   const pred = store.state.prediction;
   const required = Number(r.minQualifiedCandles) || 16;
   const passed = r.qualifiedCandles ?? null;
+  const confirmed = Array.isArray(r.candles)
+    ? r.candles.filter((c) => c.confirmed || c.status === 'closed').length
+    : (r.candlesSeen ?? null);
   const need = passed === null ? null : Math.max(0, required - passed);
+  const awaitingSettle = r.stage === 'observation' && ((passed !== null && passed >= required) || r.nextState === 'AWAITING_SETTLE');
   const wins = r.successCount;
   const unlockPct = unlockPctByWins(wins);
   const candleSeries = Array.isArray(r.candles)
@@ -135,17 +124,15 @@ export function city() {
     ? r.priceHistory
     : (candleSeries.length > 1 ? candleSeries.slice(-12) : []);
 
-  const ctaByStage = {
-    warmup: L('进入轮次挑战 · 免费报名预热', 'Enter Challenge · Join Warm-Up'),
-    participation: L('进入轮次挑战 · 抢占早鸟权重', 'Enter Challenge · Claim Early Weight'),
-    observation: L('进入轮次挑战 · 追踪 24H 战况', 'Enter Challenge · Track 24H Battle'),
-    settlement_success: L('进入轮次挑战 · 领取本轮奖励', 'Enter Challenge · Claim Rewards'),
-    settlement_burn: L('进入轮次挑战 · 查看销毁存证', 'Enter Challenge · View Burn Proof'),
-    halted: L('进入轮次挑战 · 查看保护说明', 'Enter Challenge · View Status'),
-  };
-  const ctaText = ctaByStage[r.stage] || L('进入轮次挑战', 'Enter challenge');
+  const cdText = r.countdownSec === null || r.countdownSec === undefined
+    ? '—'
+    : formatTimer(r.countdownSec);
 
-  // 24 颗微型橡皮圆点战况轨道（反映真实 candles 状态）
+  const poolSummary = r.rewardBudgetA9 === null || r.rewardBudgetA9 === undefined
+    ? `${L('奖池', 'Pool')} ${waiting()}`
+    : `${L('奖池', 'Pool')} ${formatNum(r.rewardBudgetA9)} A9`;
+
+  // 24 颗微型纸艺进度点（观察与结算态展示）
   const slotDots = Array.from({ length: 24 }, (_, i) => {
     const c = Array.isArray(r.candles) ? r.candles.find((x) => x.index === i + 1) || r.candles[i] : null;
     const state = c?.confirmed
@@ -158,32 +145,80 @@ export function city() {
     return `<i class="slot-dot ${state}${i === 15 ? ' threshold' : ''}" aria-hidden="true"></i>`;
   }).join('');
 
-  const slotHint = passed === null
-    ? L('时段数据待核验', 'Slots pending')
-    : need === 0 && r.stage === 'observation'
-      ? L('已达门槛 · 等待结算', 'Threshold met · awaiting settle')
-      : need === 0
-        ? L('已达标完成', 'Qualified')
-        : L(`距达标还差 ${need} 段`, `${need} more to pass`);
+  // 按当前轮次阶段确定唯一焦点数字、副说明与精准动词按钮
+  let focusKicker = L('本轮达标进展', 'ROUND PROGRESS');
+  let focusHtml = '';
+  let focusSub = '';
+  let ctaText = L('查看本轮进度', 'View round progress');
+  let dotTone = '';
+  let showSlotTrack = false;
 
-  const poolDisplay = r.rewardBudgetA9 === null || r.rewardBudgetA9 === undefined
-    ? `<span class="city-pool-pending">${waiting()}</span>`
-    : `${formatNum(r.rewardBudgetA9)} <span class="city-pool-unit">A9</span>`;
-
-  const cdText = r.countdownSec === null || r.countdownSec === undefined
-    ? '—'
-    : formatTimer(r.countdownSec);
+  if (r.stage === 'participation') {
+    focusKicker = L('参与窗口开放中 · 早鸟权重', 'ENTRY OPEN · EARLY WEIGHT');
+    focusHtml = `<span class="focus-accent-gold">2.0×</span> <span class="focus-unit">${L('首段早鸟', 'Early Tier')}</span>`;
+    focusSub = L('最低 10 GRAM 参与 · 权重档位 2.0× / 1.4× / 1.0×', 'From 10 GRAM · Weight tiers 2.0× / 1.4× / 1.0×');
+    ctaText = L('查看参与条件', 'Check entry rules');
+    dotTone = 'gold';
+  } else if (r.stage === 'warmup') {
+    focusKicker = L('预热报名中 · 本轮预热池', 'WARM-UP OPEN · POOL');
+    focusHtml = `${config.isDemo ? '8,000,000' : waiting()} <span class="focus-unit">A9</span>`;
+    focusSub = L('免费报名冲榜 · 前 50 名享阶梯预热奖励', 'Free entry · Top 50 tiered rewards');
+    ctaText = L('查看预热进度', 'View warm-up');
+    dotTone = 'gold';
+  } else if (awaitingSettle) {
+    focusKicker = L('已达标门槛 · 等待结算', 'THRESHOLD MET · AWAITING SETTLE');
+    focusHtml = `<span class="focus-accent-green">${passed ?? required}</span><span class="focus-slash">/</span><span class="focus-denom">${required}</span> <span class="focus-unit">${L('个达标时段', 'met')}</span>`;
+    focusSub = confirmed !== null
+      ? L(`已确认 ${confirmed} / 24 段 · 等待链上最终结算`, `${confirmed}/24 confirmed · awaiting settlement`)
+      : L('已满足达标条件 · 等待结算确认', 'Condition met · awaiting settlement');
+    ctaText = L('查看本轮进度', 'View progress');
+    showSlotTrack = true;
+  } else if (r.stage === 'observation') {
+    focusKicker = L('24H 达标时段进度', '24H QUALIFIED SLOTS');
+    focusHtml = `<span class="focus-accent-green">${passed ?? '—'}</span><span class="focus-slash">/</span><span class="focus-denom">${required}</span> <span class="focus-unit">${L('个达标时段', 'qualified')}</span>`;
+    focusSub = need === null
+      ? L('时段数据待核验 · 点击进入核对明细', 'Slot data pending verification')
+      : L(`已确认 ${confirmed ?? '—'}/24 段 · 还差 ${need} 个达标时段`, `${confirmed ?? '—'}/24 confirmed · ${need} more needed`);
+    ctaText = L('查看时段记录', 'View slot records');
+    dotTone = 'cyan';
+    showSlotTrack = true;
+  } else if (r.stage === 'settlement_success') {
+    focusKicker = L('本轮结算结果 · 已达标', 'SETTLED · PASSED');
+    focusHtml = `<span class="focus-accent-green">${L('本轮达标', 'Passed')}</span> <span class="focus-unit">${passed ?? required}/${required}</span>`;
+    focusSub = config.isDemo
+      ? L('凭证奖励已核算，可进入明细核对并领取', 'Rewards settled; view details to claim')
+      : L('可进入明细核验个人凭证结算结果', 'Check personal ticket settlement status');
+    ctaText = L('查看结算明细', 'View settlement');
+    showSlotTrack = true;
+  } else if (r.stage === 'settlement_burn') {
+    focusKicker = L('本轮结算结果 · 未达标', 'SETTLED · MISSED');
+    focusHtml = `<span class="focus-accent-rose">${L('未达标 ×', 'Missed ×')}</span> <span class="focus-unit">${passed ?? 0}/${required}</span>`;
+    focusSub = L('未满足 16/24 达标门槛 · 按规则处理本金与奖池', 'Below 16/24 threshold · processed per v15 rules');
+    ctaText = L('查看结算明细', 'View settlement');
+    dotTone = 'red';
+    showSlotTrack = true;
+  } else if (r.stage === 'halted') {
+    focusKicker = L('安全保护 · 技术中止', 'SAFETY HALT');
+    focusHtml = `<span class="focus-accent-gold">${L('技术中止', 'Aborted')}</span>`;
+    focusSub = L('触发预言机安全保护 · 质押本金按规则原路退回', 'Oracle halt triggered · principal refunded');
+    ctaText = L('查看保护说明', 'View halt status');
+    dotTone = 'gold';
+  } else {
+    focusKicker = L('当前轮次状态', 'ROUND STATUS');
+    focusHtml = `<span>${waiting()}</span>`;
+    focusSub = L('正在等待服务端同步轮次信息', 'Awaiting server round sync');
+  }
 
   const gates = [
-    ['/internal/market', 'market', L('主城商行', 'Market'),   L('固定兑换', 'Swap A9')],
+    ['/internal/market', 'market', L('主城商行', 'Market'),   L('兑换 A9', 'Swap A9')],
     ['/rewards',         'vault',  L('奖励宝库', 'Rewards'),  L('阶梯解锁', 'Vesting')],
     ['/leaderboard',     'trophy', L('荣誉排行', 'Rankings'), L('全网榜单', 'Top Ranks')],
-    ['/rules',           'rules',  L('玩法规则', 'Rules'),    L('3 步看懂', '3-Step Guide')],
+    ['/rules',           'rules',  L('玩法规则', 'Rules'),    L('常见问题', 'FAQ Guide')],
   ];
 
   const showPredRatio = config.isDemo || (pred?.loaded && Number(pred.total) > 0);
-  const passPct = Number.isFinite(Number(pred?.passPct)) ? Number(pred.passPct) : 64;
-  const burnPct = Number.isFinite(Number(pred?.burnPct)) ? Number(pred.burnPct) : 36;
+  const passPct = Number.isFinite(Number(pred?.passPct)) ? Number(pred.passPct) : 61;
+  const burnPct = Number.isFinite(Number(pred?.burnPct)) ? Number(pred.burnPct) : 39;
 
   return `<section class="wv-hero game-city anim-page-enter">
     <div class="diorama-stage city-hub-stage">
@@ -191,7 +226,7 @@ export function city() {
 
       <div class="city-hub-top">
         <div class="city-round-pill">
-          <span class="live-dot ${r.stage === 'settlement_burn' ? 'red' : r.stage === 'halted' ? 'amber' : ''}"></span>
+          <span class="live-dot ${dotTone}"></span>
           <span>${L('第', 'R')} ${r.currentRound ?? '—'} ${L('轮', '')} · ${stageLabel(r.stage)}</span>
         </div>
         <div class="city-cd-badge" title="${L('当前阶段剩余时间', 'Time remaining')}">
@@ -200,41 +235,48 @@ export function city() {
         </div>
       </div>
 
-      <div class="city-pool-hero">
-        <div class="city-pool-copy">
-          <span class="diorama-kicker">${L('本轮用户奖励池', 'ROUND REWARD POOL')}</span>
-          <div class="city-pool-val">${poolDisplay}</div>
-          <div class="city-pool-meta">
-            <span class="chip chip-gold">${L('早鸟最高 2.0×', 'Early 2.0×')}</span>
-            <span class="chip chip-muted">${L('单轮上限 15×', '15× Cap')}</span>
-          </div>
+      <div class="city-focus-block">
+        <div class="city-focus-copy">
+          <span class="diorama-kicker">${focusKicker}</span>
+          <div class="city-focus-val">${focusHtml}</div>
+          <p class="city-focus-sub">${focusSub}</p>
         </div>
         <img class="city-hub-emblem" src="./assets/paper-craft/tower.svg" alt="" aria-hidden="true">
       </div>
 
-      <div class="city-price-strip">
-        <div class="city-price-cell">
-          <span class="num-xs text-muted">${L('目标底价', 'Target Price')}</span>
-          <strong class="mono">${priceOrDash(r.targetPrice)}</strong>
-        </div>
-        <div class="city-price-cell live">
-          <div class="city-price-live-copy">
-            <span class="num-xs text-muted">${L('当前判定均价', 'Judge TWAP')}</span>
-            <strong class="mono text-green" id="live-twap-val">${priceOrDash(r.twap24h ?? r.livePrice)}</strong>
+      ${showSlotTrack ? `
+        <a class="city-slot-strip" href="#/observation/records">
+          <div class="city-slot-dots" aria-label="${L('24H 时段进度', '24H slot progress')}">${slotDots}</div>
+          <div class="row-between city-price-inline">
+            <span>${L('目标', 'Target')} <b class="mono">${priceOrDash(r.targetPrice)}</b></span>
+            <span class="row-start" style="gap:6px;">
+              <span>${L('均价', 'TWAP')} <b class="mono text-green" id="live-twap-val">${priceOrDash(r.twap24h ?? r.livePrice)}</b></span>
+              ${history.length > 1 ? renderLiveSparkline(history) : ''}
+            </span>
           </div>
-          ${history.length > 1 ? renderLiveSparkline(history) : ''}
+        </a>
+      ` : `
+        <div class="city-price-strip">
+          <div class="city-price-cell">
+            <span class="num-xs text-muted">${L('目标底价', 'Target Price')}</span>
+            <strong class="mono">${priceOrDash(r.targetPrice)}</strong>
+          </div>
+          <div class="city-price-cell live">
+            <div class="city-price-live-copy">
+              <span class="num-xs text-muted">${L('当前判定均价', 'Judge TWAP')}</span>
+              <strong class="mono text-green" id="live-twap-val">${priceOrDash(r.twap24h ?? r.livePrice)}</strong>
+            </div>
+            ${history.length > 1 ? renderLiveSparkline(history) : ''}
+          </div>
         </div>
-      </div>
-
-      <a class="city-slot-strip" href="#/observation/records">
-        <div class="row-between">
-          <span class="city-slot-title"><b>${passed ?? '—'} / ${required}</b> ${L('达标时段', 'qualified slots')}</span>
-          <span class="city-slot-hint">${slotHint} ›</span>
-        </div>
-        <div class="city-slot-dots" aria-label="${L('24H 时段进度', '24H slot progress')}">${slotDots}</div>
-      </a>
+      `}
 
       <a class="game-play" href="#/round">${ctaText} ›</a>
+
+      <div class="city-pool-summary">
+        <span>${poolSummary}</span>
+        <span>${L('早鸟 2.0× · 上限 15×', 'Early 2.0× · 15× Cap')}</span>
+      </div>
     </div>
 
     <nav class="game-gates">
@@ -247,15 +289,17 @@ export function city() {
       `).join('')}
     </nav>
 
-    <div class="card city-pred-card" id="city-pred-jump" role="button" tabindex="0">
+    <div class="section-kicker">${L('更多参与与生态进展', 'MORE ACTIVITIES & PROTOCOL')}</div>
+
+    <div class="card clickable city-pred-card" id="city-pred-jump" role="button" tabindex="0">
       <div class="row-between">
         <div class="row-start">
-          <span class="chip chip-green">${L('0 GRAM 参战', '0 GRAM')}</span>
-          <strong class="city-pred-title">${L('24H 生死预言局', '24H Prediction Arena')}</strong>
+          <span class="chip chip-green">${L('0 GRAM 免费猜', '0 GRAM Free')}</span>
+          <strong class="city-pred-title">${L('24H 达标竞猜', '24H Pass/Burn Guess')}</strong>
         </div>
-        <span class="city-pred-go">${L('去站队', 'Join')} ›</span>
+        <span class="city-pred-go">${L('去竞猜', 'Guess')} ›</span>
       </div>
-      <p class="city-pred-desc">${L('免费预测本轮达标或销毁，命中可赢取 A9 加成补贴券。', 'Predict PASS or BURN for free and win A9 bonus vouchers.')}</p>
+      <p class="city-pred-desc">${L('免费预测本轮达标或未达标，命中可赢取 A9 加成补贴券。', 'Predict PASS or BURN for free and win A9 bonus vouchers.')}</p>
       ${showPredRatio ? `
         <div class="city-pred-bar-wrap">
           <div class="row-between num-xs">
@@ -274,12 +318,12 @@ export function city() {
       <a class="city-meta-tile" href="#/rewards">
         <small>${L('全网累计达标', 'Global Wins')}</small>
         <strong>${wins == null ? waiting() : `${wins} ${L('轮', 'wins')}`}</strong>
-        <span>${unlockPct ? L(`当前即时解锁 ${unlockPct}`, `${unlockPct} instant unlock`) : L('查看三阶解锁规则', 'View vesting tiers')} ›</span>
+        <span>${unlockPct ? L(`当前即时解锁 ${unlockPct}`, `${unlockPct} instant`) : L('查看三阶解锁', 'Vesting tiers')} ›</span>
       </a>
       <a class="city-meta-tile" href="#/team/invite">
         <small>${L('推广返佣体系', 'Referral Bonus')}</small>
         <strong>12% + 18%</strong>
-        <span>${L('生成专属邀请海报', 'Create invite poster')} ›</span>
+        <span>${L('生成邀请海报', 'Invite poster')} ›</span>
       </a>
     </div>
   </section>`;
@@ -307,6 +351,7 @@ export function renderCity(root, navigate) {
   }
 }
 
+/** 身份图鉴（#/gallery）：精简顶部展示台高度，下方 3×3 统一缩略图一屏易选 */
 export function gallery(root, navigate, param) {
   const n = Number(param) || 1;
   const selected = n >= 1 && n <= 9 && Number.isInteger(n) ? n : 1;
@@ -314,17 +359,20 @@ export function gallery(root, navigate, param) {
   root.innerHTML =
     `<section class="wv-hero wv-gallery-hero ${selected >= 7 ? 'diorama-stage prism' : 'diorama-stage'}">
       ${DIORAMA_BACKDROP}
-      <div class="edition-art" id="gallery-standee-stage" style="width:100%;height:178px;margin-bottom:2px;">
+      <div class="edition-art gallery-compact-art" id="gallery-standee-stage">
         <div class="standee-slot" aria-hidden="true"></div>
         ${portrait(selected)}
       </div>
       <div class="wv-copy">
-        <small>A${selected} / ${L('角色预览', 'Character preview')}</small>
+        <small>A${selected} / ${L('身份预览', 'Identity preview')}</small>
         <h1>${L(zh, en)}</h1>
         <p>${L(detail, desc)}</p>
       </div>
     </section>` +
-    `<nav class="wv-gallery">${tiers.map(([a, b], i) => `<a href="#/gallery/${i + 1}" aria-current="${i + 1 === selected ? 'true' : 'false'}">${portrait(i + 1)}<b>A${i + 1}</b>${L(a, b)}</a>`).join('')}</nav><div class="card">${L('当前身份与下一阶条件待核验。称谓为设计预览。', 'Identity and next-tier conditions await verification. Titles are previews.')}</div><button class="btn btn-primary" id="wv-export">${L('保存角色预览卡', 'Save preview card')}</button>`;
+    `<div class="section-kicker">${L('A1–A9 全阶身份图鉴（点选切换）', 'A1–A9 COLLECTION (TAP TO SELECT)')}</div>` +
+    `<nav class="wv-gallery">${tiers.map(([a, b], i) => `<a href="#/gallery/${i + 1}" aria-current="${i + 1 === selected ? 'true' : 'false'}">${portrait(i + 1)}<b>A${i + 1}</b>${L(a, b)}</a>`).join('')}</nav>` +
+    `<div class="card num-xs text-sec">${L('当前身份与下一阶升级条件待链上核验。以上称谓与形象为收藏预览。', 'Identity and next-tier conditions await verification. Titles and portraits are previews.')}</div>` +
+    `<button class="btn btn-primary" id="wv-export">${L('保存角色预览卡', 'Save preview card')}</button>`;
   root.style.setProperty('--wv-hue', (selected - 1) * 19 + 'deg');
 
   const standee = root.querySelector('#gallery-standee-stage .wv-person');
@@ -342,7 +390,7 @@ export function gallery(root, navigate, param) {
   if (config.isDemo) {
     const preview = document.createElement('button');
     preview.className = 'btn btn-secondary';
-    preview.textContent = L('在背包舞台试穿', 'Preview in Vault stage');
+    preview.textContent = L('在背包身份栏试穿', 'Preview in Backpack bar');
     preview.onclick = () => {
       A9Haptic.light();
       A9Audio.flip();
@@ -362,11 +410,10 @@ export function gallery(root, navigate, param) {
     const img = root.querySelector('.wv-hero .wv-person');
     if (img && !img.complete) await img.decode().catch(() => {});
 
-    // 方案 A 暖棉纸立体书卡片导出风格
     ctx.fillStyle = '#F5F0E6';
     ctx.fillRect(0, 0, 720, 960);
 
-    ctx.fillStyle = '#D6CBB9';
+    ctx.fillStyle = '#D4C8B5';
     ctx.beginPath();
     ctx.roundRect(42, 48, 636, 868, 36);
     ctx.fill();
@@ -396,11 +443,11 @@ export function gallery(root, navigate, param) {
     ctx.font = 'bold 30px sans-serif';
     ctx.fillText('A9', 108, 116);
 
-    ctx.fillStyle = '#6A615B';
+    ctx.fillStyle = '#675E58';
     ctx.font = 'bold 22px sans-serif';
     ctx.fillText(`STICKER 0${selected} · PAPER CRAFT`, 198, 114);
 
-    ctx.fillStyle = '#ECE6DA';
+    ctx.fillStyle = '#EFE9DE';
     ctx.beginPath();
     ctx.ellipse(360, 686, 170, 26, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -415,7 +462,7 @@ export function gallery(root, navigate, param) {
     ctx.fillStyle = '#2B2523';
     ctx.font = 'bold 50px sans-serif';
     ctx.fillText(`A${selected} · ${L(zh, en)}`, 82, 782);
-    ctx.fillStyle = '#6A615B';
+    ctx.fillStyle = '#675E58';
     ctx.font = '26px sans-serif';
     ctx.fillText(
       L('A9 财富进化世界 · 暖棉纸典藏卡', 'A9 Wealthverse · Paper Craft Card'),
@@ -430,77 +477,120 @@ export function gallery(root, navigate, param) {
   };
 }
 
+/**
+ * 奖励宝库（#/rewards）：
+ * 明确拆分为「1. 当前解锁档位与资产状态」与「2. 三阶水晶概念美术预览（非持仓）」两大独立分区
+ */
 export function rewards(root) {
   const n = store.state.round.successCount;
   const u = store.state.user;
+  const activeStepIdx = n > 0 ? (n <= 5 ? 0 : n <= 10 ? 1 : 2) : -1;
+  const curUnlockLabel = activeStepIdx === 0 ? '20%' : activeStepIdx === 1 ? '40%' : activeStepIdx === 2 ? '100%' : waiting();
+
   const amounts = [
-    [
-      L('已解锁待领取', 'Unlocked and claimable'),
-      config.isDemo ? u.a9Claimable : null,
-    ],
-    [L('待解锁', 'Locked'), config.isDemo ? u.a9Locked : null],
-    [L('已销毁', 'Burned'), null],
+    [L('已解锁待领取', 'Unlocked and claimable'), config.isDemo ? u.a9Claimable : null],
+    [L('待解锁份额', 'Locked shares'), config.isDemo ? u.a9Locked : null],
+    [L('已销毁份额', 'Burned shares'), null],
   ];
   const balances = amounts
     .map(
       ([label, amount]) =>
-        `<div class="list-row"><span>${label}</span><b>${amount == null ? waiting() : amount.toLocaleString('en-US') + ' A9'}</b></div>`,
+        `<div class="list-row"><span>${label}</span><b class="mono">${amount == null ? waiting() : amount.toLocaleString('en-US') + ' A9'}</b></div>`,
     )
     .join('');
 
   const crystals = [
-    ['crystal-basic',     L('初阶', 'Basic')],
-    ['crystal-starlight', L('星辉', 'Starlight')],
-    ['crystal-legendary', L('传说', 'Legendary')],
+    ['crystal-basic',     L('基础贴纸包 · 1.99 GRAM', 'Basic Pack · 1.99 GRAM')],
+    ['crystal-starlight', L('进阶贴纸盒 · 5.99 GRAM', 'Plus Box · 5.99 GRAM')],
+    ['crystal-legendary', L('豪华贴纸礼盒 · 13.99 GRAM', 'Deluxe Box · 13.99 GRAM')],
   ];
-  const crystalPreview = `<section class="card"><h2 class="card-title">${L('水晶美术预览', 'Crystal art preview')}</h2>
-    <div class="crystal-preview">${crystals.map(([id, name]) => `<figure><img src="./assets/paper-craft/${id}.svg" alt="" loading="lazy"><figcaption>${name}</figcaption></figure>`).join('')}</div></section>`;
-  root.innerHTML =
-    hero(
-      L('奖励宝库', 'Reward Vault'),
-      'A9 / TREASURY',
-      `<p>${L('全网累计成功', 'Global successes')} · ${n ?? waiting()}</p>`,
-      `<img src="./assets/paper-craft/vault.svg" alt="" style="width:76px;height:76px;filter:var(--paper-cut-shadow);">`,
-      'wv-vault',
-    ) +
-    `<div class="wv-steps">${[
-      ['1–5', '20%', '4 × 20%'],
-      ['6–10', '40%', '2 × 30%'],
-      ['11+', '100%', '—'],
-    ]
-      .map(
-        ([range, pct, rest], i) =>
-          `<article class="${n > 0 && (n <= 5 ? 0 : n <= 10 ? 1 : 2) === i ? 'current' : ''}"><small>${L('累计成功', 'Wins')} ${range}</small><strong>${pct}</strong>${L('即时解锁', 'Immediate')}<p>${rest}</p></article>`,
-      )
-      .join(
-        '',
-      )}</div><div class="card col-gap">${balances}</div><div class="card">${L('失败可能销毁此前未解锁的份额。轮次持续至奖池耗尽。', 'Failure can burn prior locked shares. Rounds continue until pool exhaustion.')}</div>${crystalPreview}<nav class="wv-links">${link('/claim', L('领取明细', 'Claim details'), 'unlock')}${link('/profile', L('我的资产', 'My assets'), 'wallet')}</nav>`;
+
+  root.innerHTML = `
+    <div class="col-gap anim-page-enter">
+      <section class="card card-hero wv-vault-summary">
+        <div class="row-between">
+          <div>
+            <span class="diorama-kicker">A9 / TREASURY</span>
+            <h2 style="margin:3px 0 0;font-size:19px;font-weight:900;">${L('当前解锁档位', 'Current Vesting Tier')}</h2>
+            <p class="num-xs text-sec" style="margin:4px 0 0;">${L('全网累计达标', 'Global wins')} · <b class="mono" style="color:var(--ink);">${n ?? waiting()}</b> · ${L('即时解锁', 'Instant')} <b class="mono text-gold">${curUnlockLabel}</b></p>
+          </div>
+          <img src="./assets/paper-craft/vault.svg" alt="" style="width:54px;height:54px;filter:var(--paper-cut-shadow);flex-shrink:0;">
+        </div>
+        <div class="wv-steps" style="margin-top:12px;">
+          ${[
+            ['1–5', '20%', '4 × 20%'],
+            ['6–10', '40%', '2 × 30%'],
+            ['11+', '100%', '—'],
+          ].map(([range, pct, rest], i) => `
+            <article class="${activeStepIdx === i ? 'current' : ''}">
+              <small>${L('累计成功', 'Wins')} ${range}</small>
+              <strong>${pct}</strong>
+              ${L('即时解锁', 'Immediate')}
+              <p>${rest}</p>
+            </article>
+          `).join('')}
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header" style="margin-bottom:4px;">
+          <h3 class="card-title">${icon('wallet', 15, 'text-gold')} ${L('我的宝库余额', 'My Vault Balances')}</h3>
+          <span class="chip ${config.isDemo ? 'chip-muted' : 'chip-gold'}">${config.isDemo ? L('演示数据', 'DEMO') : L('待核验', 'PENDING')}</span>
+        </div>
+        <div>${balances}</div>
+        <p class="num-xs text-muted" style="margin:10px 0 0;line-height:1.5;">${L('失败轮可能按规则销毁此前未解锁份额；轮次持续开放至奖池耗尽。', 'Failure can burn prior locked shares. Rounds continue until pool exhaustion.')}</p>
+      </section>
+
+      <nav class="wv-links">${link('/claim', L('领取明细', 'Claim details'), 'unlock')}${link('/profile', L('我的背包', 'My backpack'), 'wallet')}</nav>
+
+      <div class="section-kicker">${L('概念收藏预览 · 非已拥有资产', 'CONCEPT ART PREVIEW · NOT OWNED ITEMS')}</div>
+      <section class="card">
+        <div class="row-between" style="margin-bottom:4px;">
+          <h3 class="card-title">${L('三档贴纸礼盒预览', 'Sticker Pack Preview')}</h3>
+          <span class="chip chip-muted">${L('仅预览', 'Preview')}</span>
+        </div>
+        <div class="crystal-preview">
+          ${crystals.map(([id, name]) => `<figure><img src="./assets/paper-craft/${id}.svg" alt="" loading="lazy"><figcaption>${name}</figcaption></figure>`).join('')}
+        </div>
+      </section>
+    </div>
+  `;
 }
 
 export function tower(round) {
   const labels = {
-    unknown: L('数据暂缺', 'Unavailable'),
+    unknown: L('待核验', 'Pending'),
     pending: L('未开始', 'Upcoming'),
     active: L('观察中', 'Observing'),
     pass: L('达标', 'Met'),
     miss: L('未达标', 'Missed'),
   };
-  return `<section class="wv-tower"><small>24H / OBSERVATORY</small><h2>${L('财富挑战塔', 'Challenge Tower')}</h2><div class="wv-windows">${Array.from(
-    { length: 24 },
-    (_, i) => {
-      const c = round.candles?.[i];
-      const state = c?.confirmed
-        ? c.bull
-          ? 'pass'
-          : 'miss'
-        : labels[c?.status]
-          ? c.status
-          : 'unknown';
-      return `<span data-state="${state}"><b>${String(i + 1).padStart(2, '0')}</b>${labels[state]}</span>`;
-    },
-  ).join(
-    '',
-  )}</div><p>${round.qualifiedCandles ?? '—'} / 16 · ${round.qualifiedCandles >= 16 && round.stage === 'observation' ? L('等待结算', 'Awaiting settlement') : L('达标门槛', 'Qualifying threshold')}</p></section>`;
+  const symbols = { unknown: '?', pending: '·', active: '◉', pass: '✓', miss: '×' };
+  const confirmedCount = Array.isArray(round.candles)
+    ? round.candles.filter((c) => c.confirmed || c.status === 'closed').length
+    : (round.candlesSeen ?? 0);
+  return `<section class="wv-tower">
+    <div class="row-between" style="margin-bottom:6px;">
+      <div>
+        <small>24H / STAMP BOARD</small>
+        <h2 style="margin:2px 0 0;">${L('24H 观测集章板', '24H Stamp Board')}</h2>
+      </div>
+      <span class="chip chip-muted mono">${L('已确认', 'Confirmed')} ${confirmedCount}/24</span>
+    </div>
+    <div class="wv-windows">${Array.from(
+      { length: 24 },
+      (_, i) => {
+        const c = round.candles?.[i];
+        const state = c?.confirmed
+          ? (c.bull ? 'pass' : 'miss')
+          : labels[c?.status]
+            ? c.status
+            : 'unknown';
+        return `<span data-state="${state}"><i>${symbols[state]}</i><b>${String(i + 1).padStart(2, '0')}</b></span>`;
+      },
+    ).join('')}</div>
+    <p>${L('已达标', 'Qualified')} <b class="mono">${round.qualifiedCandles ?? '—'} / 16</b> · ${round.qualifiedCandles >= 16 && round.stage === 'observation' ? L('等待结算', 'Awaiting settlement') : L('达标门槛 16 段', '16 slots to pass')}</p>
+  </section>`;
 }
 
 function exactA9(raw) {
@@ -530,11 +620,11 @@ export function portfolioPanel(root, guild = false) {
     : [
         ['/claim', '领取明细', 'Claims'],
         ['/ledger', '账单', 'Ledger'],
-        ['/records', '历史领取', 'History'],
+        ['/records', '历史记录', 'History'],
         ['/proof', '质押凭证', 'Tickets'],
         ['/settings', '设置', 'Settings'],
       ];
-  function show(data, state) {
+  function show(data, state, isError = false) {
     panel.replaceChildren();
     const row = (label, value) => {
       const el = document.createElement('div');
@@ -542,6 +632,7 @@ export function portfolioPanel(root, guild = false) {
       const name = document.createElement('span');
       name.textContent = label;
       const amount = document.createElement('b');
+      amount.className = 'mono';
       amount.textContent = value;
       el.append(name, amount);
       panel.append(el);
@@ -571,9 +662,7 @@ export function portfolioPanel(root, guild = false) {
       );
       for (const ticket of active)
         row(
-          L('凭证本金 · 轮次', 'Ticket principal · round') +
-            ' ' +
-            ticket.roundId,
+          L('凭证本金 · 第', 'Ticket principal · R') + ticket.roundId + L(' 轮', ''),
           exactA9(ticket.amountRaw),
         );
       if (!active.length) row(L('质押中 A9', 'Staked A9'), waiting());
@@ -585,14 +674,14 @@ export function portfolioPanel(root, guild = false) {
         row(L(...labels), waiting());
     }
     const status = document.createElement('p');
-    status.className = 'num-xs text-muted';
+    status.className = `num-xs ${isError ? 'text-red' : 'text-muted'}`;
     status.style.margin = '2px 0';
     status.textContent = state;
     panel.append(status);
     const btn = document.createElement('button');
     btn.className = 'btn btn-secondary';
     btn.textContent = user.address
-      ? L('重新读取', 'Read again')
+      ? (isError ? L('重试读取', 'Retry') : L('重新读取', 'Read again'))
       : L('连接钱包', 'Connect wallet');
     btn.onclick = () =>
       user.address
@@ -611,8 +700,8 @@ export function portfolioPanel(root, guild = false) {
     show(
       null,
       addr
-        ? L('正在读取钱包', 'Reading wallet')
-        : L('请连接钱包', 'Connect a wallet'),
+        ? L('正在读取钱包数据…', 'Reading wallet…')
+        : L('未连接钱包 · 连接后可核验链上余额与凭证', 'Connect a wallet to verify balances and tickets'),
     );
     if (!addr) return;
     try {
@@ -622,10 +711,10 @@ export function portfolioPanel(root, guild = false) {
         store.state.user.address === addr &&
         data.walletAddress === addr
       )
-        show(data, L('来源 · 钱包只读接口', 'Source · read-only wallet API'));
+        show(data, L('来源 · 钱包只读接口（真实只读）', 'Source · read-only wallet API'));
     } catch {
       if (panel.isConnected && store.state.user.address === addr)
-        show(null, L('钱包数据读取失败', 'Wallet read failed'));
+        show(null, L('读取失败 · 请检查网络后重试', 'Read failed · check network and retry'), true);
     }
   }
   refresh();
@@ -643,6 +732,6 @@ export function liveRound(r) {
     <p>${L('参与窗口', 'Entry window')} · ${time(r.stakeOpenAt)} — ${time(r.stakeCloseAt)}</p>
     <p>${L('早鸟权重仅影响奖励分配份额', 'Early weights affect allocation only')} · 2.0× / 1.4× / 1.0×</p>
     <p>${L('失败将销毁该轮质押的 A9 本金。', 'Failure burns the A9 principal staked in the round.')}</p>
-    <button class="btn btn-secondary" style="margin-top:12px;" disabled>${L('只读 · 质押签名已关闭', 'Read-only · staking disabled')}</button></section>
+    <button class="btn btn-secondary" style="margin-top:12px;" disabled>${L('真实模式只读 · 质押签名暂未开放', 'Live read-only · staking disabled')}</button></section>
     ${tower(r)}<nav class="wv-links">${link('/observation/records', L('时段明细', 'Slot details'), 'clock')}${link('/rewards', L('解锁阶段', 'Vesting'), 'unlock')}${link('/warmup', L('预热', 'Warm-up'), 'bolt')}${link('/rules', L('规则', 'Rules'), 'book')}</nav>`;
 }

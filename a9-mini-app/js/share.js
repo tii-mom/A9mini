@@ -87,31 +87,31 @@ function buildAngles(type, id, ctx = {}) {
         key: 'data',
         label: L('数据派', 'Data'),
         text: L(
-          `A9 第 ${roundNum} 轮 24H 观察结束：达标时段 ${passed}/${required}，按 v15 规则执行销毁。见证销毁并分享，下轮内盘享优先通道与额度加成。`,
-          `A9 Round #${roundNum} closed at ${passed}/${required} qualified slots and burned per v15 rules. Share for next-round presale priority & quota boost.`
+          `A9 第 ${roundNum} 轮 24H 观察结束：达标时段 ${passed}/${required}，按 v15 规则执行销毁。见证销毁并分享，下轮商行享优先通道与额度加成。`,
+          `A9 Round #${roundNum} closed at ${passed}/${required} qualified slots and burned per v15 rules. Share for next-round market priority & quota boost.`
         )
       },
       {
         key: 'bull',
         label: L('看多派', 'Bullish'),
         text: L(
-          `A9 第 ${roundNum} 轮严格按合约执行销毁，通缩逻辑说到做到。见证销毁并分享，下轮 ${pool} 奖池内盘享优先通道与额度加成。`,
-          `A9 Round #${roundNum} executed on-chain burn strictly by contract rules. Witness & share for next-round presale priority and quota boost.`
+          `A9 第 ${roundNum} 轮严格按合约执行销毁，通缩逻辑说到做到。见证销毁并分享，下轮 ${pool} 奖池商行享优先通道与额度加成。`,
+          `A9 Round #${roundNum} executed on-chain burn strictly by contract rules. Witness & share for next-round market priority and quota boost.`
         )
       },
       {
         key: 'casual',
         label: L('吃瓜自嘲派', 'Banter'),
         text: L(
-          `打卡 A9 第 ${roundNum} 轮销毁纪念碑：24H 最终定格 ${passed}/${required} 段，顺手领下轮内盘优先通道与额度加成。`,
-          `Checking in at the A9 Round #${roundNum} Burn Monument (${passed}/${required} slots)—grabbing next-round presale priority & quota boost.`
+          `打卡 A9 第 ${roundNum} 轮未达标存证：24H 最终定格 ${passed}/${required} 段，顺手领下轮商行优先通道与额度加成。`,
+          `Checking in at the A9 Round #${roundNum} Burn Record (${passed}/${required} slots)—grabbing next-round market priority & quota boost.`
         )
       }
     ];
   }
 
   if (type === 'bet') {
-    const sideLabel = ctx.side === 'BURN' ? L('押销毁 BURN', 'BURN') : L('押达标 PASS', 'PASS');
+    const sideLabel = ctx.side === 'BURN' ? L('猜未达标 BURN', 'BURN') : L('猜达标 PASS', 'PASS');
     const slotNote = (ctx.guessSlots !== null && ctx.guessSlots !== undefined)
       ? L(`，精准预测 ${ctx.guessSlots} 段`, `, exact guess ${ctx.guessSlots} slots`)
       : '';
@@ -120,7 +120,7 @@ function buildAngles(type, id, ctx = {}) {
         key: 'data',
         label: L('数据派', 'Data'),
         text: L(
-          `我在 A9 第 ${roundNum} 轮 24H 生死预言局立下立场：${sideLabel}${slotNote}${rankTag}。当前已达标 ${passed}/${required} 段，目标底价 ${target}，来站队吗？`,
+          `我在 A9 第 ${roundNum} 轮 24H 达标竞猜选了：${sideLabel}${slotNote}${rankTag}。当前已达标 ${passed}/${required} 段，目标底价 ${target}，一起来猜？`,
           `My call on A9 Round #${roundNum} 24H Prediction: ${sideLabel}${slotNote}${rankTag}. Live progress ${passed}/${required} slots, target ${target}.`
         )
       },
@@ -128,7 +128,7 @@ function buildAngles(type, id, ctx = {}) {
         key: 'bull',
         label: L('看多派', 'Bullish'),
         text: L(
-          `0 GRAM 也能参战 A9 第 ${roundNum} 轮 24H 生死预言！我已锁定 ${sideLabel}${slotNote}，本轮奖池 ${pool}，看看谁的判断更准。`,
+          `0 GRAM 免费参与 A9 第 ${roundNum} 轮 24H 达标竞猜！我已锁定 ${sideLabel}${slotNote}，本轮奖池 ${pool}，看看谁的判断更准。`,
           `0 GRAM entry for A9 Round #${roundNum} 24H Prediction. Locked ${sideLabel}${slotNote}—let us see whose read holds up.`
         )
       },
@@ -136,8 +136,8 @@ function buildAngles(type, id, ctx = {}) {
         key: 'casual',
         label: L('吃瓜自嘲派', 'Banter'),
         text: L(
-          `不花钱先下个判断：A9 第 ${roundNum} 轮我选 ${sideLabel}${slotNote}。现在 ${passed}/${required} 段，欢迎来反向对冲打我脸。`,
-          `Zero-cost call on A9 Round #${roundNum}: ${sideLabel}${slotNote}. Currently ${passed}/${required} slots—come counter-bet me.`
+          `不花钱先下个判断：A9 第 ${roundNum} 轮我选 ${sideLabel}${slotNote}。现在 ${passed}/${required} 段，欢迎来一起比拼判断。`,
+          `Zero-cost call on A9 Round #${roundNum}: ${sideLabel}${slotNote}. Currently ${passed}/${required} slots—come test your read.`
         )
       }
     ];

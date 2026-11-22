@@ -122,7 +122,8 @@
   animation: pulse-dot 2.6s ease-in-out infinite;
   flex-shrink: 0;
 }
-.live-dot.gold, .live-dot.amber, .live-dot.cyan { background: var(--nt-gold); }
+.live-dot.gold, .live-dot.amber { background: var(--nt-gold); }
+.live-dot.cyan { background: var(--nt-blue); }
 .live-dot.red { background: var(--nt-rose); animation: none; }
 
 .chevron-seq span {

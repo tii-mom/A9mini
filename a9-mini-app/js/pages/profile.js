@@ -7,6 +7,7 @@ import { portfolioPanel, identityStage, bindIdentityStage } from './wealthverse.
 
 import { store } from '../store.js';
 import { config } from '../config.js';
+import { uiMemory } from '../app.js';
 import { demoTxHash } from '../demo-data.js';
 import { A9Haptic } from '../tma.js';
 import { A9Audio } from '../audio.js';
@@ -58,80 +59,100 @@ export function renderProfileHome(root, navigate) {
   } else {
     const claimable = unknown ? null : (user.a9Claimable || 0);
     const hasClaim = claimable !== null && claimable > 0;
+    const activeFilter = ['all', 'observation', 'settled'].includes(uiMemory.ticketFilter) ? uiMemory.ticketFilter : 'all';
+
+    const todoCardHtml = unknown ? `
+      <div class="card row-between" style="border-color:var(--gold-border);">
+        <div>
+          <div class="row-start" style="font-weight:800;">${icon('shieldAlert', 15, 'text-gold')} ${L('未连接钱包 · 数据待核验', 'Wallet not connected')}</div>
+          <div class="num-xs text-muted" style="margin-top:3px;">${L('连接后核验可领取奖励、质押中与待解锁资产', 'Connect to verify claimable, staked and locked assets')}</div>
+        </div>
+        <button class="btn btn-primary btn-sm" id="profile-connect">${L('连接', 'Connect')}</button>
+      </div>
+    ` : hasClaim ? `
+      <div class="card card-hero vault-claim">
+        <div class="row-between" style="margin-bottom:6px;">
+          <span class="chip chip-gold">${L('待处理 · 可领取', 'Action · Claimable')}</span>
+          <a class="text-link-btn" href="#/rewards">${L('解锁档位', 'Vesting')} ›</a>
+        </div>
+        <div class="num-hero"><span id="a9-claim-num">${formatNum(claimable)}</span> <span class="num-md text-green">A9</span></div>
+        <div class="num-xs text-muted" style="margin:4px 0 10px;">
+          ${config.isDemo ? L('演示领取 · 实际已结算金额', 'Demo claim · settled amount') : L('真实模式只读 · 签名领取暂未开放', 'Live read-only · claim signing disabled')}
+        </div>
+        ${store.fundsEnabled
+          ? `<div id="profile-quick-slider"></div>`
+          : `<div class="sub-tile row-between"><span class="num-xs text-sec">${L('真实模式只读 · 暂未开放领取签名', 'Live read-only · claiming disabled')}</span><button class="btn btn-secondary btn-sm" data-nav="/claim">${L('明细', 'View')}</button></div>`}
+        <div class="row-between num-xs text-sec" style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--card-border);">
+          <span>${L('待解锁份额', 'Locked Vesting')}</span>
+          <b class="mono" style="color:var(--ink);">${formatNum(user.a9Locked)} A9</b>
+        </div>
+      </div>
+    ` : `
+      <div class="card">
+        <div class="card-header" style="margin-bottom:4px;">
+          <div class="card-title">${icon('wallet', 15, 'text-gold')} ${L('资产概览', 'Asset Summary')}</div>
+          <a class="text-link-btn" href="#/rewards">${L('解锁档位', 'Vesting')} ›</a>
+        </div>
+        <div class="list-row"><span class="text-sec">${L('当前可领取', 'Claimable now')}</span><b class="mono">0 A9</b></div>
+        <div class="list-row"><span class="text-sec">${L('待解锁份额', 'Locked vesting')}</span><b class="mono">${formatNum(user.a9Locked)} A9</b></div>
+      </div>
+    `;
 
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         ${identityStage({ modePill, walletTag })}
 
-        ${unknown ? `
-          <div class="card row-between" style="border-color:var(--gold-border);">
-            <div>
-              <div class="row-start" style="font-weight:600;">${icon('shieldAlert', 15, 'text-gold')} ${L('未连接钱包，金额不可读取', 'Wallet not connected')}</div>
-              <div class="num-xs text-muted" style="margin-top:3px;">${L('连接后显示可领取、参与中与待解锁奖励', 'Connect to view claimable, active and locked rewards')}</div>
-            </div>
-            <button class="btn btn-primary btn-sm" id="profile-connect">${L('连接', 'Connect')}</button>
-          </div>
-        ` : `
-          <div class="card card-hero vault-claim">
-            <div class="row-between" style="margin-bottom:6px;">
-              <span class="num-xs text-muted">${L('当前可领取奖励', 'Claimable Rewards')}</span>
-              <a class="text-link-btn" href="#/rewards">${L('解锁规则', 'Vesting')} ›</a>
-            </div>
-            <div class="num-hero"><span id="a9-claim-num">${formatNum(claimable)}</span> <span class="num-md text-green">A9</span></div>
-            <div class="metric-strip cols-2" style="margin:10px 0 12px;">
-              <div class="metric-cell">
-                <span class="num-xs text-muted">${L('待解锁奖励', 'Locked Vesting')}</span>
-                <span class="num-md">${unknown ? '—' : formatNum(user.a9Locked)} A9</span>
-              </div>
-              <div class="metric-cell">
-                <span class="num-xs text-muted">${L('解锁触发条件', 'Unlock Rule')}</span>
-                <span class="num-xs text-sec">${L('后续达标轮线性释放', 'Unlocks on passing rounds')}</span>
-              </div>
-            </div>
-            ${hasClaim ? `
-              ${store.fundsEnabled ? `<div id="profile-quick-slider"></div>` : `<div class="sub-tile row-between" style="border-color:var(--gold-border);"><span class="num-xs text-sec">${L('真实只读模式：当前仅支持查看，暂未开放凭证领取签名', 'Live read-only: claiming disabled')}</span><button class="btn btn-secondary btn-sm" data-nav="/claim">${L('查看', 'View')}</button></div>`}
-            ` : `
-              <button class="btn btn-secondary" data-nav="/records">${icon('clock', 15)} ${L('查看奖励明细', 'View Ledger')}</button>
-            `}
-          </div>
-        `}
+        ${todoCardHtml}
 
         <div class="card">
-          <div class="card-header"><div class="card-title">${icon('shieldCheck', 16, 'text-green')} ${L('凭证收藏册','Ticket collection')}</div><span class="chip chip-muted">${certificates.length}</span></div>
-          <nav class="ticket-tabs" aria-label="${L('筛选凭证','Filter tickets')}">${[['all',L('全部','All')],['observation',L('观察中','Observing')],['settled',L('已结算','Settled')]].map(([value,label])=>`<button type="button" data-ticket-filter="${value}" aria-pressed="${value==='all'}">${label}</button>`).join('')}</nav>
-          <p class="ticket-empty" hidden>${L('此状态暂无凭证','No tickets in this state')}</p>
+          <div class="card-header"><div class="card-title">${icon('shieldCheck', 16, 'text-green')} ${L('凭证收藏册', 'Ticket Collection')}</div><span class="chip chip-muted">${certificates.length}</span></div>
+          <nav class="ticket-tabs" aria-label="${L('筛选凭证', 'Filter tickets')}">${[['all', L('全部', 'All')], ['observation', L('观察中', 'Observing')], ['settled', L('已结算', 'Settled')]].map(([value, label]) => `<button type="button" data-ticket-filter="${value}" aria-pressed="${value === activeFilter}">${label}</button>`).join('')}</nav>
+          <p class="ticket-empty" hidden>${L('该状态下暂无质押凭证', 'No tickets in this state')}</p>
           ${certificates.length === 0
-            ? `<div class="empty-state" style="padding:14px;"><div class="num-xs text-muted">${L('暂无参与中的质押', 'No active stake')}</div><button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/challenge">${L('去参与', 'Join')}</button></div>`
+            ? `<div class="empty-state" style="padding:14px;"><div class="num-xs text-muted">${L('暂无参与中的质押凭证', 'No active stake tickets')}</div><button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/round">${L('前往轮次挑战', 'Go to challenge')}</button></div>`
             : certificates.map(c => `
-              <div class="list-row clickable collectible-ticket" data-ticket-state="${c.status}" data-nav="/proof/${c.id}"><img src="./assets/paper-craft/ticket.svg" alt="">
-                <div><div class="num-sm">#${c.id}</div><div class="num-xs text-muted">${L('第', 'R')} ${c.round} ${L('轮', '')} · ${formatNum(c.stakeTon)} GRAM</div></div>
-                <div style="text-align:right;"><div class="num-xs text-muted">${L('预计奖励','Est. reward')}</div><div class="num-sm text-green">${formatNum(c.estRewardA9)} A9</div><span class="chip ${c.status === 'settled' ? 'chip-green' : 'chip-gold'}" style="height:17px;font-size:9px;">${c.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</span></div>
+              <div class="list-row clickable collectible-ticket" data-ticket-state="${c.status}" data-nav="/proof/${c.id}" ${activeFilter !== 'all' && c.status !== activeFilter ? 'hidden' : ''}><img src="./assets/paper-craft/ticket.svg" alt="">
+                <div>
+                  <div class="num-sm">#${c.id}</div>
+                  <div class="num-xs text-muted">${L('第', 'R')}${c.round}${L('轮', '')} · ${formatNum(c.stakeTon)} GRAM</div>
+                </div>
+                <div style="text-align:right;">
+                  <div class="num-xs text-muted">${c.status === 'settled' ? L('已确认奖励', 'Confirmed') : L('预计奖励', 'Est. reward')}</div>
+                  <div class="num-sm text-green">${formatNum(c.estRewardA9)} A9</div>
+                  <span class="chip ${c.status === 'settled' ? 'chip-green' : 'chip-blue'}" style="height:17px;font-size:9px;">${c.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</span>
+                </div>
               </div>
             `).join('')}
         </div>
 
         <div class="grid-4">
           <button class="cmd-tile" data-nav="/proof"><span class="icon-badge orange">${icon('shieldCheck', 16)}</span><span>${L('凭证', 'Proof')}</span></button>
-          <button class="cmd-tile" data-nav="/ledger"><span class="icon-badge emerald">${icon('receipt', 16)}</span><span>${L('明细', 'Ledger')}</span></button>
+          <button class="cmd-tile" data-nav="/ledger"><span class="icon-badge emerald">${icon('receipt', 16)}</span><span>${L('账单', 'Ledger')}</span></button>
           <button class="cmd-tile" data-nav="/renew"><span class="icon-badge sky">${icon('refresh', 16)}</span><span>${L('续期', 'Renew')}</span></button>
-          <button class="cmd-tile" data-nav="/settings"><span class="icon-badge">${icon('settings', 16)}</span><span>${L('设置', 'Config')}</span></button>
+          <button class="cmd-tile" data-nav="/settings"><span class="icon-badge">${icon('settings', 16)}</span><span>${L('设置', 'Settings')}</span></button>
         </div>
       </div>
     `;
 
-    root.querySelector('.ticket-tabs')?.addEventListener('click', e=>{
-      const button=e.target.closest('[data-ticket-filter]');
+    const applyTicketFilter = (filter) => {
+      uiMemory.ticketFilter = filter;
+      let visible = 0;
+      root.querySelectorAll('[data-ticket-state]').forEach(ticket => {
+        ticket.hidden = filter !== 'all' && ticket.dataset.ticketState !== filter;
+        if (!ticket.hidden) visible++;
+      });
+      root.querySelectorAll('[data-ticket-filter]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ticketFilter === filter)));
+      const emptyEl = root.querySelector('.ticket-empty');
+      if (emptyEl) emptyEl.hidden = visible > 0 || certificates.length === 0;
+    };
+    applyTicketFilter(activeFilter);
+
+    root.querySelector('.ticket-tabs')?.addEventListener('click', e => {
+      const button = e.target.closest('[data-ticket-filter]');
       if (!button) return;
       A9Haptic.light();
       A9Audio.tick();
-      const filter=button.dataset.ticketFilter;
-      let visible=0;
-      root.querySelectorAll('[data-ticket-state]').forEach(ticket=>{
-        ticket.hidden=filter!=='all' && ticket.dataset.ticketState!==filter;
-        if(!ticket.hidden) visible++;
-      });
-      root.querySelectorAll('[data-ticket-filter]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));
-      root.querySelector('.ticket-empty').hidden=visible>0 || certificates.length===0;
+      applyTicketFilter(button.dataset.ticketFilter);
     });
     if (hasClaim) {
       animateSlotCounter(root.querySelector('#a9-claim-num'), claimable, { duration: 420 });
@@ -189,7 +210,7 @@ export function renderClaimPage(root) {
           <div class="num-xs text-sec" style="line-height:1.5;">${L('当前真实模式处于只读验收阶段，凭证领取与钱包签名暂未开放，请等待主网验收完成后开放。', 'Live mode is currently read-only; StakeTicket claim signing will open after mainnet acceptance.')}</div>
         </div>
         <button class="btn btn-secondary" id="btn-claim-readonly" type="button">${icon('lock', 15)} ${L('真实模式只读 · 暂未开放领取', 'Read-Only Mode · Claim Disabled')}</button>
-        <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回我的', 'Back to Vault')}</button>
+        <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回背包', 'Back to Backpack')}</button>
       </div>
     `;
     const roBtn = root.querySelector('#btn-claim-readonly');
@@ -216,7 +237,7 @@ export function renderClaimPage(root) {
             <div class="num-xs text-muted" style="margin-top:6px;">${L('演示哈希 · 非链上交易', 'Demo hash · not an on-chain tx')}</div>
           </div>
           <button class="btn btn-primary" data-nav="/ledger">${icon('receipt', 15)} ${L('查看收益明细', 'View Ledger')}</button>
-          <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回资产', 'Back to Vault')}</button>
+          <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回背包', 'Back to Backpack')}</button>
         </div>
       `;
       root.querySelector('#copy-claim-tx').onclick = () => copyText(txHash, L('已复制哈希', 'Copied Hash'));
@@ -264,7 +285,7 @@ export function renderProofDetail(root, navigate, certId) {
           <div class="num-xs text-muted" style="max-width:240px;">${L('完成任意一轮 GRAM 参与后，将自动铸造链上 SBT 质押凭证。', 'Complete any round stake to mint your on-chain SBT certificate.')}</div>
           <button class="btn btn-primary btn-sm" style="margin-top:10px;" data-nav="/challenge/confirm">${icon('bolt', 14)} ${L('立即参与获取凭证', 'Stake to Mint')}</button>
         </div>
-        <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回我的', 'Back')}</button>
+        <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回背包', 'Back to Backpack')}</button>
       </div>
     `;
     return;

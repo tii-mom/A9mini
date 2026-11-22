@@ -28,7 +28,7 @@ node dev-server.mjs          # 默认 http://127.0.0.1:8091
 | `css/tokens.css` | 白昼暖棉纸 / 暖炭暗夜纸本变量与 Telegram 安全区适配 |
 | `css/animations.css` | 纸片 360° 翻身、圆章砸落、底栏弹性跳起等动效（遵循 `prefers-reduced-motion`） |
 | `css/components.css` | 厚卡纸卡片、折纸卷角、厚纸立体键帽、24H 橡皮圆章盘、拉链滑块与缝线底栏 |
-| `css/wealthverse.css` | 主城态势沙盘、背包身份舞台、图鉴集邮册、宝库阶梯与星轨观测罗盘 |
+| `css/wealthverse.css` | 主城态势沙盘、背包身份铭牌栏、图鉴集邮册、宝库阶梯与 24H 集章手账板 |
 | `css/game.css` | 紧凑纸签眉标、商行扇贝纸檐与锯齿小票、商会名册与 3D 翻转纸片凭证 |
 | `assets/paper-craft/` | 无缝棉纸微肌理 `cotton-paper-tile.png` 与 10 枚统一冲压白边折纸贴纸 SVG |
 | `assets/wealthverse/game/` | A1–A9 实体厚卡纸角色立牌（`a1.webp` ~ `a9.webp`） |

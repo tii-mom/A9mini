@@ -220,7 +220,31 @@ export function renderWarmupRank(root) {
 export function renderInternalMarket(root, navigate) {
   const { market, user } = store.state;
   if (!config.isDemo) {
-    root.innerHTML = `<section class="card col-gap"><h2>${L('内盘额度','Market quota')}</h2><p>${L('钱包额度与报价等待核验。真实购买已关闭。','Wallet quota and price await verification. Live purchases are disabled.')}</p><button class="btn btn-secondary" disabled id="btn-buy-market">${L('真实模式只读','Live read-only')}</button><a href="#/internal/records">${L('订单记录','Order history')}</a></section>`;
+    root.innerHTML = `
+      <div class="col-gap anim-page-enter">
+        <section class="card card-hero exchange-counter">
+          ${SHOP_SCALLOP_AWNING}
+          <div class="shop-counter-body">
+            <header class="counter-keeper">
+              <div class="counter-keeper-left">
+                <img src="./assets/wealthverse/game/a8.webp" alt="">
+                <div>
+                  <h2>${L('主城商行兑换', 'City Market Swap')}</h2>
+                  <div class="num-xs text-muted">${L('固定兑换报价 · 待核验', 'Fixed rate · awaiting verification')}</div>
+                </div>
+              </div>
+              <span class="chip chip-gold">${L('只读模式', 'READ-ONLY')}</span>
+            </header>
+            <div class="sub-tile" style="margin-bottom:12px;">
+              <div class="row-between num-xs"><span class="text-sec">${L('钱包可用额度', 'Wallet quota')}</span><b class="mono">${L('待核验', 'Pending')}</b></div>
+              <div class="row-between num-xs" style="margin-top:6px;"><span class="text-sec">${L('当前兑换报价', 'Swap rate')}</span><b class="mono">${L('待核验', 'Pending')}</b></div>
+            </div>
+            <p class="num-xs text-sec" style="margin:0 0 12px;line-height:1.5;">${L('真实模式下固定兑换入口暂未开放，不会发起下单或钱包签名。', 'Live fixed-rate swaps are currently disabled. No order or wallet signature will be triggered.')}</p>
+            <button class="btn btn-secondary" disabled id="btn-buy-market">${icon('lock', 15)} ${L('真实模式只读 · 暂未开放兑换', 'Live read-only · swap disabled')}</button>
+          </div>
+        </section>
+        <a class="btn btn-secondary" href="#/internal/records">${icon('receipt', 15)} ${L('查看订单记录', 'Order history')}</a>
+      </div>`;
     return;
   }
   const unlocked = Number(market.unlockedQuotaTon) || 0;
@@ -237,7 +261,7 @@ export function renderInternalMarket(root, navigate) {
       <div class="empty-state" style="padding:14px 6px;">
         <div class="icon-badge gold" style="width:48px;height:48px;border-radius:14px;">${icon('send', 22)}</div>
         <div style="font-size:17px;font-weight:700;margin-top:4px;">${L('需要绑定 Telegram 账号', 'Telegram Binding Required')}</div>
-        <div class="text-sec" style="font-size:12px;max-width:280px;">${L('内盘购买与团队加成功能必须绑定 Telegram 身份，点击下方 1 秒完成绑定。', 'Internal market & team boost require Telegram binding. Complete in 1 tap.')}</div>
+        <div class="text-sec" style="font-size:12px;max-width:280px;">${L('主城商行与商会加成功能必须绑定 Telegram 身份，点击下方 1 秒完成绑定。', 'City market & guild boost require Telegram binding. Complete in 1 tap.')}</div>
         <button class="btn btn-primary" id="sheet-bind-tg-btn" style="margin-top:10px;">${icon('checkCircle', 16)} ${L('立即绑定 Telegram', 'Bind Telegram Now')}</button>
         <button class="btn btn-secondary" id="sheet-bind-cancel">${L('稍后再说', 'Later')}</button>
       </div>
@@ -259,53 +283,60 @@ export function renderInternalMarket(root, navigate) {
         <div class="card card-hero exchange-counter ${market.soldOut ? 'card-glow-red' : ''}">
           ${SHOP_SCALLOP_AWNING}
           <div class="shop-counter-body">
-          <header class="counter-keeper"><img src="./assets/wealthverse/game/a8.webp" alt=""><h2>${L('兑换柜台','Exchange counter')}</h2></header><div class="row-between" style="margin-bottom:14px;">
-            <span class="chip chip-muted">1 GRAM = ${formatNum(market.rateA9PerTon)} A9</span>
-            <span class="chip ${market.soldOut ? 'chip-red' : !user.tgBound ? 'chip-amber' : 'chip-green'}">${market.soldOut ? L('已售罄', 'SOLD OUT') : !user.tgBound ? L('需绑定 TG', 'BIND TG') : L('开放中', 'OPEN')}</span>
-          </div>
+          <header class="counter-keeper">
+            <div class="counter-keeper-left">
+              <img src="./assets/wealthverse/game/a8.webp" alt="">
+              <div>
+                <h2>${L('固定兑换柜台', 'Exchange Counter')}</h2>
+                <div class="num-xs text-muted mono">1 GRAM = ${formatNum(market.rateA9PerTon)} A9</div>
+              </div>
+            </div>
+            <span class="chip ${market.soldOut ? 'chip-red' : !user.tgBound ? 'chip-amber' : 'chip-green'}">${market.soldOut ? L('已售罄', 'SOLD OUT') : !user.tgBound ? L('需绑定 TG', 'BIND TG') : L('演示开放', 'DEMO OPEN')}</span>
+          </header>
 
           ${market.soldOut ? `
-            <div class="sub-tile" style="border-color:var(--red-border);margin-bottom:14px;">
-              <div class="row-start text-red" style="font-weight:700;font-size:12px;margin-bottom:4px;">${icon('shieldAlert', 15)} ${L('本轮内盘已售罄', 'Presale Sold Out')}</div>
-              <div class="num-xs text-sec">${L('售罄或关闭触发被动退款（≥1 GRAM 免手续费原路退回；主动退款扣 0.05 GRAM；≤0.1 GRAM 粉尘不退）。', 'Passive refunds ≥1 GRAM are free. Voluntary refund fee: 0.05 GRAM. Dust ≤0.1 GRAM non-refundable.')}</div>
+            <div class="sub-tile" style="border-color:var(--red-border);margin-bottom:12px;">
+              <div class="row-start text-red" style="font-weight:800;font-size:12px;margin-bottom:4px;">${icon('shieldAlert', 15)} ${L('本轮兑换已售罄', 'Sold Out')}</div>
+              <div class="num-xs text-sec">${L('售罄触发被动退款（≥1 GRAM 免手续费原路退回；主动撤单扣 0.05 GRAM；≤0.1 GRAM 粉尘不退）。', 'Passive refunds ≥1 GRAM are free. Voluntary fee: 0.05 GRAM. Dust ≤0.1 GRAM non-refundable.')}</div>
             </div>
           ` : ''}
 
-          <div class="row-between num-xs text-muted" style="margin-bottom:8px;">
-            <span>${L('单笔限额 5 – 200 GRAM', '5 – 200 GRAM / order')}</span>
-            <span>${L('可用额度', 'Avail')} <b style="color:var(--text-primary);">${formatNum(availQuota)} GRAM</b></span>
-          </div>
-          <label for="market-ton-input" class="counter-label">${L('支付金额','You pay')}</label><div class="input-box">
+          <label for="market-ton-input" class="counter-label">${L('1. 输入支付金额', '1. You Pay')}</label>
+          <div class="input-box">
             <input id="market-ton-input" type="number" min="5" max="200" value="${payTon}" ${market.soldOut ? 'disabled' : ''} />
             <div class="row-start" style="gap:6px;flex-shrink:0;">
-              <button class="chip chip-green" id="btn-market-max" type="button" style="cursor:pointer;">MAX</button>
+              <button class="chip chip-blue" id="btn-market-max" type="button" style="cursor:pointer;">MAX</button>
               <span class="caps text-sec">GRAM</span>
             </div>
           </div>
-          <div class="grid-4" style="margin:10px 0 14px;">
+          <div class="grid-4" style="margin:9px 0 12px;">
             ${[20, 50, 100, 200].map(v => `<button class="quick-btn ${payTon === v ? 'active' : ''}" aria-pressed="${payTon === v}" data-qton="${v}" type="button">${v} GRAM</button>`).join('')}
           </div>
 
-          <div class="sub-tile row-between exchange-receipt" style="margin-bottom:14px;"><img src="./assets/paper-craft/ticket.svg" alt="">
-            <span class="num-xs text-muted">${L('预计获得', 'Estimated Receive')}</span>
+          <div class="sub-tile row-between exchange-receipt">
+            <div class="row-start" style="gap:8px;">
+              <img src="./assets/paper-craft/ticket.svg" alt="">
+              <div>
+                <div class="num-xs text-muted">${L('2. 预计获得（估算）', '2. Estimated Receive')}</div>
+                <div class="num-xs text-sec">${L('按当前汇率折算', 'At current fixed rate')}</div>
+              </div>
+            </div>
             <span class="num-lg text-green" id="market-est-a9">${formatNum(estA9)} A9</span>
           </div>
 
-          ${!config.isDemo ? `
-            <div class="sub-tile" id="live-readonly-market-notice" style="border-color:var(--gold-border);margin-bottom:14px;">
-              <div class="row-start text-gold" style="font-weight:700;font-size:12px;margin-bottom:4px;">${icon('shieldAlert', 15)} ${L('真实只读模式 · 暂未开放内盘下单与付款', 'Live Read-Only · Presale Disabled')}</div>
-              <div class="num-xs text-sec">${L('当前真实模式仅支持只读查看与钱包连接，不会创建内盘支付单或唤起钱包签名。', 'Live mode is read-only; no presale order intent or wallet signature will be triggered.')}</div>
-            </div>
-          ` : ''}
+          <div class="shop-terms-row">
+            <span>${L('3. 单笔 5–200 GRAM', '3. 5–200 GRAM/order')}</span>
+            <span>${L('可用额度', 'Avail')} <b class="mono" style="color:var(--ink);">${formatNum(availQuota)} GRAM</b></span>
+          </div>
 
           <button class="btn ${config.isDemo ? 'btn-primary' : 'btn-secondary'}" id="btn-buy-market" ${config.isDemo && (market.soldOut || availQuota <= 0) ? 'disabled' : ''}>
             ${!config.isDemo
-              ? `${icon('lock', 15)} ${L('真实模式只读 · 暂未开放内盘购买', 'Read-Only Mode · Presale Disabled')}`
+              ? `${icon('lock', 15)} ${L('真实模式只读 · 暂未开放兑换', 'Live Read-Only · Disabled')}`
               : market.soldOut
-                ? L('内盘已售罄', 'Sold Out')
+                ? L('本轮已售罄', 'Sold Out')
                 : !user.tgBound
-                  ? `${icon('send', 15)} ${L('绑定 Telegram 并购买', 'Bind TG & Buy')}`
-                  : `${icon('bolt', 16)} ${L(`购买 ${formatNum(estA9)} A9`, `Buy ${formatNum(estA9)} A9`)}`}
+                  ? `${icon('send', 15)} ${L('绑定 Telegram 并兑换', 'Bind TG & Swap')}`
+                  : `${icon('bolt', 16)} ${L(`确认兑换 ${formatNum(estA9)} A9`, `Swap ${formatNum(estA9)} A9`)}`}
           </button>
           </div>
         </div>
@@ -332,7 +363,7 @@ export function renderInternalMarket(root, navigate) {
             <div class="row-start">
               <span class="icon-badge sky" style="width:36px;height:36px;border-radius:11px;">${icon('receipt', 15)}</span>
               <div>
-                <div style="font-weight:600;font-size:14px;">${L('内盘购买记录', 'Presale Order History')}</div>
+                <div style="font-weight:600;font-size:14px;">${L('商行订单记录', 'Market Order History')}</div>
                 <div class="num-xs text-muted">${L(`共 ${market.records.length} 笔订单 · 含成交与退款明细`, `${market.records.length} orders · fills & refunds`)}</div>
               </div>
             </div>
@@ -374,7 +405,7 @@ export function renderInternalMarket(root, navigate) {
     buyBtn.onclick = async () => {
       if (!config.isDemo || !store.fundsEnabled) {
         A9Haptic.warning();
-        showToast(L('当前真实模式处于只读验收阶段，内盘买单与钱包签名暂未开放', 'Live mode is read-only; presale orders and wallet signing are disabled'), 'amber');
+        showToast(L('当前真实模式处于只读验收阶段，商行下单与钱包签名暂未开放', 'Live mode is read-only; market orders and wallet signing are disabled'), 'amber');
         return;
       }
       if (!user.tgBound) {
@@ -405,11 +436,11 @@ export function renderInternalRecords(root) {
     <div class="col-gap anim-page-enter">
       <div class="card">
         <div class="card-header">
-          <div class="card-title">${icon('receipt', 15)} ${L('内盘购买记录', 'Market Records')}</div>
+          <div class="card-title">${icon('receipt', 15)} ${L('商行订单记录', 'Market Orders')}</div>
           <span class="chip chip-muted">${records.length}</span>
         </div>
         ${records.length === 0 ? `
-          <div class="empty-state"><div class="num-sm text-muted">${L('暂无内盘订单', 'No orders yet')}</div></div>
+          <div class="empty-state"><div class="num-sm text-muted">${L('暂无商行订单', 'No orders yet')}</div></div>
         ` : `
           <div class="col-gap">
             ${records.map(r => `

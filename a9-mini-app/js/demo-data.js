@@ -122,7 +122,7 @@ export function demoFundsClaimPromo(state) {
   if (state?.ledger) {
     state.ledger.unshift({
       id: `PR-${Date.now().toString().slice(-4)}`,
-      type: '演示推广奖励领取 (0.06 TON 模拟)',
+      type: '演示推广奖励领取 (0.06 GRAM 模拟)',
       source: '演示推广热钱包',
       amount: `+${amountA9.toLocaleString('en-US')} A9`,
       status: '演示完成',
@@ -178,9 +178,9 @@ export function demoFundsClaim(state) {
 export function demoFundsBuy(state, tonAmount) {
   const amt = Number(tonAmount);
   const availQuota = state.market.unlockedQuotaTon - state.market.usedQuotaTon;
-  if (amt < state.market.minOrderTon || amt > state.market.maxOrderTon) return { error: '单笔金额须在 5 - 200 TON 之间' };
-  if (amt > availQuota) return { error: `超出当前可用额度 (${availQuota} TON)` };
-  if (amt > state.user.tonBalance) return { error: 'TON 余额不足' };
+  if (amt < state.market.minOrderTon || amt > state.market.maxOrderTon) return { error: '单笔金额须在 5 - 200 GRAM 之间' };
+  if (amt > availQuota) return { error: `超出当前可用额度 (${availQuota} GRAM)` };
+  if (amt > state.user.tonBalance) return { error: 'GRAM 余额不足' };
   const receivedA9 = amt * state.market.rateA9PerTon;
   state.user.tonBalance = Number((state.user.tonBalance - amt).toFixed(2));
   state.user.a9Available += receivedA9;
@@ -197,10 +197,10 @@ export function demoFundsBuy(state, tonAmount) {
 }
 
 export const DEMO_SOCIAL_FEEDS = [
-  'UQ...8892 刚质押 500 TON · 2.0x',
+  'UQ...8892 刚参与 500 GRAM · 2.0x',
   'EQ...3312 刚领取 128,400 A9',
-  'UQ...77ea 加入 Genesis Alpha Node',
-  'EQ...9F21 购买 200,200 A9'
+  'UQ...77ea 加入 暖棉纸冒险团',
+  'EQ...9F21 兑换 200,200 A9'
 ];
 
 /** 仅在 config.isDemo === true 时用于初始化可体验的演示持仓、凭证与收益记录（绝不落盘、绝不进入真实模式） */
@@ -313,7 +313,7 @@ export function applyDemoInitialState(state) {
   state.team = {
     role: 'captain',
     id: 'TM-0001',
-    name: 'Genesis Alpha Node',
+    name: '暖棉纸冒险团',
     level: 4,
     boostPct: 15,
     membersActive: 412,
@@ -325,7 +325,7 @@ export function applyDemoInitialState(state) {
     captainHistoryTon: 618.4,
     captainHistoryA9: 184200,
     tgGroupBound: true,
-    tgGroupHandle: '@A9_Genesis_Alpha',
+    tgGroupHandle: '@A9_Paper_Guild',
     tgGroupMembers: 468,
     recruitMinTon: 50,
     topMembers: [
@@ -474,16 +474,16 @@ export const ROUND_META = {
 
 export const DEMO_RANKS = {
   personal: [
-    { rank: '01', name: 'UQ...9F21', ton: '52,000 TON', a9: '13,104,000 A9' },
-    { rank: '02', name: 'EQ...4A18', ton: '38,000 TON', a9: '9,576,000 A9' },
-    { rank: '03', name: 'UQ...B702', ton: '25,000 TON', a9: '6,300,000 A9' },
-    { rank: '04', name: 'EQ...81E3', ton: '18,500 TON', a9: '4,662,000 A9' },
-    { rank: '08', name: 'UQ...489f (Me)', ton: '5,000 TON', a9: '1,260,000 A9', me: true }
+    { rank: '01', name: 'UQ...9F21', ton: '52,000 GRAM', a9: '13,104,000 A9' },
+    { rank: '02', name: 'EQ...4A18', ton: '38,000 GRAM', a9: '9,576,000 A9' },
+    { rank: '03', name: 'UQ...B702', ton: '25,000 GRAM', a9: '6,300,000 A9' },
+    { rank: '04', name: 'EQ...81E3', ton: '18,500 GRAM', a9: '4,662,000 A9' },
+    { rank: '08', name: 'UQ...489f (Me)', ton: '5,000 GRAM', a9: '1,260,000 A9', me: true }
   ],
   team: [
-    { rank: '01', name: 'Genesis Alpha Node', ton: '580,000 TON', a9: '120,000,000 A9', me: true },
-    { rank: '02', name: 'TON Quant Syndicate', ton: '462,000 TON', a9: '94,200,000 A9' },
-    { rank: '03', name: 'Obsidian Whales DAO', ton: '295,000 TON', a9: '61,500,000 A9' }
+    { rank: '01', name: '暖棉纸冒险团', ton: '580,000 GRAM', a9: '120,000,000 A9', me: true },
+    { rank: '02', name: '折纸星航商会', ton: '462,000 GRAM', a9: '94,200,000 A9' },
+    { rank: '03', name: '金箔典藏商会', ton: '295,000 GRAM', a9: '61,500,000 A9' }
   ],
   invite: [
     { rank: '01', name: 'UQ...9F21', ton: '42 Invites', a9: '320,000 A9' },
@@ -501,9 +501,9 @@ export const personalRanks = [
     { r: '50', addr: 'EQ...19d4', invites: 6, reward: '64,000 A9', cutoff: true }
   ];
 export const teamRanks = [
-    { r: '01', addr: 'Genesis Alpha Node', invites: 186, reward: 'Lv.4 · +15%', me: true },
-    { r: '02', addr: 'TON Quant Syndicate', invites: 142, reward: 'Lv.4 · +15%' },
-    { r: '03', addr: 'Cyber Capitalist DAO', invites: 94, reward: 'Lv.3 · +10%' }
+    { r: '01', addr: '暖棉纸冒险团', invites: 186, reward: 'Lv.4 · +15%', me: true },
+    { r: '02', addr: '折纸星航商会', invites: 142, reward: 'Lv.4 · +15%' },
+    { r: '03', addr: '金箔典藏商会', invites: 94, reward: 'Lv.3 · +10%' }
   ];
 
 export function tickDemoPrice(r) {

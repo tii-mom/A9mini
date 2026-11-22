@@ -1,5 +1,6 @@
 /* ==========================================================================
-   A9 · 方案 A 核心界面壳层与手工厚卡纸组件系统
+   A9 · 纯任天堂暖棉纸立体书壳层与三层厚度组件系统
+   L1 可点击厚纸控件 / L2 轻边信息卡 / L3 卡片内虚线留白分组
    ========================================================================== */
 
 *, *::before, *::after {
@@ -21,7 +22,7 @@ body {
   background-color: var(--paper-bg);
   background-image:
     url('../assets/paper-craft/cotton-paper-tile.png'),
-    radial-gradient(rgba(138, 124, 106, 0.075) 1px, transparent 1px);
+    radial-gradient(rgba(138, 124, 106, 0.065) 1px, transparent 1px);
   background-size: 128px 128px, 22px 22px;
   color: var(--ink);
   font-family: var(--font-sans);
@@ -55,7 +56,7 @@ img {
 }
 
 /* --------------------------------------------------------------------------
-   一、壳层框架：居中 430px 移动端视口 + 安全区保护
+   一、极简降噪顶栏与壳层（只保留品牌/返回标题 + 钱包 + 演示控制台）
    -------------------------------------------------------------------------- */
 .tma-shell {
   position: relative;
@@ -74,8 +75,8 @@ img {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  min-height: calc(56px + var(--wv-safe-top));
+  gap: 10px;
+  min-height: calc(54px + var(--wv-safe-top));
   padding: var(--wv-safe-top) 14px 0;
   background: var(--header-bg);
   border-bottom: 1px solid transparent;
@@ -84,14 +85,22 @@ img {
 
 .app-header.scrolled {
   border-bottom-color: var(--card-border);
-  box-shadow: 0 4px 12px rgba(43, 37, 35, 0.05);
+  box-shadow: 0 3px 10px rgba(43, 37, 35, 0.04);
 }
 
 .header-left, .header-right {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
+}
+
+.header-left {
+  flex: 1 1 auto;
+}
+
+.header-right {
+  flex-shrink: 0;
 }
 
 .header-brand {
@@ -104,20 +113,20 @@ img {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 29px;
+  height: 28px;
   padding: 0 11px;
-  border-radius: 10px;
+  border-radius: 9px;
   background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
   color: #FFFFFF;
   font-weight: 900;
-  font-size: 14.5px;
+  font-size: 14px;
   letter-spacing: -0.02em;
   box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.34), 0 2.5px 0 var(--nt-red-edge);
 }
 
 .header-title {
   font-size: 15px;
-  font-weight: 800;
+  font-weight: 900;
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
@@ -126,7 +135,7 @@ img {
 
 .header-title small {
   margin-left: 5px;
-  padding: 2px 6px;
+  padding: 1.5px 6px;
   border-radius: 6px;
   background: var(--paper-tray);
   color: var(--ink-soft);
@@ -136,8 +145,8 @@ img {
 }
 
 .icon-btn {
-  width: 33px;
-  height: 33px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border-radius: 10px;
   border: 1px solid var(--card-border);
@@ -149,7 +158,7 @@ img {
   cursor: pointer;
   flex-shrink: 0;
   box-shadow: inset 0 1px 0 var(--card-highlight), 0 2.5px 0 var(--card-thickness);
-  transition: transform 0.1s ease, box-shadow 0.1s ease, color 0.14s ease;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
 .icon-btn:active {
@@ -157,18 +166,12 @@ img {
   box-shadow: 0 0.5px 0 var(--card-thickness);
 }
 
-.icon-btn.sound-on {
-  background: var(--nt-red-soft);
-  border-color: rgba(232, 69, 60, 0.32);
-  color: var(--nt-red);
-}
-
 .wallet-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 33px;
-  max-width: 156px;
+  height: 32px;
+  max-width: 148px;
   padding: 0 11px;
   border-radius: 999px;
   border: 1px solid var(--card-border);
@@ -197,27 +200,26 @@ img {
 }
 
 .ticker-bar {
-  margin: 4px 14px 4px;
-  padding: 7px 12px;
-  border-radius: 12px;
+  margin: 2px 14px 4px;
+  padding: 6px 12px;
+  border-radius: 11px;
   background: var(--paper-tray);
-  border: 1px solid var(--card-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
 }
 
 .app-main {
   flex: 1;
   width: 100%;
-  padding: 8px 14px calc(98px + var(--wv-safe-bottom));
+  padding: 6px 14px calc(98px + var(--wv-safe-bottom));
   display: flex;
   flex-direction: column;
-  gap: 13px;
+  gap: 12px;
 }
 
 .app-main.no-tabbar {
@@ -225,12 +227,12 @@ img {
 }
 
 /* --------------------------------------------------------------------------
-   二、通用排版与工具类
+   二、排版与网格工具类
    -------------------------------------------------------------------------- */
 .col-gap {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 11px;
 }
 
 .row-between {
@@ -273,7 +275,7 @@ img {
 
 .num-hero {
   font-size: clamp(24px, 7vw, 31px);
-  font-weight: 800;
+  font-weight: 900;
   letter-spacing: -0.025em;
   line-height: 1.15;
   color: var(--ink);
@@ -297,40 +299,43 @@ img {
 .clickable { cursor: pointer; }
 
 /* --------------------------------------------------------------------------
-   三、纯白厚卡纸卡片（内缩 5px 手工针脚虚线 + 4px 暖灰纸厚底边 + 折纸卷角）
+   三、三层纸张厚度体系：L2 轻边信息卡 / 主舞台折角卡 / L3 卡片内分组
    -------------------------------------------------------------------------- */
 .card {
   position: relative;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: 22px;
-  padding: 15px 16px;
-  box-shadow: var(--card-shadow);
+  border-radius: 20px;
+  padding: 14px 16px;
+  box-shadow: var(--surface-shadow);
   min-width: 0;
 }
 
-.card::before {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: 17px;
-  border: 1px dashed var(--card-stitch);
-  pointer-events: none;
-  z-index: 0;
+/* 可点击整卡（L1 厚度，按下有物理下沉反馈） */
+.card.clickable {
+  box-shadow: var(--card-shadow-sm);
+  transition: transform 0.12s var(--ease-spring), box-shadow 0.12s ease;
 }
 
-.card > * {
-  position: relative;
-  z-index: 1;
+.card.clickable:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--card-thickness);
 }
 
-/* 重点主卡片附带手工双层折纸卷角 */
+/* 主角卡：细手工针脚内框 + 右上角精致双层折纸卷角 */
 .card-hero {
-  border-top-right-radius: 7px;
+  border-radius: 22px 7px 22px 22px;
+  box-shadow: var(--interactive-shadow);
 }
 
 .card-hero::before {
-  border-top-right-radius: 4px;
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 17px 4px 17px 17px;
+  border: 1px dashed var(--card-stitch);
+  pointer-events: none;
+  z-index: 0;
 }
 
 .card-hero::after {
@@ -338,18 +343,23 @@ img {
   position: absolute;
   top: -1px;
   right: -1px;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   background: linear-gradient(225deg, var(--paper-bg) 47%, var(--card-thickness) 49.5%, var(--card-soft) 53%, var(--card-bg) 100%);
-  border-bottom-left-radius: 9px;
-  box-shadow: -3px 3px 6px rgba(43, 37, 35, 0.09);
+  border-bottom-left-radius: 8px;
+  box-shadow: -2px 2px 5px rgba(43, 37, 35, 0.08);
   pointer-events: none;
   z-index: 3;
 }
 
+.card-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
 .card-glow-red {
   border-color: var(--red-border);
-  background: linear-gradient(180deg, var(--card-bg) 0%, var(--nt-rose-soft) 180%);
+  background: linear-gradient(180deg, var(--card-bg) 0%, var(--nt-rose-soft) 220%);
 }
 
 .card-glow-green {
@@ -374,30 +384,36 @@ img {
   margin: 0;
 }
 
-.sub-tile {
-  padding: 11px 12px;
-  border-radius: 14px;
-  background: var(--paper-tray);
-  border: 1px solid var(--card-border);
-  box-shadow: inset 0 1.5px 3px rgba(43, 37, 35, 0.045);
+.section-kicker {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--ink-muted);
+  letter-spacing: 0.06em;
+  padding: 2px 2px 0;
 }
 
-/* 凹槽数据条 */
+.sub-tile {
+  padding: 10px 12px;
+  border-radius: 13px;
+  background: var(--paper-tray);
+  border: 1px solid transparent;
+}
+
+/* L3 卡片内分隔指标条（无厚影套娃，虚线清爽分区） */
 .metric-strip {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
   margin: 12px 0;
+  padding: 10px 0;
+  border-top: 1px dashed var(--card-border);
+  border-bottom: 1px dashed var(--card-border);
 }
 
 .metric-strip.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .metric-strip.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 .metric-cell {
-  padding: 9px 8px;
-  border-radius: 13px;
-  background: var(--paper-tray);
-  box-shadow: inset 0 1.5px 3px rgba(43, 37, 35, 0.05);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -405,21 +421,23 @@ img {
 }
 
 /* --------------------------------------------------------------------------
-   四、任天堂厚纸立体键帽按钮、徽章胶囊与输入框
+   四、L1 任天堂实体厚纸键帽按钮、徽章与输入槽
    -------------------------------------------------------------------------- */
 .btn {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  text-align: center;
   gap: 7px;
   width: 100%;
   min-height: 46px;
   padding: 10px 15px;
   border: 0;
-  border-radius: 16px;
+  border-radius: 15px;
   font-size: 14px;
   font-weight: 800;
+  line-height: 1.25;
   cursor: pointer;
   transition: transform 0.11s var(--ease-spring), box-shadow 0.11s ease, opacity 0.14s ease;
 }
@@ -428,9 +446,9 @@ img {
   background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
   color: #FFFFFF;
   box-shadow:
-    inset 0 2px 0 rgba(255, 255, 255, 0.34),
-    0 4.5px 0 var(--nt-red-edge),
-    0 10px 18px rgba(232, 69, 60, 0.22);
+    inset 0 2px 0 rgba(255, 255, 255, 0.32),
+    0 4px 0 var(--nt-red-edge),
+    0 8px 16px rgba(232, 69, 60, 0.22);
 }
 
 .btn-primary:active:not(:disabled) {
@@ -442,12 +460,12 @@ img {
   background: linear-gradient(180deg, var(--card-bg) 0%, var(--card-soft) 100%);
   color: var(--ink);
   border: 1px solid var(--card-border);
-  box-shadow: inset 0 1.5px 0 var(--card-highlight), 0 3.5px 0 var(--card-thickness);
+  box-shadow: inset 0 1.5px 0 var(--card-highlight), 0 3px 0 var(--card-thickness);
 }
 
 .btn-secondary:active:not(:disabled) {
   transform: translateY(2.5px);
-  box-shadow: 0 1px 0 var(--card-thickness);
+  box-shadow: 0 0.5px 0 var(--card-thickness);
 }
 
 .btn-danger {
@@ -462,7 +480,7 @@ img {
   min-height: 34px;
   padding: 6px 12px;
   font-size: 12px;
-  border-radius: 12px;
+  border-radius: 11px;
 }
 
 .btn:disabled {
@@ -472,14 +490,14 @@ img {
   transform: none;
 }
 
-/* 贴纸小胶囊 */
+/* 语义小胶囊 */
 .chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-height: 24px;
-  padding: 2px 10px;
+  min-height: 23px;
+  padding: 2px 9px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 800;
@@ -491,7 +509,7 @@ img {
 .chip-green { background: var(--nt-green-soft); color: var(--nt-green); }
 .chip-red   { background: var(--nt-rose-soft); color: var(--nt-rose); }
 .chip-gold, .chip-amber { background: var(--nt-gold-soft); color: var(--nt-gold-ink); }
-.chip-cyan  { background: var(--nt-blue-soft); color: var(--nt-blue); }
+.chip-cyan, .chip-blue  { background: var(--nt-blue-soft); color: var(--nt-blue); }
 
 .pill-trigger {
   display: inline-flex;
@@ -509,6 +527,11 @@ img {
   box-shadow: 0 2px 0 var(--card-thickness);
 }
 
+.pill-trigger:active {
+  transform: translateY(1.5px);
+  box-shadow: none;
+}
+
 .pill-trigger.neutral {
   background: var(--paper-tray);
   box-shadow: none;
@@ -521,16 +544,16 @@ img {
   padding: 2px 4px;
   border: 0;
   background: transparent;
-  color: var(--nt-red);
+  color: var(--nt-blue);
   font-size: 11.5px;
   font-weight: 800;
   cursor: pointer;
 }
 
 .icon-badge {
-  width: 36px;
-  height: 36px;
-  border-radius: 11px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -543,7 +566,7 @@ img {
 .icon-badge.sky { background: var(--nt-blue-soft); color: var(--nt-blue); }
 .icon-badge.red { background: var(--nt-rose-soft); color: var(--nt-rose); }
 
-/* 输入槽与金额快选键 */
+/* 金额输入槽与快选键 */
 .input-box {
   display: flex;
   align-items: center;
@@ -553,13 +576,13 @@ img {
   border-radius: 14px;
   background: var(--paper-tray);
   border: 1.5px solid var(--card-border);
-  box-shadow: inset 0 2px 4px rgba(43, 37, 35, 0.06);
+  box-shadow: inset 0 1.5px 3px rgba(43, 37, 35, 0.05);
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .input-box:focus-within {
-  border-color: var(--ink-soft);
-  background: var(--card-soft);
+  border-color: var(--nt-blue);
+  background: var(--card-bg);
 }
 
 .input-box input {
@@ -576,15 +599,15 @@ img {
 
 .quick-btn, .hero-amt-pill {
   padding: 8px 6px;
-  border-radius: 12px;
+  border-radius: 11px;
   border: 1px solid var(--card-border);
-  background: var(--card-soft);
+  background: var(--card-bg);
   color: var(--ink-soft);
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
-  box-shadow: 0 2px 0 var(--card-thickness);
+  box-shadow: 0 2.5px 0 var(--card-thickness);
   transition: transform 0.1s ease, background 0.14s ease, color 0.14s ease;
 }
 
@@ -594,10 +617,10 @@ img {
 }
 
 .quick-btn.active, .hero-amt-pill.active {
-  background: var(--ink);
-  color: var(--card-bg);
+  background: var(--nt-blue);
+  color: #FFFFFF;
   border-color: transparent;
-  box-shadow: 0 2.5px 0 rgba(0, 0, 0, 0.24);
+  box-shadow: 0 2.5px 0 var(--nt-blue-edge);
 }
 
 .hero-amt-pills {
@@ -607,7 +630,7 @@ img {
   margin-bottom: 12px;
 }
 
-/* 快捷指令瓷砖 */
+/* L1 快捷工具瓷砖 */
 .cmd-tile {
   display: flex;
   flex-direction: column;
@@ -615,7 +638,7 @@ img {
   justify-content: center;
   gap: 6px;
   padding: 10px 6px;
-  border-radius: 16px;
+  border-radius: 15px;
   border: 1px solid var(--card-border);
   background: var(--card-bg);
   color: var(--ink);
@@ -628,21 +651,28 @@ img {
 
 .cmd-tile:active {
   transform: translateY(2px);
-  box-shadow: 0 1px 0 var(--card-thickness);
+  box-shadow: 0 0.5px 0 var(--card-thickness);
 }
 
-/* 列表行（妥善支持超长余额自动换行，零溢出） */
+/* L3 清晰列表行（去除重底框堆叠，采用细虚线清爽分隔 + 超长数字安全换行） */
 .list-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: var(--paper-tray);
-  border: 1px solid transparent;
+  padding: 9px 4px;
+  border-bottom: 1px dashed var(--card-border);
   font-size: 12.5px;
   min-width: 0;
+}
+
+.list-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 2px;
+}
+
+.list-row:first-child {
+  padding-top: 2px;
 }
 
 .list-row > :first-child {
@@ -659,18 +689,28 @@ img {
 }
 
 .list-row.is-me {
+  padding: 9px 10px;
+  border-radius: 12px;
+  border-bottom: 0;
   background: var(--nt-gold-soft);
-  border-color: var(--gold-border);
 }
 
-.list-row.clickable:hover {
-  background: var(--paper-tray-deep);
+.list-row.clickable {
+  padding: 10px 10px;
+  border-radius: 12px;
+  border-bottom: 0;
+  background: var(--paper-tray);
+  transition: background 0.14s ease, transform 0.1s ease;
+}
+
+.list-row.clickable:active {
+  transform: scale(0.99);
 }
 
 .check-list {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 2px;
 }
 
 .check-row {
@@ -678,7 +718,7 @@ img {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 0;
+  padding: 7px 0;
   border-bottom: 1px dashed var(--card-border);
   font-size: 12.5px;
 }
@@ -688,10 +728,9 @@ img {
 /* 进度轨 */
 .progress-track {
   width: 100%;
-  height: 10px;
+  height: 9px;
   border-radius: 999px;
   background: var(--paper-tray);
-  box-shadow: inset 0 1.5px 3px rgba(43, 37, 35, 0.08);
   overflow: hidden;
 }
 
@@ -705,16 +744,15 @@ img {
 .progress-fill.red { background: var(--nt-rose); }
 .progress-fill.no-anim { transition: none; }
 
-/* 分段标签栏（厚卡纸凹槽 + 纯白滑动块） */
+/* 分段标签栏 */
 .seg-tabs {
   position: relative;
   display: flex;
   align-items: stretch;
   padding: 4px;
-  border-radius: 15px;
+  border-radius: 14px;
   background: var(--paper-tray);
   border: 1px solid var(--card-border);
-  box-shadow: inset 0 1.5px 3px rgba(43, 37, 35, 0.06);
   gap: 4px;
 }
 
@@ -723,9 +761,9 @@ img {
   top: 4px;
   left: 0;
   bottom: 4px;
-  border-radius: 11px;
+  border-radius: 10px;
   background: var(--card-bg);
-  box-shadow: 0 2px 0 var(--card-thickness), 0 3px 8px rgba(43, 37, 35, 0.07);
+  box-shadow: 0 2px 0 var(--card-thickness);
   transition: transform 220ms var(--ease-standard), width 220ms var(--ease-standard);
   z-index: 0;
 }
@@ -735,9 +773,9 @@ img {
   z-index: 1;
   flex: 1 1 0;
   min-width: 0;
-  padding: 8px 6px;
+  padding: 7.5px 6px;
   border: 0;
-  border-radius: 11px;
+  border-radius: 10px;
   background: transparent;
   color: var(--ink-soft);
   font-size: 12px;
@@ -776,9 +814,10 @@ img {
 }
 
 .filter-pill.active {
-  background: var(--ink);
-  color: var(--card-bg);
+  background: var(--nt-blue);
+  color: #FFFFFF;
   border-color: transparent;
+  box-shadow: 0 2px 0 var(--nt-blue-edge);
 }
 
 /* 步骤轨道 */
@@ -793,11 +832,10 @@ img {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 9px 6px;
-  border-radius: 14px;
+  padding: 8px 6px;
+  border-radius: 13px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  box-shadow: var(--card-shadow-sm);
   font-size: 11.5px;
   font-weight: 800;
   color: var(--ink-soft);
@@ -805,19 +843,19 @@ img {
 }
 
 .step-item.current {
-  border-color: var(--nt-red);
-  background: var(--nt-red-soft);
-  color: var(--nt-red);
+  border-color: var(--nt-blue);
+  background: var(--nt-blue-soft);
+  color: var(--nt-blue);
 }
 
 .step-num {
-  width: 20px;
-  height: 20px;
+  width: 19px;
+  height: 19px;
   border-radius: 50%;
   background: var(--paper-tray);
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 800;
   display: inline-flex;
   align-items: center;
@@ -825,18 +863,17 @@ img {
 }
 
 .step-item.current .step-num {
-  background: var(--nt-red);
+  background: var(--nt-blue);
   color: #FFFFFF;
 }
 
-/* 病毒裂变邀请条 */
 .viral-strip {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   padding: 12px 14px;
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   box-shadow: var(--card-shadow-sm);
@@ -844,13 +881,49 @@ img {
 }
 
 /* --------------------------------------------------------------------------
-   五、24H 橡皮圆章观测矩阵 (#a9-radar-grid)
+   五、A9 标志性 24H 任天堂手盖圆章观测盘 (#a9-radar-grid)
+   - 编号 + 清晰几何状态符号（✓ 达标 / × 未达 / ◉ 观察中青蓝 / 空圈未开始）
+   - 底部固定高度判定依据详情条，点选零跳动
    -------------------------------------------------------------------------- */
+.radar-dual-counts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+
+.radar-count-box {
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--paper-tray);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.radar-count-box small {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.radar-count-box b {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.radar-count-box.pass b {
+  color: var(--nt-green);
+}
+
 .candle-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 7px;
-  margin: 10px 0 6px;
+  margin: 8px 0 6px;
 }
 
 .candle-cell {
@@ -862,107 +935,96 @@ img {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1px;
   cursor: pointer;
-  transition: transform 0.14s var(--ease-spring);
+  transition: transform 0.13s var(--ease-spring);
 }
 
-.candle-cell:hover { transform: translateY(-2px); }
+.candle-cell:active { transform: scale(0.94); }
 
-.candle-body-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  height: 10px;
-  margin-bottom: 1px;
-}
-
-.candle-bar {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
+.candle-sym {
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .candle-idx {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 800;
   line-height: 1;
 }
 
-/* 达标：雾绿手工双环橡皮圆章 */
+/* 达标：耀西森绿手工圆章 + ✓ */
 .candle-cell.bull {
   background: var(--nt-green-soft);
   color: var(--nt-green);
-  border-color: rgba(45, 160, 105, 0.28);
-  box-shadow: inset 0 0 0 2px rgba(45, 160, 105, 0.16), 0 2px 0 rgba(45, 160, 105, 0.22);
+  border-color: rgba(45, 160, 105, 0.30);
+  box-shadow: inset 0 0 0 2px rgba(45, 160, 105, 0.14), 0 2px 0 rgba(45, 160, 105, 0.22);
 }
 
-.candle-cell.bull .candle-bar {
-  width: 9px;
-  height: 5px;
-  border-radius: 0;
-  background: transparent;
-  border-left: 2.2px solid currentColor;
-  border-bottom: 2.2px solid currentColor;
-  transform: rotate(-45deg) translateY(-1px);
-}
-
-/* 未达标：淡樱双环橡皮圆章 */
+/* 未达标：柔朱莓手工圆章 + × */
 .candle-cell.bear {
   background: var(--nt-rose-soft);
   color: var(--nt-rose);
-  border-color: rgba(217, 72, 96, 0.26);
-  box-shadow: inset 0 0 0 2px rgba(217, 72, 96, 0.14), 0 2px 0 rgba(217, 72, 96, 0.18);
+  border-color: rgba(217, 72, 96, 0.28);
+  box-shadow: inset 0 0 0 2px rgba(217, 72, 96, 0.12), 0 2px 0 rgba(217, 72, 96, 0.18);
 }
 
-.candle-cell.bear .candle-bar {
-  width: 9px;
-  height: 2.2px;
-  border-radius: 2px;
-  background: currentColor;
-}
-
-/* 当前进行中：唯一暖杏金厚纸方圆章浮起 */
+/* 进行中：晴空蓝立体厚章 + ◉ */
 .candle-cell.active {
   border-radius: 13px;
-  background: linear-gradient(180deg, var(--nt-gold-top) 0%, var(--nt-gold) 100%);
-  color: #4A3002;
+  background: linear-gradient(180deg, var(--nt-blue-top) 0%, var(--nt-blue) 100%);
+  color: #FFFFFF;
   border: 1.5px solid #FFFFFF;
-  box-shadow: 0 3px 0 var(--nt-gold-edge), 0 7px 14px rgba(243, 184, 44, 0.28);
+  box-shadow: 0 3px 0 var(--nt-blue-edge), 0 6px 12px rgba(58, 136, 214, 0.28);
   transform: translateY(-2px);
 }
 
-/* 未开始：虚线暖沙圆槽 */
+/* 未开始：虚线暖沙空槽 */
 .candle-cell.pending {
   background: var(--paper-tray);
   color: var(--ink-muted);
-  border: 1px dashed rgba(152, 142, 134, 0.42);
-  box-shadow: inset 0 1.5px 3px rgba(43, 37, 35, 0.05);
-}
-
-.candle-cell.pending .candle-bar {
-  width: 4px;
-  height: 4px;
-  opacity: 0.4;
+  border: 1px dashed rgba(147, 137, 129, 0.45);
 }
 
 .candle-cell.selected {
-  outline: 2.5px solid var(--nt-red);
+  outline: 2.5px solid var(--nt-blue);
   outline-offset: 2px;
+  z-index: 2;
 }
 
+/* 固定高度判定依据栏（切换时段零跳动） */
 .candle-inspector {
+  min-height: 74px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 13px;
+  background: var(--paper-tray);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+}
+
+.inspector-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 9px 11px;
-  border-radius: 13px;
-  background: var(--paper-tray);
-  font-size: 11.5px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.inspector-basis {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
   font-weight: 700;
+  color: var(--ink-soft);
 }
 
 .radar-legend {
@@ -980,7 +1042,7 @@ img {
 .legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 
 .legend-dot {
@@ -991,10 +1053,10 @@ img {
 }
 .legend-dot.bull { background: var(--nt-green); }
 .legend-dot.bear { background: var(--nt-rose); }
-.legend-dot.active { background: var(--nt-gold); border-radius: 3px; }
+.legend-dot.active { background: var(--nt-blue); border-radius: 3px; }
 .legend-dot.pending { background: var(--paper-tray-deep); border: 1px dashed var(--ink-muted); }
 
-/* 24H 预言局交互组件 */
+/* 24H 预言局 */
 .pred-card-head {
   display: flex;
   align-items: center;
@@ -1005,7 +1067,7 @@ img {
 
 .pred-split-bar {
   display: flex;
-  height: 10px;
+  height: 9px;
   border-radius: 999px;
   overflow: hidden;
   background: var(--paper-tray);
@@ -1020,9 +1082,9 @@ img {
   justify-content: center;
   gap: 6px;
   padding: 10px 8px;
-  border-radius: 14px;
+  border-radius: 13px;
   border: 1.5px solid var(--card-border);
-  background: var(--card-soft);
+  background: var(--card-bg);
   color: var(--ink-soft);
   font-size: 13px;
   font-weight: 800;
@@ -1030,6 +1092,8 @@ img {
   box-shadow: 0 2.5px 0 var(--card-thickness);
   transition: transform 0.1s ease, background 0.14s ease, border-color 0.14s ease;
 }
+
+.pred-side-btn:active { transform: translateY(2px); box-shadow: none; }
 
 .pred-side-btn.pass.selected {
   background: var(--nt-green-soft);
@@ -1061,15 +1125,15 @@ img {
 }
 
 /* --------------------------------------------------------------------------
-   六、任天堂纸艺拉链滑块 (.a9-slider)、开关、风险框与进度环
+   六、拉链滑块、开关、风控勾选、进度环与空状态
    -------------------------------------------------------------------------- */
 .a9-slider {
   position: relative;
-  height: 52px;
-  border-radius: 16px;
+  height: 50px;
+  border-radius: 15px;
   background: var(--paper-tray);
   border: 1px solid var(--card-border);
-  box-shadow: inset 0 2px 5px rgba(43, 37, 35, 0.08);
+  box-shadow: inset 0 2px 4px rgba(43, 37, 35, 0.07);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1111,8 +1175,8 @@ img {
   left: 4px;
   top: 4px;
   bottom: 4px;
-  width: 44px;
-  border-radius: 12px;
+  width: 42px;
+  border-radius: 11px;
   background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
   color: #FFFFFF;
   display: flex;
@@ -1174,7 +1238,6 @@ img {
   color: var(--ink-soft);
   line-height: 1.5;
   cursor: pointer;
-  box-shadow: var(--card-shadow-sm);
 }
 
 .risk-check.checked {
@@ -1204,14 +1267,12 @@ img {
 
 .ring-wrap {
   position: relative;
-  width: 58px;
-  height: 58px;
+  width: 56px;
+  height: 56px;
   flex-shrink: 0;
 }
 
-.ring-wrap svg {
-  transform: rotate(-90deg);
-}
+.ring-wrap svg { transform: rotate(-90deg); }
 
 .ring-label {
   position: absolute;
@@ -1220,14 +1281,14 @@ img {
   align-items: center;
   justify-content: center;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 800;
   color: var(--ink);
 }
 
 .sparkline-svg {
-  width: 88px;
-  height: 30px;
+  width: 82px;
+  height: 28px;
   flex-shrink: 0;
 }
 
@@ -1238,13 +1299,13 @@ img {
   justify-content: center;
   text-align: center;
   gap: 7px;
-  padding: 20px 12px;
+  padding: 22px 14px;
 }
 
 .poster-canvas {
   width: 100%;
   height: auto;
-  border-radius: 16px;
+  border-radius: 15px;
   border: 1px solid var(--card-border);
   display: block;
 }
@@ -1266,7 +1327,7 @@ img {
 }
 
 /* --------------------------------------------------------------------------
-   七、精装立体书缝线悬浮底栏 (#app-tabbar) — 完整适配 Telegram 安全区
+   七、精装缝线悬浮底栏 (#app-tabbar) — 完整适配 Telegram 安全区
    -------------------------------------------------------------------------- */
 .app-tabbar {
   position: fixed;
@@ -1282,14 +1343,13 @@ img {
   box-shadow:
     inset 0 1px 0 var(--card-highlight),
     0 4px 0 var(--card-thickness),
-    0 12px 26px rgba(43, 37, 35, 0.13);
+    0 12px 24px rgba(43, 37, 35, 0.12);
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   z-index: 45;
 }
 
-/* 方案 A 专属底栏内缩缝线针脚 */
 .app-tabbar::before {
   content: '';
   position: absolute;
@@ -1299,10 +1359,7 @@ img {
   pointer-events: none;
 }
 
-/* 保留 DOM 兼容但由激活态实体折纸书签替代滑动透明条 */
-.dock-pill {
-  display: none;
-}
+.dock-pill { display: none; }
 
 .tab-item {
   position: relative;
@@ -1323,10 +1380,7 @@ img {
   transition: transform 0.18s var(--ease-spring), background 0.14s ease, color 0.14s ease;
 }
 
-.tab-item svg {
-  width: 22px;
-  height: 22px;
-}
+.tab-item svg { width: 22px; height: 22px; }
 
 .tab-item.active {
   background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
@@ -1335,9 +1389,7 @@ img {
   transform: translateY(-5px);
 }
 
-.tab-item.active svg {
-  animation: tab-boing 320ms var(--ease-spring);
-}
+.tab-item.active svg { animation: tab-boing 320ms var(--ease-spring); }
 
 .tab-badge {
   position: absolute;
@@ -1349,12 +1401,10 @@ img {
   background: var(--nt-red);
 }
 
-.tab-item.active .tab-badge {
-  background: #FFFFFF;
-}
+.tab-item.active .tab-badge { background: #FFFFFF; }
 
 /* --------------------------------------------------------------------------
-   八、纸艺底部抽屉弹层 & 轻提示 Toast
+   八、底部抽屉弹层 & 轻提示 Toast
    -------------------------------------------------------------------------- */
 .modal-root, .sim-drawer {
   position: fixed;
@@ -1393,7 +1443,7 @@ img {
 
 .toast-container {
   position: fixed;
-  top: calc(64px + var(--wv-safe-top));
+  top: calc(60px + var(--wv-safe-top));
   left: 50%;
   transform: translateX(-50%);
   width: min(calc(100% - 28px), 390px);
@@ -1411,7 +1461,7 @@ img {
   gap: 7px;
   max-width: 100%;
   padding: 9px 14px;
-  border-radius: 14px;
+  border-radius: 13px;
   background: var(--ink);
   color: var(--card-bg);
   font-size: 12px;
@@ -1420,13 +1470,5 @@ img {
   animation: toast-pop 200ms var(--ease-spring);
 }
 
-.toast.error {
-  background: var(--nt-rose);
-  color: #FFFFFF;
-}
-
-.toast.amber {
-  background: var(--nt-gold-soft);
-  color: var(--nt-gold-ink);
-  border: 1px solid var(--gold-border);
-}
+.toast.error { background: var(--nt-rose); color: #FFFFFF; }
+.toast.amber { background: var(--nt-gold-soft); color: var(--nt-gold-ink); border: 1px solid var(--gold-border); }

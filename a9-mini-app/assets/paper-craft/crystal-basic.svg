@@ -1,11 +1,23 @@
 <svg viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <g transform="translate(0 3.2)" stroke="#D4C9B8" stroke-width="13" stroke-linejoin="round" stroke-linecap="round" fill="#D4C9B8"><polygon points="48,16 68,39 60,75 36,75 28,39"/></g>
-  <g stroke="#E6DEC9" stroke-width="13" stroke-linejoin="round" stroke-linecap="round" fill="#E6DEC9"><polygon points="48,16 68,39 60,75 36,75 28,39"/></g>
-  <g stroke="#FFFFFF" stroke-width="10.2" stroke-linejoin="round" stroke-linecap="round" fill="#FFFFFF"><polygon points="48,16 68,39 60,75 36,75 28,39"/></g>
-  
-        <polygon points="48,16 68,39 60,75 36,75 28,39" fill="#2DA069"/>
-        <polygon points="48,16 58,39 48,75 38,39" fill="#5CC491"/>
-        <polygon points="48,16 68,39 58,39" fill="#8CDCB4"/>
-        <polygon points="48,75 60,75 68,39 58,39" fill="#248858"/>
-        
+  <g transform="translate(0 3.2)" stroke="#D4C9B8" stroke-width="13" stroke-linejoin="round" stroke-linecap="round" fill="#D4C9B8">
+    <rect x="24" y="20" width="48" height="56" rx="8"/>
+  </g>
+  <g stroke="#E6DEC9" stroke-width="13" stroke-linejoin="round" stroke-linecap="round" fill="#E6DEC9">
+    <rect x="24" y="20" width="48" height="56" rx="8"/>
+  </g>
+  <g stroke="#FFFFFF" stroke-width="10.2" stroke-linejoin="round" stroke-linecap="round" fill="#FFFFFF">
+    <rect x="24" y="20" width="48" height="56" rx="8"/>
+  </g>
+  <!-- 基础贴纸包：暖棉牛皮盲袋 + 顶部锯齿封边 + 朱红火漆章 + 翠绿贴纸角 -->
+  <rect x="24" y="22" width="48" height="54" rx="7" fill="#EADBC4"/>
+  <path d="M24 28C24 23.6 27.6 20 32 20H64C68.4 20 72 23.6 72 28V33H24V28Z" fill="#D8C3A5"/>
+  <path d="M26 33H70" stroke="#B69D7B" stroke-width="2" stroke-dasharray="3 3" stroke-linecap="round"/>
+  <!-- 微露的贴纸角 -->
+  <rect x="33" y="39" width="24" height="24" rx="5" transform="rotate(-7 33 39)" fill="#FFFFFF"/>
+  <rect x="35" y="41" width="20" height="20" rx="4" transform="rotate(-7 35 41)" fill="#2DA069"/>
+  <!-- 朱红火漆印章 -->
+  <circle cx="55" cy="56" r="11" fill="#B82D25"/>
+  <circle cx="55" cy="54.5" r="10.5" fill="#E8453C"/>
+  <circle cx="55" cy="54.5" r="7" stroke="#FFD6CF" stroke-width="1.5" stroke-dasharray="2.5 2"/>
+  <path d="M52 55L54.2 57.2L58.5 52.5" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

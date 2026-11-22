@@ -250,7 +250,7 @@ class A9Store {
   }
 
   buyInternalMarket(tonAmount) {
-    if (!config.isDemo) return { error: '当前真实模式为只读阶段，内盘买币与资金支付暂未开放' };
+    if (!config.isDemo) return { error: '当前真实模式为只读阶段，商行购买与资金支付暂未开放' };
     const result = demoFundsBuy(this.state, tonAmount);
     if (!result.error) this.notify();
     return result;

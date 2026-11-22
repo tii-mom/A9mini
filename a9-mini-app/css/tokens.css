@@ -1,11 +1,12 @@
 /* ==========================================================================
-   A9 · 方案 A（暖棉纸立体书 × 实体厚卡纸贴纸）设计变量单源真值
-   90% 温和棉纸中性色 / 8% 唯一任天堂朱红焦点 / 2% 低饱和和风纸艺语义色
+   A9 · 纯任天堂暖棉纸立体书设计变量单源真值
+   - 90% 暖棉纸中性底色 / 8% 唯一珊瑚红主行动色 / 2% 任天堂四色低饱和语义色
+   - 严格三层纸张厚度规范：L1 可点击厚卡 / L2 轻边信息卡 / L3 卡片内虚线分组
    ========================================================================== */
 
 :root,
 [data-theme="light"] {
-  /* 安全区适配（Telegram WebApp & iOS 底部刘海） */
+  /* Telegram & iOS 安全区 */
   --wv-safe-top: max(env(safe-area-inset-top, 0px), var(--tg-safe-area-inset-top, 0px), var(--tg-content-safe-area-inset-top, 0px));
   --wv-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px), var(--tg-content-safe-area-inset-bottom, 0px));
 
@@ -13,43 +14,50 @@
   --paper-bg: #F5F0E6;
   --paper-hill-1: #ECE4D6;
   --paper-hill-2: #E4DAC8;
-  --paper-tray: #ECE6DA;
-  --paper-tray-deep: #E2DACA;
+  --paper-tray: #EFE9DE;
+  --paper-tray-deep: #E4DCCD;
 
   --card-bg: #FFFFFF;
-  --card-soft: #FDFBF7;
-  --card-border: #E7DFD1;
-  --card-thickness: #D6CBB9;
-  --card-stitch: rgba(178, 162, 138, 0.36);
+  --card-soft: #FCF9F4;
+  --card-border: #E6DDD0;
+  --card-thickness: #D4C8B5;
+  --card-stitch: rgba(178, 162, 138, 0.30);
   --card-highlight: rgba(255, 255, 255, 0.96);
-  --card-shadow:
+
+  /* 三层纸张阴影规范：L2 静态信息卡 vs L1 可点击厚纸控件 */
+  --surface-shadow:
+    0 1px 0 rgba(43, 37, 35, 0.04),
+    0 4px 12px rgba(43, 37, 35, 0.045);
+  --card-shadow: var(--surface-shadow);
+  --interactive-shadow:
     inset 0 1px 0 var(--card-highlight),
-    0 4px 0 var(--card-thickness),
-    0 12px 24px rgba(43, 37, 35, 0.075);
+    0 3.5px 0 var(--card-thickness),
+    0 8px 16px rgba(43, 37, 35, 0.07);
   --card-shadow-sm:
     inset 0 1px 0 var(--card-highlight),
     0 3px 0 var(--card-thickness),
-    0 6px 14px rgba(43, 37, 35, 0.055);
+    0 6px 12px rgba(43, 37, 35, 0.055);
 
-  /* 暖可可墨字色系（高对比度且柔和护眼） */
+  /* 暖可可墨字 */
   --ink: #2B2523;
-  --ink-soft: #6A615B;
-  --ink-muted: #988E86;
+  --ink-soft: #675E58;
+  --ink-muted: #938981;
 
-  /* 8% 唯一任天堂朱红行动焦点 */
+  /* 8% 唯一任天堂珊瑚红行动色 */
   --nt-red: #E8453C;
   --nt-red-top: #F25B52;
   --nt-red-edge: #B82D25;
   --nt-red-soft: #FDECEB;
 
-  /* 2% 低饱和和风纸艺语义色 */
+  /* 2% 任天堂四色语义规范：青蓝(选中/观察中) / 森绿(达标) / 金币金(奖励/收藏) / 朱莓(未达标) */
+  --nt-blue: #3A88D6;
+  --nt-blue-top: #529EE8;
+  --nt-blue-edge: #2465A8;
+  --nt-blue-soft: #EAF4FD;
+
   --nt-green: #2DA069;
   --nt-green-edge: #1F7A4E;
   --nt-green-soft: #E8F6EF;
-
-  --nt-rose: #D94860;
-  --nt-rose-edge: #AA2E44;
-  --nt-rose-soft: #FCECEE;
 
   --nt-gold: #F3B82C;
   --nt-gold-top: #F9CA52;
@@ -57,12 +65,12 @@
   --nt-gold-soft: #FDF5DF;
   --nt-gold-ink: #8A5D06;
 
-  --nt-blue: #3A88D6;
-  --nt-blue-edge: #2768AA;
-  --nt-blue-soft: #EBF4FC;
+  --nt-rose: #D94860;
+  --nt-rose-edge: #AA2E44;
+  --nt-rose-soft: #FCECEE;
 
-  /* 立体书三层景深布景专用低饱和同色系 */
-  --diorama-thread: rgba(138, 126, 112, 0.42);
+  /* 立体书低饱和同色系剪纸布景 */
+  --diorama-thread: rgba(138, 126, 112, 0.36);
   --diorama-bunting-1: #F2D3C9;
   --diorama-bunting-2: #F7E5B7;
   --diorama-bunting-3: #DCE7D8;
@@ -75,15 +83,15 @@
   --diorama-tree: #DAE5D6;
   --diorama-trunk: #CEBFA9;
   --diorama-hill-sage: #E3EADF;
-  --diorama-stitch: rgba(148, 134, 114, 0.42);
+  --diorama-stitch: rgba(148, 134, 114, 0.36);
   --diorama-rim: rgba(255, 255, 255, 0.90);
 
   --header-bg: rgba(245, 240, 230, 0.96);
   --tabbar-bg: #FFFFFF;
-  --paper-cut-shadow: drop-shadow(0 8px 13px rgba(43, 37, 35, 0.14));
-  --glare-color: rgba(255, 248, 232, 0.48);
+  --paper-cut-shadow: drop-shadow(0 6px 10px rgba(43, 37, 35, 0.13));
+  --glare-color: rgba(255, 248, 232, 0.45);
 
-  /* 兼容既有页面内联变量别名 */
+  /* 语义别名兼容 */
   --bg-canvas: var(--paper-bg);
   --bg-card: var(--card-bg);
   --bg-subtile: var(--paper-tray);
@@ -99,18 +107,18 @@
   --green-border: rgba(45, 160, 105, 0.34);
   --emerald-border: rgba(45, 160, 105, 0.34);
   --red-border: rgba(217, 72, 96, 0.34);
-  --gold-border: rgba(196, 139, 18, 0.36);
+  --gold-border: rgba(196, 139, 18, 0.34);
+  --blue-border: rgba(58, 136, 214, 0.36);
   --ring-track: var(--paper-tray-deep);
 
-  /* 字体与动效节奏 */
-  --font-sans: 'Nunito', 'M PLUS Rounded 1c', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  --font-sans: 'Nunito', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
   --font-mono: 'JetBrains Mono', 'Nunito', ui-monospace, SFMono-Regular, monospace;
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-decelerate: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.22, 1.45, 0.36, 1);
 }
 
-/* 暖炭暗夜纸本主题（同样保持低噪柔和，绝无刺眼霓虹） */
+/* 暖炭暗夜纸本主题 */
 [data-theme="dark"] {
   --paper-bg: #201D1B;
   --paper-hill-1: #282421;
@@ -122,33 +130,39 @@
   --card-soft: #332E2B;
   --card-border: #403935;
   --card-thickness: #151211;
-  --card-stitch: rgba(245, 239, 230, 0.13);
+  --card-stitch: rgba(245, 239, 230, 0.12);
   --card-highlight: rgba(255, 247, 236, 0.08);
-  --card-shadow:
+
+  --surface-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.28),
+    0 6px 16px rgba(0, 0, 0, 0.22);
+  --card-shadow: var(--surface-shadow);
+  --interactive-shadow:
     inset 0 1px 0 var(--card-highlight),
-    0 4px 0 var(--card-thickness),
-    0 14px 28px rgba(0, 0, 0, 0.34);
+    0 3.5px 0 var(--card-thickness),
+    0 10px 20px rgba(0, 0, 0, 0.30);
   --card-shadow-sm:
     inset 0 1px 0 var(--card-highlight),
     0 3px 0 var(--card-thickness),
     0 6px 14px rgba(0, 0, 0, 0.24);
 
   --ink: #F5EFE6;
-  --ink-soft: #BFB5AB;
-  --ink-muted: #8C827A;
+  --ink-soft: #C2B8AE;
+  --ink-muted: #8F857D;
 
   --nt-red: #EE584F;
   --nt-red-top: #F76D64;
   --nt-red-edge: #A62B24;
   --nt-red-soft: rgba(238, 88, 79, 0.18);
 
+  --nt-blue: #5AA8F5;
+  --nt-blue-top: #73B8FA;
+  --nt-blue-edge: #2869AB;
+  --nt-blue-soft: rgba(90, 168, 245, 0.18);
+
   --nt-green: #3CC080;
   --nt-green-edge: #218052;
   --nt-green-soft: rgba(60, 192, 128, 0.16);
-
-  --nt-rose: #EB6078;
-  --nt-rose-edge: #A82F44;
-  --nt-rose-soft: rgba(235, 96, 120, 0.17);
 
   --nt-gold: #F5BE3A;
   --nt-gold-top: #FFD062;
@@ -156,11 +170,11 @@
   --nt-gold-soft: rgba(245, 190, 58, 0.17);
   --nt-gold-ink: #FFD97A;
 
-  --nt-blue: #58A4EE;
-  --nt-blue-edge: #2A6EB0;
-  --nt-blue-soft: rgba(88, 164, 238, 0.17);
+  --nt-rose: #EB6078;
+  --nt-rose-edge: #A82F44;
+  --nt-rose-soft: rgba(235, 96, 120, 0.17);
 
-  --diorama-thread: rgba(188, 178, 168, 0.30);
+  --diorama-thread: rgba(188, 178, 168, 0.28);
   --diorama-bunting-1: #5C3D39;
   --diorama-bunting-2: #594B30;
   --diorama-bunting-3: #37473B;
@@ -173,17 +187,18 @@
   --diorama-tree: #354237;
   --diorama-trunk: #4A4038;
   --diorama-hill-sage: #2A332C;
-  --diorama-stitch: rgba(245, 239, 230, 0.16);
-  --diorama-rim: rgba(255, 245, 232, 0.11);
+  --diorama-stitch: rgba(245, 239, 230, 0.15);
+  --diorama-rim: rgba(255, 245, 232, 0.10);
 
   --header-bg: rgba(32, 29, 27, 0.96);
   --tabbar-bg: #2C2725;
-  --paper-cut-shadow: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.45));
+  --paper-cut-shadow: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.44));
   --glare-color: rgba(255, 240, 212, 0.18);
 
   --green-border: rgba(60, 192, 128, 0.36);
   --emerald-border: rgba(60, 192, 128, 0.36);
   --red-border: rgba(235, 96, 120, 0.36);
   --gold-border: rgba(245, 190, 58, 0.38);
+  --blue-border: rgba(90, 168, 245, 0.40);
   --ring-track: #3A332F;
 }

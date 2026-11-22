@@ -6,7 +6,7 @@ import { L } from './i18n.js';
  * 主城（自带立体沙盘）、背包（自带角色立体舞台）以及所有带顶栏标题的二级栈页均不重复渲染，消除多层标题冗余。
  */
 const scenes = {
-  '/round': ['tower', '轮次挑战', 'Round Challenge', '24H 达标攻防 · 16/24 胜出', '24H battle · 16/24 to pass'],
+  '/round': ['tower', '轮次挑战', 'Round Challenge', '24H 集章挑战 · 16/24 达标胜出', '24H stamp challenge · 16/24 to pass'],
   '/team':  ['guild', '商会大厅', 'Guild Hall',      '组队冲榜 · 享最高 +15% 加成', 'Squad up · up to +15% boost'],
 };
 

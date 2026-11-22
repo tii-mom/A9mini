@@ -1,38 +1,35 @@
 /* ==========================================================================
-   A9 · 方案 A 专项业务场景纸艺装饰层（卷头横幅 / 商行屋檐小票 / 商会名册 / SBT 票券）
+   A9 · 纯任天堂专项场景纸艺装饰层（眉标 / 观察总览 / 商行屋檐小票 / 商会 / SBT 票券 / FAQ）
    ========================================================================== */
 
-/* 1. 一级场景轻眉标（紧凑纸签，不与二级栈页顶栏重复） */
+/* 1. 一级场景轻眉标（仅挑战与商会显示，轻边 L2） */
 .realm-banner {
-  margin: 4px 14px 4px;
-  padding: 8px 13px;
-  border-radius: 16px;
+  margin: 2px 14px 4px;
+  padding: 8px 12px;
+  border-radius: 15px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  box-shadow: var(--card-shadow-sm);
+  box-shadow: var(--surface-shadow);
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
 .realm-sticker {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   object-fit: contain;
   flex-shrink: 0;
   filter: var(--paper-cut-shadow);
 }
 
-.realm-copy {
-  min-width: 0;
-}
+.realm-copy { min-width: 0; }
 
 .realm-banner h1 {
   margin: 0;
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 900;
   color: var(--ink);
-  letter-spacing: -0.01em;
   line-height: 1.2;
 }
 
@@ -46,89 +43,64 @@
   text-overflow: ellipsis;
 }
 
-/* 2. 星塔观测页头 (.observatory-stage) */
+/* 2. 挑战观察页头 (.observatory-stage) — 简洁突出达标进度与剩余时间 */
 .observatory-stage {
   position: relative;
-  border-radius: 22px 7px 22px 22px;
+  border-radius: 20px;
   border: 1px solid var(--card-border);
   background: var(--card-bg);
-  box-shadow: var(--card-shadow);
-  padding: 15px 16px;
-}
-
-.observatory-stage::before {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: 17px 4px 17px 17px;
-  border: 1px dashed var(--card-stitch);
-  pointer-events: none;
-}
-
-.observatory-stage::after {
-  content: '';
-  position: absolute;
-  top: -1px;
-  right: -1px;
-  width: 24px;
-  height: 24px;
-  background: linear-gradient(225deg, var(--paper-bg) 47%, var(--card-thickness) 49.5%, var(--card-soft) 53%, var(--card-bg) 100%);
-  border-bottom-left-radius: 9px;
-  box-shadow: -3px 3px 6px rgba(43, 37, 35, 0.09);
-  pointer-events: none;
+  box-shadow: var(--surface-shadow);
+  padding: 14px 15px;
 }
 
 .observatory-hud {
-  position: relative;
-  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 12px;
-  font-weight: 700;
+}
+
+.obs-cd-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--paper-tray);
+  font-size: 11.5px;
+  font-weight: 800;
   color: var(--ink-soft);
 }
 
-.observatory-hud b {
+.obs-cd-tag b {
   font-family: var(--font-mono);
   color: var(--ink);
 }
 
-.observatory-status {
-  position: relative;
-  z-index: 1;
-  margin-top: 10px;
-}
-
-.observatory-status h1 {
-  margin: 0 0 6px;
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--ink-muted);
-}
+.observatory-status { margin-top: 10px; }
 
 .obs-hero-ratio {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 9px;
   font-size: 13px;
   font-weight: 800;
   color: var(--ink-soft);
-  margin-bottom: 10px;
 }
 
 .obs-hero-ratio #obs-passed-num {
   font-family: var(--font-mono);
-  font-size: 30px;
+  font-size: 32px;
   font-weight: 900;
-  color: var(--ink);
-  margin-right: 4px;
+  line-height: 1;
 }
 
 .obs-hero-ratio .ratio-cur { color: var(--nt-green); }
-.obs-hero-ratio .ratio-sep { color: var(--ink-muted); margin: 0 2px; }
-.obs-hero-ratio .ratio-req { color: var(--ink-soft); font-size: 20px; }
+.obs-hero-ratio .ratio-sep { color: var(--ink-muted); margin: 0 2px; font-weight: 700; }
+.obs-hero-ratio .ratio-req { color: var(--ink-soft); font-size: 21px; }
 
-.observatory-status > span {
-  display: inline-block;
+.obs-sub-row {
   margin-top: 8px;
   font-size: 12px;
   font-weight: 700;
@@ -136,8 +108,8 @@
 }
 
 .realm-actions .btn img {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   object-fit: contain;
 }
 
@@ -153,9 +125,7 @@
   border-top-right-radius: 17px;
 }
 
-.exchange-counter::after {
-  display: none;
-}
+.exchange-counter::after { display: none; }
 
 .awning-scallop-svg {
   display: block;
@@ -164,19 +134,26 @@
 }
 
 .shop-counter-body {
-  padding: 12px 16px 16px;
+  padding: 12px 15px 15px;
 }
 
 .counter-keeper {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   margin-bottom: 10px;
 }
 
+.counter-keeper-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .counter-keeper img {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   object-fit: contain;
   filter: var(--paper-cut-shadow);
   flex-shrink: 0;
@@ -184,7 +161,7 @@
 
 .counter-keeper h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: 16.5px;
   font-weight: 900;
   color: var(--ink);
 }
@@ -212,13 +189,27 @@
 }
 
 .exchange-receipt img {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   object-fit: contain;
   flex-shrink: 0;
 }
 
-/* 4. 商会主力 3 列贴纸名册 (.guild-roster) */
+.shop-terms-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 0 12px;
+  padding: 8px 10px;
+  border-radius: 11px;
+  background: var(--paper-tray);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+/* 4. 商会主力 3 列成员立牌名册 (.guild-roster) */
 .guild-roster {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -230,9 +221,9 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 4px;
+  gap: 3px;
   padding: 10px 5px;
-  border-radius: 15px;
+  border-radius: 14px;
   background: var(--paper-tray);
 }
 
@@ -241,8 +232,8 @@
 }
 
 .guild-member img {
-  width: 60px;
-  height: 60px;
+  width: 56px;
+  height: 56px;
   object-fit: contain;
   filter: var(--paper-cut-shadow);
 }
@@ -251,7 +242,7 @@
 .ticket-tabs {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+  gap: 5px;
   margin-bottom: 10px;
   padding: 4px;
   border-radius: 13px;
@@ -261,7 +252,7 @@
 .ticket-tabs button {
   padding: 7px 4px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 9px;
   background: transparent;
   color: var(--ink-soft);
   font-size: 11.5px;
@@ -278,25 +269,25 @@
 .collectible-ticket {
   position: relative;
   margin-top: 8px;
-  background: var(--paper-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 15px;
-  padding: 11px 12px;
-  transition: transform 0.12s var(--ease-spring), background 0.14s ease;
+  background: var(--card-bg) !important;
+  border: 1px solid var(--card-border) !important;
+  border-radius: 14px !important;
+  padding: 11px 12px !important;
+  box-shadow: var(--card-shadow-sm);
 }
 
 .collectible-ticket::before {
   content: '';
   position: absolute;
-  left: 48px;
+  left: 46px;
   top: 7px;
   bottom: 7px;
   border-left: 1.5px dashed var(--card-thickness);
 }
 
 .collectible-ticket img {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
   flex-shrink: 0;
   margin-right: 8px;
@@ -310,16 +301,16 @@
   color: var(--ink-muted);
 }
 
-/* 6. 3D 翻转典藏纸片 SBT 凭证 (.cert-pass) */
+/* 6. 3D 翻转实体集换纸片 SBT 凭证 (.cert-pass) — 正面暖奶白、背面可可深棕纸板 */
 .cert-pass {
   position: relative;
   min-height: 204px;
-  border-radius: 22px;
+  border-radius: 20px;
   padding: 16px;
   border: 1px solid var(--card-border);
   background: linear-gradient(145deg, #FFFFFF 0%, #FAF4E6 100%);
   color: #2B2523;
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--interactive-shadow);
 }
 
 [data-theme="dark"] .cert-pass.front,
@@ -334,9 +325,7 @@
   color: #F7F1E8;
 }
 
-.cert-pass.back .text-muted {
-  color: #B4A89F !important;
-}
+.cert-pass.back .text-muted { color: #B4A89F !important; }
 
 .cert-serial {
   font-family: var(--font-mono);
@@ -348,8 +337,8 @@
 
 .cert-corner {
   position: absolute;
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   border-color: var(--card-thickness);
   border-style: solid;
   border-width: 0;
@@ -359,3 +348,42 @@
 .cert-corner.tr { top: 8px; right: 8px; border-top-width: 2px; border-right-width: 2px; border-top-right-radius: 4px; }
 .cert-corner.bl { bottom: 8px; left: 8px; border-bottom-width: 2px; border-left-width: 2px; border-bottom-left-radius: 4px; }
 .cert-corner.br { bottom: 8px; right: 8px; border-bottom-width: 2px; border-right-width: 2px; border-bottom-right-radius: 4px; }
+
+/* 7. 规则页可扫读 FAQ 问答折纸手账 */
+.faq-item {
+  border-bottom: 1px dashed var(--card-border);
+}
+
+.faq-item:last-child { border-bottom: 0; }
+
+.faq-item summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 11px 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.faq-item summary::-webkit-details-marker { display: none; }
+
+.faq-item[open] summary .faq-arrow {
+  transform: rotate(180deg);
+}
+
+.faq-arrow {
+  color: var(--ink-muted);
+  transition: transform 0.16s ease;
+  flex-shrink: 0;
+}
+
+.faq-body {
+  padding: 0 2px 12px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.6;
+}

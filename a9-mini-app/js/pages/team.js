@@ -51,115 +51,130 @@ export function renderTeamHome(root, navigate) {
     const progressPct = Math.min(100, Math.round(((Number(team.teamStakedTon) || 0) / target) * 100));
     html = `
       <div class="card card-hero guild-board">
-        <div class="row-between" style="margin-bottom:12px;">
-          <span class="chip chip-green">Lv.${team.level || 1} · +${team.boostPct || 0}%</span>
+        <div class="row-between" style="margin-bottom:8px;">
+          <div>
+            <div class="row-start" style="font-size:17px;font-weight:900;">${escapeHtml(team.name || L('我的商会', 'My Guild'))} ${icon('shieldCheck', 16, 'text-green')}</div>
+            <div class="row-start" style="margin-top:4px;gap:6px;">
+              <span class="chip chip-green">${L('会长', 'Captain')} · Lv.${team.level || 1}</span>
+              <span class="chip chip-gold">+${team.boostPct || 0}% ${L('加成', 'Boost')}</span>
+            </div>
+          </div>
           ${rolePill}
         </div>
-        <div class="row-between" style="align-items:center;">
-          <div>
-            <div class="row-start" style="font-size:16px;font-weight:700;">${escapeHtml(team.name || L('我的团队', 'My Squad'))} ${icon('shieldCheck', 16, 'text-green')}</div>
-            <div class="num-xs text-muted" style="margin-top:6px;">${L('本轮队长预估分红 (1%)', 'Est. Captain Fee (1%)')}</div>
-            <div class="num-hero" id="captain-dividend-val" style="margin-top:3px;font-size:30px;">${formatNum(team.captainDividendTon || 0, 2)} <span class="num-sm text-green">GRAM</span></div>
+
+        <div class="metric-strip cols-3" style="margin:10px 0;">
+          <div class="metric-cell">
+            <span class="num-xs text-muted">${L('本轮参与', 'Active')}</span>
+            <span class="num-md text-green">${team.membersActive} / ${team.membersTotal}</span>
           </div>
-          ${renderProgressRing(progressPct, `${progressPct}%`, 'var(--green)')}
+          <div class="metric-cell">
+            <span class="num-xs text-muted">${L('有效直邀', 'Invites')}</span>
+            <span class="num-md">${team.directInvites}</span>
+          </div>
+          <div class="metric-cell">
+            <span class="num-xs text-muted">${L('预估分红', 'Est. 1%')}</span>
+            <span class="num-md text-gold" id="captain-dividend-val">${formatNum(team.captainDividendTon || 0, 2)} GRAM</span>
+          </div>
         </div>
 
-        <div class="metric-strip cols-3">
-          <div class="metric-cell"><span class="num-xs text-muted">${L('本轮参与', 'Active')}</span><span class="num-sm text-green">${team.membersActive}</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('团队总数', 'Total')}</span><span class="num-sm">${team.membersTotal}</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('有效邀请', 'Invites')}</span><span class="num-sm text-gold">${team.directInvites}</span></div>
+        <div class="row-between num-xs text-muted" style="margin-bottom:5px;">
+          <span>${L('本轮商会冲刺进度', 'Round Sprint Progress')}</span>
+          <span class="mono" style="color:var(--ink);font-weight:800;">${progressPct}%</span>
         </div>
+        <div class="progress-track" style="margin-bottom:12px;"><div class="progress-fill" style="width:${progressPct}%"></div></div>
 
-        <button class="btn btn-primary" data-nav="/team/invite">${icon('qr', 16)} ${L('生成招募海报 · 邀请奖励 12%', 'Generate Poster · 12% Referral')}</button>
+        <button class="btn btn-primary" data-nav="/team/invite">${icon('qr', 16)} ${L('生成招募海报 · 12% 邀请奖励', 'Invite Poster · 12% Bonus')}</button>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <div class="card-title">${icon('trophy', 15, 'text-gold')} ${L('团队主力 Top 3', 'Top Squad Members')}</div>
-          <div class="row-start" style="gap:6px;">
-            <button class="btn btn-secondary btn-sm" data-nav="/leaderboard">${icon('trophy', 12)} ${L('总榜', 'Ranks')}</button>
-            <button class="btn btn-secondary btn-sm" data-nav="/team/bind-tg">${icon('send', 12)} ${L('TG 群', 'Group')}</button>
-          </div>
+          <div class="card-title">${icon('trophy', 15, 'text-gold')} ${L('本轮主力成员 Top 3', 'Top 3 Members')}</div>
+          <button class="text-link-btn" data-nav="/leaderboard" type="button">${L('完整榜单', 'Full Board')} ${icon('chevronRight', 13)}</button>
         </div>
         <div class="guild-roster">
           ${(team.topMembers || []).length === 0
-            ? `<div class="empty-state" style="padding:14px;"><div class="num-xs text-muted">${L('暂无成员数据', 'No members yet')}</div></div>`
+            ? `<div class="empty-state" style="padding:14px;grid-column:1/-1;"><div class="num-xs text-muted">${L('暂无成员参与记录', 'No active members yet')}</div></div>`
             : (team.topMembers || []).map((m,i) => `
             <div class="guild-member"><img src="./assets/wealthverse/game/a${[5,2,3][i%3]}.webp" alt=""><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
-              <div class="num-sm text-green">${formatNum(m.ton)} GRAM</div>
+              <div class="num-xs text-green mono" style="font-weight:800;">${formatNum(m.ton)} GRAM</div>
             </div>
           `).join('')}
         </div>
       </div>
 
-      <button class="btn btn-secondary" id="btn-broadcast-tg">${icon('send', 15)} ${L('一键广播至 TG 团队群', 'Broadcast to TG Group')}</button>
+      <div class="grid-2">
+        <button class="btn btn-secondary" data-nav="/team/bind-tg">${icon('send', 14)} ${L('管理 TG 群', 'TG Group')}</button>
+        <button class="btn btn-secondary" id="btn-broadcast-tg">${icon('bell', 14)} ${L('一键群广播', 'Broadcast')}</button>
+      </div>
     `;
   } else if (role === 'member') {
     html = `
       <div class="card card-hero guild-board">
-        <div class="row-between" style="margin-bottom:12px;">
-          <span class="chip chip-gold">Lv.3 · +10%</span>
+        <div class="row-between" style="margin-bottom:8px;">
+          <div>
+            <div style="font-size:17px;font-weight:900;">${L('折纸星航商会', 'Origami Voyagers')}</div>
+            <div class="row-start" style="margin-top:4px;gap:6px;">
+              <span class="chip chip-cyan">${L('成员', 'Member')} · Lv.3</span>
+              <span class="chip chip-gold">+10% ${L('加成', 'Boost')}</span>
+            </div>
+          </div>
           ${rolePill}
         </div>
-        <div class="row-between" style="align-items:center;">
-          <div>
-            <div style="font-size:18px;font-weight:700;">Cyber Capitalist DAO</div>
-            <div class="num-xs text-muted" style="margin-top:4px;">${L('差 16 人升级 Lv.4 (+15%)', '16 more for Lv.4 (+15%)')}</div>
-          </div>
-          ${renderProgressRing(84, '84%', 'var(--green)')}
-        </div>
+        <div class="num-xs text-muted" style="margin-bottom:6px;">${L('升级进度 84% · 差 16 人升级 Lv.4 (+15%)', '84% · 16 more for Lv.4 (+15%)')}</div>
+        <div class="progress-track" style="margin-bottom:10px;"><div class="progress-fill" style="width:84%"></div></div>
 
         <div class="metric-strip">
           <div class="metric-cell"><span class="num-xs text-muted">${L('团队加成收益', 'Squad Bonus')}</span><span class="num-md text-green">+184,200 A9</span></div>
           <div class="metric-cell"><span class="num-xs text-muted">${L('邀请返佣', 'Referral')}</span><span class="num-md text-gold">+96,500 A9</span></div>
         </div>
-        <button class="btn btn-primary" data-nav="/team/invite">${icon('qr', 16)} ${L('邀请好友 · 一起升级 +15%', 'Invite Friends · Unlock +15%')}</button>
+        <button class="btn btn-primary" data-nav="/team/invite">${icon('qr', 16)} ${L('邀请好友 · 冲击 Lv.4 (+15%)', 'Invite Friends · Reach +15%')}</button>
       </div>
 
       <div class="grid-3">
-        <button class="btn btn-secondary btn-sm" data-nav="/leaderboard" style="width:100%;min-height:44px;">${icon('trophy', 14)} ${L('排行榜', 'Ranks')}</button>
-        <button class="btn btn-secondary btn-sm" data-nav="/team/profile/TM-8829" style="width:100%;min-height:44px;">${icon('layers', 14)} ${L('团队主页', 'Squad')}</button>
-        <button class="btn btn-secondary btn-sm" id="btn-open-group" style="width:100%;min-height:44px;">${icon('send', 14)} ${L('团队群', 'Chat')}</button>
+        <button class="btn btn-secondary btn-sm" data-nav="/leaderboard" style="width:100%;min-height:42px;">${icon('trophy', 14)} ${L('排行榜', 'Ranks')}</button>
+        <button class="btn btn-secondary btn-sm" data-nav="/team/profile/TM-8829" style="width:100%;min-height:42px;">${icon('layers', 14)} ${L('商会主页', 'Guild')}</button>
+        <button class="btn btn-secondary btn-sm" id="btn-open-group" style="width:100%;min-height:42px;">${icon('send', 14)} ${L('商会群', 'Chat')}</button>
       </div>
       <div class="row-between num-xs" style="padding:4px 2px;">
-        <button class="btn btn-sm" id="btn-switch-team" style="background:transparent;color:var(--text-secondary);padding:0;">${L('切换团队 (每赛季限1次，下轮生效)', 'Switch Team (1/season)')}</button>
-        <button class="btn btn-sm" id="btn-leave-team" style="background:transparent;color:var(--red);padding:0;">${L('退出团队', 'Leave')}</button>
+        <button class="btn btn-sm" id="btn-switch-team" style="background:transparent;color:var(--text-secondary);padding:0;box-shadow:none;">${L('切换商会（每赛季限 1 次）', 'Switch Guild (1/season)')}</button>
+        <button class="btn btn-sm" id="btn-leave-team" style="background:transparent;color:var(--red);padding:0;box-shadow:none;">${L('退出商会', 'Leave')}</button>
       </div>
     `;
   } else {
     const squads = [
-      { id: 'TM-0001', name: 'Genesis Alpha Node', lv: 'Lv.4', boost: '+15%', members: '412/500' },
-      { id: 'TM-8829', name: 'Cyber Capitalist DAO', lv: 'Lv.3', boost: '+10%', members: '84/100' },
-      { id: 'TM-3042', name: 'TON Quant Syndicate', lv: 'Lv.3', boost: '+10%', members: '66/100' }
+      { id: 'TM-0001', name: L('暖棉纸冒险团', 'Paper Craft Guild'), lv: 'Lv.4', boost: '+15%', members: '412/500' },
+      { id: 'TM-8829', name: L('折纸星航商会', 'Origami Voyagers'), lv: 'Lv.3', boost: '+10%', members: '84/100' },
+      { id: 'TM-3042', name: L('金箔典藏商会', 'Gold Foil Collectors'), lv: 'Lv.3', boost: '+10%', members: '66/100' }
     ];
     html = `
       <div class="card card-hero guild-board">
-        <div class="row-between" style="margin-bottom:8px;">
-          <span class="chip chip-gold">${L('最高 +15% 加成', 'Up to +15% Boost')}</span>
+        <div class="row-between" style="margin-bottom:6px;">
+          <span class="chip chip-gold">${L('未加入商会 · 最高 +15%', 'No Guild · Up to +15%')}</span>
           ${rolePill}
         </div>
-        <div class="row-between">
-          <div>
-            <div style="font-size:18px;font-weight:700;">${L('加入精英团队', 'Join a Top Squad')}</div>
-            <div class="text-sec" style="font-size:12px;margin-top:4px;">${L('一键免费加入，自动提升每轮收益与内盘额度。', '1-tap free join. Auto-boosts yield & presale quota.')}</div>
-          </div>
-          <button class="btn btn-secondary btn-sm" data-nav="/leaderboard">${icon('trophy', 13)} ${L('榜单', 'Ranks')}</button>
-        </div>
+        <div style="font-size:17px;font-weight:900;">${L('加入一个活跃商会', 'Join an Active Guild')}</div>
+        <div class="text-sec" style="font-size:12px;margin-top:4px;">${L('免费加入后，自动提升每轮收益分配与商行可用额度。', 'Join free to boost round rewards and market quota.')}</div>
       </div>
 
-      <div class="col-gap">
-        ${squads.map(s => `
-          <div class="card row-between">
-            <div>
-              <div style="font-weight:700;">${s.name}</div>
-              <div class="num-xs text-muted">${s.lv} · ${s.members}</div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">${L('推荐商会', 'Featured Guilds')}</div>
+          <button class="text-link-btn" data-nav="/leaderboard" type="button">${L('查看排行', 'Rankings')} ${icon('chevronRight', 13)}</button>
+        </div>
+        <div>
+          ${squads.map(s => `
+            <div class="list-row">
+              <div>
+                <div style="font-weight:800;">${s.name}</div>
+                <div class="num-xs text-muted">${s.lv} · ${s.members} ${L('人', 'members')}</div>
+              </div>
+              <div class="row-start" style="gap:6px;">
+                <span class="chip chip-gold">${s.boost}</span>
+                <button class="btn btn-primary btn-sm" data-join-team="${s.id}">${L('加入', 'Join')}</button>
+              </div>
             </div>
-            <div class="row-start">
-              <span class="chip chip-gold">${s.boost}</span>
-              <button class="btn btn-primary btn-sm" data-join-team="${s.id}">${L('加入', 'Join')}</button>
-            </div>
-          </div>
-        `).join('')}
+          `).join('')}
+        </div>
       </div>
     `;
   }
@@ -255,7 +270,7 @@ export function renderTeamProfile(root, navigate, id) {
     <div class="col-gap anim-page-enter">
       <div class="card card-hero">
         <span class="chip chip-gold">#${safeId} · Lv.4</span>
-        <div class="row-start" style="font-size:20px;font-weight:700;margin-top:8px;">Genesis Alpha Node ${icon('shieldCheck', 18, 'text-green')}</div>
+        <div class="row-start" style="font-size:20px;font-weight:700;margin-top:8px;">${L('暖棉纸冒险团', 'Paper Craft Guild')} ${icon('shieldCheck', 18, 'text-green')}</div>
         <div class="metric-strip cols-3">
           <div class="metric-cell"><span class="num-xs text-muted">${L('加成', 'Boost')}</span><span class="num-md text-green">+15%</span></div>
           <div class="metric-cell"><span class="num-xs text-muted">${L('成员', 'Members')}</span><span class="num-md">412</span></div>

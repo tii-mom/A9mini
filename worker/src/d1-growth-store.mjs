@@ -426,7 +426,7 @@ export class D1PredictionEngine {
     if (qualified !== true) {
       throw new GrowthError(
         'ACTIVATION_REQUIREMENT_UNMET',
-        '请先完成至少 1 笔内盘买币（5 GRAM 起）或链上质押后再激活',
+        '请先完成至少 1 笔商行兑换或链上质押后再激活',
       );
     }
 

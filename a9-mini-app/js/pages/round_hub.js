@@ -274,13 +274,13 @@ function bindPredictionCardEvents(root, navigate) {
     tgShareBtn.onclick = () => {
       const bet = prediction.currentBet;
       const ogUrl = buildOgShareUrl('bet', roundId);
-      const sideText = bet.side === 'BURN' ? L('押销毁 BURN', 'BURN') : L('押达标 PASS', 'PASS');
+      const sideText = bet.side === 'BURN' ? L('未达标 BURN', 'BURN') : L('达标 PASS', 'PASS');
       const text = L(
-        `我在 A9 第 ${roundId} 轮 24H 生死预言局押了「${sideText}」${bet.guessSlots !== null && bet.guessSlots !== undefined ? `（精准 ${bet.guessSlots} 段）` : ''}，0 GRAM 也能参战，来群里对赌站队：`,
-        `I locked ${sideText} on A9 Round #${roundId} 24H Prediction (0 GRAM entry). Join the showdown:`
+        `我在 A9 第 ${roundId} 轮 24H 达标竞猜选了「${sideText}」${bet.guessSlots !== null && bet.guessSlots !== undefined ? `（精准 ${bet.guessSlots} 段）` : ''}，0 GRAM 免费参与，来一起猜：`,
+        `I locked ${sideText} on A9 Round #${roundId} 24H Prediction (0 GRAM entry). Join the guess:`
       );
       A9TMA.shareInvite(ogUrl, text);
-      showToast(L('已调起 Telegram 群约战分享', 'Opened Telegram group challenge share'));
+      showToast(L('已调起 Telegram 群分享', 'Opened Telegram group share'));
     };
   }
 
@@ -328,13 +328,13 @@ function bindPredictionCardEvents(root, navigate) {
       } catch (e) {
         A9Haptic.error();
         if (e?.code === 'ACTIVATION_REQUIREMENT_UNMET') {
-          showToast(L('请先完成 1 笔内盘买币（5 GRAM 起）或链上质押后再激活', 'Complete 1 presale buy (from 5 GRAM) or on-chain stake before activating'), 'amber');
+          showToast(L('请先完成至少 1 笔商行兑换或链上质押后再激活', 'Complete 1 market purchase or on-chain stake before activating'), 'amber');
           actBtn.disabled = false;
         } else if (e?.code === 'VOUCHER_EXPIRED') {
           showToast(L('待激活预言券已过期并回流奖池', 'Pending prediction voucher has expired and returned to the pool'), 'amber');
           await syncPredictionState(root, navigate);
         } else {
-          showToast(e?.message || L('激活失败，请先完成 1 笔内盘买币或链上质押', 'Activation failed; complete 1 presale buy or stake first'), 'error');
+          showToast(e?.message || L('激活失败，请先完成 1 笔商行兑换或链上质押', 'Activation failed; complete 1 market purchase or stake first'), 'error');
           actBtn.disabled = false;
         }
       }
@@ -370,7 +370,7 @@ function openTransactionSheet(amount, view) {
       <div id="tx-stage-sub" class="num-xs text-muted">${L(`正在唤起 TON Connect 确认 ${formatNum(amount)} GRAM`, `Confirm ${formatNum(amount)} GRAM in wallet`)}</div>
     </div>
     <div class="col-gap">
-      <button class="btn btn-secondary" id="tx-go-profile">${L('关闭并返回「我的」查看', 'Close & view in Vault')}</button>
+      <button class="btn btn-secondary" id="tx-go-profile">${L('关闭并返回「背包」查看', 'Close & view in Backpack')}</button>
     </div>
   `);
   const closeAndGo = () => { closeModal(); if (view) view(); };
@@ -395,7 +395,7 @@ function openTransactionSheet(amount, view) {
       }
       const btn = document.getElementById('tx-go-profile');
       if (btn) {
-        btn.textContent = type === 'error' ? L('关闭并重试', 'Close & Retry') : L('完成 · 返回「我的」', 'Done · Back to Vault');
+        btn.textContent = type === 'error' ? L('关闭并重试', 'Close & Retry') : L('完成 · 返回「背包」', 'Done · Back to Backpack');
         btn.onclick = type === 'error' ? closeModal : closeAndGo;
       }
       showToast(sub, type);
@@ -608,7 +608,7 @@ export function renderParticipateConfirm(root, navigate) {
 export function renderParticipateSuccess(root, navigate, certId) {
   const cert = store.state.certificates.find(c => c.id === certId) || store.state.certificates[0];
   if (!cert) {
-    root.innerHTML = `<div class="col-gap"><div class="card empty-state"><div class="num-sm text-sec">${L('暂无可展示的质押凭证', 'No certificate to show')}</div></div><button class="btn btn-secondary" data-nav="/profile">${L('返回我的', 'Back to Vault')}</button></div>`;
+    root.innerHTML = `<div class="col-gap"><div class="card empty-state"><div class="num-sm text-sec">${L('暂无可展示的质押凭证', 'No certificate to show')}</div></div><button class="btn btn-secondary" data-nav="/profile">${L('返回背包', 'Back to Backpack')}</button></div>`;
     return;
   }
   const shareUrl = `${window.location.origin}${window.location.pathname}?startapp=proof_${cert.id.replace('A9-STAKE-', '')}`;
@@ -628,7 +628,7 @@ export function renderParticipateSuccess(root, navigate, certId) {
       <button class="btn btn-primary" id="share-cert-btn">${icon('send', 15)} ${L('分享战绩 · 邀请奖励 12%', 'Share · 12% Referral')}</button>
       <div class="grid-2">
         <button class="btn btn-secondary" data-nav="/proof/${cert.id}">${icon('shieldCheck', 15)} ${L('质押凭证', 'View Proof')}</button>
-        <button class="btn btn-secondary" data-nav="/profile">${icon('wallet', 15)} ${L('返回我的', 'Vault')}</button>
+        <button class="btn btn-secondary" data-nav="/profile">${icon('wallet', 15)} ${L('返回背包', 'Backpack')}</button>
       </div>
     </div>
   `;

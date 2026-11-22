@@ -44,12 +44,21 @@ let lastLoadError = null;
 let isSyncing = false;
 let lastDataKey = '';
 let activeViewTransition = null;
+const scrollMemory = new Map();
 
-function getTheme() {
+/** 纯内存页面交互状态记忆（绝不写入 localStorage） */
+export const uiMemory = {
+  selectedSlotByRound: {},
+  ticketFilter: 'all',
+  leaderboardTab: 'personal',
+  leaderboardRound: 'R3'
+};
+
+export function getTheme() {
   return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
 }
 
-function applyTheme(mode) {
+export function applyTheme(mode) {
   const next = mode === 'dark' ? 'dark' : 'light';
   document.documentElement.dataset.theme = next;
   try { localStorage.setItem(THEME_KEY, next); } catch (_) {}
@@ -57,12 +66,12 @@ function applyTheme(mode) {
   tonConnect.syncTheme(next);
 }
 
-/** Race-safe circular radial theme transition (280–360ms); degrades cleanly on unsupported / reduced-motion */
-function toggleTheme(e) {
+/** 圆形径向主题切换（设置页调用） */
+export function toggleTheme(e) {
   const next = getTheme() === 'dark' ? 'light' : 'dark';
   const runSwitch = () => {
     applyTheme(next);
-    renderHeader(matchRoute(window.location.hash).route);
+    renderCurrentRoute();
   };
 
   A9Haptic.light();
@@ -74,8 +83,8 @@ function toggleTheme(e) {
       try { activeViewTransition.skipTransition?.(); } catch (_) {}
       activeViewTransition = null;
     }
-    const x = e?.clientX ?? window.innerWidth * 0.72;
-    const y = e?.clientY ?? 28;
+    const x = e?.clientX ?? window.innerWidth * 0.5;
+    const y = e?.clientY ?? 120;
     const maxR = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
     const transition = document.startViewTransition(runSwitch);
     activeViewTransition = transition;
@@ -92,6 +101,7 @@ function toggleTheme(e) {
   } else {
     runSwitch();
   }
+  return next;
 }
 
 export function navigate(path) {
@@ -110,13 +120,12 @@ function goBack() {
   }
 }
 
-/** Slim Header: A9 Brand + Theme Toggle + Wallet (+ Demo Console only in demo mode) */
+/** 极简降噪顶栏：左侧品牌/返回标题 + 右侧钱包状态（演示模式留 1 枚控制台图标）；主题与音效收进「设置」 */
 function renderHeader(route) {
   const { user } = store.state;
   const isStack = route.shell === 'stack';
   const inTelegram = A9TMA.isTelegram();
   const titleText = typeof route.title === 'function' ? route.title() : route.title;
-  const isDark = getTheme() === 'dark';
 
   A9TMA.setBackButton(isStack, goBack);
 
@@ -125,12 +134,10 @@ function renderHeader(route) {
       ${isStack && !inTelegram ? `<button class="icon-btn" id="hdr-back" aria-label="Back">${icon('arrowLeft', 16)}</button>` : ''}
       ${!isStack
         ? `<div class="header-brand"><span class="brand-mark">A9</span>${config.isDemo ? `<span class="chip chip-muted" style="height:20px;font-size:10px;padding:0 7px;">DEMO</span>` : ''}</div>`
-        : `<div class="header-title">${titleText} ${config.isDemo ? '<small>DEMO</small>' : ''}</div>`
+        : `<div class="header-title">${titleText}${config.isDemo ? '<small>DEMO</small>' : ''}</div>`
       }
     </div>
     <div class="header-right">
-      <button class="icon-btn ${A9Audio.isEnabled() ? 'sound-on' : ''}" id="btn-sound-toggle" aria-label="${A9Audio.isEnabled() ? L('关闭交互音效', 'Mute Sound') : L('开启交互音效', 'Enable Sound')}" title="${A9Audio.isEnabled() ? L('关闭交互音效', 'Mute Sound') : L('开启交互音效', 'Enable Sound')}">${icon(A9Audio.isEnabled() ? 'volumeOn' : 'volumeOff', 15)}</button>
-      <button class="icon-btn" id="btn-theme-toggle" aria-label="${isDark ? L('切换白昼模式', 'Light Mode') : L('切换暗夜模式', 'Dark Mode')}" title="${isDark ? L('切换白昼模式', 'Light Mode') : L('切换暗夜模式', 'Dark Mode')}">${icon(isDark ? 'sun' : 'moon', 15)}</button>
       ${config.isDemo ? `<button class="icon-btn" id="btn-open-sim" aria-label="${L('演示控制台', 'Demo console')}" title="${L('演示控制台', 'Demo console')}">${icon('sliders', 14)}</button>` : ''}
       <button class="wallet-pill ${user.connected ? '' : 'disconnected'}" id="btn-wallet-pill">
         <span class="live-dot ${user.connected ? '' : 'amber'}"></span>
@@ -142,17 +149,6 @@ function renderHeader(route) {
   const backBtn = headerEl.querySelector('#hdr-back');
   if (backBtn) backBtn.onclick = goBack;
 
-  const soundBtn = headerEl.querySelector('#btn-sound-toggle');
-  if (soundBtn) {
-    soundBtn.onclick = () => {
-      A9Haptic.light();
-      const on = A9Audio.toggle();
-      renderHeader(matchRoute(window.location.hash).route);
-      showToast(on ? L('交互音效已开启', 'Paper craft sound on') : L('交互音效已静音', 'Sound muted'));
-    };
-  }
-
-  headerEl.querySelector('#btn-theme-toggle').onclick = toggleTheme;
   headerEl.querySelector('#btn-wallet-pill').onclick = () => {
     tonConnect.openConnectModal(renderCurrentRoute);
   };
@@ -259,10 +255,13 @@ function staleBanner() {
 }
 
 let lastRenderedPath;
+let lastFullHash = '';
 export function renderCurrentRoute() {
+  if (lastFullHash) scrollMemory.set(lastFullHash, window.scrollY || 0);
   cleanupActiveInteractions();
   cleanupKineticSurfaces();
-  const { route, param } = matchRoute(window.location.hash);
+  const currentHash = window.location.hash || '#/challenge';
+  const { route, param } = matchRoute(currentHash);
   document.body.dataset.gameRoute = route.path;
   paintScene(document.getElementById('realm-banner'), dataReady ? route.path : null);
   renderHeader(route);
@@ -274,11 +273,13 @@ export function renderCurrentRoute() {
     else renderLoading();
     return;
   }
+  const prevPath = lastRenderedPath;
   route.render(mainEl, navigate, param);
-  if (route.path !== lastRenderedPath && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (route.path !== prevPath && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     mainEl.animate?.([{opacity:0.7, transform:'translateY(5px)'},{opacity:1, transform:'none'}],{duration:180,easing:'ease-out'});
   }
   lastRenderedPath = route.path;
+  lastFullHash = currentHash;
   bindKineticSurfaces(mainEl);
   requestAnimationFrame(() => syncSlidingSegTabs(mainEl));
 
@@ -288,7 +289,8 @@ export function renderCurrentRoute() {
     const btn = mainEl.querySelector('#stale-retry');
     if (btn) btn.onclick = () => syncData({ forceRender: true });
   }
-  window.scrollTo({ top: 0, behavior: 'instant' });
+  const restoredY = route.shell === 'tab' && prevPath && prevPath !== route.path ? (scrollMemory.get(currentHash) || 0) : 0;
+  window.scrollTo({ top: restoredY, behavior: 'instant' });
 }
 
 async function syncData({ forceRender = false } = {}) {
@@ -415,7 +417,7 @@ function openSimDrawer() {
       <div class="caps text-muted">${L('快捷直达', 'Jump To')}</div>
       <div class="grid-2">
         <button class="quick-btn" data-sim-nav="/warmup">${icon('flame', 13)} ${L('预热', 'Warm-Up')}</button>
-        <button class="quick-btn" data-sim-nav="/internal/market">${icon('swap', 13)} ${L('内盘', 'Market')}</button>
+        <button class="quick-btn" data-sim-nav="/internal/market">${icon('swap', 13)} ${L('商行', 'Market')}</button>
         <button class="quick-btn" data-sim-nav="/team/invite">${icon('qr', 13)} ${L('海报', 'Poster')}</button>
         <button class="quick-btn" data-sim-nav="/claim">${icon('bolt', 13)} ${L('领取', 'Claim')}</button>
         <button class="quick-btn" data-sim-nav="/settings">${icon('settings', 13)} ${L('设置', 'Settings')}</button>

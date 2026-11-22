@@ -18,7 +18,7 @@
   1. `v15/` 4 合约重构（从 v14 的 8 合约 6,059 行精简至 4 合约 1,745 行），`acton build && acton test` **11/11 全绿**，编译产物 SHA-256 锁定于 `v15/ci/artifacts.sha256`。
   2. `ops/` 极简部署与轮次运维工具链就绪（默认 dry-run，含离线自测与测试网/主网参数配置）。
   3. `a9-mini-app/` 已完成 demo/live 模式隔离与只读首页接入（下一步切至 v15 规则并接通 TonConnect 真实交易）。
-- **待推进**：`worker/`（v15 状态索引 + `0.06 TON → 自动发 A9` 推广热钱包发币 Runner）、`a9-mini-app/` v15 真金链路、Testnet 全链路验收。
+- **待推进**：`worker/`（v15 状态索引 + `0.06 GRAM → 自动发 A9` 推广热钱包发币 Runner）、`a9-mini-app/` v15 真金链路、Testnet 全链路验收。
 
 ## 常用命令
 
