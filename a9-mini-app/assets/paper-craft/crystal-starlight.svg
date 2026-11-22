@@ -1,0 +1,12 @@
+<svg viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(0 3.2)" stroke="#D4C9B8" stroke-width="13" stroke-linejoin="round" stroke-linecap="round" fill="#D4C9B8"><ellipse cx="48" cy="50" rx="32" ry="12" transform="rotate(-16 48 50)"/><polygon points="48,14 68,38 59,76 37,76 28,38"/></g>
+  <g stroke="#E6DEC9" stroke-width="13" stroke-linejoin="round" stroke-linecap="round" fill="#E6DEC9"><ellipse cx="48" cy="50" rx="32" ry="12" transform="rotate(-16 48 50)"/><polygon points="48,14 68,38 59,76 37,76 28,38"/></g>
+  <g stroke="#FFFFFF" stroke-width="10.2" stroke-linejoin="round" stroke-linecap="round" fill="#FFFFFF"><ellipse cx="48" cy="50" rx="32" ry="12" transform="rotate(-16 48 50)"/><polygon points="48,14 68,38 59,76 37,76 28,38"/></g>
+  
+        <ellipse cx="48" cy="50" rx="32" ry="12" transform="rotate(-16 48 50)" stroke="#F5B82E" stroke-width="4.5"/>
+        <polygon points="48,14 68,38 59,76 37,76 28,38" fill="#3A88D6"/>
+        <polygon points="48,14 58,38 48,76 38,38" fill="#70B4F5"/>
+        <polygon points="48,76 59,76 68,38 58,38" fill="#2D72B8"/>
+        <circle cx="75" cy="37" r="4.5" fill="#F5B82E"/>
+        
+</svg>

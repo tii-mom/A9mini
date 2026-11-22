@@ -1,4 +1,4 @@
-import { portfolioPanel } from './wealthverse.js';
+import { portfolioPanel, identityStage, bindIdentityStage } from './wealthverse.js';
 /**
  * 我的 / 资产 / 结算页
  * 顺序：可领取金额与操作 → 参与中 / 待解锁奖励与下一步 → 凭证 / 海报 / 设置。
@@ -9,6 +9,7 @@ import { store } from '../store.js';
 import { config } from '../config.js';
 import { demoTxHash } from '../demo-data.js';
 import { A9Haptic } from '../tma.js';
+import { A9Audio } from '../audio.js';
 import { formatNum, showToast, copyText, mountSlider, renderCorridorRadar, bindCorridorRadarEvents, animateSlotCounter, openChoiceSheet, openModal, closeModal } from '../components.js';
 import { renderProofFlexPoster, renderStoryPoster, downloadPosterPng } from '../poster.js';
 import { openXShareSheet, triggerStoryShare } from '../share.js';
@@ -19,32 +20,38 @@ import { tonConnect } from '../tonconnect.js';
 const amountOrDash = (v, suffix = '') => (v === null || v === undefined ? L('未获取', 'Unavailable') : `${formatNum(v)}${suffix}`);
 
 export function renderProfileHome(root, navigate) {
-  if (!config.isDemo) { root.replaceChildren(); portfolioPanel(root); return; }
+  if (!config.isDemo) {
+    const u = store.state.user;
+    const addrLabel = u.shortAddress || (u.address ? (u.address.length > 12 ? `${u.address.slice(0, 4)}...${u.address.slice(-4)}` : u.address) : null);
+    const walletTag = addrLabel || L('未连接钱包', 'Wallet not connected');
+    root.innerHTML = `<div class="col-gap anim-page-enter">${identityStage({ walletTag })}</div>`;
+    portfolioPanel(root.firstElementChild);
+    return;
+  }
   const { user, certificates } = store.state;
-  const round = store.state.round;
   const isEmpty = user.profileMode === 'empty';
   const unknown = !user.connected && !config.isDemo;
   const modePill = `<button class="pill-trigger neutral" id="btn-profile-mode" type="button">${isEmpty ? L('空态', 'Empty') : L('持仓', 'Vault')} ${icon('chevronDown', 12)}</button>`;
+  const walletTag = user.tonBalance === null
+    ? (user.shortAddress || L('未连接钱包', 'Wallet not connected'))
+    : `${formatNum(user.tonBalance, 2)} GRAM · ${user.shortAddress || 'DEMO'}`;
 
   if (isEmpty && !unknown) {
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
+        ${identityStage({ modePill, walletTag })}
         <div class="card card-hero">
-          <div class="row-between" style="margin-bottom:8px;">
-            <span class="num-xs text-muted">${user.shortAddress || L('未连接钱包', 'Wallet not connected')}</span>
-            ${modePill}
-          </div>
-          <div class="empty-state" style="padding:18px 8px 8px;">
-            <div class="icon-badge" style="width:48px;height:48px;border-radius:12px;">${icon('wallet', 24)}</div>
-            <div style="font-size:17px;font-weight:700;margin-top:4px;">${L('还没有持仓与收益', 'No Active Position Yet')}</div>
-            <div class="text-sec" style="font-size:12px;max-width:260px;">${L('最低 10 TON 即可参与，达标后按权重瓜分本轮奖励。', 'Join from 10 TON; rewards are shared by weight if the round passes.')}</div>
+          <div class="empty-state" style="padding:12px 8px 6px;">
+            <img src="./assets/paper-craft/vault.svg" alt="" style="width:64px;height:64px;filter:var(--paper-cut-shadow);">
+            <div style="font-size:17px;font-weight:800;margin-top:4px;">${L('还没有持仓与收益', 'No Active Position Yet')}</div>
+            <div class="text-sec" style="font-size:12px;max-width:260px;">${L('最低 10 GRAM 即可参与，达标后按权重瓜分本轮奖励。', 'Join from 10 GRAM; rewards are shared by weight if the round passes.')}</div>
             <button class="btn btn-primary" style="margin-top:10px;" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L('立即参与', 'Stake Now')}</button>
-            <button class="btn btn-secondary" data-nav="/internal/market">${icon('swap', 15)} ${L('内盘购买 A9', 'Presale Swap')}</button>
+            <button class="btn btn-secondary" data-nav="/internal/market">${icon('swap', 15)} ${L('主城商行兑换 A9', 'Market Swap')}</button>
           </div>
         </div>
         <div class="grid-2">
-          <button class="cmd-tile" data-nav="/team/invite"><span class="icon-badge amber">${icon('qr', 15)}</span><span>${L('海报', 'Poster')}</span></button>
-          <button class="cmd-tile" data-nav="/settings"><span class="icon-badge">${icon('settings', 15)}</span><span>${L('设置', 'Settings')}</span></button>
+          <button class="cmd-tile" data-nav="/team/invite"><span class="icon-badge amber">${icon('qr', 15)}</span><span>${L('邀请海报', 'Poster')}</span></button>
+          <button class="cmd-tile" data-nav="/settings"><span class="icon-badge">${icon('settings', 15)}</span><span>${L('主城设置', 'Settings')}</span></button>
         </div>
       </div>
     `;
@@ -54,6 +61,8 @@ export function renderProfileHome(root, navigate) {
 
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
+        ${identityStage({ modePill, walletTag })}
+
         ${unknown ? `
           <div class="card row-between" style="border-color:var(--gold-border);">
             <div>
@@ -64,15 +73,23 @@ export function renderProfileHome(root, navigate) {
           </div>
         ` : `
           <div class="card card-hero vault-claim">
-            <div class="row-between" style="margin-bottom:10px;">
-              <span class="chip chip-gold">${user.tonBalance === null ? L('TON 余额未知', 'TON balance unknown') : `${formatNum(user.tonBalance, 2)} TON`}</span>
-              ${modePill}
+            <div class="row-between" style="margin-bottom:6px;">
+              <span class="num-xs text-muted">${L('当前可领取奖励', 'Claimable Rewards')}</span>
+              <a class="text-link-btn" href="#/rewards">${L('解锁规则', 'Vesting')} ›</a>
             </div>
-            <div class="num-xs text-muted">${L('当前可领取', 'Claimable Now')}</div>
-            <div class="num-hero" style="margin-top:4px;"><span id="a9-claim-num">${formatNum(claimable)}</span> <span class="num-md text-green">A9</span></div>
-            <div class="num-xs text-sec" style="margin:4px 0 12px;">${hasClaim ? L('达标结算后确认的实际可领金额', 'Actual claimable confirmed at settlement') : L('当前无待领取金额', 'Nothing claimable right now')}</div>
+            <div class="num-hero"><span id="a9-claim-num">${formatNum(claimable)}</span> <span class="num-md text-green">A9</span></div>
+            <div class="metric-strip cols-2" style="margin:10px 0 12px;">
+              <div class="metric-cell">
+                <span class="num-xs text-muted">${L('待解锁奖励', 'Locked Vesting')}</span>
+                <span class="num-md">${unknown ? '—' : formatNum(user.a9Locked)} A9</span>
+              </div>
+              <div class="metric-cell">
+                <span class="num-xs text-muted">${L('解锁触发条件', 'Unlock Rule')}</span>
+                <span class="num-xs text-sec">${L('后续达标轮线性释放', 'Unlocks on passing rounds')}</span>
+              </div>
+            </div>
             ${hasClaim ? `
-              ${store.fundsEnabled ? `<div id="profile-quick-slider"></div>` : `<div class="card row-between" style="border-color:var(--gold-border);"><span class="num-xs text-sec">${L('真实只读模式：当前仅支持查看，暂未开放凭证领取签名', 'Live read-only: claiming and wallet signing are currently disabled')}</span><button class="btn btn-secondary btn-sm" data-nav="/claim">${L('查看', 'View')}</button></div>`}
+              ${store.fundsEnabled ? `<div id="profile-quick-slider"></div>` : `<div class="sub-tile row-between" style="border-color:var(--gold-border);"><span class="num-xs text-sec">${L('真实只读模式：当前仅支持查看，暂未开放凭证领取签名', 'Live read-only: claiming disabled')}</span><button class="btn btn-secondary btn-sm" data-nav="/claim">${L('查看', 'View')}</button></div>`}
             ` : `
               <button class="btn btn-secondary" data-nav="/records">${icon('clock', 15)} ${L('查看奖励明细', 'View Ledger')}</button>
             `}
@@ -80,25 +97,17 @@ export function renderProfileHome(root, navigate) {
         `}
 
         <div class="card">
-          <div class="card-header"><div class="card-title">${icon('shieldCheck', 16)} ${L('凭证收藏册','Ticket collection')}</div><span>${certificates.length}</span></div>
+          <div class="card-header"><div class="card-title">${icon('shieldCheck', 16, 'text-green')} ${L('凭证收藏册','Ticket collection')}</div><span class="chip chip-muted">${certificates.length}</span></div>
           <nav class="ticket-tabs" aria-label="${L('筛选凭证','Filter tickets')}">${[['all',L('全部','All')],['observation',L('观察中','Observing')],['settled',L('已结算','Settled')]].map(([value,label])=>`<button type="button" data-ticket-filter="${value}" aria-pressed="${value==='all'}">${label}</button>`).join('')}</nav>
           <p class="ticket-empty" hidden>${L('此状态暂无凭证','No tickets in this state')}</p>
           ${certificates.length === 0
             ? `<div class="empty-state" style="padding:14px;"><div class="num-xs text-muted">${L('暂无参与中的质押', 'No active stake')}</div><button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/challenge">${L('去参与', 'Join')}</button></div>`
             : certificates.map(c => `
-              <div class="list-row clickable collectible-ticket" data-ticket-state="${c.status}" data-nav="/proof/${c.id}"><img src="./assets/wealthverse/game/scroll.webp" alt="">
-                <div><div class="num-sm">#${c.id}</div><div class="num-xs text-muted">${L('第', 'R')} ${c.round} ${L('轮', '')} · ${formatNum(c.stakeTon)} TON</div></div>
+              <div class="list-row clickable collectible-ticket" data-ticket-state="${c.status}" data-nav="/proof/${c.id}"><img src="./assets/paper-craft/ticket.svg" alt="">
+                <div><div class="num-sm">#${c.id}</div><div class="num-xs text-muted">${L('第', 'R')} ${c.round} ${L('轮', '')} · ${formatNum(c.stakeTon)} GRAM</div></div>
                 <div style="text-align:right;"><div class="num-xs text-muted">${L('预计奖励','Est. reward')}</div><div class="num-sm text-green">${formatNum(c.estRewardA9)} A9</div><span class="chip ${c.status === 'settled' ? 'chip-green' : 'chip-gold'}" style="height:17px;font-size:9px;">${c.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</span></div>
               </div>
             `).join('')}
-        </div>
-
-        <div class="card">
-          <div class="card-header"><div class="card-title">${icon('lock', 15, 'text-gold')} ${L('待解锁奖励', 'Locked Rewards')}</div></div>
-          <div class="metric-strip cols-2" style="margin-top:0;">
-            <div class="metric-cell"><span class="num-xs text-muted">${L('待解锁', 'Vesting')}</span><span class="num-md">${unknown ? L('—', '—') : formatNum(user.a9Locked)} A9</span></div>
-            <div class="metric-cell"><span class="num-xs text-muted">${L('下一步', 'Next step')}</span><span class="num-xs text-sec">${L('任一后续轮达标后线性解锁', 'Unlocks on a later passing round')}</span></div>
-          </div>
         </div>
 
         <div class="grid-4">
@@ -113,6 +122,8 @@ export function renderProfileHome(root, navigate) {
     root.querySelector('.ticket-tabs')?.addEventListener('click', e=>{
       const button=e.target.closest('[data-ticket-filter]');
       if (!button) return;
+      A9Haptic.light();
+      A9Audio.tick();
       const filter=button.dataset.ticketFilter;
       let visible=0;
       root.querySelectorAll('[data-ticket-state]').forEach(ticket=>{
@@ -139,6 +150,8 @@ export function renderProfileHome(root, navigate) {
     const connectBtn = root.querySelector('#profile-connect');
     if (connectBtn) connectBtn.onclick = () => tonConnect.openConnectModal(() => renderProfileHome(root, navigate));
   }
+
+  bindIdentityStage(root, () => renderProfileHome(root, navigate));
 
   const modeBtn = root.querySelector('#btn-profile-mode');
   if (modeBtn) {
@@ -248,7 +261,7 @@ export function renderProofDetail(root, navigate, certId) {
         <div class="card empty-state">
           <div class="icon-badge orange" style="width:48px;height:48px;border-radius:14px;">${icon('shieldCheck', 22)}</div>
           <div style="font-weight:700;font-size:15px;margin-top:4px;">${L('暂无质押凭证', 'No Certificate Yet')}</div>
-          <div class="num-xs text-muted" style="max-width:240px;">${L('完成任意一轮 TON 参与后，将自动铸造链上 SBT 质押凭证。', 'Complete any round stake to mint your on-chain SBT certificate.')}</div>
+          <div class="num-xs text-muted" style="max-width:240px;">${L('完成任意一轮 GRAM 参与后，将自动铸造链上 SBT 质押凭证。', 'Complete any round stake to mint your on-chain SBT certificate.')}</div>
           <button class="btn btn-primary btn-sm" style="margin-top:10px;" data-nav="/challenge/confirm">${icon('bolt', 14)} ${L('立即参与获取凭证', 'Stake to Mint')}</button>
         </div>
         <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回我的', 'Back')}</button>
@@ -276,7 +289,7 @@ export function renderProofDetail(root, navigate, certId) {
               <span>${L('轻点翻转核验', 'Tap to flip')} ${icon('refresh', 11)}</span>
             </div>
             <div class="metric-strip cols-3" style="margin-bottom:0;border-bottom:none;padding-bottom:0;">
-              <div class="metric-cell"><span class="num-xs text-muted">${L('本金', 'Stake')}</span><span class="num-md">${formatNum(cert.stakeTon)} TON</span></div>
+              <div class="metric-cell"><span class="num-xs text-muted">${L('本金', 'Stake')}</span><span class="num-md">${formatNum(cert.stakeTon)} GRAM</span></div>
               <div class="metric-cell"><span class="num-xs text-muted">${L('权重', 'Boost')}</span><span class="num-md text-gold">${(Number(cert.multiplier) || 1).toFixed(1)}x</span></div>
               <div class="metric-cell"><span class="num-xs text-muted">${estLabel}</span><span class="num-md text-green">${formatNum(cert.estRewardA9)}</span></div>
             </div>
@@ -317,7 +330,7 @@ export function renderProofDetail(root, navigate, certId) {
   const flipScene = root.querySelector('#cert-flip-scene');
   const flipCard = root.querySelector('#cert-flip-card');
   if (flipScene && flipCard) {
-    const doFlip = () => { A9Haptic.light(); flipCard.classList.toggle('flipped'); };
+    const doFlip = () => { A9Haptic.light(); A9Audio.flip(); flipCard.classList.toggle('flipped'); };
     flipScene.onclick = doFlip;
     flipScene.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doFlip(); } };
   }
@@ -441,13 +454,13 @@ export function renderLedgerPage(root) {
           </div>
           <div class="card card-hero">
             <div class="num-xs text-muted">${L('累计质押本金', 'Total Staked')}</div>
-            <div class="num-hero">${formatNum(history.reduce((s, c) => s + (c.stakeTon || 0), 0), 2)} <span class="num-md text-green">TON</span></div>
+            <div class="num-hero">${formatNum(history.reduce((s, c) => s + (c.stakeTon || 0), 0), 2)} <span class="num-md text-green">GRAM</span></div>
           </div>
           <div class="col-gap">
             ${history.length === 0 ? `<div class="card empty-state"><div class="num-xs text-muted">${L('暂无参与记录', 'No records')}</div></div>` : history.map(h => `
               <div class="card clickable" data-nav="/proof/${h.id}">
                 <div class="row-between">
-                  <div><div style="font-weight:700;">${L('第', 'R')} ${h.round} ${L('轮', '')} · <span class="text-sec">${formatNum(h.stakeTon)} TON</span></div><div class="num-xs text-muted">${h.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</div></div>
+                  <div><div style="font-weight:700;">${L('第', 'R')} ${h.round} ${L('轮', '')} · <span class="text-sec">${formatNum(h.stakeTon)} GRAM</span></div><div class="num-xs text-muted">${h.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</div></div>
                   <div style="text-align:right;"><div class="num-sm text-green">${formatNum(h.estRewardA9)} A9</div><div class="num-xs text-muted">${L('凭证', 'Proof')} ${icon('chevronRight', 11)}</div></div>
                 </div>
               </div>
@@ -496,7 +509,7 @@ export function renderRecordsPage(root) {
       <div class="col-gap anim-page-enter">
         <div class="card card-hero">
           <div class="num-xs text-muted">${L('累计质押本金', 'Total Staked')}</div>
-          <div class="num-hero">${formatNum(history.reduce((s, c) => s + (c.stakeTon || 0), 0), 2)} <span class="num-md text-green">TON</span></div>
+          <div class="num-hero">${formatNum(history.reduce((s, c) => s + (c.stakeTon || 0), 0), 2)} <span class="num-md text-green">GRAM</span></div>
         </div>
         <div class="filter-row">
           <button class="filter-pill ${activeFilter === 'all' ? 'active' : ''}" data-rf="all">${L('全部', 'All')}</button>
@@ -507,7 +520,7 @@ export function renderRecordsPage(root) {
           ${list.length === 0 ? `<div class="card empty-state"><div class="num-xs text-muted">${L('暂无记录', 'No records')}</div></div>` : list.map((h, i) => `
             <div class="card clickable" data-drawer="${i}">
               <div class="row-between">
-                <div><div style="font-weight:700;">${L('第', 'R')} ${h.round} ${L('轮', '')} · <span class="text-sec">${formatNum(h.stakeTon)} TON</span></div><div class="num-xs text-muted">${h.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</div></div>
+                <div><div style="font-weight:700;">${L('第', 'R')} ${h.round} ${L('轮', '')} · <span class="text-sec">${formatNum(h.stakeTon)} GRAM</span></div><div class="num-xs text-muted">${h.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</div></div>
                 <div style="text-align:right;"><div class="num-sm text-green">${formatNum(h.estRewardA9)} A9</div><div class="num-xs text-muted">${L('存证', 'Proof')} ${icon('chevronDown', 11)}</div></div>
               </div>
               <div class="drawer-body hidden" id="drawer-${i}" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border-subtle);">

@@ -33,10 +33,10 @@ mainEl.addEventListener('error', event => {
 const THEME_KEY = 'a9_theme_mode';
 
 const TABS = [
-  { key: 'challenge', path: '/challenge',       ic: 'candles', labelKey: 'tab_challenge' },
-  { key: 'round',     path: '/round',           ic: 'radar',   labelKey: 'tab_round' },
-  { key: 'team',      path: '/team',            ic: 'team',    labelKey: 'tab_team' },
-  { key: 'profile',   path: '/profile',         ic: 'wallet',  labelKey: 'tab_backpack' }
+  { key: 'challenge', path: '/challenge',       ic: 'navCity',  labelKey: 'tab_challenge' },
+  { key: 'round',     path: '/round',           ic: 'navRound', labelKey: 'tab_round' },
+  { key: 'team',      path: '/team',            ic: 'navTeam',  labelKey: 'tab_team' },
+  { key: 'profile',   path: '/profile',         ic: 'navVault', labelKey: 'tab_backpack' }
 ];
 
 let dataReady = false;
@@ -129,17 +129,28 @@ function renderHeader(route) {
       }
     </div>
     <div class="header-right">
+      <button class="icon-btn ${A9Audio.isEnabled() ? 'sound-on' : ''}" id="btn-sound-toggle" aria-label="${A9Audio.isEnabled() ? L('关闭交互音效', 'Mute Sound') : L('开启任天堂音效', 'Enable Sound')}" title="${A9Audio.isEnabled() ? L('关闭交互音效', 'Mute Sound') : L('开启任天堂音效', 'Enable Sound')}">${icon(A9Audio.isEnabled() ? 'volumeOn' : 'volumeOff', 15)}</button>
       <button class="icon-btn" id="btn-theme-toggle" aria-label="${isDark ? L('切换白昼模式', 'Light Mode') : L('切换暗夜模式', 'Dark Mode')}" title="${isDark ? L('切换白昼模式', 'Light Mode') : L('切换暗夜模式', 'Dark Mode')}">${icon(isDark ? 'sun' : 'moon', 15)}</button>
       ${config.isDemo ? `<button class="icon-btn" id="btn-open-sim" aria-label="Demo Console" title="${L('演示控制台', 'Demo')} (${BAM_SOURCE.commit})">${icon('sliders', 14)}</button>` : ''}
       <button class="wallet-pill ${user.connected ? '' : 'disconnected'}" id="btn-wallet-pill">
         <span class="live-dot ${user.connected ? '' : 'amber'}"></span>
-        <span>${user.connected ? user.shortAddress : t('connect_wallet')}</span>
+        <span>${user.connected ? (user.shortAddress || (user.address ? (user.address.length > 12 ? `${user.address.slice(0, 4)}...${user.address.slice(-4)}` : user.address) : t('connect_wallet'))) : t('connect_wallet')}</span>
       </button>
     </div>
   `;
 
   const backBtn = headerEl.querySelector('#hdr-back');
   if (backBtn) backBtn.onclick = goBack;
+
+  const soundBtn = headerEl.querySelector('#btn-sound-toggle');
+  if (soundBtn) {
+    soundBtn.onclick = () => {
+      A9Haptic.light();
+      const on = A9Audio.toggle();
+      renderHeader(matchRoute(window.location.hash).route);
+      showToast(on ? L('任天堂纸艺音效已开启', 'Paper craft sound on') : L('交互音效已静音', 'Sound muted'));
+    };
+  }
 
   headerEl.querySelector('#btn-theme-toggle').onclick = toggleTheme;
   headerEl.querySelector('#btn-wallet-pill').onclick = () => {
@@ -450,7 +461,13 @@ function openSimDrawer() {
 
 document.addEventListener('click', (e) => {
   const target = e.target.closest('[data-nav]');
-  if (target) navigate(target.dataset.nav);
+  if (target) {
+    if (target.classList.contains('tab-item')) {
+      A9Haptic.light();
+      A9Audio.tab();
+    }
+    navigate(target.dataset.nav);
+  }
   if (e.target.closest('.seg-tab')) {
     requestAnimationFrame(() => syncSlidingSegTabs(document));
   }
@@ -518,9 +535,9 @@ window.addEventListener('scroll', () => {
   headerEl.classList.toggle('scrolled', window.scrollY > 6);
 }, { passive: true });
 
-// Bootstrap
+// Bootstrap — 方案 A 默认白昼暖棉纸立体书（尊重用户已保存的暗夜纸本偏好）
 initAutoLanguage();
-applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+applyTheme(localStorage.getItem(THEME_KEY) || 'light');
 A9TMA.init();
 tonConnect.init();
 

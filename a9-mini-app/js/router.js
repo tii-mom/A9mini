@@ -11,11 +11,11 @@ import { renderProfileHome, renderClaimPage, renderProofDetail, renderRenewPage,
 import { renderSettingsPage, renderRiskMatrix, renderRiskAudit, renderRulesPage, renderNotFoundPage } from './pages/system.js';
 import { t, L } from './i18n.js';
 
-import { city, gallery, rewards } from './pages/wealthverse.js';
+import { renderCity, gallery, rewards } from './pages/wealthverse.js';
 
 
 export const ROUTES = [
-  { path: '/challenge',           title: () => L('财富主城','Wealth City'),    shell: 'tab',   tab: 'challenge',   ticker: false, render: root => { root.innerHTML = city(); } },
+  { path: '/challenge',           title: () => L('财富主城','Wealth City'),    shell: 'tab',   tab: 'challenge',   ticker: false, render: renderCity },
   { path: '/round', title: () => L('轮次挑战','Round Challenge'), shell: 'tab', tab: 'round', ticker: true, render: renderChallengeHome },
   { path: '/gallery', title: () => L('身份图鉴','Identity Gallery'), shell: 'stack', tab: 'challenge', render: gallery },
   { path: '/rewards', title: () => L('奖励宝库','Reward Vault'), shell: 'stack', tab: 'profile', render: rewards },
@@ -24,14 +24,14 @@ export const ROUTES = [
   { path: '/observation/records', title: () => L('24H 时段记录', '24H Slot Records'), shell: 'stack', tab: 'round', ticker: false, render: renderObservationRecords },
   { path: '/warmup',              title: () => t('rt_warmup'),      shell: 'stack', tab: 'challenge',   ticker: false, render: renderWarmupHome },
   { path: '/warmup/rank',         title: () => t('rt_warmup_rank'), shell: 'stack', tab: 'challenge',   ticker: false, render: renderWarmupRank },
-  { path: '/internal/market',     title: () => 'A9 // MARKET',      shell: 'stack', tab: 'challenge',      ticker: false, render: renderInternalMarket },
+  { path: '/internal/market',     title: () => L('主城商行', 'City Market'),  shell: 'stack', tab: 'challenge',   ticker: false, render: renderInternalMarket },
   { path: '/internal/records',    title: () => t('rt_market_rec'),  shell: 'stack', tab: 'challenge',      ticker: false, render: renderInternalRecords },
-  { path: '/team',                title: () => 'A9 // SYNDICATE',   shell: 'tab',   tab: 'team',        ticker: false, render: renderTeamHome },
+  { path: '/team',                title: () => L('商会大厅', 'Guild Hall'),   shell: 'tab',   tab: 'team',        ticker: false, render: renderTeamHome },
   { path: '/team/profile',        title: () => t('rt_team_profile'),shell: 'stack', tab: 'team',        ticker: false, render: renderTeamProfile },
   { path: '/team/bind-tg',        title: () => t('rt_bind_tg'),     shell: 'stack', tab: 'team',        ticker: false, render: renderBindTgGroup },
   { path: '/team/invite',         title: () => t('rt_invite'),      shell: 'stack', tab: 'team',        ticker: false, render: renderInviteShare },
   { path: '/leaderboard',         title: () => t('tab_leaderboard'),shell: 'stack', tab: 'team',        ticker: false, render: renderLeaderboard },
-  { path: '/profile',             title: () => 'A9 // VAULT',       shell: 'tab',   tab: 'profile',     ticker: false, render: renderProfileHome },
+  { path: '/profile',             title: () => L('我的背包', 'My Vault'),     shell: 'tab',   tab: 'profile',     ticker: false, render: renderProfileHome },
   { path: '/claim',               title: () => t('rt_claim'),       shell: 'stack', tab: 'profile',     ticker: false, render: renderClaimPage },
   { path: '/proof',               title: () => t('rt_proof'),       shell: 'stack', tab: 'profile',     ticker: false, render: renderProofDetail },
   { path: '/renew',               title: () => t('rt_renew'),       shell: 'stack', tab: 'profile',     ticker: false, render: renderRenewPage },

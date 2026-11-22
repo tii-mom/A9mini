@@ -1,9 +1,14 @@
 /**
- * A9 Institutional SVG Icon System (Zero-Emoji Policy)
- * Precision 1.75px stroke geometric vector icons calibrated for Obsidian Terminal.
+ * A9 任天堂纸艺圆润矢量图标系统 (Zero-Emoji Policy)
+ * 采用 2px 柔和圆头描边 + 纸艺双层轻填充导航图标，契合暖棉纸立体书手感。
  */
 
 const PATHS = {
+  navCity: '<path d="M4 20.5V11L12 4.5L20 11V20.5H4Z" fill="currentColor" fill-opacity="0.18" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><rect x="9.8" y="13.8" width="4.4" height="6.7" rx="1.4" fill="currentColor" stroke="none"/>',
+  navRound: '<circle cx="12" cy="12" r="8.5" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="2"/><path d="M12 7.8V12L15 14" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>',
+  navTeam: '<path d="M5 5.2H19V14.4L12 19.8L5 14.4V5.2Z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9.2 12.6L10.3 9.2L12 11L13.7 9.2L14.8 12.6H9.2Z" fill="currentColor" stroke="none"/>',
+  navVault: '<rect x="4" y="7.8" width="16" height="12.4" rx="3.4" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="2"/><path d="M8.5 7.8V6.2C8.5 5 9.4 4.2 10.6 4.2H13.4C14.6 4.2 15.5 5 15.5 6.2V7.8" stroke="currentColor" stroke-width="2"/><rect x="10.2" y="12" width="3.6" height="4" rx="1.1" fill="currentColor" stroke="none"/>',
+
   chart: '<path d="M3 3v18h18"/><path d="M7 14v3"/><path d="M11 10v7"/><path d="M15 7v10"/><path d="M19 4v13"/>',
   candles: '<path d="M7 4v16"/><rect x="5" y="8" width="4" height="7" rx="1"/><path d="M17 4v16"/><rect x="15" y="10" width="4" height="6" rx="1"/>',
   team: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
@@ -54,5 +59,5 @@ const PATHS = {
 
 export function icon(name, size = 16, cls = '') {
   const body = PATHS[name] || PATHS.terminal;
-  return `<svg class="a9-icon ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+  return `<svg class="a9-icon ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 }

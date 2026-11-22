@@ -1,243 +1,189 @@
 /* ==========================================================================
-   A9 // Finalized Dual-Theme Mirror System (Logo-Anchored Vibrant Orange):
-   - Dark: Polar Night Obsidian (#030304) + Midnight Navy Glass (#1F2439) + Vibrant Brand Orange (#FA660F)
-   - Daylight: Satin Morning-Mist Slate (#E8ECF4) + Deep Navy Ink (#161B2E) + Logo Vibrant Orange (#F25C05)
+   A9 · 方案 A（暖棉纸立体书 × 实体厚卡纸贴纸）设计变量单源真值
+   90% 温和棉纸中性色 / 8% 唯一任天堂朱红焦点 / 2% 低饱和和风纸艺语义色
    ========================================================================== */
 
 :root,
 [data-theme="light"] {
-  /* 1. Satin Morning-Mist Slate Canvas (Stronger figure-ground contrast so white glass cards snap with zero washed-out whitespace) */
-  --outer-bg: #D5DCE8;
-  --bg-canvas: #E4E8F1;
-  --ambient-wash: none;
-  --ambient-grid: radial-gradient(rgba(22, 27, 46, 0.05) 0.75px, transparent 0.75px);
+  /* 安全区适配（Telegram WebApp & iOS 底部刘海） */
+  --wv-safe-top: max(env(safe-area-inset-top, 0px), var(--tg-safe-area-inset-top, 0px), var(--tg-content-safe-area-inset-top, 0px));
+  --wv-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px), var(--tg-content-safe-area-inset-bottom, 0px));
 
-  /* High-Clarity Architectural Porcelain Surfaces (Zero tinted gradient noise) */
-  --bg-surface: rgba(255, 255, 255, 0.96);
-  --bg-panel: rgba(255, 255, 255, 0.90);
-  --bg-hero-glass: rgba(255, 255, 255, 0.96);
-  --bg-elevated: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(246, 248, 253, 0.80) 100%);
-  --bg-elevated-high: linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(250, 251, 254, 0.92) 100%);
-  --bg-subtile: rgba(22, 27, 46, 0.048);
-  --bg-header: rgba(234, 238, 246, 0.82);
-  --bg-dock: linear-gradient(168deg, rgba(255, 255, 255, 0.88) 0%, rgba(248, 250, 254, 0.78) 100%);
-  --bg-dock-pill: linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(244, 247, 252, 0.92) 100%);
-  --bg-modal-backdrop: rgba(12, 16, 28, 0.40);
+  /* 90% 暖棉纸基底与厚卡纸层 */
+  --paper-bg: #F5F0E6;
+  --paper-hill-1: #ECE4D6;
+  --paper-hill-2: #E4DAC8;
+  --paper-tray: #ECE6DA;
+  --paper-tray-deep: #E2DACA;
 
-  /* Machined Crystal Glass Optics (Tighter, crisper elevation shadows) */
-  --glass-blur: blur(24px) saturate(170%);
-  --glass-blur-heavy: blur(32px) saturate(185%);
-  --glass-rim-gradient: linear-gradient(145deg, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.68) 38%, rgba(22, 27, 46, 0.08) 76%, rgba(22, 27, 46, 0.12) 100%);
-  --glass-rim-hero: linear-gradient(145deg, rgba(255, 255, 255, 1) 0%, rgba(22, 27, 46, 0.08) 52%, rgba(22, 27, 46, 0.12) 100%);
-  --glass-border: rgba(255, 255, 255, 0.90);
-  --glass-outer-ring: rgba(22, 27, 46, 0.095);
-  --glass-spec-top: rgba(255, 255, 255, 1);
-  --glass-spec-bottom: rgba(22, 27, 46, 0.055);
-  --glass-fresnel: rgba(255, 255, 255, 0.24);
-  --glass-lens-top: none;
-  --glass-pointer-glint: transparent;
+  --card-bg: #FFFFFF;
+  --card-soft: #FDFBF7;
+  --card-border: #E7DFD1;
+  --card-thickness: #D6CBB9;
+  --card-stitch: rgba(178, 162, 138, 0.36);
+  --card-highlight: rgba(255, 255, 255, 0.96);
+  --card-shadow:
+    inset 0 1px 0 var(--card-highlight),
+    0 4px 0 var(--card-thickness),
+    0 12px 24px rgba(43, 37, 35, 0.075);
+  --card-shadow-sm:
+    inset 0 1px 0 var(--card-highlight),
+    0 3px 0 var(--card-thickness),
+    0 6px 14px rgba(43, 37, 35, 0.055);
 
-  --shadow-card: 0 4px 14px rgba(22, 27, 46, 0.055), 0 1px 2px rgba(22, 27, 46, 0.045), 0 0 0 0.5px var(--glass-outer-ring);
-  --shadow-hero: 0 8px 24px rgba(22, 27, 46, 0.075), 0 1px 3px rgba(22, 27, 46, 0.05), 0 0 0 0.5px var(--glass-outer-ring);
-  --shadow-dock: 0 14px 34px rgba(22, 27, 46, 0.14), 0 2px 6px rgba(22, 27, 46, 0.07), 0 0 0 0.5px var(--glass-outer-ring);
+  /* 暖可可墨字色系（高对比度且柔和护眼） */
+  --ink: #2B2523;
+  --ink-soft: #6A615B;
+  --ink-muted: #988E86;
 
-  --border-hairline: rgba(22, 27, 46, 0.09);
-  --border-subtle: rgba(22, 27, 46, 0.068);
-  --border-strong: rgba(22, 27, 46, 0.16);
-  --ring-track: rgba(22, 27, 46, 0.09);
-  --glare-color: rgba(242, 92, 5, 0.14);
+  /* 8% 唯一任天堂朱红行动焦点 */
+  --nt-red: #E8453C;
+  --nt-red-top: #F25B52;
+  --nt-red-edge: #B82D25;
+  --nt-red-soft: #FDECEB;
 
-  /* 2. Deep Navy Ink (Directly derived from #1F2439 — Swiss Private Bank Elegance) */
-  --text-primary: #161B2E;
-  --text-secondary: #4E566E;
-  --text-muted: #7F879E;
-  --contrast-bg: linear-gradient(180deg, #242A42 0%, #161B2E 100%);
-  --contrast-fg: #FFFFFF;
+  /* 2% 低饱和和风纸艺语义色 */
+  --nt-green: #2DA069;
+  --nt-green-edge: #1F7A4E;
+  --nt-green-soft: #E8F6EF;
 
-  /* 3. Logo-Anchored Vibrant Brand Orange (#F25C05) */
-  --green: #F25C05;
-  --green-text: #D44B00;
-  --green-dim: #D94E00;
-  --green-soft: rgba(242, 92, 5, 0.10);
-  --green-border: rgba(242, 92, 5, 0.34);
-  --green-glow: rgba(242, 92, 5, 0.16);
-  --on-green: #FFFFFF;
+  --nt-rose: #D94860;
+  --nt-rose-edge: #AA2E44;
+  --nt-rose-soft: #FCECEE;
 
-  /* 4. Secondary Neutral Navy Accent */
-  --gold: #161B2E;
-  --gold-soft: rgba(22, 27, 46, 0.06);
-  --gold-border: rgba(22, 27, 46, 0.13);
-  --cyan: #161B2E;
-  --cyan-soft: rgba(22, 27, 46, 0.06);
-  --cyan-border: rgba(22, 27, 46, 0.13);
-  --amber: #F25C05;
-  --amber-soft: rgba(242, 92, 5, 0.095);
-  --amber-border: rgba(242, 92, 5, 0.28);
+  --nt-gold: #F3B82C;
+  --nt-gold-top: #F9CA52;
+  --nt-gold-edge: #C48B12;
+  --nt-gold-soft: #FDF5DF;
+  --nt-gold-ink: #8A5D06;
 
-  /* 5. Precision Semantics & Tinted Glass Icon Accents */
-  --emerald: #0FA968;
-  --emerald-soft: rgba(15, 169, 104, 0.10);
-  --emerald-border: rgba(15, 169, 104, 0.24);
-  --red: #DF3B4B;
-  --red-soft: rgba(223, 59, 75, 0.10);
-  --red-border: rgba(223, 59, 75, 0.24);
-  --sky: #2563EB;
-  --sky-soft: rgba(37, 99, 235, 0.09);
-  --sky-border: rgba(37, 99, 235, 0.22);
-  --warm-gold: #D97706;
-  --warm-gold-soft: rgba(217, 119, 6, 0.10);
-  --warm-gold-border: rgba(217, 119, 6, 0.24);
-  --candle-pending: rgba(22, 27, 46, 0.18);
+  --nt-blue: #3A88D6;
+  --nt-blue-edge: #2768AA;
+  --nt-blue-soft: #EBF4FC;
 
-  /* Typography */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* 立体书三层景深布景专用低饱和同色系 */
+  --diorama-thread: rgba(138, 126, 112, 0.42);
+  --diorama-bunting-1: #F2D3C9;
+  --diorama-bunting-2: #F7E5B7;
+  --diorama-bunting-3: #DCE7D8;
+  --diorama-star: #F3CA63;
+  --diorama-cloud: #FFFFFF;
+  --diorama-cloud-shadow: #E4DCCD;
+  --diorama-castle: #EBE3D4;
+  --diorama-castle-shade: #E0D6C4;
+  --diorama-flag: #EAB4A8;
+  --diorama-tree: #DAE5D6;
+  --diorama-trunk: #CEBFA9;
+  --diorama-hill-sage: #E3EADF;
+  --diorama-stitch: rgba(148, 134, 114, 0.42);
+  --diorama-rim: rgba(255, 255, 255, 0.90);
 
-  /* Refined Geometric Glass Radii */
-  --radius-card: 24px;
-  --radius-ctrl: 16px;
-  --radius-sm: 12px;
-  --radius-xs: 8px;
-  --radius-full: 9999px;
+  --header-bg: rgba(245, 240, 230, 0.96);
+  --tabbar-bg: #FFFFFF;
+  --paper-cut-shadow: drop-shadow(0 8px 13px rgba(43, 37, 35, 0.14));
+  --glare-color: rgba(255, 248, 232, 0.48);
 
-  /* Motion */
-  --ease-standard: cubic-bezier(0.2, 0.0, 0, 1.0);
-  --ease-decelerate: cubic-bezier(0.0, 0.0, 0.2, 1.0);
-  --ease-spring: cubic-bezier(0.22, 1.18, 0.36, 1.0);
-  --dur-instant: 100ms;
-  --dur-fast: 180ms;
-  --dur-normal: 260ms;
+  /* 兼容既有页面内联变量别名 */
+  --bg-canvas: var(--paper-bg);
+  --bg-card: var(--card-bg);
+  --bg-subtile: var(--paper-tray);
+  --text-primary: var(--ink);
+  --text-secondary: var(--ink-soft);
+  --text-muted: var(--ink-muted);
+  --border-subtle: var(--card-border);
+  --green: var(--nt-green);
+  --emerald: var(--nt-green);
+  --red: var(--nt-rose);
+  --gold: var(--nt-gold-ink);
+  --cyan: var(--nt-blue);
+  --green-border: rgba(45, 160, 105, 0.34);
+  --emerald-border: rgba(45, 160, 105, 0.34);
+  --red-border: rgba(217, 72, 96, 0.34);
+  --gold-border: rgba(196, 139, 18, 0.36);
+  --ring-track: var(--paper-tray-deep);
 
-  /* Layout */
-  --header-h: 56px;
-  --tabbar-h: 62px;
-  --max-w: 430px;
+  /* 字体与动效节奏 */
+  --font-sans: 'Nunito', 'M PLUS Rounded 1c', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Nunito', ui-monospace, SFMono-Regular, monospace;
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-decelerate: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.22, 1.45, 0.36, 1);
 }
 
+/* 暖炭暗夜纸本主题（同样保持低噪柔和，绝无刺眼霓虹） */
 [data-theme="dark"] {
-  /* 1. Polar Night Obsidian (#030304) + Subtle Midnight Navy Depth (#1F2439) */
-  --outer-bg: #020203;
-  --bg-canvas: #050609;
-  --ambient-wash: none;
-  --ambient-grid: radial-gradient(rgba(224, 232, 255, 0.036) 0.75px, transparent 0.75px);
+  --paper-bg: #201D1B;
+  --paper-hill-1: #282421;
+  --paper-hill-2: #302B27;
+  --paper-tray: #2A2523;
+  --paper-tray-deep: #352F2C;
 
-  /* Midnight Navy Architectural Glass Surfaces (Clean, zero brownish wash) */
-  --bg-surface: rgba(20, 24, 38, 0.94);
-  --bg-panel: rgba(24, 28, 44, 0.76);
-  --bg-hero-glass: rgba(28, 33, 52, 0.84);
-  --bg-elevated: linear-gradient(180deg, rgba(226, 234, 255, 0.09) 0%, rgba(226, 234, 255, 0.032) 100%);
-  --bg-elevated-high: linear-gradient(180deg, rgba(226, 234, 255, 0.15) 0%, rgba(226, 234, 255, 0.068) 100%);
-  --bg-subtile: rgba(3, 3, 4, 0.42);
-  --bg-header: rgba(3, 3, 4, 0.78);
-  --bg-dock: linear-gradient(168deg, rgba(31, 36, 57, 0.78) 0%, rgba(14, 17, 28, 0.82) 100%);
-  --bg-dock-pill: linear-gradient(180deg, rgba(226, 234, 255, 0.16) 0%, rgba(226, 234, 255, 0.06) 100%);
-  --bg-modal-backdrop: rgba(3, 3, 4, 0.76);
+  --card-bg: #2C2725;
+  --card-soft: #332E2B;
+  --card-border: #403935;
+  --card-thickness: #151211;
+  --card-stitch: rgba(245, 239, 230, 0.13);
+  --card-highlight: rgba(255, 247, 236, 0.08);
+  --card-shadow:
+    inset 0 1px 0 var(--card-highlight),
+    0 4px 0 var(--card-thickness),
+    0 14px 28px rgba(0, 0, 0, 0.34);
+  --card-shadow-sm:
+    inset 0 1px 0 var(--card-highlight),
+    0 3px 0 var(--card-thickness),
+    0 6px 14px rgba(0, 0, 0, 0.24);
 
-  /* Machined Midnight Crystal Bevel Optics */
-  --glass-blur: blur(24px) saturate(165%);
-  --glass-blur-heavy: blur(32px) saturate(180%);
-  --glass-rim-gradient: linear-gradient(145deg, rgba(226, 234, 255, 0.18) 0%, rgba(226, 234, 255, 0.06) 45%, rgba(226, 234, 255, 0.03) 100%);
-  --glass-rim-hero: linear-gradient(145deg, rgba(226, 234, 255, 0.24) 0%, rgba(226, 234, 255, 0.09) 48%, rgba(226, 234, 255, 0.04) 100%);
-  --glass-border: rgba(226, 234, 255, 0.12);
-  --glass-outer-ring: rgba(0, 0, 0, 0.72);
-  --glass-spec-top: rgba(226, 234, 255, 0.14);
-  --glass-spec-bottom: rgba(0, 0, 0, 0.48);
-  --glass-fresnel: rgba(226, 234, 255, 0.02);
-  --glass-lens-top: none;
-  --glass-pointer-glint: transparent;
+  --ink: #F5EFE6;
+  --ink-soft: #BFB5AB;
+  --ink-muted: #8C827A;
 
-  --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.44), 0 1px 3px rgba(0, 0, 0, 0.38), 0 0 0 0.5px var(--glass-outer-ring);
-  --shadow-hero: 0 12px 32px rgba(0, 0, 0, 0.52), 0 1px 4px rgba(0, 0, 0, 0.42), 0 0 0 0.5px var(--glass-outer-ring);
-  --shadow-dock: 0 20px 46px rgba(0, 0, 0, 0.78), 0 2px 8px rgba(0, 0, 0, 0.52), 0 0 0 0.5px var(--glass-outer-ring);
+  --nt-red: #EE584F;
+  --nt-red-top: #F76D64;
+  --nt-red-edge: #A62B24;
+  --nt-red-soft: rgba(238, 88, 79, 0.18);
 
-  --border-hairline: rgba(226, 234, 255, 0.10);
-  --border-subtle: rgba(226, 234, 255, 0.07);
-  --border-strong: rgba(226, 234, 255, 0.18);
-  --ring-track: rgba(226, 234, 255, 0.10);
-  --glare-color: rgba(250, 102, 15, 0.18);
+  --nt-green: #3CC080;
+  --nt-green-edge: #218052;
+  --nt-green-soft: rgba(60, 192, 128, 0.16);
 
-  /* 2. Crisp Moonlit White & Cool Midnight Silver */
-  --text-primary: #F4F6FA;
-  --text-secondary: #9DA5BC;
-  --text-muted: #69728C;
-  --contrast-bg: linear-gradient(180deg, #F8FAFE 0%, #E4E8F2 100%);
-  --contrast-fg: #030304;
+  --nt-rose: #EB6078;
+  --nt-rose-edge: #A82F44;
+  --nt-rose-soft: rgba(235, 96, 120, 0.17);
 
-  /* 3. Logo-Anchored Vibrant Brand Orange (Dark-Adapted #FA660F / Text #FF8A3D) */
-  --green: #FA660F;
-  --green-text: #FF8A3D;
-  --green-dim: #DE5200;
-  --green-soft: rgba(250, 102, 15, 0.16);
-  --green-border: rgba(250, 102, 15, 0.42);
-  --green-glow: rgba(250, 102, 15, 0.18);
-  --on-green: #FFFFFF;
+  --nt-gold: #F5BE3A;
+  --nt-gold-top: #FFD062;
+  --nt-gold-edge: #B57F10;
+  --nt-gold-soft: rgba(245, 190, 58, 0.17);
+  --nt-gold-ink: #FFD97A;
 
-  /* 4. Secondary Neutral Accent */
-  --gold: #F4F6FA;
-  --gold-soft: rgba(226, 234, 255, 0.08);
-  --gold-border: rgba(226, 234, 255, 0.16);
-  --cyan: #F4F6FA;
-  --cyan-soft: rgba(226, 234, 255, 0.08);
-  --cyan-border: rgba(226, 234, 255, 0.16);
-  --amber: #FF8A3D;
-  --amber-soft: rgba(250, 102, 15, 0.15);
-  --amber-border: rgba(250, 102, 15, 0.38);
+  --nt-blue: #58A4EE;
+  --nt-blue-edge: #2A6EB0;
+  --nt-blue-soft: rgba(88, 164, 238, 0.17);
 
-  /* 5. Precision Semantics & Tinted Glass Icon Accents */
-  --emerald: #12CA7D;
-  --emerald-soft: rgba(18, 202, 125, 0.14);
-  --emerald-border: rgba(18, 202, 125, 0.28);
-  --red: #F24E61;
-  --red-soft: rgba(242, 78, 97, 0.14);
-  --red-border: rgba(242, 78, 97, 0.30);
-  --sky: #60A5FA;
-  --sky-soft: rgba(96, 165, 250, 0.14);
-  --sky-border: rgba(96, 165, 250, 0.28);
-  --warm-gold: #F59E0B;
-  --warm-gold-soft: rgba(245, 158, 11, 0.14);
-  --warm-gold-border: rgba(245, 158, 11, 0.28);
-  --candle-pending: rgba(226, 234, 255, 0.20);
-}
+  --diorama-thread: rgba(188, 178, 168, 0.30);
+  --diorama-bunting-1: #5C3D39;
+  --diorama-bunting-2: #594B30;
+  --diorama-bunting-3: #37473B;
+  --diorama-star: #D9A73B;
+  --diorama-cloud: #35302D;
+  --diorama-cloud-shadow: #181514;
+  --diorama-castle: #2E2926;
+  --diorama-castle-shade: #25211F;
+  --diorama-flag: #8A4B46;
+  --diorama-tree: #354237;
+  --diorama-trunk: #4A4038;
+  --diorama-hill-sage: #2A332C;
+  --diorama-stitch: rgba(245, 239, 230, 0.16);
+  --diorama-rim: rgba(255, 245, 232, 0.11);
 
-* {
-  box-sizing: border-box;
-  -webkit-tap-highlight-color: transparent;
-}
+  --header-bg: rgba(32, 29, 27, 0.96);
+  --tabbar-bg: #2C2725;
+  --paper-cut-shadow: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.45));
+  --glare-color: rgba(255, 240, 212, 0.18);
 
-html, body {
-  margin: 0;
-  padding: 0;
-  width: 100%;
-  min-height: 100vh;
-  background-color: var(--outer-bg);
-  color: var(--text-primary);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.5;
-  overscroll-behavior: none;
-  -webkit-font-smoothing: antialiased;
-  transition: background-color 240ms var(--ease-standard), color 240ms var(--ease-standard);
-}
-
-.mono {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: 'tnum' 1;
-}
-
-.caps {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.hidden {
-  display: none !important;
-}
-
-::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
+  --green-border: rgba(60, 192, 128, 0.36);
+  --emerald-border: rgba(60, 192, 128, 0.36);
+  --red-border: rgba(235, 96, 120, 0.36);
+  --gold-border: rgba(245, 190, 58, 0.38);
+  --ring-track: #3A332F;
 }

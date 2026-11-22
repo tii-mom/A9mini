@@ -1,9 +1,8 @@
 /**
- * A9 Multimodal Sensory Engine (Engineering Spec v2)
- * - Sound defaults to MUTED unless user explicitly enabled it in localStorage
- * - AudioContext is lazily initialized strictly on explicit user gesture
- * - 3D specular glare is restricted to fine-pointer hover devices using rAF
- * - Clean teardown on route change / page hide
+ * A9 任天堂手工纸艺轻音效与微触感引擎
+ * - 默认静音，仅在用户主动开启后（localStorage: a9_sound_enabled === '1'）发声
+ * - AudioContext 仅在明确手势下懒初始化
+ * - 精细指针设备的 3D 凭证反光采用 rAF 节流并在切页时干净释放
  */
 
 const SOUND_KEY = 'a9_sound_enabled';
@@ -26,6 +25,26 @@ function ensureCtx() {
   return audioCtx;
 }
 
+function playTone(freq, startOffset, duration, type = 'triangle', peakGain = 0.065, endFreq = null) {
+  const ctx = ensureCtx();
+  if (!ctx) return;
+  const now = ctx.currentTime + startOffset;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, now);
+  if (endFreq !== null) {
+    osc.frequency.exponentialRampToValueAtTime(endFreq, now + duration);
+  }
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.linearRampToValueAtTime(peakGain, now + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + duration + 0.02);
+}
+
 export const A9Audio = {
   isEnabled() {
     return enabled;
@@ -38,63 +57,40 @@ export const A9Audio = {
     return enabled;
   },
 
-  /** Short 14ms mechanical click for explicit confirmations / threshold crossing */
+  /** 轻快木琴点击音 */
   tick() {
-    const ctx = ensureCtx();
-    if (!ctx) return;
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(720, now);
-    osc.frequency.exponentialRampToValueAtTime(340, now + 0.015);
-    gain.gain.setValueAtTime(0.04, now);
-    gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.017);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.019);
+    playTone(520, 0, 0.075, 'triangle', 0.06, 680);
   },
 
-  /** Crisp two-note confirmation chime for completed submit / theme / enable */
+  /** 底栏切换圆润啵声 */
+  tab() {
+    playTone(440, 0, 0.06, 'sine', 0.055, 590);
+    playTone(660, 0.035, 0.08, 'triangle', 0.048);
+  },
+
+  /** 纸片 360° 翻身跳起音 */
+  flip() {
+    playTone(340, 0, 0.09, 'triangle', 0.055, 620);
+    playTone(780, 0.06, 0.11, 'sine', 0.048, 980);
+  },
+
+  /** 橡皮圆章盖下 + 达标小和弦 */
+  stamp() {
+    playTone(180, 0, 0.07, 'sine', 0.08, 92);
+    playTone(587.33, 0.045, 0.12, 'triangle', 0.055);
+    playTone(880.0, 0.095, 0.16, 'triangle', 0.055);
+  },
+
+  /** 任天堂双音金币叮铃（提交/领取/开启确认） */
   confirm() {
-    const ctx = ensureCtx();
-    if (!ctx) return;
-    const now = ctx.currentTime;
-    [523.25, 783.99].forEach((freq, i) => {
-      const t = now + i * 0.05;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, t);
-      gain.gain.setValueAtTime(0.001, t);
-      gain.gain.linearRampToValueAtTime(0.055, t + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0008, t + 0.19);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(t);
-      osc.stop(t + 0.21);
-    });
+    playTone(987.77, 0, 0.085, 'triangle', 0.065);
+    playTone(1318.51, 0.075, 0.22, 'triangle', 0.072);
   },
 
-  /** Muted low double-thud for validation / transaction failure */
+  /** 柔和双低音提示（校验失败/异常） */
   error() {
-    const ctx = ensureCtx();
-    if (!ctx) return;
-    const now = ctx.currentTime;
-    [0, 0.07].forEach((offset) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(185, now + offset);
-      osc.frequency.exponentialRampToValueAtTime(115, now + offset + 0.055);
-      gain.gain.setValueAtTime(0.05, now + offset);
-      gain.gain.exponentialRampToValueAtTime(0.0008, now + offset + 0.06);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + offset);
-      osc.stop(now + offset + 0.065);
-    });
+    playTone(185, 0, 0.055, 'sine', 0.05, 115);
+    playTone(170, 0.07, 0.06, 'sine', 0.05, 105);
   }
 };
 
@@ -112,10 +108,7 @@ export function cleanupKineticSurfaces() {
   }
 }
 
-/**
- * Fine-pointer hover-only 3D tilt & specular glare strictly for VIP Black Certificate Detail cards.
- * Disabled on touchscreens and when prefers-reduced-motion is enabled.
- */
+/** 精细鼠标指针下的典藏卡微倾角反光 */
 export function bindKineticSurfaces(root = document) {
   cleanupKineticSurfaces();
   if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;

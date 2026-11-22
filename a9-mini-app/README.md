@@ -1,49 +1,45 @@
-# a9-mini-app 实现说明
+# a9-mini-app — A9 财富进化世界（暖棉纸立体书 × 实体厚卡纸贴纸版）
 
-「A9 财富进化世界」是项目唯一维护的小程序前端，使用原生 ES Modules，无构建步骤。部署时以本目录为静态站点根目录。
+本目录是 A9 Protocol 唯一维护与发布的小程序前端，采用原生 ES Modules（零构建步骤）。部署时以本目录为静态站点根目录，默认入口为 `index.html`。
 
-## 运行
+## 视觉与信息架构
+
+- **视觉体系**：暖棉纸立体书 × 实体厚卡纸贴纸（90% 温和暖棉纸中性色 / 8% 唯一任天堂朱红 `#E8453C` 行动焦点 / 2% 低饱和和风语义色），默认白昼暖棉纸（`data-theme="light"`），支持切换暖炭暗夜纸本（`data-theme="dark"`），并内置可选任天堂纸艺轻音效（默认静音）。
+- **四大主导航**：
+  - **主城（`#/challenge`）**：暖棉纸立体主城态势沙盘（奖池、实时倒计时、目标价/判定均价走势、24H 微型打孔战况轨、唯一主 CTA）、四宫格折纸生态入口（主城商行 / 奖励宝库 / 荣誉排行 / 玩法规则）、24H 预言速览与全局解锁/返佣卡。
+  - **挑战（`#/round`）**：轮次全阶段状态（预热 / 参与 / 24H 观察橡皮圆章盘 / 达标结算 / 销毁存证 / 技术中止）与 24H 生死预言局。
+  - **商会（`#/team`）**：队长中枢、成员视图、团队大厅、主力立牌名册、邀请海报工坊与排行榜。
+  - **背包（`#/profile`）**：个人身份立体书展示台（A1–A9 厚卡纸立牌 + 纸板插槽 + 微翘贴纸「身份图鉴」+ 360° 翻身试穿）、一体化可领/待解锁拉链滑块卡与 SBT 凭证收藏册（支持 3D 翻面核验）。
+
+## 本地运行
 
 ```bash
-node dev-server.mjs          # http://127.0.0.1:8091
+node dev-server.mjs          # 默认 http://127.0.0.1:8091
 ```
 
-- `/` → 明确标识的演示模式（模拟钱包/余额/行情/哈希/领取）
-- `/?mode=live` → 从 BAM Worker 读取真实只读数据（同源代理 `/api/*`）
-- 纯静态托管也可以：`python3 -m http.server 8091`，但此方式下 live 模式需要直连已放行 CORS 的 BAM 地址。
+- `/` 或 `/?mode=demo`：明确标识的演示模式（模拟钱包 / 余额 / 行情 / 哈希 / 领取 / 角色试穿）
+- `/?mode=live`：只读实时模式（经同源代理 `/api/*` 读取真实数据，资金写入入口保持关闭）
 
-## 目录职责
+## 核心目录结构
 
-| 文件 | 职责 |
+| 路径 | 职责 |
 |---|---|
-| `js/config.js` | 模式、API 地址、BAM 版本记录 |
-| `js/data.js` | 唯一只读数据层；BAM API 契约、焦点轮选择、视图模型、v13 估算 |
-| `js/demo-data.js` | **唯一**允许出现模拟资金数据/随机行为的文件 |
-| `js/store.js` | 内存状态；持久化白名单只有 UI 偏好；资金动作按模式 gating |
-| `js/app.js` | 引导、轮询、来源标记、加载/过期/错误/重试状态、倒计时 |
-| `js/tonconnect.js` | TON Connect；真实模式无伪造连接/交易结果 |
-| `js/pages/round_stages.js` | 观察页、24H 时段记录、结算态 |
-| `js/pages/round_hub.js` | 首页主操作、参与确认、三态交易弹层 |
-| `js/pages/profile.js` | 我的：可领取 → 参与中/待解锁 → 凭证/海报/设置 |
-| `dev-server.mjs` | 静态托管 + `/api/*` 同源代理 |
+| `index.html` | 小程序壳层入口与白昼/暗夜首屏主题引导 |
+| `css/tokens.css` | 白昼暖棉纸 / 暖炭暗夜纸本变量与 Telegram 安全区适配 |
+| `css/animations.css` | 纸片 360° 翻身、圆章砸落、底栏弹性跳起等动效（遵循 `prefers-reduced-motion`） |
+| `css/components.css` | 厚卡纸卡片、折纸卷角、任天堂立体键帽、24H 橡皮圆章盘、拉链滑块与缝线底栏 |
+| `css/wealthverse.css` | 主城态势沙盘、背包身份舞台、图鉴集邮册、宝库阶梯与星轨观测罗盘 |
+| `css/game.css` | 紧凑纸签眉标、商行扇贝纸檐与锯齿小票、商会名册与 3D 翻转纸片凭证 |
+| `assets/paper-craft/` | 无缝棉纸微肌理 `cotton-paper-tile.png` 与 10 枚统一冲压白边折纸贴纸 SVG |
+| `assets/wealthverse/game/` | A1–A9 实体厚卡纸角色立牌（`a1.webp` ~ `a9.webp`） |
+| `js/paper-art.js` | 内联三层景深立体布景、主城沙盘布景与商行扇贝波浪纸檐 |
+| `js/config.js` / `data.js` / `store.js` | 模式隔离、只读数据契约与白名单本地偏好存储 |
+| `js/demo-data.js` | **唯一**允许存放模拟资金、行情与测试数据的文件 |
+| `js/pages/*.js` | 全部 26 条路由对应页面模块 |
+| `js/*.test.mjs` / `tests/` | 模式隔离守卫测试、v15 交易拼装单元测试与 26 路由浏览器回归测试 |
 
-## 只读链路
+## 验证命令
 
+```bash
+node --test js/batch-a-live-guard.test.mjs js/v15-tx.test.mjs
 ```
-打开小程序
-  → app.js syncData()
-  → data.js loadSnapshot()
-      live: GET /api/config + /api/rounds → pickFocusRound() → GET /api/rounds/:id
-      demo: demoFixture()（数据来自 BAM 真实接口样本，明确标识为测试数据）
-  → mapRoundView() 写入内存
-  → 渲染首页 / 观察页 / 我的
-```
-
-服务端提供：轮次状态、倒计时 `secondsRemaining`、目标价 `targetPriceUsdE8`、判定均价 `priceUsdE8`、逐时段 `candles[*].qualified`。前端不自行推演这些值。
-
-## 已知边界
-
-- 本轮**不接资金写入**。真实模式点击参与/领取会明确提示等待合约版本交付。
-- a9mini 现有界面以 TON 计质押，BAM 原生以 A9 raw 计质押（9 位精度）。`estimateRewardA9()` 做了兼容折算，属于界面估算口径，合约版本交付后必须复核。
-- 团队、榜单、预热、内盘的实时数据接入属于下一阶段；当前这些页面在真实模式仍显示空态或演示数据，不得视为已验收。
-- CDN 不可达时 TON Connect / Telegram SDK / 字体加载失败，页面仍以只读模式运行；真机 Telegram 与钱包确认尚未实测。

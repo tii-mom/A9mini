@@ -1,37 +1,27 @@
 import { L } from './i18n.js';
 
+/**
+ * 方案 A 纸艺场景轻眉标
+ * 仅在需要场景指引的一级 Tab 页（挑战 / 商会）显示紧凑折纸徽标条；
+ * 主城（自带立体沙盘）、背包（自带角色立体舞台）以及所有带顶栏标题的二级栈页均不重复渲染，消除多层标题冗余。
+ */
 const scenes = {
-  '/internal/records': ['archive','商行订单','Exchange orders'],
-  '/team/profile': ['guild','商会档案','Guild register'],
-  '/team/bind-tg': ['guild','商会联络处','Guild liaison'],
-  '/ledger': ['archive','奖励账簿','Reward ledger'],
-  '/records': ['archive','参与记录','Participation log'],
-  '/settings': ['archive','主城设置','City settings'],
-  '/risk/matrix': ['observatory','风控自检','Risk checks'],
-  '/risk/audit': ['archive','审计记录','Audit records'],
-  '/rules': ['archive','规则藏书馆','Rule library'],
-  '/challenge/confirm': ['tower','参与确认','Confirm entry'],
-  '/renew': ['archive','续期设置','Renewal settings'],
-  '/claim': ['vault','奖励领取','Claim rewards'],
-  '/proof': ['archive','质押凭证','Stake ticket'],
-  '/round': ['tower','轮次挑战','Round challenge'],
-  '/challenge/success': ['archive','质押凭证','Stake ticket'],
-  '/warmup': ['city','预热广场','Warm-up plaza'],
-  '/warmup/rank': ['podium','预热邀请榜','Warm-up rankings'],
-  '/internal/market': ['bazaar','主城商行','City exchange'],
-  '/team': ['guild','商会大厅','Guild hall'],
-  '/team/invite': ['guild','邀请工坊','Invitation studio'],
-  '/leaderboard': ['podium','荣誉殿堂','Hall of fame'],
-  '/profile': ['treasury','我的资产库','Personal vault'],
+  '/round': ['tower', '轮次挑战', 'Round Challenge', '24H 达标攻防 · 16/24 胜出', '24H battle · 16/24 to pass'],
+  '/team':  ['guild', '商会大厅', 'Guild Hall',      '组队冲榜 · 享最高 +15% 加成', 'Squad up · up to +15% boost'],
 };
 
 export function paintScene(root, path) {
+  if (!root) return;
   const scene = scenes[path];
   root.hidden = !scene;
   if (!scene) return;
-  const [art, zh, en] = scene;
-  const stickers = {archive:'city', guild:'guild', observatory:'challenge', tower:'challenge', vault:'backpack', city:'city', podium:'challenge', bazaar:'guild', treasury:'backpack'};
-  const image = new URL(`../assets/game-v2/stickers/${stickers[art]}.webp`, import.meta.url);
-  root.style.setProperty('--section-sticker', `url("${image.href}")`);
-  root.innerHTML = `<h1>${L(zh,en)}</h1>`;
+  const [sticker, zh, en, subZh, subEn] = scene;
+  const src = `./assets/paper-craft/${sticker}.svg`;
+  root.innerHTML = `
+    <img class="realm-sticker" src="${src}" alt="" aria-hidden="true">
+    <div class="realm-copy">
+      <h1>${L(zh, en)}</h1>
+      <p>${L(subZh, subEn)}</p>
+    </div>
+  `;
 }

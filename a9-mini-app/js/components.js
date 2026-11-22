@@ -56,7 +56,7 @@ export function burstParticles(originEl) {
   const rect = originEl?.getBoundingClientRect();
   const cx = rect ? rect.left + rect.width * 0.8 : window.innerWidth / 2;
   const cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
-  const colors = ['#FA660F', '#F25C05', '#1F2439'];
+  const colors = ['#E8453C', '#F3B82C', '#2DA069', '#3A88D6'];
 
   for (let i = 0; i < 12; i++) {
     const p = document.createElement('span');
@@ -199,9 +199,12 @@ export function renderProgressRing(pct, label, color = 'var(--green)') {
 export function buildSparklineSvgPath(points = [0.1862, 0.1871, 0.1865, 0.1884, 0.1896, 0.1910]) {
   const w = 86;
   const h = 28;
-  const min = Math.min(...points) - 0.001;
-  const max = Math.max(...points) + 0.001;
-  const span = Math.max(0.002, max - min);
+  const rawMin = Math.min(...points);
+  const rawMax = Math.max(...points);
+  const pad = Math.max((rawMax - rawMin) * 0.28, Math.abs(rawMax) * 0.004, 1e-6);
+  const min = rawMin - pad;
+  const max = rawMax + pad;
+  const span = Math.max(1e-6, max - min);
   const coords = points.map((v, i) => {
     const x = 2 + (i / Math.max(1, points.length - 1)) * (w - 6);
     const y = h - 4 - ((v - min) / span) * (h - 8);
@@ -582,6 +585,8 @@ export function bindCorridorRadarEvents(root) {
   if (!root) return;
   const selectCandle = (cell) => {
     A9Haptic.light();
+    if (cell.dataset.candleConfirmed === 'true') A9Audio.stamp();
+    else A9Audio.tick();
     root.querySelectorAll('.candle-cell.selected').forEach(c => c.classList.remove('selected'));
     cell.classList.add('selected');
     const idx = cell.dataset.candleIdx;

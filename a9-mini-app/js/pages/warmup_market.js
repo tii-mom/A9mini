@@ -15,6 +15,7 @@ import { A9Haptic, A9TMA } from '../tma.js';
 import { formatNum, formatTimer, showToast, copyText, burstParticles, openModal, closeModal } from '../components.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
+import { SHOP_SCALLOP_AWNING } from '../paper-art.js';
 
 export function renderWarmupHome(root, navigate) {
   const { user, round } = store.state;
@@ -256,34 +257,36 @@ export function renderInternalMarket(root, navigate) {
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         <div class="card card-hero exchange-counter ${market.soldOut ? 'card-glow-red' : ''}">
+          ${SHOP_SCALLOP_AWNING}
+          <div class="shop-counter-body">
           <header class="counter-keeper"><img src="./assets/wealthverse/game/a8.webp" alt=""><h2>${L('兑换柜台','Exchange counter')}</h2></header><div class="row-between" style="margin-bottom:14px;">
-            <span class="chip chip-muted">1 TON = ${formatNum(market.rateA9PerTon)} A9</span>
+            <span class="chip chip-muted">1 GRAM = ${formatNum(market.rateA9PerTon)} A9</span>
             <span class="chip ${market.soldOut ? 'chip-red' : !user.tgBound ? 'chip-amber' : 'chip-green'}">${market.soldOut ? L('已售罄', 'SOLD OUT') : !user.tgBound ? L('需绑定 TG', 'BIND TG') : L('开放中', 'OPEN')}</span>
           </div>
 
           ${market.soldOut ? `
             <div class="sub-tile" style="border-color:var(--red-border);margin-bottom:14px;">
               <div class="row-start text-red" style="font-weight:700;font-size:12px;margin-bottom:4px;">${icon('shieldAlert', 15)} ${L('本轮内盘已售罄', 'Presale Sold Out')}</div>
-              <div class="num-xs text-sec">${L('售罄或关闭触发被动退款（≥1 TON 免手续费原路退回；主动退款扣 0.05 TON；≤0.1 TON 粉尘不退）。', 'Passive refunds ≥1 TON are free. Voluntary refund fee: 0.05 TON. Dust ≤0.1 TON non-refundable.')}</div>
+              <div class="num-xs text-sec">${L('售罄或关闭触发被动退款（≥1 GRAM 免手续费原路退回；主动退款扣 0.05 GRAM；≤0.1 GRAM 粉尘不退）。', 'Passive refunds ≥1 GRAM are free. Voluntary refund fee: 0.05 GRAM. Dust ≤0.1 GRAM non-refundable.')}</div>
             </div>
           ` : ''}
 
           <div class="row-between num-xs text-muted" style="margin-bottom:8px;">
-            <span>${L('单笔限额 5 – 200 TON', '5 – 200 TON / order')}</span>
-            <span>${L('可用额度', 'Avail')} <b style="color:var(--text-primary);">${formatNum(availQuota)} TON</b></span>
+            <span>${L('单笔限额 5 – 200 GRAM', '5 – 200 GRAM / order')}</span>
+            <span>${L('可用额度', 'Avail')} <b style="color:var(--text-primary);">${formatNum(availQuota)} GRAM</b></span>
           </div>
           <label for="market-ton-input" class="counter-label">${L('支付金额','You pay')}</label><div class="input-box">
             <input id="market-ton-input" type="number" min="5" max="200" value="${payTon}" ${market.soldOut ? 'disabled' : ''} />
             <div class="row-start" style="gap:6px;flex-shrink:0;">
               <button class="chip chip-green" id="btn-market-max" type="button" style="cursor:pointer;">MAX</button>
-              <span class="caps text-sec">TON</span>
+              <span class="caps text-sec">GRAM</span>
             </div>
           </div>
           <div class="grid-4" style="margin:10px 0 14px;">
-            ${[20, 50, 100, 200].map(v => `<button class="quick-btn ${payTon === v ? 'active' : ''}" aria-pressed="${payTon === v}" data-qton="${v}" type="button">${v} TON</button>`).join('')}
+            ${[20, 50, 100, 200].map(v => `<button class="quick-btn ${payTon === v ? 'active' : ''}" aria-pressed="${payTon === v}" data-qton="${v}" type="button">${v} GRAM</button>`).join('')}
           </div>
 
-          <div class="sub-tile row-between exchange-receipt" style="margin-bottom:14px;"><img src="./assets/wealthverse/game/purse.webp" alt="">
+          <div class="sub-tile row-between exchange-receipt" style="margin-bottom:14px;"><img src="./assets/paper-craft/ticket.svg" alt="">
             <span class="num-xs text-muted">${L('预计获得', 'Estimated Receive')}</span>
             <span class="num-lg text-green" id="market-est-a9">${formatNum(estA9)} A9</span>
           </div>
@@ -304,12 +307,13 @@ export function renderInternalMarket(root, navigate) {
                   ? `${icon('send', 15)} ${L('绑定 Telegram 并购买', 'Bind TG & Buy')}`
                   : `${icon('bolt', 16)} ${L(`购买 ${formatNum(estA9)} A9`, `Buy ${formatNum(estA9)} A9`)}`}
           </button>
+          </div>
         </div>
 
         <div class="card">
           <div class="row-between" style="margin-bottom:10px;">
             <div class="card-title" style="font-size:14px;">${icon('wallet', 15, 'text-green')} ${L('个人额度', 'Personal Quota')}</div>
-            <span class="num-sm mono">${formatNum(market.unlockedQuotaTon)} <span class="text-muted">/ ${formatNum(market.hardCapTon)} TON</span></span>
+            <span class="num-sm mono">${formatNum(market.unlockedQuotaTon)} <span class="text-muted">/ ${formatNum(market.hardCapTon)} GRAM</span></span>
           </div>
           <div class="progress-track" style="display:flex;height:7px;margin-bottom:12px;">
             <div style="width:${usedPct}%;background:var(--text-muted);opacity:0.45;"></div>
@@ -411,7 +415,7 @@ export function renderInternalRecords(root) {
             ${records.map(r => `
               <div class="list-row">
                 <div>
-                  <div class="num-sm">${formatNum(r.a9)} A9 <span class="num-xs text-muted">(-${r.ton} TON)</span></div>
+                  <div class="num-sm">${formatNum(r.a9)} A9 <span class="num-xs text-muted">(-${r.ton} GRAM)</span></div>
                   <div class="num-xs text-muted">${r.time} · ${r.hash}</div>
                 </div>
                 <span class="chip ${badgeCls(r.status)}">${r.status}</span>

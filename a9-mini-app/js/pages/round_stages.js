@@ -2,6 +2,8 @@ import { tower } from './wealthverse.js';
 import { store } from '../store.js';
 import { config } from '../config.js';
 import { formatNum, formatTimer, renderCorridorRadar, renderViralStrip, renderLiveSparkline } from '../components.js';
+import { A9Haptic } from '../tma.js';
+import { A9Audio } from '../audio.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { estimateRewardA9, rawToA9, getEffectiveUserId } from '../data.js';
@@ -80,7 +82,7 @@ export function renderPredictionCard(round, pred, user) {
       ? `<span class="chip chip-muted">${L('已结算', 'Settled')}</span>`
       : bet
         ? `<span class="chip ${bet.side === 'BURN' ? 'chip-red' : 'chip-green'}">${bet.side === 'BURN' ? L('已押 BURN', 'BURN') : L('已押 PASS', 'PASS')}</span>`
-        : `<span class="chip chip-green">${L('0 TON 参战', '0 TON')}</span>`;
+        : `<span class="chip chip-green">${L('0 GRAM 参战', '0 GRAM')}</span>`;
 
   const pendingBlock = pendingA9 > 0 ? `
     <div class="sub-tile" style="border-color:var(--green-border);margin-top:12px;">
@@ -89,11 +91,11 @@ export function renderPredictionCard(round, pred, user) {
         <span class="num-md text-green mono">${formatNum(pendingA9)} A9${usdEst !== null ? ` <span class="num-xs text-sec">(${L('约', '~')} $${formatNum(usdEst, 2)})</span>` : ''}</span>
       </div>
       <div class="num-xs text-muted" style="margin-bottom:6px;">${expRemSec !== null ? `<span id="pred-exp-cd" class="mono text-red">${L('距过期', 'Expires')} ${formatTimer(expRemSec)}</span>` : L('2 轮内未激活将自动过期回流奖池', 'Expires after 2 rounds if unactivated')}</div>
-      <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('完成 1 笔内盘买币（5 TON 起）或链上质押即可激活，走 0.06 TON 提现。', 'Complete 1 presale buy (5 TON+) or on-chain stake to activate via 0.06 TON.')}</div>
+      <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('完成 1 笔内盘买币（5 GRAM 起）或链上质押即可激活，走 0.06 GRAM 提现。', 'Complete 1 presale buy (5 GRAM+) or on-chain stake to activate via 0.06 GRAM.')}</div>
       <div class="col-gap" style="gap:8px;">
         <button class="btn btn-primary btn-sm" id="btn-pred-activate" type="button" style="width:100%;min-height:40px;">${icon('bolt', 14)} ${L('立即激活奖励', 'Activate Reward')}</button>
         <div class="grid-2">
-          <button class="btn btn-secondary btn-sm" data-nav="/internal/market" type="button" style="width:100%;">${icon('swap', 13)} ${L('去内盘 (5 TON 起)', 'Presale (5 TON+)')}</button>
+          <button class="btn btn-secondary btn-sm" data-nav="/internal/market" type="button" style="width:100%;">${icon('swap', 13)} ${L('去内盘 (5 GRAM 起)', 'Presale (5 GRAM+)')}</button>
           <button class="btn btn-secondary btn-sm" data-nav="/challenge/confirm" type="button" style="width:100%;">${icon('shieldCheck', 13)} ${L('链上质押', 'Stake')}</button>
         </div>
       </div>
@@ -133,7 +135,7 @@ export function renderPredictionCard(round, pred, user) {
   } else if (needsIdentity) {
     bodyHtml = `
       <div class="sub-tile" style="margin-top:12px;border-color:var(--gold-border);">
-        <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('请在 Telegram 内打开或先连接 TON 钱包，即可 0 TON 参战 24H 生死预言局。', 'Open in Telegram or connect a TON wallet to join the 0 TON prediction.')}</div>
+        <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('请在 Telegram 内打开或先连接 TON 钱包，即可 0 GRAM 参战 24H 生死预言局。', 'Open in Telegram or connect a TON wallet to join the 0 GRAM prediction.')}</div>
         <button class="btn btn-primary btn-sm" id="btn-pred-connect" type="button" style="width:100%;min-height:40px;">${icon('wallet', 14)} ${L('连接 TON 钱包参战', 'Connect Wallet')}</button>
       </div>
     `;
@@ -151,7 +153,7 @@ export function renderPredictionCard(round, pred, user) {
         <input id="pred-guess-slots" class="pred-slot-input" type="number" min="0" max="24" placeholder="0-24" aria-label="${L('精准达标格数', 'Exact qualified slots')}" />
       </div>
       ${weightHintHtml}
-      <button class="btn btn-primary" id="btn-pred-submit" type="button" style="margin-top:12px;min-height:46px;">${icon('bolt', 15)} ${L('0 TON 锁定本轮预言', 'Lock 0 TON Prediction')}</button>
+      <button class="btn btn-primary" id="btn-pred-submit" type="button" style="margin-top:12px;min-height:46px;">${icon('bolt', 15)} ${L('0 GRAM 锁定本轮预言', 'Lock 0 GRAM Prediction')}</button>
     `;
   }
 
@@ -250,11 +252,11 @@ export function renderParticipation(round) {
 
       <div class="hero-amt-pills">
         ${[100, 500, 1000].map(v => `
-          <button class="hero-amt-pill ${qAmt === v ? 'active' : ''}" data-hero-amt="${v}" type="button">${formatNum(v)} TON</button>
+          <button class="hero-amt-pill ${qAmt === v ? 'active' : ''}" data-hero-amt="${v}" type="button">${formatNum(v)} GRAM</button>
         `).join('')}
       </div>
 
-      <button class="btn btn-primary" id="hero-stake-cta" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L(`立即参与 ${formatNum(qAmt)} TON`, `Participate ${formatNum(qAmt)} TON`)}</button>
+      <button class="btn btn-primary" id="hero-stake-cta" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L(`立即参与 ${formatNum(qAmt)} GRAM`, `Participate ${formatNum(qAmt)} GRAM`)}</button>
       <div class="num-xs text-muted" style="margin-top:8px;">
         ${est === null
           ? L('预计奖励：等待服务端参与数据', 'Estimate: awaiting participation data')
@@ -319,8 +321,8 @@ export function renderObservation(round) {
     ${renderPredictionCard(round, store.state.prediction, store.state.user)}
 
     <div class="grid-2 realm-actions">
-      <button class="btn btn-secondary" data-nav="/proof"><img src="./assets/wealthverse/game/scroll.webp" alt=""> ${L('质押凭证', 'Certificate')}</button>
-      <button class="btn btn-secondary" data-nav="/team/invite"><img src="./assets/wealthverse/game/letter.webp" alt=""> ${L('邀请海报', 'Poster')}</button>
+      <button class="btn btn-secondary" data-nav="/proof"><img src="./assets/paper-craft/ticket.svg" alt=""> ${L('质押凭证', 'Certificate')}</button>
+      <button class="btn btn-secondary" data-nav="/team/invite"><img src="./assets/paper-craft/guild.svg" alt=""> ${L('邀请海报', 'Poster')}</button>
     </div>
   `;
 }
@@ -346,7 +348,7 @@ export function renderObservationRecords(root) {
   root.innerHTML = `<section class="star-journal wv-tower" data-round="${round.currentRound}">
     <header><small>${L('第','Round')} ${round.currentRound} · 24H</small><h1>${L('星轨观测志','Celestial log')}</h1></header>
     <div class="star-dial wv-windows" role="group" aria-label="${L('选择观测时段','Select observation slot')}">
-      <div class="dial-core"><i class="dial-pointer" aria-hidden="true"></i><img src="./assets/wealthverse/game/orb.webp" alt=""><b>${round.qualifiedCandles ?? '—'} / ${round.minQualifiedCandles || 16}</b><small>${L('达标时段','Qualified')}</small></div>
+      <div class="dial-core"><i class="dial-pointer" aria-hidden="true"></i><img src="./assets/paper-craft/tower.svg" alt=""><b>${round.qualifiedCandles ?? '—'} / ${round.minQualifiedCandles || 16}</b><small>${L('达标时段','Qualified')}</small></div>
       ${slots.map(({number,state},i)=>{
         const angle=(i%12)*Math.PI/6-Math.PI/2;
         const radius=i<12?43:28;
@@ -364,12 +366,16 @@ export function renderObservationRecords(root) {
     journal.style.setProperty('--slot-angle', ((number-1)%12)*30+'deg');
     journal.querySelector('.dial-pointer').classList.toggle('inner', number>12);
     journal.querySelectorAll('[data-slot]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.slot)===number)));
-    root.querySelector('.star-reading').innerHTML=`<header><img src="./assets/wealthverse/game/scroll.webp" alt=""><div><small>${L('时段记录','Slot record')}</small><h2>${L('第','Slot')} ${number} ${L('时段','')}</h2></div><b>${states[slot.state]}</b></header>
+    root.querySelector('.star-reading').innerHTML=`<header><img src="./assets/paper-craft/ticket.svg" alt=""><div><small>${L('时段记录','Slot record')}</small><h2>${L('第','Slot')} ${number} ${L('时段','')}</h2></div><b>${states[slot.state]}</b></header>
       <dl>${[[L('时段均价','Slot TWAP'),slot.price],[L('目标底价','Target'),round.targetPrice],[L('轮次判定均价','Round TWAP'),round.twap24h]].map(([label,v])=>`<div><dt>${label}</dt><dd>${v>0?'$'+Number(v).toLocaleString('en-US',{maximumFractionDigits:12}):'—'}</dd></div>`).join('')}</dl>`;
   }
   journal.addEventListener('click',event=>{
     const button=event.target.closest('[data-slot]');
-    if(button)select(Number(button.dataset.slot));
+    if(button){
+      A9Haptic.light();
+      A9Audio.tick();
+      select(Number(button.dataset.slot));
+    }
   });
   select(selected);
 }

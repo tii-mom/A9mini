@@ -59,7 +59,7 @@ export function renderTeamHome(root, navigate) {
           <div>
             <div class="row-start" style="font-size:16px;font-weight:700;">${escapeHtml(team.name || L('我的团队', 'My Squad'))} ${icon('shieldCheck', 16, 'text-green')}</div>
             <div class="num-xs text-muted" style="margin-top:6px;">${L('本轮队长预估分红 (1%)', 'Est. Captain Fee (1%)')}</div>
-            <div class="num-hero" id="captain-dividend-val" style="margin-top:3px;font-size:30px;">${formatNum(team.captainDividendTon || 0, 2)} <span class="num-sm text-green">TON</span></div>
+            <div class="num-hero" id="captain-dividend-val" style="margin-top:3px;font-size:30px;">${formatNum(team.captainDividendTon || 0, 2)} <span class="num-sm text-green">GRAM</span></div>
           </div>
           ${renderProgressRing(progressPct, `${progressPct}%`, 'var(--green)')}
         </div>
@@ -86,7 +86,7 @@ export function renderTeamHome(root, navigate) {
             ? `<div class="empty-state" style="padding:14px;"><div class="num-xs text-muted">${L('暂无成员数据', 'No members yet')}</div></div>`
             : (team.topMembers || []).map((m,i) => `
             <div class="guild-member"><img src="./assets/wealthverse/game/a${[5,2,3][i%3]}.webp" alt=""><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
-              <div class="num-sm text-green">${formatNum(m.ton)} TON</div>
+              <div class="num-sm text-green">${formatNum(m.ton)} GRAM</div>
             </div>
           `).join('')}
         </div>
@@ -167,7 +167,7 @@ export function renderTeamHome(root, navigate) {
   root.innerHTML = `<div class="col-gap anim-page-enter">${html}</div>`;
 
   const divEl = root.querySelector('#captain-dividend-val');
-  if (divEl) animateSlotCounter(divEl, Number(team.captainDividendTon) || 0, { duration: 600, decimals: 2, suffix: ' TON' });
+  if (divEl) animateSlotCounter(divEl, Number(team.captainDividendTon) || 0, { duration: 600, decimals: 2, suffix: ' GRAM' });
 
   const roleBtn = root.querySelector('#btn-role-sheet');
   if (roleBtn) {
@@ -330,9 +330,9 @@ export function renderInviteShare(root) {
         <div class="card card-hero">
           ${config.isDemo ? L('演示推广奖励','Demo promotion rewards') : L('推广奖励等待核验','Promotion rewards await verification')}
           <button class="btn btn-secondary btn-sm" id="btn-claim-promo-hot" style="width:100%;margin-top:12px;">${icon(config.isDemo ? 'wallet' : 'lock', 14)} ${config.isDemo
-            ? L('领取推广奖励（演示模拟 0.06 TON）', 'Claim Promo Rewards (Demo 0.06 TON)')
+            ? L('领取推广奖励（演示模拟 0.06 GRAM）', 'Claim Promo Rewards (Demo 0.06 GRAM)')
             : L('真实模式只读 · 推广领奖暂未开放', 'Read-Only Mode · Promo Claim Disabled')}</button>
-          ${!config.isDemo ? `<div class="num-xs text-muted" id="live-readonly-promo-notice" style="margin-top:6px;">${L('当前真实模式仅支持只读浏览与连接钱包，暂不创建 0.06 TON 付款单或发起签名。', 'Live mode is read-only; no 0.06 TON payment intent or signature will be created.')}</div>` : ''}
+          ${!config.isDemo ? `<div class="num-xs text-muted" id="live-readonly-promo-notice" style="margin-top:6px;">${L('当前真实模式仅支持只读浏览与连接钱包，暂不创建 0.06 GRAM 付款单或发起签名。', 'Live mode is read-only; no 0.06 GRAM payment intent or signature will be created.')}</div>` : ''}
         </div>
 
         <div class="seg-tabs">
@@ -364,9 +364,9 @@ export function renderInviteShare(root) {
             <span class="num-xs text-muted">${L('有效 16 人', '16 Valid')}</span>
           </div>
           <div class="col-gap">
-            <div class="list-row"><div><div class="num-sm">UQ...8892</div><div class="num-xs text-muted">5,000 TON · 2.0x</div></div><span class="chip chip-green">${L('已达标', 'Passed')}</span></div>
-            <div class="list-row"><div><div class="num-sm">EQ...3312</div><div class="num-xs text-muted">2,000 TON · 2.0x</div></div><span class="chip chip-gold">${L('观察中', 'Live')}</span></div>
-            <div class="list-row"><div><div class="num-sm">UQ...77ea</div><div class="num-xs text-muted">0 TON</div></div><span class="chip chip-muted">${L('待参与', 'Pending')}</span></div>
+            <div class="list-row"><div><div class="num-sm">UQ...8892</div><div class="num-xs text-muted">5,000 GRAM · 2.0x</div></div><span class="chip chip-green">${L('已达标', 'Passed')}</span></div>
+            <div class="list-row"><div><div class="num-sm">EQ...3312</div><div class="num-xs text-muted">2,000 GRAM · 2.0x</div></div><span class="chip chip-gold">${L('观察中', 'Live')}</span></div>
+            <div class="list-row"><div><div class="num-sm">UQ...77ea</div><div class="num-xs text-muted">0 GRAM</div></div><span class="chip chip-muted">${L('待参与', 'Pending')}</span></div>
           </div>
         </div>` : `<div class="card">
           <div class="card-header"><span class="card-title">${icon('team', 15)} ${L('被邀请人列表', 'Invitees')}</span></div>
@@ -413,7 +413,7 @@ export function renderInviteShare(root) {
       promoBtn.onclick = async () => {
         if (!config.isDemo || !store.fundsEnabled) {
           A9Haptic.warning();
-          showToast(L('当前真实模式处于只读验收阶段，推广领奖付款单与 0.06 TON 签名暂未开放', 'Live mode is read-only; promo payout intent and 0.06 TON signing are disabled'), 'amber');
+          showToast(L('当前真实模式处于只读验收阶段，推广领奖付款单与 0.06 GRAM 签名暂未开放', 'Live mode is read-only; promo payout intent and 0.06 GRAM signing are disabled'), 'amber');
           return;
         }
         A9Haptic.success();

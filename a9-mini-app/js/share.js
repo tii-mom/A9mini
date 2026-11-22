@@ -58,8 +58,8 @@ function buildAngles(type, id, ctx = {}) {
         key: 'data',
         label: L('数据派', 'Data'),
         text: L(
-          `A9 第 ${roundNum} 轮链上质押凭证 #${id} 已生成：参与 ${stakeTon} TON，早鸟权重 ${mult}x，当前 24H 达标时段 ${passed}/${required}，目标底价 ${target}。`,
-          `A9 Round #${roundNum} Proof #${id}: ${stakeTon} TON staked at ${mult}x early weight. 24H slots ${passed}/${required}, target ${target}.`
+          `A9 第 ${roundNum} 轮链上质押凭证 #${id} 已生成：参与 ${stakeTon} GRAM，早鸟权重 ${mult}x，当前 24H 达标时段 ${passed}/${required}，目标底价 ${target}。`,
+          `A9 Round #${roundNum} Proof #${id}: ${stakeTon} GRAM staked at ${mult}x early weight. 24H slots ${passed}/${required}, target ${target}.`
         )
       },
       {
@@ -74,8 +74,8 @@ function buildAngles(type, id, ctx = {}) {
         key: 'casual',
         label: L('吃瓜自嘲派', 'Banter'),
         text: L(
-          `把 ${stakeTon} TON 押进了 A9 第 ${roundNum} 轮 24H 赛点，目前 ${passed}/${required} 段达标，是吃肉还是看烟花就看接下来几小时了。`,
-          `Put ${stakeTon} TON into A9 Round #${roundNum}. Currently ${passed}/${required} slots qualified—either settlement or fireworks next.`
+          `把 ${stakeTon} GRAM 押进了 A9 第 ${roundNum} 轮 24H 赛点，目前 ${passed}/${required} 段达标，是吃肉还是看烟花就看接下来几小时了。`,
+          `Put ${stakeTon} GRAM into A9 Round #${roundNum}. Currently ${passed}/${required} slots qualified—either settlement or fireworks next.`
         )
       }
     ];
@@ -128,8 +128,8 @@ function buildAngles(type, id, ctx = {}) {
         key: 'bull',
         label: L('看多派', 'Bullish'),
         text: L(
-          `0 TON 也能参战 A9 第 ${roundNum} 轮 24H 生死预言！我已锁定 ${sideLabel}${slotNote}，本轮奖池 ${pool}，看看谁的判断更准。`,
-          `0 TON entry for A9 Round #${roundNum} 24H Prediction. Locked ${sideLabel}${slotNote}—let us see whose read holds up.`
+          `0 GRAM 也能参战 A9 第 ${roundNum} 轮 24H 生死预言！我已锁定 ${sideLabel}${slotNote}，本轮奖池 ${pool}，看看谁的判断更准。`,
+          `0 GRAM entry for A9 Round #${roundNum} 24H Prediction. Locked ${sideLabel}${slotNote}—let us see whose read holds up.`
         )
       },
       {
@@ -165,8 +165,8 @@ function buildAngles(type, id, ctx = {}) {
       key: 'casual',
       label: L('吃瓜自嘲派', 'Banter'),
       text: L(
-        `A9 第 ${roundNum} 轮 24H 赛点拉满悬念：目前 ${passed}/${required} 段，到底是顺利达标还是原地销毁？0 TON 可以先来预言站队。`,
-        `Peak suspense in A9 Round #${roundNum} (${passed}/${required} slots). Pass or burn? Zero-TON prediction is open.`
+        `A9 第 ${roundNum} 轮 24H 赛点拉满悬念：目前 ${passed}/${required} 段，到底是顺利达标还是原地销毁？0 GRAM 可以先来预言站队。`,
+        `Peak suspense in A9 Round #${roundNum} (${passed}/${required} slots). Pass or burn? Zero-GRAM prediction is open.`
       )
     }
   ];

@@ -1,34 +1,30 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#211935" />
+  <meta name="theme-color" content="#F5F0E6" />
   <title>A9 · 财富进化世界</title>
   <script>
-    (function(){try{var t=localStorage.getItem('a9_theme_mode');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',t==='dark'?'#211935':'#f1ecf9');}}catch(e){}})();
+    (function(){try{var t=localStorage.getItem('a9_theme_mode');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',t==='dark'?'#201D1B':'#F5F0E6');}}catch(e){}})();
   </script>
   <!-- Telegram WebApp SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <!-- TON Connect 2.0 UI SDK -->
   <script src="https://unpkg.com/@tonconnect/ui@2.0.9/dist/tonconnect-ui.min.js" defer></script>
-  <!-- Fonts: Inter & JetBrains Mono -->
+  <!-- 任天堂圆润几何字体 + 中文圆体 + 等宽数字字体 -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700;800&family=Nunito:wght@700;800;900&family=Noto+Sans+SC:wght@500;700;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./css/tokens.css" />
   <link rel="stylesheet" href="./css/animations.css" />
   <link rel="stylesheet" href="./css/components.css" />
   <link rel="stylesheet" href="./css/wealthverse.css" />
-  <link rel="stylesheet" href="./css/game.css">
+  <link rel="stylesheet" href="./css/game.css" />
 </head>
 <body>
   <div id="tma-shell" class="tma-shell">
-    <!-- Quiet Architectural Studio Backdrop (Zero visual clutter; purely subtle ambient light + micro-grid) -->
-    <div class="liquid-ambient" aria-hidden="true">
-      <div class="ambient-wash"></div>
-      <div class="ambient-grid"></div>
-    </div>
+    <div class="liquid-ambient" aria-hidden="true"></div>
 
     <header id="app-header" class="app-header"></header>
     <div id="ticker-bar" class="ticker-bar hidden"></div>

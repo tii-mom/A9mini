@@ -1,227 +1,361 @@
-/* Scene lighting stays continuous behind the HUD and navigation. */
-body[data-game-route="/challenge"] .tma-shell{background:#100e2c}
-body[data-game-route="/challenge"] .app-main{padding:0 0 calc(76px + var(--wv-safe-bottom));gap:0}
-body[data-game-route="/challenge"] .app-header{background:#191536;color:#fff1d5;border-bottom:1px solid #997758}
-body[data-game-route="/challenge"] .header-brand .brand-mark{color:#ffe9a3;font:bold italic 23px Georgia;background:none;box-shadow:none}
-.game-city.wv-hero{display:block;position:relative;border:0;border-radius:0;box-shadow:none;min-height:520px;height:calc(100svh - var(--header-h) - 78px - var(--wv-safe-top) - var(--wv-safe-bottom));max-height:940px;padding:0;isolation:isolate;color:white;background:#211740}
-.city-sky{position:absolute;inset:0;background:linear-gradient(0deg,#140d30 0%,#21143b44 26%,transparent 59%,#19113e40 100%),url('../assets/wealthverse/game/city.webp') center 43%/cover}
-.city-mast{position:absolute;top:4%;left:0;right:0;text-align:center;filter:drop-shadow(0 3px 2px #402143)}
-.city-mast small{font:800 10px/1.4 Georgia;letter-spacing:.24em;color:#fff0bd}
-.city-mast h1{margin:3px 0;color:#fff1aa;font:italic 1000 clamp(38px,11vw,64px)/1.12 Georgia,"PingFang SC",sans-serif;letter-spacing:-.05em;text-shadow:0 2px #ffbd5f,0 4px #993b21,0 6px #512050,2px 7px 5px #381b56}
-.city-profile{position:absolute;top:23%;left:4%;z-index:2;display:grid;gap:2px;padding:7px 15px;border:1px solid #f7cf89;border-radius:4px 16px 16px 4px;background:linear-gradient(115deg,#34205af5,#281642e0);text-decoration:none;color:#ffe7aa;font-size:13px}.city-profile span{font-size:10px;color:#f4e4fa}
-.game-city.wv-hero .wv-person{z-index:0;right:0;bottom:18%;width:94%;height:59%;object-fit:contain;object-position:center bottom;filter:drop-shadow(0 8px 9px #2a12389c)}
-.city-controls{position:absolute;bottom:0;left:0;right:0;padding:14px 16px 5px;text-align:center;background:linear-gradient(transparent,#201336d9 28%,#130e2f 89%)}
-.city-round{display:flex;align-items:center;gap:7px;width:max-content;max-width:100%;margin:0 auto 8px;padding:5px 12px;border:1px solid #e4b775;border-radius:20px;background:#291842;color:#fff1ba;font-size:13px;font-weight:800}.city-round i{width:7px;height:7px;border-radius:50%;background:#77e0b5}.city-round a{color:#fff2cb;text-decoration:none;border-left:1px solid #8c688a;padding-left:8px}
-.game-play{display:flex;align-items:center;justify-content:center;gap:16px;margin:auto;width:83%;min-height:50px;border:2px solid #ffedaf;border-radius:30px;background:linear-gradient(#fff2a5,#ffc03c 42%,#ffad24 52%,#ee840d);box-shadow:0 3px #9d491e,0 5px #532344,inset 0 0 0 2px #ffc64e;color:#401832;text-decoration:none;font-size:21px;font-weight:950;text-shadow:0 1px #ffebac}.game-play:active{transform:translateY(2px)}
-.game-gates{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:12px auto 0}.game-gates a{display:grid;justify-items:center;text-decoration:none;color:#fff2d4;font-size:12px;font-weight:800;text-shadow:0 2px #25122b}.game-gates img{width:clamp(45px,13vw,66px);height:clamp(45px,13vw,66px);object-fit:contain;filter:drop-shadow(0 3px 2px #090819)}.city-rules{color:#d2c0e3;font-size:11px;text-decoration:none}
-body[data-game-route="/challenge"] .app-tabbar{background:linear-gradient(#302451,#15112e);border:1px solid #886c9e;border-radius:15px;box-shadow:inset 0 1px #be9ac955;bottom:calc(8px + var(--wv-safe-bottom))}body[data-game-route="/challenge"] .tab-item{color:#d2c5dd}body[data-game-route="/challenge"] .tab-item.active{color:#ffe99a}body[data-game-route="/challenge"] .dock-pill{background:#5a3c67}
-.wv-gallery-hero .wv-scenery,.wv-location:before{background-image:linear-gradient(0deg,#1d133c,transparent 75%),url('../assets/wealthverse/game/city.webp')}
-.wv-gallery-hero .wv-person{width:75%;bottom:0;height:95%;object-fit:contain;object-position:right bottom}.wv-gallery-hero .wv-copy{background:linear-gradient(90deg,#291b47e8,transparent);padding:9px;border-radius:8px}
-.wv-gallery a{background:linear-gradient(150deg,#5b377b,#252046);border:2px solid #ba946b;color:#ffedce;box-shadow:inset 0 0 0 2px #654766}.wv-gallery img{height:100px;object-fit:contain}.wv-gallery a:nth-child(n+7){background:linear-gradient(145deg,#905570,#30204c)}
-.wv-vault .wv-scenery{background-image:linear-gradient(0deg,#22132e,transparent 67%),url('../assets/wealthverse/game/vault.webp')}.wv-vault{min-height:310px}
-.wv-tower{background:linear-gradient(#24143e40,#1a0e33c9),url('../assets/wealthverse/game/tower.webp') center/cover;padding-top:65px}.wv-windows{max-width:300px;margin:auto;background:#1e12366e;border:2px solid #ad855b;padding:6px;border-radius:10px}
-.wv-location.guild:before{background-image:linear-gradient(90deg,#261337b0,transparent),url('../assets/wealthverse/game/guild.webp')}.wv-location.guild:after{display:none}.wv-location.guild,body[data-game-route="/leaderboard"] .wv-location{min-height:190px;display:flex;flex-direction:column;justify-content:end}
-body[data-game-route="/leaderboard"] .wv-location:before{background-image:linear-gradient(0deg,#1b1235,transparent),url('../assets/wealthverse/game/podium.webp')}
-body[data-game-route] .app-header{background:linear-gradient(180deg,#312650,#1d1637);color:#fff2d8;border-bottom:1px solid #967844}
-body[data-game-route] .app-header .icon-btn,body[data-game-route] .wallet-pill{background:#382948;color:#ffe8b3;border:1px solid #88688e;box-shadow:inset 0 1px #ffffff24}
-body[data-game-route] .app-header .header-title{color:#ffe8b6}
-body[data-game-route] .app-tabbar{background:linear-gradient(#34254e,#18122e);border-color:#9b7a99}
-body[data-game-route] .app-tabbar .tab-item{color:#d6c7e0}body[data-game-route] .app-tabbar .tab-item.active{color:#ffe19b}
-body[data-game-route] .dock-pill{background:linear-gradient(#61446b,#382744);border-color:#e6c08a}
-body[data-game-route="/challenge"] .tma-shell:after{display:none}
-body[data-game-route="/rewards"] .wv-vault,body[data-game-route="/gallery"] .wv-gallery-hero,body[data-game-route="/team"] .wv-location.guild,body[data-game-route="/leaderboard"] .wv-location{margin:-10px -14px 0;border-radius:0 0 18px 18px;border-width:0 0 2px;min-height:clamp(245px,39svh,420px)}
-.wv-location.guild:before,body[data-game-route="/leaderboard"] .wv-location:before{filter:none;background-position:center}
-.wv-windows span{border:1px solid #b9a3ca;box-shadow:inset 0 2px 0 #ffffff34,0 2px 0 #241235;text-shadow:0 1px 2px #0008}
-.wv-windows [data-state=pass]{background:linear-gradient(#46987a,#19604d)}.wv-windows [data-state=miss]{background:linear-gradient(#ae5470,#742f4c)}
-.wv-hero.game-city .wv-missing{position:absolute;top:45%;right:10%;background:#261c38d9;border-radius:12px;padding:8px}
+/* ==========================================================================
+   A9 · 方案 A 专项业务场景纸艺装饰层（卷头横幅 / 商行屋檐小票 / 商会名册 / SBT 票券）
+   ========================================================================== */
 
-/* Illustrated interiors, shared by stack pages, tabs and dialogs. */
-body[data-game-route]{
-  --bg-canvas:#19142c;--bg-panel:#30243f;--bg-surface:#2e223c;--bg-header:#251b38;
-  --bg-elevated:linear-gradient(155deg,#473250,#291e38);--bg-elevated-high:linear-gradient(#573954,#32233d);
-  --bg-subtile:#ffffff09;--text-primary:#fff1d9;--text-secondary:#e3d4df;--text-muted:#c7b5ca;
-  --green:#e4bc79;--green-text:#ffdc97;--green-soft:#eac28419;--green-border:#a0865b;
-  --gold:#f6cc85;--emerald:#82e8b7;--red:#ff9aa9;--cyan:#a6e6ff;--sky:#a6ceff;
-  --border-hairline:#977f955c;--border-subtle:#967c9266;--border-strong:#c7a375;
-  --glass-rim-gradient:linear-gradient(125deg,#c8a476,#70567c);--glass-border:#9b7c91;--shadow-card:0 3px 0 #140d24;
-  --ring-track:#91819f55;--candle-pending:#4b3e59;color:var(--text-primary)
-}
-[data-theme=light] body[data-game-route]{--bg-canvas:#332637;--bg-panel:#443042;--bg-surface:#473345;--bg-elevated:linear-gradient(145deg,#5a4051,#3c293a)}
-body[data-game-route] .tma-shell{background:var(--bg-canvas)}
-body[data-game-route] .tma-shell:after,body[data-game-route] .ambient-grid{display:none}
-.realm-banner{position:relative;z-index:1;display:flex;align-items:flex-end;min-height:clamp(168px,29svh,295px);padding:22px 20px 18px;background:linear-gradient(0deg,var(--bg-canvas),transparent 66%),var(--scene-art) center 47%/cover}
-.realm-banner[hidden],body:has(.observatory-stage) .realm-banner{display:none}
-.realm-banner h1,.observatory-status h1{margin:0;color:#ffe6a8;font:italic 900 clamp(30px,9vw,50px)/1.13 Georgia,"PingFang SC",sans-serif;text-shadow:0 2px #a56a35,0 4px #512343,0 5px 10px #211328}
-body[data-game-route] .app-main .card,body[data-game-route] .modal-sheet,body[data-game-route] .cert-pass{color:var(--text-primary);background:linear-gradient(140deg,#62456922,transparent 47%),var(--bg-panel);border:1px solid #a98768;border-radius:12px;box-shadow:inset 0 0 0 3px #ffffff07,0 3px 0 #1b1228}
-body[data-game-route] :is(.seg-tabs,.metric-strip,.candle-inspector,.sub-tile,.check-list,.sheet-option,.hero-amt-pill,.cmd-tile,.pill-trigger,.filter-pill,.btn-secondary){background:linear-gradient(145deg,#48324e,#2c203b);color:#f7e9d5;border-color:#866b89}
-body[data-game-route] :is(.seg-tab.active,.hero-amt-pill.active,.filter-pill.active){color:#ffe294;background:#624361}
-body[data-game-route] .app-main .card-title{color:#ffe1a0;font-weight:800}
-body[data-game-route] .realm-nav-icon{width:29px;height:29px;object-fit:contain;filter:drop-shadow(0 2px 2px #110d1b)}
-body[data-game-route] .tab-item.active .realm-nav-icon{transform:translateY(-2px) scale(1.08)}
-.observatory-stage{position:relative;display:flex;flex-direction:column;justify-content:space-between;min-height:clamp(275px,42svh,400px);margin:-10px -14px 0;padding:12px 16px 17px;background:linear-gradient(0deg,#21152fec,transparent 66%),url('../assets/wealthverse/game/observatory.webp') center 46%/cover;border-bottom:2px solid #bb9763}
-.observatory-hud{display:flex;justify-content:space-between;align-items:center;gap:5px;font-size:12px}.observatory-hud>span{background:#231730d9;padding:6px 9px;border-radius:18px;color:#ffe9bf}
-.observatory-status{width:min(100%,360px);color:#f5dfc5;font-size:12px}.observatory-status .obs-hero-ratio{margin:8px 0;font-size:14px}.observatory-status #obs-passed-num{font-size:26px;font-weight:850;color:#ffd985}.observatory-status .progress-track{height:8px;margin:6px 0}.observatory-status .progress-fill{background:linear-gradient(90deg,#dd974b,#fff0ab)}
-body[data-game-route] #a9-radar-card{background:linear-gradient(155deg,#342342f5,#201831f0),url('../assets/wealthverse/game/tower.webp') center/cover}
-#a9-radar-grid{grid-template-columns:repeat(6,minmax(0,1fr));gap:5px;padding:7px;border:1px solid #ad8e6b;border-radius:9px;background:#191228}
-#a9-radar-grid .candle-cell{position:relative;min-height:33px;justify-content:center;border-radius:8px 8px 3px 3px;overflow:hidden}
-#a9-radar-grid .candle-body-wrap{position:absolute;inset:0;height:100%}
-#a9-radar-grid .candle-bar{width:100%;height:100%;border-radius:inherit}
-#a9-radar-grid .candle-idx{position:relative;z-index:1;font-weight:850;color:#fff;text-shadow:0 1px 3px #140d20}
-#a9-radar-grid .bull .candle-bar{background:linear-gradient(#358b73,#205645)}#a9-radar-grid .bear .candle-bar{background:repeating-linear-gradient(135deg,#96455f 0 5px,#77364f 5px 9px)}#a9-radar-grid .pending .candle-bar{background:#41354f}#a9-radar-grid .active .candle-bar{background:#886330;border-color:#ffdc85}
-#a9-prediction-card .pred-card-head{padding-left:46px;min-height:44px;background:url('../assets/wealthverse/game/orb.webp') left center/42px auto no-repeat}
-.realm-actions img{width:38px;height:38px;object-fit:contain}
-body[data-game-route] :is(.btn,.cmd-tile,.game-gates a,.tab-item,.candle-cell){transition:transform .13s ease,filter .13s ease}
-body[data-game-route] :is(.btn,.cmd-tile,.game-gates a,.tab-item,.candle-cell):active{transform:translateY(2px) scale(.96);filter:brightness(1.16)}
-@media(prefers-reduced-motion:reduce){body[data-game-route] :is(.btn,.cmd-tile,.game-gates a,.tab-item,.candle-cell){transition:none}body[data-game-route] :is(.btn,.cmd-tile,.game-gates a,.tab-item,.candle-cell):active{transform:none}}
-#a9-radar-grid .candle-bar{max-width:none}
-/* The outer orbit holds hours 1–12, the inner orbit holds 13–24. */
-.star-journal.wv-tower{margin:-10px -14px 0;padding:17px 12px 13px;border:0;border-bottom:2px solid #9f7751;border-radius:0;background:linear-gradient(0deg,#161029f7,#24173755 45%,#19132f73),url('../assets/wealthverse/game/observatory.webp') center/cover}
-.star-journal h1{font:italic 900 33px/1.1 Georgia,"PingFang SC",sans-serif;color:#ffe5a8;text-shadow:0 3px #81422e;margin:5px 0}
-.star-journal .star-dial{position:relative;display:block;width:min(100%,360px);max-width:none;aspect-ratio:1;margin:12px auto;padding:0;isolation:isolate;border:4px double #d8b777;border-radius:50%;background:repeating-conic-gradient(from -1deg,#e3ca7d55 0deg 1deg,transparent 1deg 5deg),radial-gradient(circle,#352749 0 19%,#514066 20%,#19132f 21% 51%,#8f7957 52%,#241633 53% 68%,#9c7848 69% 70%,#392843 71%);box-shadow:inset 0 0 26px #090719,0 8px 18px #160d23bf}
-.star-dial button{position:absolute;transform:translate(-50%,-50%);width:10%;aspect-ratio:1;border-radius:50%;border:2px solid #ae8f76;background:radial-gradient(circle at 32% 22%,#716079,#382a4a 65%);color:#fff0dc;font:800 13px monospace;box-shadow:0 3px 0 #1e132e}
-.star-dial button[data-state=pass],.star-key .key-pass{background:radial-gradient(circle at 28% 20%,#a6f8cc,#197d65 57%,#19493f)}
-.star-dial button[data-state=miss],.star-key .key-miss{background:radial-gradient(circle at 28% 20%,#ffabb9,#9b375e 57%,#562743)}
-.star-dial button[data-state=active],.star-key .key-active{background:radial-gradient(circle at 28% 20%,#fff4bc,#b27424 57%,#65421e)}
-.star-dial button[data-state=unknown],.star-key .key-unknown{background:repeating-linear-gradient(45deg,#323245 0 4px,#535066 4px 6px)}
-.star-dial button[aria-pressed=true]{outline:2px solid #fff2bf;outline-offset:2px;z-index:2}
-.star-journal .star-dial button span{display:inline;background:none;border:0;box-shadow:none;padding:0;font:inherit;color:inherit}
-.dial-core{position:absolute;inset:31%;display:flex;flex-direction:column;align-items:center;justify-content:center}.dial-core img{height:44%;object-fit:contain}.dial-core b{font:900 18px Georgia;color:#ffe5a2}.dial-core small{font-size:10px;letter-spacing:0}
-.star-key{font-size:10px;color:#f0decd;line-height:1.8}.star-key i{display:inline-block;width:8px;height:8px;border-radius:50%;border:1px solid #d5c0a8;margin:0 3px 0 6px}.star-reading{padding:14px;border:1px solid #bd9565;border-radius:8px;background:linear-gradient(130deg,#4a3450,#271c37);color:#ffe8c8}.star-reading header{display:flex;align-items:center;gap:9px}.star-reading header img{width:50px;height:50px;object-fit:contain}.star-reading h2{margin:2px 0;font-size:20px}.star-reading header>b{margin-left:auto;font-size:12px}.star-reading dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding-top:10px;border-top:1px solid #987c8066;margin:10px 0 0}.star-reading dt{font-size:11px;color:#dec9d9}.star-reading dd{margin:4px 0;font:700 13px monospace}
-body[data-game-route] .exchange-counter{overflow:hidden;padding-top:0}.counter-keeper{position:relative;display:flex;align-items:end;min-height:103px;margin:0 -15px 12px;padding:12px 16px;background:linear-gradient(90deg,#2a193bd1,transparent),url('../assets/wealthverse/game/bazaar.webp') center 55%/cover;border-bottom:2px solid #b88a54}.counter-keeper img{position:absolute;right:2%;bottom:0;height:100%;width:48%;object-fit:contain;object-position:right bottom}.counter-keeper h2{font:italic 900 26px Georgia,"PingFang SC",sans-serif;color:#fff2b8;text-shadow:0 3px #623445}.counter-label{display:block;margin:8px 0 4px;font-size:12px;color:#e9d7ba}.exchange-receipt img{width:40px;height:40px;object-fit:contain}.exchange-receipt>span:last-child{margin-left:auto}.exchange-counter .quick-btn.active,.ticket-tabs button[aria-pressed=true]{background:linear-gradient(#ffe0a0,#dcac64);color:#34213a;border-color:#ffe1a5}
-body[data-game-route="/internal/market"] .realm-banner,body[data-game-route="/team"] .realm-banner,body[data-game-route="/profile"] .realm-banner{min-height:142px}
-body[data-game-route] .guild-board{position:relative;isolation:isolate;background:linear-gradient(90deg,#251a34f8,#30213dde),url('../assets/wealthverse/game/guild.webp') center/cover}.guild-board:before{content:'';display:block;float:left;width:57px;height:68px;margin:0 10px 4px 0;background:url('../assets/wealthverse/game/flag.webp') center/contain no-repeat}.guild-board .metric-strip{clear:both}
-.guild-roster{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.guild-member{display:grid;gap:4px;justify-items:center;padding:7px 3px;background:linear-gradient(#443757,#281e37);border:1px solid #aa8b64;border-radius:40px 40px 8px 8px;text-align:center}.guild-member img{width:100%;height:76px;object-fit:contain}.guild-member .num-sm{font-size:11px}
-body[data-game-route] .vault-claim{background:linear-gradient(90deg,#261831ef,#392441a6),url('../assets/wealthverse/game/vault.webp') center/cover}.ticket-tabs{display:flex;gap:4px;margin:8px 0}.ticket-tabs button{padding:5px 9px;border:1px solid #91758d;border-radius:12px;background:#36273f;color:#ead7df;font-size:12px}.collectible-ticket{gap:7px;padding:10px 5px;border-bottom:1px dashed #ad8e61}.collectible-ticket img{width:37px;height:42px;object-fit:contain}.collectible-ticket[hidden],.ticket-empty[hidden]{display:none}.collectible-ticket>div:first-of-type{flex:1;min-width:0}.collectible-ticket>div:last-child{min-width:0;max-width:40%}.ticket-empty{color:#d5bfd3;font-size:12px}
-body[data-game-route="/internal/market"]:has(.exchange-counter) .realm-banner{display:none}
-body[data-game-route="/internal/market"] .exchange-counter .counter-keeper{min-height:clamp(144px,24svh,205px);padding-bottom:15px}.exchange-counter .counter-keeper h2{margin:0}.exchange-counter .counter-keeper img{width:55%}
-
-/* The hand points to the inspected hour. Its length identifies the orbit. */
-.dial-core { pointer-events:none }
-.dial-pointer { position:absolute; left:calc(50% - 1px); bottom:50%; width:2px; height:99%; background:#eacb88; transform-origin:bottom; transform:rotate(var(--slot-angle,0deg)); z-index:-1 }
-.dial-pointer.inner { height:60% }
-.star-reading dd,.guild-member .num-sm,.collectible-ticket { overflow-wrap:anywhere; font-variant-numeric:tabular-nums }
-.star-reading dl { gap:10px }
-body[data-game-route] :is(button,a,input):focus-visible { outline:2px solid #ffe39d; outline-offset:2px }
-body[data-game-route] .ticket-tabs button { min-height:40px; padding-inline:12px }
-body[data-game-route] .guild-member { background:#30263f; border-color:#786880 }
-body[data-game-route] .guild-member:first-child { border-color:#c9a563 }
-body[data-game-route] .exchange-receipt { border-inline-start:3px solid var(--gold); padding-inline-start:10px }
-body[data-game-route] .exchange-counter .quick-btn.active { background:#f5ce8d; color:#332035; box-shadow:inset 0 -3px #af803f }
-body[data-game-route] .ticket-tabs button[aria-pressed=true] { background:#f5ce8d; color:#332035 }
-body[data-game-route] .collectible-ticket { padding-block:12px }
-body[data-game-route] .realm-banner { min-height:clamp(96px,16svh,140px) }
-body:is([data-game-route="/leaderboard"],[data-game-route="/challenge/success"]) .realm-banner { min-height:clamp(168px,26svh,240px) }
-
-/* A9 fantasy-tech palette and separate city, character and entrance layers. */
-body[data-game-route], [data-theme=light] body[data-game-route]{
-  --bg-canvas:#13142b;--bg-panel:#242341;--bg-surface:#282748;--bg-header:#191b38;
-  --bg-elevated:#302b4e;--bg-elevated-high:#39345c;--border-hairline:#777bb557;
-  --border-subtle:#777bb57a;--border-strong:#b4b8e2;--cyan:#9ae8ff;
-}
-body[data-game-route] .app-header,body[data-game-route] .app-tabbar{background:#191a37;border-color:#575783}
-body[data-game-route] .dock-pill{background:#303557;border-color:#82cbf0}
-body[data-game-route] .app-main .card,body[data-game-route] .modal-sheet{border-color:#777bb573}
-.city-sky{background:linear-gradient(0deg,#13142b 3%,transparent 44%,#16162d55),url('../assets/game-v2/city.webp') center 44%/cover}
-.city-controls{background:linear-gradient(transparent,#13142bec 30%,#13142b 90%)}
-.city-round,.city-profile{background:#202044e8}
-.city-links{display:flex;justify-content:center;flex-wrap:wrap;gap:0 13px;margin-top:2px}
-.city-links a{display:inline-flex;align-items:center;min-height:40px;color:#a9dfff;font-size:12px;text-decoration:none}
-.game-gates a{min-width:0}
-.game-gates img,.crystal-preview img{filter:drop-shadow(0 1px 1px #f2ddb9) drop-shadow(0 3px 2px #101126)}
-.game-gates img{width:clamp(45px,13vw,58px);height:clamp(45px,13vw,58px)}
-.crystal-preview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;text-align:center}
-.crystal-preview figure{margin:0;padding:8px 2px;border-radius:8px;background:#1d1e37}
-.crystal-preview img{display:block;width:100%;height:80px;object-fit:contain;margin-bottom:6px}
-@media(prefers-reduced-motion:no-preference){
-  .game-gates a:hover img,.game-gates a:focus-visible img{transform:translateY(-3px)}
-  .game-gates img{transition:transform .15s ease}
+/* 1. 一级场景轻眉标（紧凑纸签，不与二级栈页顶栏重复） */
+.realm-banner {
+  margin: 4px 14px 4px;
+  padding: 8px 13px;
+  border-radius: 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--card-shadow-sm);
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-/* Cream-edged illustration, plum paper and brass rules throughout the book. */
-body[data-game-route],[data-theme=light] body[data-game-route]{
- --bg-canvas:#25203c;--bg-panel:#302943;--bg-header:#251e39;--text-primary:#fff2d8;--text-secondary:#e6dacb
+.realm-sticker {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: var(--paper-cut-shadow);
 }
-.city-sky{background:#29213e}
-.city-sticker{position:absolute;top:26%;left:0;width:100%;height:44%;object-fit:contain}
-.city-profile{top:17%;left:5%;background:#352c46;border-color:#ad9268}
-.city-mast h1,.realm-banner h1,.observatory-status h1,.star-journal h1{color:#fff0d0;text-shadow:0 2px #57405b;font-family:Georgia,"Songti SC",serif}
-.city-controls{background:#29213e;padding-bottom:15px}
-.game-play{border-radius:8px;background:#f1d397;box-shadow:0 3px #896941;text-shadow:none;color:#30223a}
-.game-gates{border-top:1px solid #947954;padding-top:10px}
-.game-gates img,.crystal-preview img{filter:drop-shadow(1px 0 #fff1cb) drop-shadow(-1px 0 #fff1cb) drop-shadow(0 2px #fff1cb)}
-.game-gates a span{background:#eddbb8;color:#392b3b;text-shadow:none;padding:2px 8px;border-radius:2px}
-body[data-game-route] .app-tabbar{background:#292039;border:1px solid #b29a70;border-radius:12px}
-body[data-game-route] .dock-pill{background:#514050;border-color:#d4b36f}
-body[data-game-route] .app-main .card,body[data-game-route] #a9-radar-card,body[data-game-route] .modal-sheet{background:#302943;border:1px solid #796681;box-shadow:none}
-body[data-game-route] .card-title{font-family:Georgia,"Songti SC",serif;border-inline-start:3px solid #c6a363;padding-inline-start:8px}
-body[data-game-route] .realm-banner,.observatory-stage{background-color:#29213e;border-bottom:1px solid #b79d74}
-body[data-game-route] .realm-banner{background-image:var(--section-sticker,url('../assets/game-v2/gate-city.webp'));background-position:93% center;background-size:auto 90%;background-repeat:no-repeat}
-body[data-game-route^="/team"]{--section-sticker:url('../assets/game-v2/gate-guild.webp')}
-body[data-game-route="/profile"],body[data-game-route="/claim"]{--section-sticker:url('../assets/game-v2/gate-backpack.webp')}
-.observatory-stage{background:#29213e url('../assets/game-v2/gate-challenge.webp') 95% 28%/auto 68% no-repeat}
-body[data-game-route] .metric-strip,body[data-game-route] .candle-inspector{background:#272237}
-.city-sticker{top:23%;height:48%;object-fit:cover;object-position:42% 55%;mask-image:linear-gradient(transparent,#000 8%,#000 91%,transparent)}
 
-/* Printed album surfaces shared by the showroom, HUD and business screens. */
-body[data-game-route]{--paper:#f9e7c4;--ink:#2e2241;--rule:#b69a70;--cutout:drop-shadow(1px 0 #fff1d3) drop-shadow(-1px 0 #fff1d3) drop-shadow(0 2px #fff1d3) drop-shadow(0 3px #21182e)}
-.sticker-studio{background:#29213e;color:var(--paper);max-width:560px;margin:auto;padding:20px;overflow-y:auto;height:100dvh;box-sizing:border-box}
-.sticker-studio h1,.sticker-studio h2{font-family:Georgia,"Songti SC",serif}
-.studio-cover{width:100%}.studio-buildings{display:grid;grid-template-columns:1fr 1fr}.studio-buildings figure{margin:5px;text-align:center}.studio-buildings img{width:100%;height:115px;object-fit:contain}.sticker-studio section{border-top:1px solid var(--rule);margin:18px 0;padding-top:8px}
-body[data-game-route] .app-main .card,body[data-game-route] :is(.modal-sheet,.cert-pass,.sticker-studio .card,dialog){background:#372d49;border:1px solid #d0b991;border-radius:6px 15px 7px 12px;box-shadow:0 3px 0 #181023}
-body[data-game-route] :is(.app-main .card-title,.sticker-studio .card-title){background:var(--paper);color:var(--ink);padding:4px 9px;border:0;border-radius:2px 8px 3px 2px;line-height:1.35;width:fit-content;max-width:100%;font-weight:800}
-body[data-game-route] :is(.btn-primary,.game-play){background:var(--paper);color:#33223c;border:2px solid #fff4da;border-radius:6px 13px 6px 12px;box-shadow:0 3px #8e6b4d;text-shadow:none}
-body[data-game-route] :is(.btn-secondary,.cmd-tile,.sheet-option,.sub-tile,.seg-tabs,.input-box,.check-list,.quick-btn,.hero-amt-pill,.filter-pill,.share-textarea,.a9-slider,.pred-slot-input){background:#272139;color:#fff1d8;border-color:#93829a;border-radius:7px}
-body[data-game-route] :is(.quick-btn.active,.seg-tab.active,.hero-amt-pill.active,.filter-pill.active){background:#f1d9b3;color:#33253d}
-body[data-game-route] :is(.chip,.ticket-tabs button,.toast){border-radius:4px 9px 5px 7px;border-width:1px}
-body[data-game-route] :is(.wv-person,.wv-gallery img,.realm-actions img,.guild-member img,.collectible-ticket img,.counter-keeper img){filter:var(--cutout)}
-body[data-game-route] .realm-banner{background-size:auto 77%;border-bottom:2px solid var(--rule)}
-body[data-game-route] .realm-banner h1{max-width:65%;color:#fff0d0;text-shadow:0 2px #402b47}
-body[data-game-route] .observatory-stage{background-image:url('../assets/game-v2/stickers/challenge.webp')}
-body[data-game-route] .star-journal.wv-tower,body[data-game-route] #a9-radar-card{background:#30263e}
-body[data-game-route] .counter-keeper{background:#29213c}
-body[data-game-route] .crystal-preview figure{border:1px solid #ab91aa;background:#29213c;border-radius:10px 5px}
-body[data-game-route] .crystal-preview figcaption,.studio-buildings figcaption{display:inline-block;background:var(--paper);color:var(--ink);border-radius:3px;padding:2px 9px;font-weight:700}
-body[data-game-route] :is(.btn:disabled,button[disabled]){opacity:.6}
-body[data-game-route] dialog{color:var(--paper);padding:24px}
-body[data-game-route] dialog::backdrop{background:#151021aa}
-body[data-game-route] .star-reading,body[data-game-route] .guild-board,body[data-game-route] .vault-claim{background:#372d49;border-color:#c2a882}
-body[data-game-route] .guild-board:before{background-image:url('../assets/game-v2/stickers/guild.webp')}
-body[data-game-route] .wv-vault .wv-scenery{background:#28213b url('../assets/game-v2/stickers/backpack.webp') right center/auto 76% no-repeat}
-body[data-game-route] .wv-gallery-hero .wv-scenery{background:#29213c}
-body[data-game-route] .guild-member,body[data-game-route] .wv-gallery a{border:1px solid #d1b794;border-radius:8px 15px 8px 6px;background:#382e4b}
-.studio-nav{display:flex;justify-content:space-around;border:1px solid var(--rule);border-radius:8px;background:#231c34;padding:8px}.studio-nav a{color:var(--paper);padding:8px}
-
-/* Jade ink, warm paper and a single action colour across the application. */
-body[data-game-route],[data-theme=light] body[data-game-route]{
- --bg-canvas:#172724;--bg-panel:#223630;--bg-header:#182823;--bg-surface:#243934;--paper:#f4e9ce;--ink:#182b25;--rule:#788d80;
- --text-primary:#f6f1df;--text-secondary:#d1dace;--text-muted:#b6c4b9;--gold:#e7c991;--green-text:#b7e8ce
+.realm-copy {
+  min-width: 0;
 }
-body[data-game-route] .tma-shell,body[data-game-route="/challenge"] .tma-shell{background:var(--bg-canvas)}
-body[data-game-route] :is(.app-header,.app-tabbar),body[data-game-route="/challenge"] :is(.app-header,.app-tabbar){background:#172822;border-color:#54695d}
-body[data-game-route] .app-header :is(.icon-btn,.wallet-pill){background:#233a31;border-color:#506457;color:#eee7d4}
-body[data-game-route] .dock-pill,body[data-game-route="/challenge"] .dock-pill{background:#344e41;border-color:#748e79}
-body[data-game-route] .app-main .card,body[data-game-route] :is(.modal-sheet,.cert-pass,.star-reading,.guild-board,.vault-claim),body[data-game-route] #a9-radar-card{background:var(--bg-panel);border:1px solid #455e50;border-radius:14px;box-shadow:none}
-body[data-game-route] .app-main .card-title{padding:0;background:none;border:0;color:#f3ead4;font-size:16px}
-body[data-game-route] :is(.metric-strip,.candle-inspector,.sub-tile,.cmd-tile,.sheet-option,.input-box,.hero-amt-pill,.quick-btn,.filter-pill,.seg-tabs,.btn-secondary,.check-list){background:#192d26;border-color:#4c6455;color:#e4e9dc}
-body[data-game-route] .btn-primary,body[data-game-route] .game-play{background:#c7e7ad;color:#1a321f;border:0;box-shadow:none;border-radius:9px;text-shadow:none}
-body[data-game-route] :is(.realm-banner,.observatory-stage,.star-journal.wv-tower,.counter-keeper){background-color:#21362e}
-body[data-game-route] .realm-banner h1,.observatory-status h1{font-size:clamp(26px,7vw,36px);font-style:normal;text-shadow:none}
-.game-city.wv-hero{display:grid;align-content:start;gap:0;height:auto;min-height:0;max-height:none;padding:16px;color:#213129;background:#f1ebdb}
-.edition-heading,.edition-caption,.edition-round{display:flex;justify-content:space-between;align-items:center}
-.edition-heading{gap:10px;padding:4px 0 14px}.edition-heading h1{margin:0;font:700 clamp(25px,7vw,35px)/1.2 Georgia,"Songti SC",serif}.edition-heading a{color:#375844;font-size:13px;padding:12px 0;text-decoration:none}
-.edition-art{border-radius:13px;overflow:hidden;aspect-ratio:1.9;background:#29213e;display:grid;place-items:center}
-.edition-cover,.game-city.wv-hero .edition-art .wv-person{position:static;width:100%;height:100%;max-height:100%;min-height:0;object-fit:contain;animation:none;filter:none}
-.edition-caption{font-size:12px;padding:9px 1px 15px}.edition-caption span{color:#566455}
-.edition-round{display:grid;grid-template-columns:1fr auto;gap:12px;background:#233c30;color:#f7eed9;padding:16px;border-radius:12px}
-.edition-round h2{margin:3px 0 0;font-size:22px}.edition-round small{display:block;color:#c2d0bd;font-size:12px;line-height:1.5;letter-spacing:0}
-.edition-round>a:first-of-type{text-align:right;font:700 23px/1.2 monospace;text-decoration:none;color:#f1e8ce}
-.edition-round .game-play{grid-column:1/-1;width:100%;min-height:44px;font-size:16px}
-.game-gates{width:100%;border:0;margin:15px 0 0;padding:0;gap:6px}.game-gates a{border:1px solid #c9cebb;background:#faf7ec;border-radius:9px;padding:8px 1px}.game-gates a span{background:none;color:#293b30;font-size:12px}.game-gates img{width:41px;height:41px;filter:none}
-body[data-game-route="/gallery"] .wv-gallery-hero{display:grid;grid-template-columns:1fr 1.25fr;align-items:center;min-height:180px;padding:14px;margin:0;border:0;border-radius:12px;box-shadow:none;background:#f1ebda}
-.wv-gallery-hero .wv-scenery{display:none}.wv-gallery-hero .wv-copy{grid-column:1;grid-row:1;background:none;max-width:none;color:#435443;padding:0}
-.wv-gallery-hero .wv-copy :is(h1,small){color:#263d2f;text-shadow:none}.wv-gallery-hero .wv-copy h1{font-size:26px}
-body[data-game-route] .wv-gallery-hero .wv-person{position:static;grid-column:2;grid-row:1;width:100%;height:168px;z-index:auto;animation:none;filter:none;object-fit:contain}
-body[data-game-route] .wv-gallery a{background:#253b31;padding:8px 4px;border:1px solid #526958;box-shadow:none;border-radius:10px;color:#f2ecd9;gap:3px}
-body[data-game-route] .wv-gallery a[aria-current=true]{outline:2px solid #b6d993}
-body[data-game-route="/challenge"] .app-main{background:#f1ebdb}
-.game-gates img{background:#30293d;border-radius:9px;width:48px;height:48px;padding:3px}
+
+.realm-banner h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.realm-banner p {
+  margin: 1px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 2. 星塔观测页头 (.observatory-stage) */
+.observatory-stage {
+  position: relative;
+  border-radius: 22px 7px 22px 22px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  padding: 15px 16px;
+}
+
+.observatory-stage::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 17px 4px 17px 17px;
+  border: 1px dashed var(--card-stitch);
+  pointer-events: none;
+}
+
+.observatory-stage::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 24px;
+  height: 24px;
+  background: linear-gradient(225deg, var(--paper-bg) 47%, var(--card-thickness) 49.5%, var(--card-soft) 53%, var(--card-bg) 100%);
+  border-bottom-left-radius: 9px;
+  box-shadow: -3px 3px 6px rgba(43, 37, 35, 0.09);
+  pointer-events: none;
+}
+
+.observatory-hud {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.observatory-hud b {
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+
+.observatory-status {
+  position: relative;
+  z-index: 1;
+  margin-top: 10px;
+}
+
+.observatory-status h1 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-muted);
+}
+
+.obs-hero-ratio {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-soft);
+  margin-bottom: 10px;
+}
+
+.obs-hero-ratio #obs-passed-num {
+  font-family: var(--font-mono);
+  font-size: 30px;
+  font-weight: 900;
+  color: var(--ink);
+  margin-right: 4px;
+}
+
+.obs-hero-ratio .ratio-cur { color: var(--nt-green); }
+.obs-hero-ratio .ratio-sep { color: var(--ink-muted); margin: 0 2px; }
+.obs-hero-ratio .ratio-req { color: var(--ink-soft); font-size: 20px; }
+
+.observatory-status > span {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.realm-actions .btn img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+/* 3. 主城商行：立体扇贝红白纸檐 & 锯齿收据小票 */
+.exchange-counter {
+  padding: 0 !important;
+  overflow: hidden;
+  border-top-right-radius: 22px !important;
+}
+
+.exchange-counter::before {
+  top: 28px;
+  border-top-right-radius: 17px;
+}
+
+.exchange-counter::after {
+  display: none;
+}
+
+.awning-scallop-svg {
+  display: block;
+  width: 100%;
+  height: 24px;
+}
+
+.shop-counter-body {
+  padding: 12px 16px 16px;
+}
+
+.counter-keeper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.counter-keeper img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  filter: var(--paper-cut-shadow);
+  flex-shrink: 0;
+}
+
+.counter-keeper h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.counter-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+
+.exchange-receipt {
+  position: relative;
+  background: var(--paper-bg);
+  border: 1px dashed var(--card-thickness);
+  border-radius: 14px 14px 6px 6px;
+  padding: 11px 13px 16px !important;
+  background-image:
+    linear-gradient(135deg, transparent 50%, var(--card-bg) 50%),
+    linear-gradient(225deg, transparent 50%, var(--card-bg) 50%);
+  background-position: bottom left, bottom left;
+  background-size: 12px 6px;
+  background-repeat: repeat-x;
+}
+
+.exchange-receipt img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+/* 4. 商会主力 3 列贴纸名册 (.guild-roster) */
+.guild-roster {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.guild-member {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 10px 5px;
+  border-radius: 15px;
+  background: var(--paper-tray);
+}
+
+.guild-member:first-child {
+  background: var(--nt-gold-soft);
+}
+
+.guild-member img {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+  filter: var(--paper-cut-shadow);
+}
+
+/* 5. 背包凭证收藏册 (.ticket-tabs & .collectible-ticket) */
+.ticket-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 4px;
+  border-radius: 13px;
+  background: var(--paper-tray);
+}
+
+.ticket-tabs button {
+  padding: 7px 4px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 11.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ticket-tabs button[aria-pressed="true"] {
+  background: var(--card-bg);
+  color: var(--ink);
+  box-shadow: 0 2px 0 var(--card-thickness);
+}
+
+.collectible-ticket {
+  position: relative;
+  margin-top: 8px;
+  background: var(--paper-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 15px;
+  padding: 11px 12px;
+  transition: transform 0.12s var(--ease-spring), background 0.14s ease;
+}
+
+.collectible-ticket::before {
+  content: '';
+  position: absolute;
+  left: 48px;
+  top: 7px;
+  bottom: 7px;
+  border-left: 1.5px dashed var(--card-thickness);
+}
+
+.collectible-ticket img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.ticket-empty {
+  margin: 12px 0 4px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+/* 6. 3D 翻转典藏纸片 SBT 凭证 (.cert-pass) */
+.cert-pass {
+  position: relative;
+  min-height: 204px;
+  border-radius: 22px;
+  padding: 16px;
+  border: 1px solid var(--card-border);
+  background: linear-gradient(145deg, #FFFFFF 0%, #FAF4E6 100%);
+  color: #2B2523;
+  box-shadow: var(--card-shadow);
+}
+
+[data-theme="dark"] .cert-pass.front,
+[data-theme="dark"] .cert-pass:not(.back) {
+  background: linear-gradient(145deg, #332D2A 0%, #272220 100%);
+  color: #F5EFE6;
+}
+
+.cert-pass.back {
+  background: #2B2523;
+  border-color: #423935;
+  color: #F7F1E8;
+}
+
+.cert-pass.back .text-muted {
+  color: #B4A89F !important;
+}
+
+.cert-serial {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--nt-gold-ink);
+}
+
+.cert-corner {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  border-color: var(--card-thickness);
+  border-style: solid;
+  border-width: 0;
+  pointer-events: none;
+}
+.cert-corner.tl { top: 8px; left: 8px; border-top-width: 2px; border-left-width: 2px; border-top-left-radius: 4px; }
+.cert-corner.tr { top: 8px; right: 8px; border-top-width: 2px; border-right-width: 2px; border-top-right-radius: 4px; }
+.cert-corner.bl { bottom: 8px; left: 8px; border-bottom-width: 2px; border-left-width: 2px; border-bottom-left-radius: 4px; }
+.cert-corner.br { bottom: 8px; right: 8px; border-bottom-width: 2px; border-right-width: 2px; border-bottom-right-radius: 4px; }

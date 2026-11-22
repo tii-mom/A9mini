@@ -1,8 +1,7 @@
-// A9 illustrated share cards. Text and QR payloads are generated at render time.
+// A9 方案 A 暖棉纸立体书分享海报生成器（运行时动态合成文本与二维码）
 import { store } from './store.js';
 import { L } from './i18n.js';
 import { stageLabel } from './pages/wealthverse.js';
-
 import qrcode from './vendor/qrcode.js';
 import { config } from './config.js';
 
@@ -15,9 +14,16 @@ function drawQrMatrix(ctx, x, y, size, startParam) {
   code.make();
   const count = code.getModuleCount();
   const step = Math.floor(size / (count + 8));
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(x, y, size, size);
-  ctx.fillStyle = '#141027';
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath();
+  ctx.roundRect(x - 6, y - 6, size + 12, size + 12, 16);
+  ctx.fill();
+  ctx.strokeStyle = '#E7DFD1';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.fillStyle = '#2B2523';
   for (let row = 0; row < count; row++) {
     for (let col = 0; col < count; col++) {
       if (code.isDark(row, col))
@@ -25,11 +31,13 @@ function drawQrMatrix(ctx, x, y, size, startParam) {
     }
   }
   if (config.isDemo) {
-    ctx.fillStyle = '#53378c';
-    ctx.fillRect(40, 38, 118, 42);
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 27px sans-serif';
-    ctx.fillText('DEMO', 52, 68);
+    ctx.fillStyle = '#ECE6DA';
+    ctx.beginPath();
+    ctx.roundRect(548, 72, 108, 38, 12);
+    ctx.fill();
+    ctx.fillStyle = '#6A615B';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillText('DEMO', 568, 99);
   }
 }
 
@@ -40,43 +48,100 @@ function paintPoster(canvas, title, lines, param, tall = false) {
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
-  const bg = ctx.createLinearGradient(0, 0, width, height);
-  bg.addColorStop(0, '#57408c');
-  bg.addColorStop(1, '#161328');
-  ctx.fillStyle = bg;
+
+  // 暖棉纸基底
+  ctx.fillStyle = '#F5F0E6';
   ctx.fillRect(0, 0, width, height);
-  ctx.strokeStyle = '#d6b273';
-  ctx.strokeRect(20, 20, width - 40, height - 40);
-  ctx.fillStyle = '#ffdaa1';
-  ctx.font = 'bold 24px sans-serif';
-  ctx.fillText('A9  /  WEALTHVERSE', 46, 126);
-  ctx.font = 'bold 56px sans-serif';
-  ctx.fillText(title, 46, 215, width - 92);
+
+  // 纯白厚卡纸底托 + 暖灰纸板底厚度
+  ctx.fillStyle = '#D6CBB9';
+  ctx.beginPath();
+  ctx.roundRect(36, 46, width - 72, height - 86, 36);
+  ctx.fill();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath();
+  ctx.roundRect(36, 36, width - 72, height - 86, 36);
+  ctx.fill();
+
+  // 手工针脚内虚线框
+  ctx.save();
+  ctx.strokeStyle = 'rgba(178, 162, 138, 0.52)';
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([9, 8]);
+  ctx.beginPath();
+  ctx.roundRect(52, 52, width - 104, height - 118, 26);
+  ctx.stroke();
+  ctx.restore();
+
+  // 任天堂朱红 A9 印章
+  ctx.fillStyle = '#B82D25';
+  ctx.beginPath();
+  ctx.roundRect(72, 82, 88, 50, 14);
+  ctx.fill();
+  ctx.fillStyle = '#E8453C';
+  ctx.beginPath();
+  ctx.roundRect(72, 76, 88, 50, 14);
+  ctx.fill();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 28px sans-serif';
+  ctx.fillText('A9', 96, 111);
+
+  ctx.fillStyle = '#988E86';
+  ctx.font = 'bold 21px sans-serif';
+  ctx.fillText('A9 / PAPER CRAFT WORLD', 178, 109);
+
+  ctx.fillStyle = '#2B2523';
+  ctx.font = 'bold 52px sans-serif';
+  ctx.fillText(title, 72, 198, width - 144);
+
+  // 中央柔和剪纸舞台
+  const stageY = 230;
+  const stageH = height - 600;
+  ctx.fillStyle = '#FAF6EE';
+  ctx.beginPath();
+  ctx.roundRect(72, stageY, width - 144, stageH, 28);
+  ctx.fill();
+  ctx.fillStyle = '#E3EADF';
+  ctx.beginPath();
+  ctx.ellipse(width / 2, stageY + stageH - 36, 210, 32, 0, 0, Math.PI * 2);
+  ctx.fill();
+
   const drawDetails = () => {
-    ctx.font = '28px sans-serif';
-    ctx.fillStyle = '#fff4dd';
-    lines.forEach((line, i) =>
-      ctx.fillText(line, 46, height - 333 + i * 42, width - 92),
+    ctx.font = 'bold 26px sans-serif';
+    ctx.fillStyle = '#6A615B';
+    lines.filter(Boolean).forEach((line, i) =>
+      ctx.fillText(line, 72, height - 332 + i * 40, width - 144),
     );
-    drawQrMatrix(ctx, 48, height - 222, 170, param);
-    ctx.fillStyle = '#ffe1a8';
-    ctx.font = 'bold 24px sans-serif';
+    drawQrMatrix(ctx, 76, height - 236, 156, param);
+    ctx.fillStyle = '#2B2523';
+    ctx.font = 'bold 26px sans-serif';
     ctx.fillText(
       L('扫码进入财富主城', 'Scan to enter Wealth City'),
-      240,
-      height - 120,
-      425,
+      260,
+      height - 156,
+      390,
     );
+    ctx.fillStyle = '#988E86';
+    ctx.font = '22px sans-serif';
+    ctx.fillText('A9 · Telegram Mini App', 260, height - 116, 390);
   };
   drawDetails();
-  const backdrop = new Image();
-  backdrop.onload = () => {
-    if (canvas.posterScene !== backdrop) return;
-    ctx.drawImage(backdrop, 38, 259, width - 76, height - 642);
+
+  const standee = new Image();
+  standee.onload = () => {
+    if (canvas.posterScene !== standee) return;
+    const maxW = width - 220;
+    const maxH = stageH - 32;
+    const scale = Math.min(maxW / standee.naturalWidth, maxH / standee.naturalHeight);
+    const dw = standee.naturalWidth * scale;
+    const dh = standee.naturalHeight * scale;
+    ctx.drawImage(standee, (width - dw) / 2, stageY + (stageH - dh) / 2 - 4, dw, dh);
   };
-  canvas.posterScene = backdrop;
-  backdrop.src = './assets/wealthverse/game/city.webp';
+  canvas.posterScene = standee;
+  const tier = store.state.user.previewTier || 9;
+  standee.src = `./assets/wealthverse/game/a${tier}.webp`;
 }
+
 export function renderReferralPoster(canvas) {
   const { team, user } = store.state;
   paintPoster(
@@ -86,6 +151,7 @@ export function renderReferralPoster(canvas) {
     `invite_${team.id || 'A9'}_${(user.shortAddress || 'A9USER').slice(-4)}`,
   );
 }
+
 export function renderProofFlexPoster(canvas, certInput) {
   const cert = certInput || store.state.certificates[0];
   paintPoster(
@@ -97,6 +163,7 @@ export function renderProofFlexPoster(canvas, certInput) {
     cert ? 'proof_' + cert.id : 'round_' + store.state.round.currentRound,
   );
 }
+
 export function renderStoryPoster(canvas, payload = {}) {
   const r = store.state.round;
   const id = payload.roundId ?? r.currentRound;
@@ -120,6 +187,7 @@ export function renderStoryPoster(canvas, payload = {}) {
     true,
   );
 }
+
 export function downloadPosterPng(canvas, filename = 'A9-Poster.png') {
   if (!canvas) return;
   const link = document.createElement('a');
