@@ -1483,6 +1483,89 @@ await test('P0-G: configured TonCenter failure or active-contract getter error r
 });
 
 // ---------------------------------------------------------------------------
+// 第一阶段遗留小修复（第二阶段任务书 §5）：TonCenter 严格结构验证反例
+// ---------------------------------------------------------------------------
+await test('TonCenter strict schema validation: empty/malformed stack, missing/wrong-type/negative balance, missing account state never become fake 0', async () => {
+  const rawAddr = `0:${'33'.repeat(32)}`;
+  const boc = encodeAddressSliceBoc(rawAddr);
+  const decoded = decodeAddressFromCellBoc(boc);
+
+  const mkClient = (walletDataResp, addrInfoResp = null, ticketDataResp = null) => new TonCenterClient({
+    apiBase: 'http://mock-toncenter.local',
+    minIntervalMs: 0,
+    maxRetries: 0,
+    fetchImpl: async (url, opts) => {
+      if (url.includes('/getAddressInformation')) {
+        return { ok: true, json: async () => addrInfoResp };
+      }
+      const req = JSON.parse(opts.body);
+      if (req.method === 'get_wallet_address' || req.method === 'get_ticket_address') {
+        return { ok: true, json: async () => ({ ok: true, result: { exit_code: 0, stack: [['cell', { bytes: boc }]] } }) };
+      }
+      if (req.method === 'get_wallet_data') {
+        return { ok: true, json: async () => walletDataResp };
+      }
+      if (req.method === 'get_ticket_data' && ticketDataResp) {
+        return { ok: true, json: async () => ticketDataResp };
+      }
+      return { ok: false, status: 500, json: async () => ({ ok: false }) };
+    },
+  });
+
+  // 1) 接口成功(exit_code=0)但结果栈为空 [] -> 绝不能解释为 0
+  const pfEmptyStack = await mkClient({ ok: true, result: { exit_code: 0, stack: [] } }).fetchUserPortfolio(rawAddr, { jettonMasterAddress: decoded });
+  assert.equal(pfEmptyStack.a9BalanceRaw, null);
+  assert.equal(pfEmptyStack.balanceAvailable, false);
+  assert.equal(pfEmptyStack.onchainAvailable, false);
+
+  // 2) 接口成功但 stack 字段缺失（非数组）-> 绝不能解释为 0
+  const pfNoStack = await mkClient({ ok: true, result: { exit_code: 0 } }).fetchUserPortfolio(rawAddr, { jettonMasterAddress: decoded });
+  assert.equal(pfNoStack.a9BalanceRaw, null);
+  assert.equal(pfNoStack.balanceAvailable, false);
+
+  // 3) 接口成功但余额字段类型错误（cell、非数值字符串、空串、负数、null）-> 一律返回不可用
+  for (const badItem of [
+    ['cell', { bytes: boc }],
+    ['num', 'not-a-number'],
+    ['num', ''],
+    ['num', '-0x1'],
+    ['num', null],
+    null,
+    '0x10',
+  ]) {
+    const pfBad = await mkClient({ ok: true, result: { exit_code: 0, stack: [badItem] } }).fetchUserPortfolio(rawAddr, { jettonMasterAddress: decoded });
+    assert.equal(pfBad.a9BalanceRaw, null, `bad balance item ${JSON.stringify(badItem)} must yield null`);
+    assert.equal(pfBad.balanceAvailable, false);
+  }
+
+  // 4) get_wallet_data TVM 错误，且 /getAddressInformation 缺少 state 字段或 state 非法 -> 绝不能默认当 uninitialized 返回 0
+  for (const badAddrInfo of [
+    { ok: true, result: {} },
+    { ok: true, result: { state: '' } },
+    { ok: true, result: { state: null } },
+    { ok: true, result: { state: 'unknown_status' } },
+  ]) {
+    const tcMissingState = mkClient({ ok: true, result: { exit_code: -13, stack: [] } }, badAddrInfo);
+    await assert.rejects(tcMissingState.fetchWalletAccountState(decoded), /missing or invalid account state/);
+    const pfMissingState = await tcMissingState.fetchUserPortfolio(rawAddr, { jettonMasterAddress: decoded });
+    assert.equal(pfMissingState.a9BalanceRaw, null);
+    assert.equal(pfMissingState.balanceAvailable, false);
+    assert.equal(pfMissingState.onchainAvailable, false);
+  }
+
+  // 5) get_ticket_data 结果栈不完整（长度 < 9）或字段类型损坏 -> ticketsAvailable=false, onchainAvailable=false
+  const pfBadTicket = await mkClient(
+    { ok: true, result: { exit_code: 0, stack: [['num', '0x10']] } },
+    null,
+    { ok: true, result: { exit_code: 0, stack: [['cell', { bytes: boc }], ['cell', { bytes: boc }], ['num', '0x1']] } },
+  ).fetchUserPortfolio(rawAddr, { jettonMasterAddress: decoded, roundControllerAddress: decoded, roundIds: [1] });
+  assert.equal(pfBadTicket.a9BalanceRaw, '16');
+  assert.equal(pfBadTicket.balanceAvailable, true);
+  assert.equal(pfBadTicket.ticketsAvailable, false);
+  assert.equal(pfBadTicket.onchainAvailable, false);
+});
+
+// ---------------------------------------------------------------------------
 // P0-H: 商会访问边界（匿名拒绝、跨用户拒绝、成员不泄 tgChatId、会长本人可见）
 // ---------------------------------------------------------------------------
 await test('P0-H: GET /api/team/:wallet blocks anonymous & cross-user; hides tgChatId from non-captain members', async () => {

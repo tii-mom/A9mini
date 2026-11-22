@@ -1,5 +1,7 @@
 // A9 Protocol v15 — Zero-dependency TonCenter v2/v3 HTTP client for live chain sync & inbound fee polling.
 
+const VALID_ACCOUNT_STATES = new Set(['active', 'uninitialized', 'frozen']);
+
 export class TonCenterClient {
   constructor({ apiBase, apiKey = '', fetchImpl = globalThis.fetch, minIntervalMs = null, maxRetries = 3 } = {}) {
     if (!apiBase) throw new Error('TONCENTER_API_BASE is required');
@@ -45,38 +47,67 @@ export class TonCenterClient {
       }
       throw err;
     }
-    return body.result.stack || [];
+    if (!Array.isArray(body.result.stack)) {
+      throw new Error(`runGetMethod ${method} returned invalid stack`);
+    }
+    return body.result.stack;
   }
 
   /** Read a deployed wallet's ed25519 public key (get_public_key) as 64-char hex, or null. */
   async fetchWalletPublicKey(walletAddress) {
     const s = await this.runGetMethod(walletAddress, 'get_public_key');
-    const n = TonCenterClient.parseNum(s[0]);
-    if (n <= 0n) return null;
+    const n = TonCenterClient.parseStrictNum(s[0], { allowNegative: false });
+    if (n === null || n <= 0n) return null;
     return n.toString(16).padStart(64, '0');
   }
 
-  /** 读取链上账户活跃状态与当前已部署代码 BoC（供 WalletTg 等合约身份校验使用）。 */
+  /**
+   * 读取链上账户活跃状态与当前已部署代码 BoC（供 WalletTg 校验及未部署账户判零核查使用）。
+   * 严格要求 body.result.state 存在且属于已知状态（active / uninitialized / frozen），
+   * 缺失或非法时显式抛错，绝不默认当作 uninitialized。
+   */
   async fetchWalletAccountState(walletAddress) {
     const q = new URLSearchParams({ address: walletAddress });
     const body = await this._request(`/getAddressInformation?${q.toString()}`, { method: 'GET' });
-    if (!body?.ok || !body?.result) {
+    if (!body?.ok || !body?.result || typeof body.result !== 'object') {
       throw new Error('getAddressInformation returned invalid response');
     }
+    const rawState = typeof body.result.state === 'string' ? body.result.state.trim() : '';
+    if (!VALID_ACCOUNT_STATES.has(rawState)) {
+      throw new Error(`getAddressInformation missing or invalid account state: ${rawState || '<empty>'}`);
+    }
     return {
-      state: String(body.result.state || 'uninitialized'),
-      codeBoc: body.result.code || null,
+      state: rawState,
+      codeBoc: typeof body.result.code === 'string' && body.result.code.length > 0 ? body.result.code : null,
     };
+  }
+
+  /**
+   * 严格解析 TonCenter stack 中的数值项 ['num', '0x...' | '-0x...' | '123'] -> BigInt | null。
+   * 缺失、类型错误、空字符串、非法格式或不允许负数时返回 null（绝不静默当 0n）。
+   */
+  static parseStrictNum(item, { allowNegative = false } = {}) {
+    if (!Array.isArray(item) || item.length < 2 || item[0] !== 'num' || typeof item[1] !== 'string') {
+      return null;
+    }
+    const raw = item[1].trim();
+    if (!raw || !/^-?(?:0[xX][0-9a-fA-F]+|\d+)$/.test(raw)) return null;
+    let val;
+    try {
+      val = (raw.startsWith('-0x') || raw.startsWith('-0X'))
+        ? -BigInt(raw.slice(1))
+        : BigInt(raw);
+    } catch {
+      return null;
+    }
+    if (!allowNegative && val < 0n) return null;
+    return val;
   }
 
   /** Parse num entry from TonCenter stack: ['num', '0x...' | '-0x...'] -> BigInt */
   static parseNum(item) {
-    if (!Array.isArray(item) || item[0] !== 'num') return 0n;
-    const raw = String(item[1] || '0').trim();
-    if (raw.startsWith('-0x') || raw.startsWith('-0X')) {
-      return -BigInt(raw.slice(1));
-    }
-    return BigInt(raw);
+    const parsed = TonCenterClient.parseStrictNum(item, { allowNegative: true });
+    return parsed === null ? 0n : parsed;
   }
 
   /** Read v15 RoundController.get_protocol_state() directly from chain. */
@@ -155,13 +186,24 @@ export class TonCenterClient {
   async fetchUserJettonWallet(jettonMasterAddress, ownerAddress) {
     const ownerBoc = encodeAddressSliceBoc(ownerAddress);
     const s = await this.runGetMethod(jettonMasterAddress, 'get_wallet_address', [['tvm.Slice', ownerBoc]]);
+    if (!Array.isArray(s) || s.length < 1) {
+      return { jettonWallet: null, a9BalanceRaw: null, balanceAvailable: false };
+    }
     const jwAddr = decodeAddressFromStackItem(s[0]);
     if (!jwAddr) return { jettonWallet: null, a9BalanceRaw: null, balanceAvailable: false };
     try {
       const wd = await this.runGetMethod(jwAddr, 'get_wallet_data');
+      // 严格校验结果栈非空且余额字段为合法非负数值项（缺失/空栈/类型错误绝不解释为 0）。
+      if (!Array.isArray(wd) || wd.length < 1) {
+        return { jettonWallet: jwAddr, a9BalanceRaw: null, balanceAvailable: false };
+      }
+      const balance = TonCenterClient.parseStrictNum(wd[0], { allowNegative: false });
+      if (balance === null) {
+        return { jettonWallet: jwAddr, a9BalanceRaw: null, balanceAvailable: false };
+      }
       return {
         jettonWallet: jwAddr,
-        a9BalanceRaw: TonCenterClient.parseNum(wd[0]).toString(),
+        a9BalanceRaw: balance.toString(),
         balanceAvailable: true,
       };
     } catch (err) {
@@ -172,7 +214,7 @@ export class TonCenterClient {
             return { jettonWallet: jwAddr, a9BalanceRaw: '0', balanceAvailable: true };
           }
         } catch {
-          // 账户状态查询失败时绝不能假定余额为 0
+          // 账户状态查询失败或缺少 state 字段时绝不能假定余额为 0
         }
       }
       return { jettonWallet: jwAddr, a9BalanceRaw: null, balanceAvailable: false };
@@ -186,19 +228,36 @@ export class TonCenterClient {
       ['tvm.Slice', ownerBoc],
       ['num', String(roundId)],
     ]);
+    if (!Array.isArray(s) || s.length < 1) throw new Error('get_ticket_address returned empty stack');
     const ticketAddr = decodeAddressFromStackItem(s[0]);
     if (!ticketAddr) throw new Error('get_ticket_address returned invalid address');
     try {
       const td = await this.runGetMethod(ticketAddr, 'get_ticket_data');
+      if (!Array.isArray(td) || td.length < 9) {
+        throw new Error('get_ticket_data returned incomplete stack');
+      }
+      const parsedRoundId = TonCenterClient.parseStrictNum(td[2], { allowNegative: false });
+      const amountRaw = TonCenterClient.parseStrictNum(td[3], { allowNegative: false });
+      const weightRaw = TonCenterClient.parseStrictNum(td[4], { allowNegative: false });
+      const principalDone = TonCenterClient.parseStrictNum(td[5], { allowNegative: true });
+      const immediateClaimed = TonCenterClient.parseStrictNum(td[6], { allowNegative: true });
+      const lockedClaimedRaw = TonCenterClient.parseStrictNum(td[7], { allowNegative: false });
+      const pending = TonCenterClient.parseStrictNum(td[8], { allowNegative: true });
+      if (
+        parsedRoundId === null || amountRaw === null || weightRaw === null ||
+        principalDone === null || immediateClaimed === null || lockedClaimedRaw === null || pending === null
+      ) {
+        throw new Error('get_ticket_data returned malformed field types');
+      }
       return {
         ticketAddress: ticketAddr,
-        roundId: Number(TonCenterClient.parseNum(td[2])),
-        amountRaw: TonCenterClient.parseNum(td[3]).toString(),
-        weightRaw: TonCenterClient.parseNum(td[4]).toString(),
-        principalDone: TonCenterClient.parseNum(td[5]) !== 0n,
-        immediateClaimed: TonCenterClient.parseNum(td[6]) !== 0n,
-        lockedClaimedRaw: TonCenterClient.parseNum(td[7]).toString(),
-        pending: TonCenterClient.parseNum(td[8]) !== 0n,
+        roundId: Number(parsedRoundId),
+        amountRaw: amountRaw.toString(),
+        weightRaw: weightRaw.toString(),
+        principalDone: principalDone !== 0n,
+        immediateClaimed: immediateClaimed !== 0n,
+        lockedClaimedRaw: lockedClaimedRaw.toString(),
+        pending: pending !== 0n,
       };
     } catch (err) {
       if (err?.isTvmError) {
