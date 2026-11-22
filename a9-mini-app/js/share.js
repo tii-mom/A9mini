@@ -40,7 +40,7 @@ function buildAngles(type, id, ctx = {}) {
   const passed = ctx.qualified ?? r.qualifiedCandles ?? 0;
   const required = ctx.required ?? r.minQualifiedCandles ?? 16;
   const target = r.targetPrice ? `$${Number(r.targetPrice).toFixed(4)}` : L('待定', 'TBD');
-  const pool = formatNum(r.rewardBudgetA9 ?? 700000000);
+  const pool = r.rewardBudgetA9 === null || r.rewardBudgetA9 === undefined ? L('待核验', 'pending') : formatNum(r.rewardBudgetA9);
   const streak = Number(ctx.streak ?? pred.streak) || 0;
   const rawWr = ctx.winRate ?? pred.winRate;
   const winRate = rawWr !== null && rawWr !== undefined && Number.isFinite(Number(rawWr)) ? Number(rawWr) : null;

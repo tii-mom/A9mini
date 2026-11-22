@@ -1,51 +1,106 @@
 #!/usr/bin/env python3
 """
-A9 Telegram Bot Companion Service (Implements a9_telegram_bot.md)
-Supports all 7 BotFather commands (/start, /round, /position, /team, /claim, /rank, /help)
-and deep-linking WebApp inline keyboard buttons.
+A9 Telegram Bot companion (commands + Mini App deep links).
+
+Data truthfulness (phase 1 / P0-3): this bot NEVER prints hard-coded round, price, stake or
+reward figures. Live numbers are read from the A9 worker API (A9_API_BASE); when the API is not
+configured or unreachable the message says "待核验" instead of inventing values. Personal
+balances / claimable rewards are only shown inside the Mini App after server-side auth.
 
 Usage:
   export A9_BOT_TOKEN="your_botfather_token"
   export A9_MINI_APP_URL="https://your-deployed-domain.com"
+  export A9_API_BASE="https://api.your-domain.com"   # optional; without it figures show 待核验
   pip install python-telegram-bot>=21.0
   python3 bot/a9_bot.py
+
+NOTE: only ONE process may receive updates for a bot token. Before Telegram Stars payments
+(phase 5) are wired, decide whether this polling bot or the Worker webhook owns updates.
 """
 
+import json
 import os
+import urllib.request
 
 BOT_TOKEN = os.getenv("A9_BOT_TOKEN", "")
 MINI_APP_URL = os.getenv("A9_MINI_APP_URL", "https://t.me/A9Terminal_bot/app")
+API_BASE = os.getenv("A9_API_BASE", "").rstrip("/")
 
-TEMPLATES = {
-    "start": (
-        "⚡️ *A9 // TON QUANTUM TERMINAL* ⚡️\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "欢迎接入 *A9* 链上自动化挑战协议。基于 TON 主网智能合约与高频预言机驱动。\n\n"
-        "📊 *当前轮次状态*：`ROUND #03` (观察阶段)\n"
-        "🎯 *走廊基准线*：`$0.1850 USD`\n"
-        "📈 *实时 24H TWAP*：`$0.1895 USD` (+2.43%)\n"
-        "🔥 *全网质押总额*：`5,200,000 TON` (池子：700M A9)\n\n"
-        "您的专属节点已就绪，立即启动终端进入实盘博弈："
-    ),
-    "hourly_candle": (
-        "🟢 *A9 预言机定盘通知 // 第 16/24 根收盘*\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "第 16 根 1H K 线已正式在链上锁定归档！\n\n"
-        "• 目标考核底价：`$0.1850 USD`\n"
-        "• 本小时收盘均价：`$0.1910 USD` (▲ 阳烛达标)\n"
-        "• 累计达标统计：*12 根达标* / 16 根必须 (剩余 8 根)\n"
-        "• 当前达标概率模型：`94.2% HIGH_BULLISH`"
-    ),
-    "settlement": (
-        "🎉 *第 3 轮挑战成功达标！收益流星已就绪* 🎉\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "本轮最终达标根数 *18/24*（达成率 112%），700M A9 奖池全额激活！\n\n"
-        "• 质押本金：`5,000 TON` (安全保本解冻)\n"
-        "• 本轮总收益：`1,260,000 A9` (倍率 2.15x)\n"
-        "• 🟢 *即刻可领 (20%)*：`252,000 A9`\n"
-        "• 🔒 *线性释放 (80%)*：`1,008,000 A9`"
-    ),
+PENDING = "待核验"
+STATE_LABELS = {
+    "STAKING_OPEN": "参与开放中",
+    "OBSERVING": "24H 观察中",
+    "AWAITING_SETTLE": "等待结算",
+    "SUCCEEDED": "已达标",
+    "FAILED": "未达标",
+    "UNOPENED": "未开启",
 }
+
+
+def fetch_json(path, timeout=4):
+    """GET {API_BASE}{path} -> data dict, or None on any failure (never fabricate)."""
+    if not API_BASE:
+        return None
+    try:
+        with urllib.request.urlopen(f"{API_BASE}{path}", timeout=timeout) as res:
+            body = json.loads(res.read().decode("utf-8"))
+        return body.get("data") if body.get("ok") else None
+    except Exception:
+        return None
+
+
+def usd_e8(raw):
+    try:
+        v = int(str(raw))
+    except (TypeError, ValueError):
+        return PENDING
+    return f"${v / 1e8:.4f}" if v > 0 else PENDING
+
+
+def current_round_summary():
+    """Return display fields for the focus round from the live API, or 待核验 placeholders."""
+    rounds = fetch_json("/api/rounds")
+    if not isinstance(rounds, list) or not rounds:
+        return {"round": PENDING, "state": PENDING, "target": PENDING, "twap": PENDING, "qualified": PENDING}
+    r = rounds[-1]
+    q = r.get("qualifiedCandles")
+    return {
+        "round": f"#{r.get('roundId')}" if r.get("roundId") else PENDING,
+        "state": STATE_LABELS.get(r.get("state"), r.get("state") or PENDING),
+        "target": usd_e8(r.get("targetPriceUsdE8")),
+        "twap": usd_e8(r.get("twap24hUsdE8")),
+        "qualified": f"{q}/24" if isinstance(q, int) else PENDING,
+    }
+
+
+def render_start():
+    s = current_round_summary()
+    return (
+        "*A9 链上挑战协议*\n"
+        "基于 TON 区块链智能合约。以下数据来自协议接口，缺失时显示“待核验”。\n\n"
+        f"• 当前轮次：`{s['round']}`（{s['state']}）\n"
+        f"• 目标价：`{s['target']}`\n"
+        f"• 24H 判定均价：`{s['twap']}`\n\n"
+        "进入小程序查看实时详情。参与有风险，结果以链上结算为准。"
+    )
+
+
+def render_round():
+    s = current_round_summary()
+    return (
+        f"*轮次 {s['round']} 实时状态*\n"
+        f"• 阶段：{s['state']}\n"
+        f"• 目标价：`{s['target']}`\n"
+        f"• 达标时段：`{s['qualified']}`（需 ≥ 16/24）\n"
+        "数据来自协议接口；缺失项显示“待核验”。"
+    )
+
+
+CLAIM_TEXT = (
+    "*领取入口*\n"
+    "你的可领取数额只在小程序内、完成 Telegram 身份与钱包验证后显示。\n"
+    "机器人消息不会展示任何个人收益数字。"
+)
 
 
 def build_bot():
@@ -54,30 +109,26 @@ def build_bot():
 
     async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚀 启动 A9 交易终端 (Mini App)", web_app=WebAppInfo(url=MINI_APP_URL))],
-            [InlineKeyboardButton("⚡ 滑动立即提取奖励", web_app=WebAppInfo(url=f"{MINI_APP_URL}?startapp=claim"))],
+            [InlineKeyboardButton("打开 A9 小程序", web_app=WebAppInfo(url=MINI_APP_URL))],
+            [InlineKeyboardButton("查看我的领取状态", web_app=WebAppInfo(url=f"{MINI_APP_URL}?startapp=claim"))],
         ])
-        await update.message.reply_text(TEMPLATES["start"], parse_mode="Markdown", reply_markup=kb)
+        await update.message.reply_text(render_start(), parse_mode="Markdown", reply_markup=kb)
 
     async def cmd_round(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📊 查看实时 24H 走廊雷达", web_app=WebAppInfo(url=f"{MINI_APP_URL}?startapp=proof_R03_088921"))]
-        ])
-        await update.message.reply_text(TEMPLATES["hourly_candle"], parse_mode="Markdown", reply_markup=kb)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("查看实时轮次", web_app=WebAppInfo(url=MINI_APP_URL))]])
+        await update.message.reply_text(render_round(), parse_mode="Markdown", reply_markup=kb)
 
     async def cmd_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("⚡ 滑动提取 252,000 A9", web_app=WebAppInfo(url=f"{MINI_APP_URL}?startapp=claim"))]
-        ])
-        await update.message.reply_text(TEMPLATES["settlement"], parse_mode="Markdown", reply_markup=kb)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("打开领取页", web_app=WebAppInfo(url=f"{MINI_APP_URL}?startapp=claim"))]])
+        await update.message.reply_text(CLAIM_TEXT, parse_mode="Markdown", reply_markup=kb)
 
     async def cmd_simple(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cmd = (update.message.text or "").split()[0].lstrip("/")
-        route_map = {"position": "proof_R03_088921", "team": "invite_UQ9921_8892", "rank": "warmup", "help": ""}
+        route_map = {"rank": "warmup"}
         param = route_map.get(cmd, "")
         url = f"{MINI_APP_URL}?startapp={param}" if param else MINI_APP_URL
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"打开 A9 /{cmd} 终端视图", web_app=WebAppInfo(url=url))]])
-        await update.message.reply_text(f"⚡️ A9 终端指令 `/{cmd}` 已就绪，请点击下方入口查看实时链上数据：", parse_mode="Markdown", reply_markup=kb)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"打开 A9 /{cmd}", web_app=WebAppInfo(url=url))]])
+        await update.message.reply_text(f"指令 `/{cmd}`：请在小程序内查看你的实时数据。", parse_mode="Markdown", reply_markup=kb)
 
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))

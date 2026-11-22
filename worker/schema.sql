@@ -1,4 +1,5 @@
--- A9 Protocol v15 — Complete Minimalist D1 / SQLite Schema
+-- A9 Protocol v15 — Complete Minimalist D1 / SQLite Schema (fresh install).
+-- Existing databases: apply worker/migrations/*.sql in order instead.
 -- Covers: v15 round cache, 0-contract promo hot wallet, 0-contract presale hot wallet, warmup & team social.
 
 CREATE TABLE IF NOT EXISTS rounds_cache (
@@ -61,12 +62,17 @@ CREATE TABLE IF NOT EXISTS presale_orders (
   ton_nano TEXT NOT NULL,
   a9_amount_raw TEXT NOT NULL,
   memo TEXT NOT NULL UNIQUE,
-  status TEXT NOT NULL, -- PENDING_TON | PAID_A9 | REFUNDED_FREE | REFUNDED_MINUS_FEE | DUST_IGNORED | EXPIRED
+  status TEXT NOT NULL, -- PENDING_PAYMENT | PAYMENT_CONFIRMED | PAYOUT_PENDING | PAYOUT_SENT | COMPLETED | PAYOUT_RETRY | NEEDS_REVIEW | REFUND_PENDING | REFUND_SENT | REFUNDED | EXPIRED | CANCELLED (legacy: PENDING_TON | PAID_A9 | REFUNDED_FREE | REFUNDED_MINUS_FEE)
   inbound_tx_hash TEXT UNIQUE,
   payout_tx_hash TEXT,
   refund_ton_nano TEXT NOT NULL DEFAULT '0',
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  wallet_key TEXT,
+  tg_user_id TEXT,
+  refund_reason TEXT,
+  last_error TEXT,
+  expires_at INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS warmup_registrations (
@@ -140,3 +146,65 @@ CREATE INDEX IF NOT EXISTS idx_warmup_rank ON warmup_registrations(round_id, val
 CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id, bound_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prediction_round ON prediction_bets(round_id, side);
 CREATE INDEX IF NOT EXISTS idx_prediction_referrer ON prediction_bets(round_id, referrer_id);
+
+CREATE INDEX IF NOT EXISTS idx_presale_orders_wallet_key ON presale_orders(wallet_key, created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- P0 (gamification v1, phase 1): server-side identity + recoverable presale state machine.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS auth_ton_proof_payloads (
+  payload TEXT PRIMARY KEY,
+  tg_user_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wallet_bindings (
+  tg_user_id TEXT PRIMARY KEY,
+  wallet_address TEXT NOT NULL,
+  wallet_key TEXT NOT NULL UNIQUE, -- canonical raw "wc:hex"
+  bound_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS presale_inbound_txs (
+  tx_hash TEXT PRIMARY KEY,
+  order_id TEXT,
+  sender TEXT,
+  value_nano TEXT NOT NULL,
+  memo TEXT,
+  decision TEXT NOT NULL, -- CONFIRM | REFUND | IGNORE_DUST | NEEDS_REVIEW
+  reason TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS presale_payouts (
+  payout_id TEXT PRIMARY KEY, -- a9:<orderId> | refund:<inboundTxHash>
+  order_id TEXT,
+  inbound_tx_hash TEXT,
+  kind TEXT NOT NULL, -- A9 | REFUND
+  recipient TEXT NOT NULL,
+  amount TEXT NOT NULL, -- A9 raw or GRAM nano
+  query_id TEXT NOT NULL,
+  status TEXT NOT NULL, -- PENDING | BROADCASTING | RETRY | SENT | CONFIRMED | NEEDS_REVIEW
+  attempts INTEGER NOT NULL DEFAULT 0,
+  ambiguous INTEGER NOT NULL DEFAULT 0,
+  tx_hash TEXT UNIQUE,
+  last_error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE (order_id, kind)
+);
+
+CREATE TABLE IF NOT EXISTS presale_referral_credits (
+  order_id TEXT PRIMARY KEY, -- one referral reward per completed order
+  referrer TEXT NOT NULL,
+  amount_raw TEXT NOT NULL,
+  status TEXT NOT NULL, -- PENDING | CREDITING | CREDITED | NEEDS_REVIEW
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_presale_orders_status ON presale_orders(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_presale_payouts_status ON presale_payouts(status, created_at);

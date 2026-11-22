@@ -13,6 +13,11 @@ import { A9Haptic } from './tma.js';
 import { escapeHtml, showToast, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
 import { buildV15StakeTx, buildV15ClaimTx, buildV15PromoFeeTx } from './v15-tx.js';
+import { A9TMA as TMA } from './tma.js';
+import { fetchMe, requestTonProofPayload, submitTonProof, unbindWallet } from './data.js';
+
+/** 真实模式且在 Telegram 内：钱包归属需通过 ton_proof 由服务端验证。 */
+const proofFlowEnabled = () => !config.isDemo && Boolean(TMA.getRawInitData());
 
 export const LIVE_READONLY_REASON = '当前真实模式处于只读验收阶段，资金交易与钱包签名入口暂未开放（支持连接钱包与只读查询）。';
 
@@ -49,7 +54,7 @@ class A9TonConnect {
         });
         this.sdkReady = true;
 
-        this.ui.onStatusChange((wallet) => {
+        this.ui.onStatusChange(async (wallet) => {
           if (wallet?.account?.address) {
             const addr = wallet.account.address;
             const short = `${addr.slice(0, 4)}...${addr.slice(-4)}`;
@@ -57,23 +62,69 @@ class A9TonConnect {
               s.user.connected = true;
               s.user.address = addr;
               s.user.shortAddress = short;
+              s.user.walletVerified = false;
             });
             showToast(`TON Connect 2.0 已连接: ${short}`);
+            await this._verifyOwnership(wallet);
           } else {
+            const wasConnected = store.state.user.connected;
             store.update(s => {
               s.user.connected = false;
               s.user.address = null;
               s.user.shortAddress = null;
+              s.user.walletVerified = false;
             });
+            if (wasConnected && proofFlowEnabled()) {
+              try { await unbindWallet(); } catch (_) {}
+            }
           }
           if (this._onChanged) this._onChanged();
         });
+        this._prepareProofPayload();
       } else {
         this.lastError = 'TON Connect SDK 未加载（检查网络或 CDN）';
       }
     } catch (e) {
       this.sdkReady = false;
       this.lastError = e?.message || 'TON Connect 初始化失败';
+    }
+  }
+
+  /** 预取一次性 ton_proof 载荷，下次连接钱包时随连接请求一起签名。 */
+  async _prepareProofPayload() {
+    if (!this.ui || !proofFlowEnabled() || typeof this.ui.setConnectRequestParameters !== 'function') return;
+    try {
+      this.ui.setConnectRequestParameters({ state: 'loading' });
+      const { payload } = await requestTonProofPayload();
+      this.ui.setConnectRequestParameters({ state: 'ready', value: { tonProof: payload } });
+    } catch (_) {
+      this.ui.setConnectRequestParameters(null);
+    }
+  }
+
+  /**
+   * 钱包归属验证：新连接提交 ton_proof；恢复的旧连接只认可服务端已有的同一钱包绑定。
+   * 验证失败时保持“已连接但未验证”，不得访问任何私有资产。
+   */
+  async _verifyOwnership(wallet) {
+    if (!proofFlowEnabled()) return;
+    const proof = wallet?.connectItems?.tonProof;
+    try {
+      let verified = false;
+      if (proof && 'proof' in proof) {
+        await submitTonProof({ address: wallet.account.address, network: wallet.account.chain, proof: proof.proof });
+        verified = true;
+      } else {
+        const me = await fetchMe();
+        verified = Boolean(me?.wallet?.address) && String(me.wallet.address) === String(wallet.account.address);
+      }
+      store.update(s => { s.user.walletVerified = verified; });
+      if (!verified) showToast('钱包尚未完成归属验证，请断开后重新连接', 'amber');
+    } catch (e) {
+      store.update(s => { s.user.walletVerified = false; });
+      showToast(`钱包归属验证失败：${e?.message || '请重试'}`, 'error');
+    } finally {
+      this._prepareProofPayload();
     }
   }
 

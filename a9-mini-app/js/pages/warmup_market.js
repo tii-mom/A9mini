@@ -41,8 +41,8 @@ export function renderWarmupHome(root, navigate) {
 
         <div class="metric-strip cols-3">
           <div class="metric-cell"><span class="num-xs text-muted">${L('有效直邀', 'Invites')}</span><span class="num-md">${reg ? user.warmupInvites : 0}</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('预热排名', 'Rank')}</span><span class="num-md text-gold">${reg ? 'No.08' : '--'}</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('预计奖励', 'Est. A9')}</span><span class="num-md text-green">${reg ? '400,000' : '0'}</span></div>
+          <div class="metric-cell"><span class="num-xs text-muted">${L('预热排名', 'Rank')}</span><span class="num-md text-gold">${reg && config.isDemo ? 'No.08' : '--'}</span></div>
+          <div class="metric-cell"><span class="num-xs text-muted">${L('预计奖励', 'Est. A9')}</span><span class="num-md text-green">${!reg ? '0' : (config.isDemo ? '400,000' : L('待核验', 'Pending'))}</span></div>
         </div>
 
         ${!reg

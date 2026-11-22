@@ -420,7 +420,7 @@ export async function renderOgCardPng({
   state = 'OBSERVING',
   qualified = 0,
   totalSlots = 24,
-  targetUsd = '0.0023',
+  targetUsd = '--',
   ratio = '16x9',
 } = {}) {
   const portrait = ratio === '9x16';

@@ -10,6 +10,7 @@ import { PredictionEngine } from './growth-engine.mjs';
 import { TonCenterClient } from './toncenter.mjs';
 import { PromoPayoutRunner } from './promo-runner.mjs';
 import { PresalePayoutRunner } from './presale-runner.mjs';
+import { MemoryIdentityStore } from './auth.mjs';
 
 const port = Number(process.env.A9_PORT || 8799);
 const host = process.env.A9_HOST || '127.0.0.1';
@@ -80,6 +81,8 @@ const presaleEngine = presaleHotAddr
   : null;
 
 let userReader = null;
+let publicKeyResolver = null;
+const identityStore = new MemoryIdentityStore();
 
 // Optional live TonCenter chain sync + promo/presale hot-wallet dry-run/live runners
 if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
@@ -89,6 +92,7 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
   });
   const rcAddr = process.env.A9_ROUND_CONTROLLER_ADDRESS;
   const jmAddr = process.env.A9_JETTON_MASTER_ADDRESS || null;
+  publicKeyResolver = (addr) => tc.fetchWalletPublicKey(addr);
 
   userReader = (wallet) => tc.fetchUserPortfolio(wallet, {
     jettonMasterAddress: jmAddr,
@@ -165,15 +169,17 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
       engine: presaleEngine,
       tonCenter: tc,
       a9Broadcaster: presaleBroadcaster,
+      // No on-chain payout verifier is wired yet: broadcast payouts stay PAYOUT_SENT (never
+      // auto-COMPLETED) and any uncertain attempt goes to NEEDS_REVIEW instead of re-sending.
+      payoutVerifier: null,
       promoEngine,
-      socialStore,
       execute: executeLive && Boolean(presaleBroadcaster),
     });
     setInterval(() => presaleRunner.tick().catch((e) => console.error('[presale-runner] error:', e.message)), 10000);
   }
 }
 
-const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, userReader });
+const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, userReader, identityStore, publicKeyResolver });
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${host}:${port}`);
@@ -181,7 +187,7 @@ const server = createServer(async (req, res) => {
     res.writeHead(204, {
       'access-control-allow-origin': '*',
       'access-control-allow-methods': 'GET, POST, OPTIONS',
-      'access-control-allow-headers': 'content-type, authorization, x-a9-admin-token',
+      'access-control-allow-headers': 'content-type, authorization, x-a9-admin-token, x-telegram-init-data',
     });
     res.end();
     return;

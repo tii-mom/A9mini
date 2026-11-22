@@ -43,6 +43,14 @@ export class TonCenterClient {
     return body.result.stack || [];
   }
 
+  /** Read a deployed wallet's ed25519 public key (get_public_key) as 64-char hex, or null. */
+  async fetchWalletPublicKey(walletAddress) {
+    const s = await this.runGetMethod(walletAddress, 'get_public_key');
+    const n = TonCenterClient.parseNum(s[0]);
+    if (n <= 0n) return null;
+    return n.toString(16).padStart(64, '0');
+  }
+
   /** Parse num entry from TonCenter stack: ['num', '0x...' | '-0x...'] -> BigInt */
   static parseNum(item) {
     if (!Array.isArray(item) || item[0] !== 'num') return 0n;

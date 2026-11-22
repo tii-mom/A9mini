@@ -4,6 +4,8 @@ import { buildV15ConfigPayload, mapV15RoundDetail } from './v15-indexer.mjs';
 import { PromoError } from './promo-hotwallet.mjs';
 import { PresaleError } from './presale-hotwallet.mjs';
 import { GrowthError, renderOgCardPng, renderOgCardSvg, renderOgLandingHtml } from './growth-engine.mjs';
+import { AuthError, MemoryIdentityStore, allowedProofDomains, createRequestAuth, verifyTonProofSignature } from './auth.mjs';
+import { addressKey, normalizeTonAddress } from './ton-address.mjs';
 
 function ok(data, status = 200) {
   return { status, body: { ok: true, data, ts: Date.now() } };
@@ -24,8 +26,19 @@ function extractAdminToken(headers = {}) {
   return '';
 }
 
-export function createApiRouter({ env = {}, stateStore, promoEngine = null, presaleEngine = null, socialStore = null, predictionEngine = null, userReader = null }) {
+export function createApiRouter({
+  env = {},
+  stateStore,
+  promoEngine = null,
+  presaleEngine = null,
+  socialStore = null,
+  predictionEngine = null,
+  userReader = null,
+  identityStore = new MemoryIdentityStore(),
+  publicKeyResolver = null,
+}) {
   return async function handleRequest({ method, pathname, query = {}, body = null, headers = {}, nowSec = Math.floor(Date.now() / 1000) }) {
+    const auth = createRequestAuth({ env, headers, identityStore, nowSec });
     try {
       if (method === 'GET' && pathname === '/api/health') {
         return ok({ service: 'a9mini-v15-worker', status: 'ok', version: '15.0.0' });
@@ -35,8 +48,17 @@ export function createApiRouter({ env = {}, stateStore, promoEngine = null, pres
         const ps = stateStore.getProtocolState();
         const base = buildV15ConfigPayload(env, ps);
         base.presaleHotWallet = presaleEngine
-          ? { enabled: true, address: presaleEngine.hotWalletAddress, rateA9PerTon: Number(presaleEngine.rateA9PerTon), open: presaleEngine.open }
-          : { enabled: false, address: null, rateA9PerTon: null, open: false };
+          ? {
+              enabled: true,
+              address: presaleEngine.hotWalletAddress,
+              rateA9PerTon: Number(presaleEngine.rateA9PerTon),
+              rateA9PerGram: presaleEngine.rateA9PerTon.toString(),
+              rateKind: 'PROTOCOL_FIXED_QUOTE',
+              minOrderNano: presaleEngine.minOrderNano.toString(),
+              maxOrderNano: presaleEngine.maxOrderNano.toString(),
+              open: presaleEngine.open,
+            }
+          : { enabled: false, address: null, rateA9PerTon: null, rateA9PerGram: null, open: false };
         return ok(base);
       }
 
@@ -55,74 +77,129 @@ export function createApiRouter({ env = {}, stateStore, promoEngine = null, pres
         return ok(mapV15RoundDetail(id, item.round, item.candles, nowSec, stateStore.getTiming()));
       }
 
-      // Unified user portfolio endpoint (on-chain jetton wallet/tickets + promo + presale + team)
+      // ---------------------------------------------------------------------
+      // Identity (P0-1): Telegram initData + TON Connect ton_proof wallet binding
+      // ---------------------------------------------------------------------
+      if (method === 'GET' && pathname === '/api/me') {
+        const id = await auth.telegram();
+        const binding = await identityStore.getBinding(id.telegramUserId);
+        return ok({ telegramUserId: id.telegramUserId, user: id.user, wallet: binding ? { address: binding.walletAddress, boundAt: binding.boundAt } : null });
+      }
+
+      if (method === 'POST' && pathname === '/api/auth/ton-proof/payload') {
+        const id = await auth.telegram();
+        return ok(await identityStore.issueProofPayload(id.telegramUserId, nowSec));
+      }
+
+      if (method === 'POST' && pathname === '/api/auth/ton-proof/verify') {
+        const id = await auth.telegram();
+        const address = String(body?.address || '').trim();
+        const proof = body?.proof || null;
+        if (!normalizeTonAddress(address) || !proof?.payload) return err('BAD_REQUEST', 'address and ton_proof are required', 400);
+        // Single-use, issued to THIS Telegram user, not expired. Consumed before any other check.
+        if (!(await identityStore.consumeProofPayload(proof.payload, id.telegramUserId, nowSec))) {
+          return err('PROOF_INVALID', 'ton_proof payload unknown, expired or already used', 400);
+        }
+        if (typeof publicKeyResolver !== 'function') return err('AUTH_UNCONFIGURED', 'wallet public key resolver not configured', 503);
+        let publicKeyHex = null;
+        try {
+          publicKeyHex = await publicKeyResolver(address);
+        } catch (_) {
+          publicKeyHex = null;
+        }
+        if (!publicKeyHex) {
+          return err('WALLET_PUBKEY_UNAVAILABLE', 'wallet public key not readable on chain (wallet may be undeployed)', 400);
+        }
+        await verifyTonProofSignature({ address, proof, publicKeyHex, allowedDomains: allowedProofDomains(env), nowSec });
+        const binding = await identityStore.bindWallet(id.telegramUserId, address, nowSec);
+        return ok({ telegramUserId: id.telegramUserId, wallet: { address: binding.walletAddress, boundAt: binding.boundAt } });
+      }
+
+      if (method === 'POST' && pathname === '/api/auth/wallet/unbind') {
+        const id = await auth.telegram();
+        await identityStore.unbindWallet(id.telegramUserId);
+        return ok({ telegramUserId: id.telegramUserId, wallet: null });
+      }
+
+      // Unified user portfolio. On-chain data is public; promo / presale / team private parts are
+      // returned only to the Telegram user whose verified wallet binding matches the path.
       const userMatch = method === 'GET' && pathname.match(/^\/api\/user\/(.+)$/);
       if (userMatch) {
         const wallet = decodeURIComponent(userMatch[1]);
         const onchain = userReader ? await userReader(wallet) : { jettonWallet: null, a9BalanceRaw: null, tickets: [] };
-        const promo = promoEngine ? await promoEngine.getBalance(wallet) : null;
-        const presaleQuota = presaleEngine ? await presaleEngine.getQuota(wallet) : null;
-        const team = socialStore ? await socialStore.getTeamByWallet(wallet) : null;
-        return ok({ walletAddress: wallet, ...onchain, promo, presaleQuota, team });
+        let owner = false;
+        try {
+          await auth.wallet(wallet);
+          owner = true;
+        } catch (_) {
+          owner = false;
+        }
+        const promo = owner && promoEngine ? await promoEngine.getBalance(wallet) : null;
+        const presaleQuota = owner && presaleEngine ? await presaleEngine.getQuota(wallet, nowSec) : null;
+        const team = owner && socialStore ? await socialStore.getTeamByWallet(wallet) : null;
+        return ok({ walletAddress: wallet, ...onchain, promo, presaleQuota, team, privateDataVisible: owner });
       }
 
-      // Promo hot-wallet (0.06 TON user-covered gas)
+      // Promo hot-wallet (0.06 GRAM user-covered gas)
       if (method === 'POST' && pathname === '/api/promo/intent') {
         if (!promoEngine) return err('PROMO_DISABLED', 'promo hot wallet not configured', 503);
-        const wallet = String(body?.walletAddress || '').trim();
-        if (!wallet) return err('BAD_REQUEST', 'walletAddress is required', 400);
-        return ok(await promoEngine.createClaimIntent(wallet, nowSec));
+        const { walletAddress } = await auth.wallet(body?.walletAddress || null);
+        return ok(await promoEngine.createClaimIntent(walletAddress, nowSec));
       }
 
       const claimMatch = method === 'GET' && pathname.match(/^\/api\/promo\/claim\/([a-f0-9]+)$/i);
       if (claimMatch) {
         if (!promoEngine) return err('PROMO_DISABLED', 'promo hot wallet not configured', 503);
+        const { binding } = await auth.wallet();
         const c = await promoEngine.getClaim(claimMatch[1]);
-        if (!c) return err('NOT_FOUND', 'claim not found', 404);
+        if (!c || addressKey(c.walletAddress) !== binding.walletKey) return err('NOT_FOUND', 'claim not found', 404);
         return ok(c);
       }
 
       const balMatch = method === 'GET' && pathname.match(/^\/api\/promo\/balance\/(.+)$/);
       if (balMatch) {
         if (!promoEngine) return err('PROMO_DISABLED', 'promo hot wallet not configured', 503);
-        return ok(await promoEngine.getBalance(decodeURIComponent(balMatch[1])));
+        const { walletAddress } = await auth.wallet(decodeURIComponent(balMatch[1]));
+        return ok(await promoEngine.getBalance(walletAddress));
       }
 
-      // Presale hot-wallet (0-contract internal market + first-touch referral binding)
+      // Presale hot-wallet (A9 fixed-rate exchange; real entry stays closed in the UI)
       const pqMatch = method === 'GET' && pathname.match(/^\/api\/presale\/quota\/(.+)$/);
       if (pqMatch) {
         if (!presaleEngine) return err('PRESALE_DISABLED', 'presale hot wallet not configured', 503);
-        return ok(await presaleEngine.getQuota(decodeURIComponent(pqMatch[1])));
+        const { walletAddress } = await auth.wallet(decodeURIComponent(pqMatch[1]));
+        return ok(await presaleEngine.getQuota(walletAddress, nowSec));
       }
 
       if (method === 'POST' && pathname === '/api/presale/intent') {
         if (!presaleEngine) return err('PRESALE_DISABLED', 'presale hot wallet not configured', 503);
-        const wallet = String(body?.walletAddress || '').trim();
-        const tonAmount = Number(body?.tonAmount);
-        if (!wallet || !Number.isFinite(tonAmount)) return err('BAD_REQUEST', 'walletAddress and tonAmount required', 400);
+        const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
+        const amount = body?.tonAmount ?? body?.gramAmount;
+        if (amount === undefined || amount === null || amount === '') return err('BAD_REQUEST', 'gramAmount required', 400);
         const rawRef = String(body?.referrerId || '').trim() || null;
-        if (socialStore && rawRef) {
-          await socialStore.bindReferral(wallet, rawRef, nowSec);
-        }
-        const effectiveRef = (socialStore ? await socialStore.getReferrer(wallet) : null) || rawRef;
-        return ok(await presaleEngine.createOrderIntent(wallet, tonAmount, nowSec, { referrerId: effectiveRef }));
+        if (socialStore && rawRef) await socialStore.bindReferral(walletAddress, rawRef, nowSec);
+        const effectiveRef = socialStore ? await socialStore.getReferrer(walletAddress) : null;
+        return ok(await presaleEngine.createOrderIntent(walletAddress, amount, nowSec, { referrerId: effectiveRef, tgUserId: identity.telegramUserId }));
       }
 
       const poMatch = method === 'GET' && pathname.match(/^\/api\/presale\/orders\/(.+)$/);
       if (poMatch) {
         if (!presaleEngine) return err('PRESALE_DISABLED', 'presale hot wallet not configured', 503);
-        return ok(await presaleEngine.listOrders(decodeURIComponent(poMatch[1])));
+        const { walletAddress } = await auth.wallet(decodeURIComponent(poMatch[1]));
+        return ok(await presaleEngine.listOrders(walletAddress));
       }
 
-      // Warm-up & Team social endpoints
+      // Warm-up & Team social endpoints (acting wallet always comes from the verified binding)
       if (method === 'POST' && pathname === '/api/warmup/register') {
         if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
-        return ok(await socialStore.registerWarmup(body || {}, nowSec));
+        const { walletAddress } = await auth.wallet(body?.walletAddress || null);
+        return ok(await socialStore.registerWarmup({ roundId: body?.roundId, walletAddress, referrerId: body?.referrerId || null }, nowSec));
       }
 
       if (method === 'POST' && pathname === '/api/warmup/cancel') {
         if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
-        return ok(await socialStore.cancelWarmup(body || {}, nowSec));
+        const { walletAddress } = await auth.wallet(body?.walletAddress || null);
+        return ok(await socialStore.cancelWarmup({ roundId: body?.roundId, walletAddress }, nowSec));
       }
 
       if (method === 'GET' && pathname === '/api/warmup/leaderboard') {
@@ -133,12 +210,18 @@ export function createApiRouter({ env = {}, stateStore, promoEngine = null, pres
 
       if (method === 'POST' && pathname === '/api/team/bind-tg') {
         if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
-        return ok(await socialStore.createOrBindTeamGroup(body || {}, nowSec));
+        const { walletAddress } = await auth.wallet(body?.captainWallet || null);
+        // NOTE: real Telegram group/admin verification lands in phase 6 (P5-2). Until then the
+        // store records the request but must not report it as verified (see social store).
+        return ok(await socialStore.createOrBindTeamGroup({
+          teamId: body?.teamId, name: body?.name, captainWallet: walletAddress, tgGroupHandle: body?.tgGroupHandle, tgChatId: body?.tgChatId ?? null,
+        }, nowSec));
       }
 
       if (method === 'POST' && pathname === '/api/team/join') {
         if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
-        return ok(await socialStore.joinTeam(body || {}, nowSec));
+        const { walletAddress } = await auth.wallet(body?.walletAddress || null);
+        return ok(await socialStore.joinTeam({ teamId: body?.teamId, walletAddress, referrerId: body?.referrerId || null }, nowSec));
       }
 
       const teamMatch = method === 'GET' && pathname.match(/^\/api\/team\/(.+)$/);
@@ -147,13 +230,16 @@ export function createApiRouter({ env = {}, stateStore, promoEngine = null, pres
         return ok(await socialStore.getTeamByWallet(decodeURIComponent(teamMatch[1])));
       }
 
-      // Plan 1: 24H PASS/BURN Prediction endpoints (0 TON entry + anti-sybil activation)
+      // 24H PASS/BURN prediction (free entry). userId = verified Telegram user id, never the body.
       if (method === 'POST' && pathname === '/api/prediction/bet') {
         if (!predictionEngine) return err('PREDICTION_DISABLED', 'prediction engine not configured', 503);
-        if (socialStore && body?.userId && body?.referrerId) {
-          await socialStore.bindReferral(body.userId, body.referrerId, nowSec);
-        }
-        return ok(await predictionEngine.placeBet(body || {}, nowSec));
+        const id = await auth.telegram();
+        if (body?.userId && String(body.userId) !== id.telegramUserId) return err('FORBIDDEN', 'userId does not match the signed-in Telegram user', 403);
+        const ref = String(body?.referrerId || '').trim() || null;
+        if (socialStore && ref) await socialStore.bindReferral(id.telegramUserId, ref, nowSec);
+        return ok(await predictionEngine.placeBet({
+          roundId: body?.roundId, userId: id.telegramUserId, side: body?.side, guessSlots: body?.guessSlots ?? null, referrerId: ref,
+        }, nowSec));
       }
 
       const predStatsMatch = method === 'GET' && pathname.match(/^\/api\/prediction\/round\/(\d+)$/);
@@ -165,28 +251,29 @@ export function createApiRouter({ env = {}, stateStore, promoEngine = null, pres
       const predUserMatch = method === 'GET' && pathname.match(/^\/api\/prediction\/user\/(.+)$/);
       if (predUserMatch) {
         if (!predictionEngine) return err('PREDICTION_DISABLED', 'prediction engine not configured', 503);
+        const id = await auth.telegram();
+        const requested = decodeURIComponent(predUserMatch[1]);
+        if (requested !== 'me' && requested !== id.telegramUserId) return err('FORBIDDEN', 'cannot read another user\'s prediction record', 403);
         const roundId = query.roundId ? Number(query.roundId) : stateStore.getProtocolState().currentRoundId;
-        return ok(await predictionEngine.getUserSummary(decodeURIComponent(predUserMatch[1]), roundId));
+        return ok(await predictionEngine.getUserSummary(id.telegramUserId, roundId));
       }
 
       if (method === 'POST' && pathname === '/api/prediction/activate') {
         if (!predictionEngine) return err('PREDICTION_DISABLED', 'prediction engine not configured', 503);
-        const { userId, walletAddress } = body || {};
-        if (!userId || !walletAddress) return err('BAD_REQUEST', 'userId and walletAddress required', 400);
+        const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
+        if (body?.userId && String(body.userId) !== identity.telegramUserId) return err('FORBIDDEN', 'userId does not match the signed-in Telegram user', 403);
 
-        // Anti-sybil real-capital verification: >= 1 PAID_A9 presale order OR >= 1 on-chain StakeTicket
-        const orders = presaleEngine ? await presaleEngine.listOrders(walletAddress) : [];
-        const hasPaidPresale = Array.isArray(orders) && orders.some((o) => o.status === 'PAID_A9');
+        // Anti-sybil real-capital check (unchanged rule): >= 1 COMPLETED fixed-rate exchange order
+        // (payout confirmed on chain) OR >= 1 on-chain StakeTicket for the VERIFIED wallet.
+        const hasCompletedPresale = presaleEngine ? await presaleEngine.hasCompletedPurchase(walletAddress) : false;
         let hasStakeTicket = false;
-        if (!hasPaidPresale && userReader) {
+        if (!hasCompletedPresale && userReader) {
           const portfolio = await userReader(walletAddress);
           hasStakeTicket = Array.isArray(portfolio?.tickets) && portfolio.tickets.length > 0;
         }
-        const qualified = hasPaidPresale || hasStakeTicket;
-
         return ok(
-          await predictionEngine.activateToPromo(userId, walletAddress, promoEngine, {
-            qualified,
+          await predictionEngine.activateToPromo(identity.telegramUserId, walletAddress, promoEngine, {
+            qualified: hasCompletedPresale || hasStakeTicket,
             nowMs: nowSec * 1000,
           }),
         );
@@ -226,7 +313,7 @@ export function createApiRouter({ env = {}, stateStore, promoEngine = null, pres
           roundId: rId,
           state: detail?.state || 'OBSERVING',
           qualified: detail?.qualifiedCandles || 0,
-          targetUsd: detail?.targetPriceUsdE8 ? `$${(Number(detail.targetPriceUsdE8) / 1e8).toFixed(4)}` : '$0.0023',
+          targetUsd: detail?.targetPriceUsdE8 ? `$${(Number(detail.targetPriceUsdE8) / 1e8).toFixed(4)}` : '--',
           ratio,
         });
         return { status: 200, contentType: 'image/png', rawBody: pngBytes };
@@ -271,6 +358,7 @@ export function createApiRouter({ env = {}, stateStore, promoEngine = null, pres
 
       return err('NOT_FOUND', `route not found: ${method} ${pathname}`, 404);
     } catch (e) {
+      if (e instanceof AuthError) return err(e.code, e.message, e.status || 401);
       if (e instanceof PromoError || e instanceof PresaleError || e instanceof GrowthError) {
         return err(e.code, e.message, 400);
       }

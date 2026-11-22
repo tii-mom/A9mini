@@ -1,15 +1,8 @@
 // A9 Protocol v15 — Cloudflare D1 Persistence Adapters for Social, Prediction & Presale.
 // Matches worker/schema.sql tables and mirrors the in-memory engine interfaces 1:1.
-import { randomBytes } from 'node:crypto';
 import { rewardForWarmupRank } from './social-store.mjs';
 import { GrowthError, VOUCHER_TTL_MS } from './growth-engine.mjs';
-import {
-  PRESALE_STATUS,
-  PresaleError,
-  TON_NANO,
-  A9_RAW,
-  REFERRAL_BPS,
-} from './presale-hotwallet.mjs';
+import { PresaleEngine, PresaleError, RESERVING_STATUSES } from './presale-hotwallet.mjs';
 
 // ---------------------------------------------------------------------------
 // 1. D1SocialStore (referrals, warmup_registrations, team_groups, team_members)
@@ -160,7 +153,8 @@ export class D1SocialStore {
     const nextName = name || cur?.name || teamId;
     const nextHandle = tgGroupHandle || cur?.tg_group_handle || null;
     const nextChatId = tgGroupHandle ? tgChatId : (cur?.tg_chat_id || null);
-    const nextStatus = tgGroupHandle ? 'bound' : (cur?.bind_status || 'unbound');
+    // Not verified against Telegram yet (phase 6): a handle alone is never reported as bound.
+    const nextStatus = tgGroupHandle ? 'verifying' : (cur?.bind_status || 'unbound');
     const createdAt = cur ? Number(cur.created_at) : nowSec;
     const memberCount = cur ? Number(cur.member_count) : 1;
 
@@ -554,171 +548,310 @@ export class D1PredictionEngine {
 }
 
 // ---------------------------------------------------------------------------
-// 3. D1PresaleStore (presale_orders)
+// 3. D1 presale repository (presale_orders + presale_inbound_txs + presale_payouts +
+//    presale_referral_credits). Same contract as MemoryPresaleRepo in presale-hotwallet.mjs.
+//    Atomicity: capacity check + insert is ONE statement; multi-row transitions use db.batch()
+//    (D1 runs a batch as a single transaction and rolls back on any failure).
 // ---------------------------------------------------------------------------
-export class D1PresaleStore {
-  constructor({
-    db,
-    hotWalletAddress,
-    rateA9PerTon = 2002n,
-    minOrderTon = 5n,
-    maxOrderTon = 200n,
-    defaultQuotaTon = 200n,
-    totalCapA9Raw = 200_000_000n * A9_RAW,
-    open = true,
-    promoEngine = null,
-    socialStore = null,
-  }) {
+const RESERVING_SQL = `(status IN (${RESERVING_STATUSES.map((s) => `'${s}'`).join(', ')}) OR (status = 'PENDING_PAYMENT' AND expires_at > ?))`;
+
+const ORDER_COLS = {
+  status: 'status',
+  inboundTxHash: 'inbound_tx_hash',
+  payoutTxHash: 'payout_tx_hash',
+  refundTonNano: 'refund_ton_nano',
+  refundReason: 'refund_reason',
+  lastError: 'last_error',
+  updatedAt: 'updated_at',
+};
+const PAYOUT_COLS = {
+  status: 'status',
+  txHash: 'tx_hash',
+  attempts: 'attempts',
+  ambiguous: 'ambiguous',
+  lastError: 'last_error',
+  updatedAt: 'updated_at',
+};
+
+function sqlValue(v) {
+  if (typeof v === 'bigint') return v.toString();
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  return v === undefined ? null : v;
+}
+
+function buildSet(patch, cols) {
+  const sets = [];
+  const vals = [];
+  for (const [k, v] of Object.entries(patch || {})) {
+    if (!cols[k]) throw new Error(`unknown patch field ${k}`);
+    sets.push(`${cols[k]} = ?`);
+    vals.push(sqlValue(v));
+  }
+  return { sql: sets.join(', '), vals };
+}
+
+function rowToOrder(r) {
+  if (!r) return null;
+  return {
+    orderId: r.order_id,
+    walletAddress: r.wallet_address,
+    walletKey: r.wallet_key || r.wallet_address,
+    tgUserId: r.tg_user_id || null,
+    referrerId: r.referrer_id || null,
+    tonNano: BigInt(r.ton_nano || '0'),
+    a9AmountRaw: BigInt(r.a9_amount_raw || '0'),
+    memo: r.memo,
+    status: r.status,
+    inboundTxHash: r.inbound_tx_hash || null,
+    payoutTxHash: r.payout_tx_hash || null,
+    refundTonNano: BigInt(r.refund_ton_nano || '0'),
+    refundReason: r.refund_reason || null,
+    lastError: r.last_error || null,
+    expiresAt: Number(r.expires_at || 0),
+    createdAt: Number(r.created_at),
+    updatedAt: Number(r.updated_at),
+  };
+}
+
+function rowToPayout(r) {
+  if (!r) return null;
+  return {
+    payoutId: r.payout_id,
+    orderId: r.order_id || null,
+    inboundTxHash: r.inbound_tx_hash || null,
+    kind: r.kind,
+    recipient: r.recipient,
+    amount: String(r.amount),
+    queryId: String(r.query_id),
+    status: r.status,
+    attempts: Number(r.attempts || 0),
+    ambiguous: Number(r.ambiguous || 0) === 1,
+    txHash: r.tx_hash || null,
+    lastError: r.last_error || null,
+    createdAt: Number(r.created_at),
+    updatedAt: Number(r.updated_at),
+  };
+}
+
+function rowToCredit(r) {
+  if (!r) return null;
+  return {
+    orderId: r.order_id,
+    referrer: r.referrer,
+    amountRaw: String(r.amount_raw),
+    status: r.status,
+    createdAt: Number(r.created_at),
+    updatedAt: Number(r.updated_at),
+  };
+}
+
+const isUnique = (e) => /UNIQUE|constraint/i.test(String(e?.message || e));
+const changes = (r) => Number(r?.meta?.changes ?? r?.changes ?? 0);
+
+export class D1PresaleRepo {
+  constructor({ db }) {
     if (!db) throw new PresaleError('DB_MISSING', 'Cloudflare D1 binding (env.DB) is required');
-    if (!hotWalletAddress) throw new PresaleError('CONFIG_MISSING', 'presale hotWalletAddress required');
     this.db = db;
-    this.hotWalletAddress = hotWalletAddress;
-    this.rateA9PerTon = BigInt(rateA9PerTon);
-    this.minOrderNano = BigInt(minOrderTon) * TON_NANO;
-    this.maxOrderNano = BigInt(maxOrderTon) * TON_NANO;
-    this.defaultQuotaNano = BigInt(defaultQuotaTon) * TON_NANO;
-    this.totalCapA9Raw = BigInt(totalCapA9Raw);
-    this.open = Boolean(open);
-    this.promoEngine = promoEngine;
-    this.socialStore = socialStore;
   }
 
-  async _getUsage(walletAddress) {
-    const paidAll = await this.db
-      .prepare("SELECT wallet_address, ton_nano, a9_amount_raw FROM presale_orders WHERE status = 'PAID_A9'")
+  async sumReserved(nowSec, walletKey) {
+    const res = await this.db
+      .prepare(`SELECT wallet_key, wallet_address, ton_nano, a9_amount_raw FROM presale_orders WHERE ${RESERVING_SQL}`)
+      .bind(nowSec)
       .all();
-    let soldA9Raw = 0n;
-    let userUsedNano = 0n;
-    for (const r of paidAll?.results || []) {
-      soldA9Raw += BigInt(r.a9_amount_raw || '0');
-      if (r.wallet_address === walletAddress) {
-        userUsedNano += BigInt(r.ton_nano || '0');
-      }
+    let reservedA9Raw = 0n;
+    let userReservedNano = 0n;
+    for (const r of res?.results || []) {
+      reservedA9Raw += BigInt(r.a9_amount_raw || '0');
+      if ((r.wallet_key || r.wallet_address) === walletKey) userReservedNano += BigInt(r.ton_nano || '0');
     }
-    return { soldA9Raw, userUsedNano };
+    return { reservedA9Raw, userReservedNano };
   }
 
-  async getQuota(walletAddress) {
-    const { soldA9Raw, userUsedNano } = await this._getUsage(walletAddress);
-    const availNano = this.defaultQuotaNano > userUsedNano ? this.defaultQuotaNano - userUsedNano : 0n;
-    const remPool = this.totalCapA9Raw > soldA9Raw ? this.totalCapA9Raw - soldA9Raw : 0n;
-    return {
-      walletAddress,
-      rateA9PerTon: Number(this.rateA9PerTon),
-      open: this.open,
-      soldOut: soldA9Raw >= this.totalCapA9Raw,
-      remainingPoolA9Raw: remPool.toString(),
-      unlockedQuotaTon: Number(this.defaultQuotaNano / TON_NANO),
-      usedQuotaTon: Number(userUsedNano / TON_NANO),
-      availQuotaTon: Number(availNano / TON_NANO),
-      minOrderTon: Number(this.minOrderNano / TON_NANO),
-      maxOrderTon: Number(this.maxOrderNano / TON_NANO),
-      payTo: this.hotWalletAddress,
-    };
-  }
-
-  async createOrderIntent(walletAddress, tonAmount, nowSec = Math.floor(Date.now() / 1000), { referrerId = null } = {}) {
-    if (!walletAddress) throw new PresaleError('BAD_WALLET', 'walletAddress required');
-    if (!this.open) throw new PresaleError('PRESALE_CLOSED', 'presale is closed');
-
-    const tonNano = BigInt(Math.round(Number(tonAmount) * 1e9));
-    if (tonNano < this.minOrderNano || tonNano > this.maxOrderNano) {
-      throw new PresaleError('BAD_AMOUNT', 'order must be within min/max TON limits');
-    }
-
-    const { soldA9Raw, userUsedNano } = await this._getUsage(walletAddress);
-    if (soldA9Raw >= this.totalCapA9Raw) throw new PresaleError('SOLD_OUT', 'presale sold out');
-    if (userUsedNano + tonNano > this.defaultQuotaNano) {
-      throw new PresaleError('OVER_QUOTA', 'exceeds personal unlocked quota');
-    }
-
-    const a9AmountRaw = (tonNano * this.rateA9PerTon * A9_RAW) / TON_NANO;
-    if (soldA9Raw + a9AmountRaw > this.totalCapA9Raw) {
-      throw new PresaleError('EXCEEDS_POOL', 'exceeds remaining presale supply');
-    }
-
-    const cleanRef = referrerId && String(referrerId).trim() !== walletAddress
-      ? String(referrerId).trim()
-      : null;
-
-    const orderId = randomBytes(6).toString('hex');
-    const memo = `buy:${orderId}`;
-
-    await this.db
+  async insertOrderIfCapacity(o, { capA9Raw, userQuotaNano, nowSec }) {
+    const res = await this.db
       .prepare(
         `INSERT INTO presale_orders
-         (order_id, wallet_address, referrer_id, ton_nano, a9_amount_raw, memo, status, refund_ton_nano, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, '0', ?, ?)`,
+           (order_id, wallet_address, wallet_key, tg_user_id, referrer_id, ton_nano, a9_amount_raw, memo, status,
+            refund_ton_nano, expires_at, created_at, updated_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', '0', ?, ?, ?
+         WHERE (SELECT COALESCE(SUM(CAST(a9_amount_raw AS INTEGER)), 0) FROM presale_orders WHERE ${RESERVING_SQL})
+                 + CAST(? AS INTEGER) <= CAST(? AS INTEGER)
+           AND (SELECT COALESCE(SUM(CAST(ton_nano AS INTEGER)), 0) FROM presale_orders
+                 WHERE (wallet_key = ? OR wallet_address = ?) AND ${RESERVING_SQL})
+                 + CAST(? AS INTEGER) <= CAST(? AS INTEGER)`,
       )
-      .bind(orderId, walletAddress, cleanRef, tonNano.toString(), a9AmountRaw.toString(), memo, PRESALE_STATUS.PENDING_TON, nowSec, nowSec)
+      .bind(
+        o.orderId, o.walletAddress, o.walletKey, o.tgUserId, o.referrerId, o.tonNano.toString(), o.a9AmountRaw.toString(), o.memo,
+        o.expiresAt, o.createdAt, o.updatedAt,
+        nowSec, o.a9AmountRaw.toString(), BigInt(capA9Raw).toString(),
+        o.walletKey, o.walletAddress, nowSec, o.tonNano.toString(), BigInt(userQuotaNano).toString(),
+      )
       .run();
-
-    return {
-      orderId,
-      walletAddress,
-      referrerId: cleanRef,
-      tonNano: tonNano.toString(),
-      a9AmountRaw: a9AmountRaw.toString(),
-      payTo: this.hotWalletAddress,
-      memo,
-      status: PRESALE_STATUS.PENDING_TON,
-      inboundTxHash: null,
-      payoutTxHash: null,
-      refundTonNano: '0',
-      createdAt: nowSec,
-      updatedAt: nowSec,
-    };
+    return changes(res) === 1;
   }
 
-  async markOrderPaid(orderId, inboundTxHash, payoutTxHash = null, nowSec = Math.floor(Date.now() / 1000)) {
-    const row = await this.db
-      .prepare('SELECT * FROM presale_orders WHERE order_id = ?')
-      .bind(orderId)
-      .first();
-    if (!row) throw new PresaleError('NOT_FOUND', `order ${orderId} not found`);
+  async getOrder(id) {
+    return rowToOrder(await this.db.prepare('SELECT * FROM presale_orders WHERE order_id = ?').bind(id).first());
+  }
 
-    await this.db
+  async getOrderByMemo(memo) {
+    return rowToOrder(await this.db.prepare('SELECT * FROM presale_orders WHERE memo = ?').bind(memo).first());
+  }
+
+  async listOrdersByWallet(walletKey) {
+    const res = await this.db
+      .prepare('SELECT * FROM presale_orders WHERE wallet_key = ? OR (wallet_key IS NULL AND wallet_address = ?) ORDER BY created_at DESC')
+      .bind(walletKey, walletKey)
+      .all();
+    return (res?.results || []).map(rowToOrder);
+  }
+
+  async listOrdersByStatus(status) {
+    const res = await this.db.prepare('SELECT * FROM presale_orders WHERE status = ? ORDER BY created_at ASC').bind(status).all();
+    return (res?.results || []).map(rowToOrder);
+  }
+
+  async getInbound(txHash) {
+    return (await this.db.prepare('SELECT * FROM presale_inbound_txs WHERE tx_hash = ?').bind(txHash).first()) || null;
+  }
+
+  _insertPayoutStmt(p) {
+    return this.db
       .prepare(
-        `UPDATE presale_orders
-         SET status = ?, inbound_tx_hash = ?, payout_tx_hash = ?, updated_at = ?
-         WHERE order_id = ?`,
+        `INSERT INTO presale_payouts
+           (payout_id, order_id, inbound_tx_hash, kind, recipient, amount, query_id, status, attempts, ambiguous, tx_hash, last_error, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
       )
-      .bind(PRESALE_STATUS.PAID_A9, inboundTxHash, payoutTxHash, nowSec, orderId)
-      .run();
+      .bind(p.payoutId, p.orderId, p.inboundTxHash, p.kind, p.recipient, p.amount, p.queryId, p.status, p.attempts, p.ambiguous ? 1 : 0, p.createdAt, p.updatedAt);
+  }
 
-    const boundRef = (this.socialStore ? await this.socialStore.getReferrer(row.wallet_address) : null) || row.referrer_id || null;
-    let referralCredited = null;
-    if (boundRef && boundRef !== row.wallet_address) {
-      const referralRewardRaw = (BigInt(row.a9_amount_raw) * REFERRAL_BPS) / 100n;
-      if (referralRewardRaw > 0n) {
-        if (this.promoEngine && typeof this.promoEngine.creditReward === 'function') {
-          await this.promoEngine.creditReward(boundRef, referralRewardRaw, nowSec);
-        }
-        referralCredited = { referrerWallet: boundRef, amountRaw: referralRewardRaw.toString() };
+  async commitInbound({ inbound, orderUpdate, payout }) {
+    const stmts = [
+      this.db
+        .prepare('INSERT INTO presale_inbound_txs (tx_hash, order_id, sender, value_nano, memo, decision, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(inbound.txHash, inbound.orderId, inbound.sender, inbound.valueNano, inbound.memo, inbound.decision, inbound.reason, inbound.createdAt),
+    ];
+    if (orderUpdate) {
+      const set = buildSet(orderUpdate.patch, ORDER_COLS);
+      stmts.push(
+        this.db
+          .prepare(`UPDATE presale_orders SET ${set.sql} WHERE order_id = ? AND status IN (${orderUpdate.from.map(() => '?').join(', ')})`)
+          .bind(...set.vals, orderUpdate.orderId, ...orderUpdate.from),
+      );
+    }
+    if (payout) stmts.push(this._insertPayoutStmt(payout));
+    try {
+      await this.db.batch(stmts);
+    } catch (e) {
+      if (isUnique(e)) return 'REPLAY';
+      throw e;
+    }
+    if (orderUpdate) {
+      const o = await this.getOrder(orderUpdate.orderId);
+      if (!o || o.inboundTxHash !== inbound.txHash) {
+        await this.db.prepare("UPDATE presale_inbound_txs SET decision = 'NEEDS_REVIEW' WHERE tx_hash = ?").bind(inbound.txHash).run();
+        return 'ORDER_RACE';
       }
     }
-    return { orderId, status: PRESALE_STATUS.PAID_A9, referralCredited };
+    return 'OK';
   }
 
-  async listOrders(walletAddress) {
+  async queuePayout(orderId, fromStatus, patch, p) {
+    const set = buildSet(patch, ORDER_COLS);
+    const out = await this.db.batch([
+      this.db
+        .prepare(
+          `INSERT INTO presale_payouts
+             (payout_id, order_id, inbound_tx_hash, kind, recipient, amount, query_id, status, attempts, ambiguous, tx_hash, last_error, created_at, updated_at)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?
+           WHERE EXISTS (SELECT 1 FROM presale_orders WHERE order_id = ? AND status = ?)
+           ON CONFLICT DO NOTHING`,
+        )
+        .bind(p.payoutId, p.orderId, p.inboundTxHash, p.kind, p.recipient, p.amount, p.queryId, p.status, p.attempts, 0, p.createdAt, p.updatedAt, orderId, fromStatus),
+      this.db.prepare(`UPDATE presale_orders SET ${set.sql} WHERE order_id = ? AND status = ?`).bind(...set.vals, orderId, fromStatus),
+    ]);
+    return changes(out?.[1]) === 1;
+  }
+
+  async listOpenPayouts() {
     const res = await this.db
-      .prepare('SELECT * FROM presale_orders WHERE wallet_address = ? ORDER BY created_at DESC')
-      .bind(walletAddress)
+      .prepare("SELECT * FROM presale_payouts WHERE status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT') ORDER BY created_at ASC")
       .all();
-    return (res?.results || []).map((o) => ({
-      orderId: o.order_id,
-      walletAddress: o.wallet_address,
-      referrerId: o.referrer_id || null,
-      tonNano: String(o.ton_nano),
-      a9AmountRaw: String(o.a9_amount_raw),
-      payTo: this.hotWalletAddress,
-      memo: o.memo,
-      status: o.status,
-      inboundTxHash: o.inbound_tx_hash || null,
-      payoutTxHash: o.payout_tx_hash || null,
-      refundTonNano: String(o.refund_ton_nano || '0'),
-      createdAt: Number(o.created_at),
-      updatedAt: Number(o.updated_at),
-    }));
+    return (res?.results || []).map(rowToPayout);
+  }
+
+  async getPayout(id) {
+    return rowToPayout(await this.db.prepare('SELECT * FROM presale_payouts WHERE payout_id = ?').bind(id).first());
+  }
+
+  async claimPayout(id, fromStatuses, patch) {
+    const set = buildSet(patch, PAYOUT_COLS);
+    const res = await this.db
+      .prepare(`UPDATE presale_payouts SET ${set.sql} WHERE payout_id = ? AND status IN (${fromStatuses.map(() => '?').join(', ')})`)
+      .bind(...set.vals, id, ...fromStatuses)
+      .run();
+    return changes(res) === 1;
+  }
+
+  async patchPayout(id, patch) {
+    const set = buildSet(patch, PAYOUT_COLS);
+    await this.db.prepare(`UPDATE presale_payouts SET ${set.sql} WHERE payout_id = ?`).bind(...set.vals, id).run();
+  }
+
+  async patchOrder(id, patch, expect = null) {
+    const set = buildSet(patch, ORDER_COLS);
+    const cond = expect ? ` AND status IN (${expect.map(() => '?').join(', ')})` : '';
+    const res = await this.db
+      .prepare(`UPDATE presale_orders SET ${set.sql} WHERE order_id = ?${cond}`)
+      .bind(...set.vals, id, ...(expect || []))
+      .run();
+    return changes(res) === 1;
+  }
+
+  async completeA9(payoutId, orderId, txHash, credit, nowSec) {
+    const stmts = [
+      this.db.prepare("UPDATE presale_payouts SET status = 'CONFIRMED', tx_hash = COALESCE(?, tx_hash), updated_at = ? WHERE payout_id = ?").bind(txHash || null, nowSec, payoutId),
+      this.db.prepare("UPDATE presale_orders SET status = 'COMPLETED', payout_tx_hash = COALESCE(?, payout_tx_hash), updated_at = ? WHERE order_id = ?").bind(txHash || null, nowSec, orderId),
+    ];
+    if (credit) {
+      stmts.push(
+        this.db
+          .prepare('INSERT OR IGNORE INTO presale_referral_credits (order_id, referrer, amount_raw, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+          .bind(credit.orderId, credit.referrer, credit.amountRaw, credit.status, credit.createdAt, credit.updatedAt),
+      );
+    }
+    await this.db.batch(stmts);
+  }
+
+  async listCredits(status) {
+    const res = await this.db.prepare('SELECT * FROM presale_referral_credits WHERE status = ?').bind(status).all();
+    return (res?.results || []).map(rowToCredit);
+  }
+
+  async getCredit(orderId) {
+    return rowToCredit(await this.db.prepare('SELECT * FROM presale_referral_credits WHERE order_id = ?').bind(orderId).first());
+  }
+
+  async claimCredit(orderId, from, to, nowSec) {
+    const res = await this.db
+      .prepare('UPDATE presale_referral_credits SET status = ?, updated_at = ? WHERE order_id = ? AND status = ?')
+      .bind(to, nowSec, orderId, from)
+      .run();
+    return changes(res) === 1;
+  }
+
+  async patchCredit(orderId, patch) {
+    await this.db
+      .prepare('UPDATE presale_referral_credits SET status = ?, updated_at = ? WHERE order_id = ?')
+      .bind(patch.status, patch.updatedAt, orderId)
+      .run();
+  }
+}
+
+/** D1-backed presale engine (production). Constructor options match PresaleHotWalletEngine + `db`. */
+export class D1PresaleStore extends PresaleEngine {
+  constructor({ db, ...opts }) {
+    super({ ...opts, repo: new D1PresaleRepo({ db }) });
   }
 }

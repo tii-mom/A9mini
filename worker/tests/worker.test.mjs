@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { deriveRoundStage, mapV15RoundDetail } from '../src/v15-indexer.mjs';
 import { PromoHotWalletEngine, CLAIM_STATUS } from '../src/promo-hotwallet.mjs';
 import { createApiRouter } from '../src/api.mjs';
+import { MemoryIdentityStore } from '../src/auth.mjs';
+import { TEST_BOT_TOKEN, tgHeaders, createSqliteD1, FRESH_SCHEMA, completePurchase } from './helpers/test-env.mjs';
 
 let passed = 0;
 async function test(name, fn) {
@@ -65,7 +67,7 @@ await test('promo hot-wallet full flow: 0.06 TON fee -> finalized verify -> TEP-
   assert.equal(done.payoutTxHash, 'tx-payout-1');
 });
 
-await test('API router serves /api/health, /api/config, /api/rounds/:id, and /api/promo/intent', async () => {
+await test('API router serves /api/health, /api/config, /api/rounds/:id, and authenticated /api/promo/intent', async () => {
   const HOT = 'EQ_PROMO_HOT_WALLET_DEMO';
   const USER = 'EQ_USER_BOB_DEMO';
   const promoEngine = new PromoHotWalletEngine({ hotWalletAddress: HOT });
@@ -77,8 +79,9 @@ await test('API router serves /api/health, /api/config, /api/rounds/:id, and /ap
     listRounds: () => [{ roundId: 1, round: { status: 1, targetPriceUsdE8: '232000', twap24hUsdE8: '116000', stakeOpenAt: 1000, stakeCloseAt: 5000, rewardBudgetRaw: '700000000000000000' }, candles: [] }],
     getRound: (id) => (id === 1 ? { roundId: 1, round: { status: 1, targetPriceUsdE8: '232000', twap24hUsdE8: '116000', stakeOpenAt: 1000, stakeCloseAt: 5000, rewardBudgetRaw: '700000000000000000' }, candles: [] } : null),
   };
-
-  const route = createApiRouter({ env: { A9_NETWORK: 'testnet', A9_PROMO_HOT_WALLET_ADDRESS: HOT }, stateStore, promoEngine });
+  const identityStore = new MemoryIdentityStore();
+  await identityStore.bindWallet('501', USER, 1000);
+  const route = createApiRouter({ env: { A9_NETWORK: 'testnet', A9_PROMO_HOT_WALLET_ADDRESS: HOT, A9_BOT_TOKEN: TEST_BOT_TOKEN }, stateStore, promoEngine, identityStore });
 
   const h = await route({ method: 'GET', pathname: '/api/health' });
   assert.equal(h.status, 200);
@@ -92,7 +95,11 @@ await test('API router serves /api/health, /api/config, /api/rounds/:id, and /ap
   const r1 = await route({ method: 'GET', pathname: '/api/rounds/1', nowSec: 2000 });
   assert.equal(r1.body.data.state, 'STAKING_OPEN');
 
-  const intent = await route({ method: 'POST', pathname: '/api/promo/intent', body: { walletAddress: USER }, nowSec: 2000 });
+  // Without verified Telegram identity the private promo intent is refused (was: open to anyone).
+  const anon = await route({ method: 'POST', pathname: '/api/promo/intent', body: { walletAddress: USER }, nowSec: 2000 });
+  assert.equal(anon.status, 401);
+
+  const intent = await route({ method: 'POST', pathname: '/api/promo/intent', body: {}, headers: await tgHeaders(501, { nowSec: 2000 }), nowSec: 2000 });
   assert.equal(intent.status, 200);
   assert.equal(intent.body.data.payTo, HOT);
   assert.equal(intent.body.data.feeRequiredNano, '60000000');
@@ -221,37 +228,44 @@ await test('createActonPromoBroadcaster passes --net and parses PROMO_PAYOUT_TX 
   assert.equal(res.txHash, '0xdeadbeef1234');
 });
 
-await test('PresaleHotWalletEngine handles valid fill, passive free refund, user-fault -0.05 TON refund, and dust ignore', async () => {
+await test('PresaleHotWalletEngine handles valid fill, passive free refund, user-fault -0.05 GRAM refund, and dust ignore', async () => {
   const { PresaleHotWalletEngine, PRESALE_STATUS } = await import('../src/presale-hotwallet.mjs');
   const HOT = 'EQ_PRESALE_HOT';
   const ALICE = 'EQ_ALICE';
   const engine = new PresaleHotWalletEngine({ hotWalletAddress: HOT, rateA9PerTon: 2000n, minOrderTon: 5n, maxOrderTon: 200n, defaultQuotaTon: 100n });
 
-  const order = engine.createOrderIntent(ALICE, 10, 1000);
-  assert.equal(order.status, PRESALE_STATUS.PENDING_TON);
+  const order = await engine.createOrderIntent(ALICE, 10, 1000);
+  assert.equal(order.status, PRESALE_STATUS.PENDING_PAYMENT);
   assert.equal(order.tonNano, '10000000000');
 
-  // Valid 10 TON finalized -> sends 20,000 A9 with excesses back to HOT
-  const fill = engine.processInboundTonTx({ txHash: 'p1', finality: 'finalized', to: HOT, from: ALICE, valueNano: '10000000000', memo: order.memo }, 1010);
-  assert.equal(fill.action, 'SEND_A9');
-  assert.equal(fill.instruction.jettonAmountRaw, '20000000000000');
-  assert.equal(fill.instruction.sendExcessesTo, HOT);
+  // Valid 10 GRAM finalized -> PAYMENT_CONFIRMED -> queued 20,000 A9 payout with excesses back to HOT
+  const fill = await engine.ingestInbound({ txHash: 'p1', finality: 'finalized', to: HOT, from: ALICE, valueNano: '10000000000', memo: order.memo }, 1010);
+  assert.equal(fill.action, 'CONFIRM');
+  assert.equal((await engine.getOrder(order.orderId)).status, PRESALE_STATUS.PAYMENT_CONFIRMED);
+  assert.equal(await engine.queueConfirmedPayouts(1011), 1);
+  assert.equal((await engine.getOrder(order.orderId)).status, PRESALE_STATUS.PAYOUT_PENDING);
+  const [payout] = await engine.repo.listOpenPayouts();
+  const inst = engine.buildInstruction(payout);
+  assert.equal(inst.jettonAmountRaw, '20000000000000');
+  assert.equal(inst.sendExcessesTo, HOT);
 
-  // Dust <= 0.1 TON ignored
-  const dust = engine.processInboundTonTx({ txHash: 'p2', finality: 'finalized', to: HOT, from: ALICE, valueNano: '100000000', memo: '' }, 1020);
+  // Dust <= 0.1 GRAM ignored
+  const dust = await engine.ingestInbound({ txHash: 'p2', finality: 'finalized', to: HOT, from: ALICE, valueNano: '100000000', memo: '' }, 1020);
   assert.equal(dust.action, 'IGNORE_DUST');
 
-  // User-fault (over quota: 95 TON > remaining 90 TON) -> refund minus 0.05 TON
-  const fault = engine.processInboundTonTx({ txHash: 'p3', finality: 'finalized', to: HOT, from: ALICE, valueNano: '95000000000', memo: '' }, 1030);
-  assert.equal(fault.action, 'REFUND_TON');
-  assert.equal(fault.instruction.tonNano, '94950000000');
+  // User-fault (no matching order) -> refund minus 0.05 GRAM
+  const fault = await engine.ingestInbound({ txHash: 'p3', finality: 'finalized', to: HOT, from: ALICE, valueNano: '95000000000', memo: '' }, 1030);
+  assert.equal(fault.action, 'REFUND');
+  assert.equal(fault.refundNano, 94950000000n);
 
-  // Passive refund (closed + >= 1 TON) -> 100% free full refund
+  // Passive refund (closed + >= 1 GRAM) -> 100% free full refund
+  const order2 = await engine.createOrderIntent(ALICE, 5, 1035);
   engine.open = false;
-  const passive = engine.processInboundTonTx({ txHash: 'p4', finality: 'finalized', to: HOT, from: ALICE, valueNano: '5000000000', memo: '' }, 1040);
-  assert.equal(passive.action, 'REFUND_TON');
-  assert.equal(passive.instruction.tonNano, '5000000000');
-  assert.equal(passive.instruction.feeDeducted, false);
+  const passive = await engine.ingestInbound({ txHash: 'p4', finality: 'finalized', to: HOT, from: ALICE, valueNano: '5000000000', memo: order2.memo }, 1040);
+  assert.equal(passive.action, 'REFUND');
+  assert.equal(passive.refundNano, 5000000000n);
+  assert.equal(passive.feeDeducted, false);
+  assert.equal((await engine.getOrder(order2.orderId)).status, PRESALE_STATUS.REFUND_PENDING);
 });
 
 await test('SocialStore handles warmup registration, invite leaderboard, and captain TG-group binding', async () => {
@@ -267,7 +281,8 @@ await test('SocialStore handles warmup registration, invite leaderboard, and cap
   assert.equal(board[0].estRewardA9, 400000);
 
   const team = social.createOrBindTeamGroup({ teamId: 'TM-01', name: 'Alpha', captainWallet: 'EQ_CAP', tgGroupHandle: '@a9_alpha' }, 200);
-  assert.equal(team.bindStatus, 'bound');
+  // A typed @handle is NOT proof of a real group: status stays 'verifying' until server-side check (phase 6).
+  assert.equal(team.bindStatus, 'verifying');
   social.joinTeam({ teamId: 'TM-01', walletAddress: 'EQ_M1' }, 201);
   assert.equal(social.getTeamByWallet('EQ_M1').memberCount, 2);
 });
@@ -366,13 +381,13 @@ await test('TonCenterClient encodes/decodes TON address BOC and reads user Jetto
   assert.equal(pf.tickets[0].immediateClaimed, true);
 });
 
-await test('PresalePayoutRunner polls buy:<id> finalized TON, broadcasts A9 payout, and ignores replays', async () => {
+await test('PresalePayoutRunner polls buy:<id> finalized GRAM, broadcasts A9 payout, confirms, and ignores replays', async () => {
   const { PresaleHotWalletEngine, PRESALE_STATUS } = await import('../src/presale-hotwallet.mjs');
   const { PresalePayoutRunner } = await import('../src/presale-runner.mjs');
   const HOT = 'EQ_PRESALE_HOT_RUNNER';
   const USER = 'EQ_BUYER_DAVE';
   const engine = new PresaleHotWalletEngine({ hotWalletAddress: HOT, rateA9PerTon: 2002n, minOrderTon: 1n });
-  const order = engine.createOrderIntent(USER, 1, 2000);
+  const order = await engine.createOrderIntent(USER, 1, 2000);
 
   const fakeTc = {
     fetchInboundTransfers: async () => [
@@ -390,26 +405,29 @@ await test('PresalePayoutRunner polls buy:<id> finalized TON, broadcasts A9 payo
       sent.push(inst);
       return { txHash: 'a9-presale-tx-1' };
     },
+    payoutVerifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }),
     logger: { log: () => {} },
   });
 
   const s1 = await runner.tick(2010);
   assert.equal(s1.paid, 1);
   assert.equal(s1.ignored, 1);
+  assert.equal(s1.completed, 1);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].recipient, USER);
   assert.equal(sent[0].jettonAmountRaw, '2002000000000');
   assert.equal(sent[0].sendExcessesTo, HOT);
-  const updated = engine.listOrders(USER)[0];
-  assert.equal(updated.status, PRESALE_STATUS.PAID_A9);
+  const updated = (await engine.listOrders(USER))[0];
+  assert.equal(updated.status, PRESALE_STATUS.COMPLETED);
   assert.equal(updated.payoutTxHash, 'a9-presale-tx-1');
 
   const s2 = await runner.tick(2020);
   assert.equal(s2.paid, 0);
   assert.equal(s2.ignored, 2);
+  assert.equal(sent.length, 1);
 });
 
-await test('First-touch referral binding blocks self/mutual invites and credits 12% presale commission to promoEngine', async () => {
+await test('First-touch referral binding blocks self/mutual invites and credits 12% presale commission only after confirmed payout', async () => {
   const { SocialStore } = await import('../src/social-store.mjs');
   const { PresaleHotWalletEngine } = await import('../src/presale-hotwallet.mjs');
   const HOT = 'EQ_PRESALE_HOT_REF';
@@ -432,13 +450,16 @@ await test('First-touch referral binding blocks self/mutual invites and credits 
   assert.equal(social.bindReferral(REF, BUYER, 103), null);
   assert.equal(social.getReferrer(REF), null);
 
-  // Presale 10 TON -> 20,000 A9 -> 12% = 2,400 A9 auto-credited to REF promo balance
-  const order = presale.createOrderIntent(BUYER, 10, 200, { referrerId: OTHER });
-  const fill = presale.processInboundTonTx({
-    txHash: 'ref-buy-1', finality: 'finalized', to: HOT, from: BUYER, valueNano: '10000000000', memo: order.memo,
-  }, 210);
-  assert.equal(fill.action, 'SEND_A9');
-  assert.deepEqual(fill.referralCredited, { referrerWallet: REF, amountRaw: '2400000000000' });
+  // Presale 10 GRAM -> 20,000 A9 -> 12% = 2,400 A9, booked only after the payout is confirmed.
+  const order = await presale.createOrderIntent(BUYER, 10, 200, { referrerId: social.getReferrer(BUYER) });
+  await presale.ingestInbound({ txHash: 'ref-buy-1', finality: 'finalized', to: HOT, from: BUYER, valueNano: '10000000000', memo: order.memo }, 210);
+  await presale.queueConfirmedPayouts(211);
+  await presale.processReferralCredits(211);
+  assert.equal(promo.getBalance(REF).claimableRaw, '0');
+  await presale.processPayouts(212, { a9Broadcaster: async () => ({ txHash: 'ref-pay-1' }), verifier: async () => ({ state: 'CONFIRMED' }) });
+  await presale.processReferralCredits(213);
+  assert.equal(promo.getBalance(REF).claimableRaw, '2400000000000');
+  await presale.processReferralCredits(214);
   assert.equal(promo.getBalance(REF).claimableRaw, '2400000000000');
 });
 
@@ -447,6 +468,7 @@ await test('POST /api/prediction/activate enforces anti-sybil capital check and 
   const { PresaleHotWalletEngine } = await import('../src/presale-hotwallet.mjs');
   const HOT = 'EQ_HOT_ACT';
   const WALLET = 'EQ_USER_ACT';
+  const WALLET2 = 'EQ_USER_ACT_2';
   const pred = new PredictionEngine({ defaultPoolA9Raw: '10000000000000' });
   const promo = new PromoHotWalletEngine({ hotWalletAddress: HOT });
   const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT, rateA9PerTon: 2000n, minOrderTon: 5n });
@@ -456,37 +478,35 @@ await test('POST /api/prediction/activate enforces anti-sybil capital check and 
     listRounds: () => [],
     getRound: () => null,
   };
-  const route = createApiRouter({ stateStore, promoEngine: promo, presaleEngine: presale, predictionEngine: pred });
+  const identityStore = new MemoryIdentityStore();
+  await identityStore.bindWallet('3001', WALLET, 1000);
+  await identityStore.bindWallet('3002', WALLET2, 1000);
+  const route = createApiRouter({ env: { A9_BOT_TOKEN: TEST_BOT_TOKEN }, stateStore, promoEngine: promo, presaleEngine: presale, predictionEngine: pred, identityStore });
 
-  pred.placeBet({ roundId: 1, userId: 'u_act', side: 'PASS' }, 1000);
+  pred.placeBet({ roundId: 1, userId: '3001', side: 'PASS' }, 1000);
   pred.settleRoundBets(1, true, 18, '10000000000000', 1_000_000);
 
-  // 1) No presale & no stake ticket -> 400 ACTIVATION_REQUIREMENT_UNMET
-  const denied = await route({
-    method: 'POST', pathname: '/api/prediction/activate', body: { userId: 'u_act', walletAddress: WALLET }, nowSec: 1100,
-  });
+  // 1) No completed exchange order & no stake ticket -> 400 ACTIVATION_REQUIREMENT_UNMET
+  const denied = await route({ method: 'POST', pathname: '/api/prediction/activate', body: {}, headers: await tgHeaders(3001, { nowSec: 1100 }), nowSec: 1100 });
   assert.equal(denied.status, 400);
   assert.equal(denied.body.error.code, 'ACTIVATION_REQUIREMENT_UNMET');
 
-  // 2) Complete 1 PAID_A9 presale order -> activation succeeds & credits promoEngine
-  const ord = presale.createOrderIntent(WALLET, 5, 1100);
-  presale.processInboundTonTx({ txHash: 'act-buy-1', finality: 'finalized', to: HOT, from: WALLET, valueNano: '5000000000', memo: ord.memo }, 1105);
-  const okRes = await route({
-    method: 'POST', pathname: '/api/prediction/activate', body: { userId: 'u_act', walletAddress: WALLET }, nowSec: 1110,
-  });
+  // 2) Complete 1 order (payout confirmed) -> activation succeeds & credits promoEngine
+  await completePurchase(presale, WALLET, 5, 1100);
+  const okRes = await route({ method: 'POST', pathname: '/api/prediction/activate', body: {}, headers: await tgHeaders(3001, { nowSec: 1110 }), nowSec: 1110 });
   assert.equal(okRes.status, 200);
   assert.equal(okRes.body.data.activatedRaw, '10000000000000');
   assert.equal(promo.getBalance(WALLET).claimableRaw, '10000000000000');
 
   // 3) Expired voucher -> 400 VOUCHER_EXPIRED and pending balance cleared
-  pred.placeBet({ roundId: 2, userId: 'u_exp', side: 'BURN' }, 2000);
+  await completePurchase(presale, WALLET2, 5, 1200);
+  pred.placeBet({ roundId: 2, userId: '3002', side: 'BURN' }, 2000);
   pred.settleRoundBets(2, false, 9, '5000000000000', 2_000_000);
-  const expired = await route({
-    method: 'POST', pathname: '/api/prediction/activate', body: { userId: 'u_exp', walletAddress: WALLET }, nowSec: 2000 + 3 * 86400,
-  });
+  const late = 2000 + 3 * 86400;
+  const expired = await route({ method: 'POST', pathname: '/api/prediction/activate', body: {}, headers: await tgHeaders(3002, { nowSec: late }), nowSec: late });
   assert.equal(expired.status, 400);
   assert.equal(expired.body.error.code, 'VOUCHER_EXPIRED');
-  assert.equal(pred.getUserSummary('u_exp', 2).pendingActivationRaw, '0');
+  assert.equal(pred.getUserSummary('3002', 2).pendingActivationRaw, '0');
 });
 
 await test('PredictionEngine applies up to 2.0x invite+exact boost and returns streak, winRate, pendingExpiresAt, winningSide', async () => {
@@ -498,27 +518,31 @@ await test('PredictionEngine applies up to 2.0x invite+exact boost and returns s
     listRounds: () => [],
     getRound: () => null,
   };
-  const route = createApiRouter({ stateStore, predictionEngine: pred });
+  const route = createApiRouter({ env: { A9_BOT_TOKEN: TEST_BOT_TOKEN }, stateStore, predictionEngine: pred });
 
-  // u_pro: PASS + exact slot 18 (+0.5x) + 6 invited friends (capped at 5 => +0.5x) => 2.0x (weight 20)
-  pred.placeBet({ roundId: 1, userId: 'u_pro', side: 'PASS', guessSlots: 18 }, 100);
+  // 1001: PASS + exact slot 18 (+0.5x) + 6 invited friends (capped at 5 => +0.5x) => 2.0x (weight 20)
+  pred.placeBet({ roundId: 1, userId: '1001', side: 'PASS', guessSlots: 18 }, 100);
   for (let i = 1; i <= 6; i += 1) {
-    pred.placeBet({ roundId: 1, userId: `u_f${i}`, side: 'BURN', referrerId: 'u_pro' }, 100 + i);
+    pred.placeBet({ roundId: 1, userId: `110${i}`, side: 'BURN', referrerId: '1001' }, 100 + i);
   }
-  // u_base: PASS without exact guess or invites => 1.0x (weight 10)
-  pred.placeBet({ roundId: 1, userId: 'u_base', side: 'PASS', guessSlots: 16 }, 120);
+  // 1002: PASS without exact guess or invites => 1.0x (weight 10)
+  pred.placeBet({ roundId: 1, userId: '1002', side: 'PASS', guessSlots: 16 }, 120);
 
   const settleMs = 1_700_000_000_000;
   pred.settleRoundBets(1, true, 18, '30000000000000', settleMs);
 
-  // Weight split: 20 vs 10 out of 30 => u_pro gets 20,000 A9, u_base gets 10,000 A9
-  const proSummary = await route({ method: 'GET', pathname: '/api/prediction/user/u_pro', query: { roundId: '1' } });
+  // Weight split: 20 vs 10 out of 30 => 1001 gets 20,000 A9, 1002 gets 10,000 A9
+  const proSummary = await route({ method: 'GET', pathname: '/api/prediction/user/1001', query: { roundId: '1' }, headers: await tgHeaders(1001, { nowSec: 1000 }), nowSec: 1000 });
   assert.equal(proSummary.status, 200);
   assert.equal(proSummary.body.data.pendingActivationRaw, '20000000000000');
   assert.equal(proSummary.body.data.streak, 1);
   assert.equal(proSummary.body.data.winRate, 100);
   assert.equal(proSummary.body.data.inviteBoostCount, 5);
   assert.equal(proSummary.body.data.pendingExpiresAt, settleMs + 2 * 86400 * 1000);
+
+  // Another signed-in user cannot read 1001's private record.
+  const other = await route({ method: 'GET', pathname: '/api/prediction/user/1001', query: { roundId: '1' }, headers: await tgHeaders(1002, { nowSec: 1000 }), nowSec: 1000 });
+  assert.equal(other.status, 403);
 
   const roundRes = await route({ method: 'GET', pathname: '/api/prediction/round/1' });
   assert.equal(roundRes.body.data.winningSide, 'PASS');
@@ -718,10 +742,11 @@ await test('POST /api/admin/prediction/settle rejects unauthorized calls (401) a
   assert.equal(okAuth.body.data.winnersCount, 1);
 });
 
-await test('D1 full-stack persistence loop: bindReferral -> placeBet -> admin settle -> PAID_A9 presale + 12% credit -> activateToPromo', async () => {
+await test('D1 full-stack persistence loop (real SQLite): bindReferral -> placeBet -> admin settle -> COMPLETED exchange + 12% credit -> activateToPromo', async () => {
   const { D1PromoStore } = await import('../src/d1-promo-store.mjs');
   const { D1SocialStore, D1PredictionEngine, D1PresaleStore } = await import('../src/d1-growth-store.mjs');
-  const db = createMockD1();
+  const { D1IdentityStore } = await import('../src/auth.mjs');
+  const db = createSqliteD1(FRESH_SCHEMA);
   const HOT = 'EQ_D1_HOT_FULL';
   const REF = 'EQ_D1_REF';
   const USER_W = 'EQ_D1_BUYER';
@@ -730,6 +755,8 @@ await test('D1 full-stack persistence loop: bindReferral -> placeBet -> admin se
   const social = new D1SocialStore({ db });
   const pred = new D1PredictionEngine({ db, defaultPoolA9Raw: '20000000000000' });
   const presale = new D1PresaleStore({ db, hotWalletAddress: HOT, rateA9PerTon: 2000n, minOrderTon: 5n, promoEngine: promo, socialStore: social });
+  const identityStore = new D1IdentityStore({ db });
+  await identityStore.bindWallet('2001', USER_W, 900);
 
   const stateStore = {
     getTiming: () => ({ observationSeconds: 86400 }),
@@ -738,59 +765,41 @@ await test('D1 full-stack persistence loop: bindReferral -> placeBet -> admin se
     getRound: () => null,
   };
   const route = createApiRouter({
-    env: { A9_ADMIN_TOKEN: 'd1-adm' },
-    stateStore,
-    promoEngine: promo,
-    presaleEngine: presale,
-    socialStore: social,
-    predictionEngine: pred,
+    env: { A9_ADMIN_TOKEN: 'd1-adm', A9_BOT_TOKEN: TEST_BOT_TOKEN },
+    stateStore, promoEngine: promo, presaleEngine: presale, socialStore: social, predictionEngine: pred, identityStore,
   });
+  const H = (t) => tgHeaders(2001, { nowSec: t });
 
-  // 1) Place bet with referrerId (binds first-touch referral in D1)
-  const betRes = await route({
-    method: 'POST', pathname: '/api/prediction/bet',
-    body: { roundId: 1, userId: 'tg_d1_u', side: 'PASS', guessSlots: 18, referrerId: REF },
-    nowSec: 1000,
-  });
+  // 1) Place bet with referrerId (binds first-touch referral for the VERIFIED Telegram user)
+  const betRes = await route({ method: 'POST', pathname: '/api/prediction/bet', body: { roundId: 1, side: 'PASS', guessSlots: 18, referrerId: REF }, headers: await H(1000), nowSec: 1000 });
   assert.equal(betRes.status, 200);
-  assert.equal(await social.getReferrer('tg_d1_u'), REF);
+  assert.equal(betRes.body.data.userId, '2001');
+  assert.equal(await social.getReferrer('2001'), REF);
 
   // 2) Settle via admin endpoint
-  const settleRes = await route({
-    method: 'POST', pathname: '/api/admin/prediction/settle',
-    headers: { 'x-a9-admin-token': 'd1-adm' },
-    body: { roundId: 1, passed: true, actualQualified: 18 },
-    nowSec: 2000,
-  });
+  const settleRes = await route({ method: 'POST', pathname: '/api/admin/prediction/settle', headers: { 'x-a9-admin-token': 'd1-adm' }, body: { roundId: 1, passed: true, actualQualified: 18 }, nowSec: 2000 });
   assert.equal(settleRes.status, 200);
   assert.equal(settleRes.body.data.winnersCount, 1);
 
-  // 3) Activate before presale -> blocked by ACTIVATION_REQUIREMENT_UNMET
-  const blocked = await route({
-    method: 'POST', pathname: '/api/prediction/activate',
-    body: { userId: 'tg_d1_u', walletAddress: USER_W },
-    nowSec: 2010,
-  });
+  // 3) Activate before a completed purchase -> blocked
+  const blocked = await route({ method: 'POST', pathname: '/api/prediction/activate', body: {}, headers: await H(2010), nowSec: 2010 });
   assert.equal(blocked.status, 400);
   assert.equal(blocked.body.error.code, 'ACTIVATION_REQUIREMENT_UNMET');
 
-  // 4) Create presale order with referrerId -> mark PAID_A9 -> auto-credits 12% (1,200 A9) to REF in D1PromoStore
-  const ordRes = await route({
-    method: 'POST', pathname: '/api/presale/intent',
-    body: { walletAddress: USER_W, tonAmount: 5, referrerId: REF },
-    nowSec: 2020,
-  });
+  // 4) Exchange order via API (wallet from binding) -> paid -> confirmed -> 12% (1,200 A9) to REF exactly once
+  const ordRes = await route({ method: 'POST', pathname: '/api/presale/intent', body: { gramAmount: '5', referrerId: REF }, headers: await H(2020), nowSec: 2020 });
   assert.equal(ordRes.status, 200);
-  const paid = await presale.markOrderPaid(ordRes.body.data.orderId, 'tx-in-d1', 'tx-out-d1', 2030);
-  assert.deepEqual(paid.referralCredited, { referrerWallet: REF, amountRaw: '1200000000000' });
+  const ord = ordRes.body.data;
+  await presale.ingestInbound({ txHash: 'tx-in-d1', finality: 'finalized', to: HOT, from: USER_W, valueNano: ord.tonNano, memo: ord.memo }, 2025);
+  await presale.queueConfirmedPayouts(2026);
+  await presale.processPayouts(2027, { a9Broadcaster: async () => ({ txHash: 'tx-out-d1' }), verifier: async () => ({ state: 'CONFIRMED' }) });
+  await presale.processReferralCredits(2030);
+  await presale.processReferralCredits(2031);
+  assert.equal((await presale.getOrder(ord.orderId)).status, 'COMPLETED');
   assert.equal((await promo.getBalance(REF)).claimableRaw, '1200000000000');
 
-  // 5) Activate after PAID_A9 -> succeeds & credits 20,000 A9 to USER_W in D1PromoStore
-  const actRes = await route({
-    method: 'POST', pathname: '/api/prediction/activate',
-    body: { userId: 'tg_d1_u', walletAddress: USER_W },
-    nowSec: 2040,
-  });
+  // 5) Activate after COMPLETED -> succeeds & credits 20,000 A9 to the bound wallet
+  const actRes = await route({ method: 'POST', pathname: '/api/prediction/activate', body: {}, headers: await H(2040), nowSec: 2040 });
   assert.equal(actRes.status, 200);
   assert.equal(actRes.body.data.activatedRaw, '20000000000000');
   assert.equal((await promo.getBalance(USER_W)).claimableRaw, '20000000000000');

@@ -1,8 +1,12 @@
-// A9 Protocol v15 — Zero-contract Presale hot-wallet auto-payout & refund runner.
-// Polls finalized inbound TON transfers with "buy:<orderId>" memo to the presale hot wallet,
-// dispatches standard TEP-74 A9 transfers (sendExcessesTo = hotWallet) for valid fills,
-// or dispatches TON refunds for closed/over-quota orders.
-// Defaults to dry-run unless execute=true AND OPS_EXECUTE=1.
+// A9 Protocol v15 — Presale ("A9 固定兑换所") hot-wallet payout & refund runner.
+//
+// One tick = (1) read finalized inbound transfers, (2) persist each decision idempotently,
+// (3) move PAYMENT_CONFIRMED orders to PAYOUT_PENDING, (4) drive persisted payouts
+// (broadcast / verify / retry), (5) book referral rewards for COMPLETED orders.
+//
+// Dry-run (default): only step (1) + a pure plan. NOTHING is written to the order store,
+// no broadcaster is called and no referral reward is booked. Real execution requires
+// execute=true AND an a9Broadcaster (server.mjs additionally requires OPS_EXECUTE=1).
 
 export class PresalePayoutRunner {
   constructor({
@@ -10,92 +14,88 @@ export class PresalePayoutRunner {
     tonCenter,
     a9Broadcaster = null,
     tonRefundBroadcaster = null,
+    payoutVerifier = null,
     promoEngine = null,
-    socialStore = null,
     execute = false,
     logger = console,
   }) {
-    if (!engine) throw new Error('PresaleHotWalletEngine is required');
+    if (!engine) throw new Error('PresaleEngine is required');
     if (!tonCenter) throw new Error('TonCenterClient is required');
     this.engine = engine;
     this.tonCenter = tonCenter;
     this.a9Broadcaster = a9Broadcaster; // async (instruction) => { txHash }
     this.tonRefundBroadcaster = tonRefundBroadcaster; // async (instruction) => { txHash }
+    this.payoutVerifier = payoutVerifier; // async (payout) => { state, txHash? }
     this.promoEngine = promoEngine;
-    this.socialStore = socialStore;
     this.execute = Boolean(execute);
     this.logger = logger;
     this.running = false;
   }
 
-  /** Execute one idempotent poll-verify-payout cycle. */
   async tick(nowSec = Math.floor(Date.now() / 1000)) {
-    if (this.running) return { skipped: true, paid: 0, refunded: 0, dryRun: 0, ignored: 0, errors: [] };
+    const summary = {
+      skipped: false, dryRun: 0, confirmed: 0, refundQueued: 0, ignored: 0, rejected: 0,
+      queued: 0, paid: 0, refunded: 0, completed: 0, retry: 0, review: 0, credited: 0, plans: [], errors: [],
+    };
+    if (this.running) return { ...summary, skipped: true };
     this.running = true;
-    const summary = { skipped: false, paid: 0, refunded: 0, dryRun: 0, ignored: 0, errors: [] };
     try {
+      if (this.execute && typeof this.a9Broadcaster !== 'function') {
+        throw new Error('a9Broadcaster callback is required when execute=true');
+      }
       const txs = await this.tonCenter.fetchInboundTransfers(this.engine.hotWalletAddress);
       for (const tx of txs) {
-        if (!tx.memo || !tx.memo.startsWith('buy:')) {
+        if (!tx?.memo || !String(tx.memo).startsWith('buy:')) {
+          // Other memos (e.g. promo "claim:") belong to other flows sharing the wallet.
           summary.ignored += 1;
           continue;
         }
         try {
-          const res = this.engine.processInboundTonTx(tx, nowSec, {
-            promoEngine: this.promoEngine,
-            socialStore: this.socialStore,
-          });
-          if (res.action === 'IGNORE_DUST') {
-            summary.ignored += 1;
-            continue;
-          }
           if (!this.execute) {
+            const plan = await this.engine.planInbound(tx, nowSec);
+            if (plan.action === 'REPLAY') { summary.ignored += 1; continue; }
             summary.dryRun += 1;
-            this.logger.log?.(`[presale-runner][DRY-RUN] ${res.action} for ${tx.from} (memo=${tx.memo})`);
+            summary.plans.push({ txHash: tx.txHash, action: plan.action, reason: plan.reason });
+            this.logger.log?.(`[presale-runner][DRY-RUN] ${plan.action} (${plan.reason}) tx=${tx.txHash}`);
             continue;
           }
-          if (res.action === 'SEND_A9') {
-            if (typeof this.a9Broadcaster !== 'function') {
-              throw new Error('a9Broadcaster callback is required when execute=true');
-            }
-            const sent = await this.a9Broadcaster(res.instruction);
-            if (res.order) {
-              const rawOrder = this.engine.orders.get(res.order.orderId);
-              if (rawOrder) {
-                rawOrder.payoutTxHash = sent.txHash;
-                rawOrder.updatedAt = nowSec;
-              }
-            }
-            summary.paid += 1;
-            this.logger.log?.(`[presale-runner] Paid A9 order=${res.order?.orderId} tx=${sent.txHash}`);
-          } else if (res.action === 'REFUND_TON') {
-            if (typeof this.tonRefundBroadcaster === 'function') {
-              const sent = await this.tonRefundBroadcaster(res.instruction);
-              if (res.order) {
-                const rawOrder = this.engine.orders.get(res.order.orderId);
-                if (rawOrder) {
-                  rawOrder.payoutTxHash = sent.txHash;
-                  rawOrder.updatedAt = nowSec;
-                }
-              }
-              summary.refunded += 1;
-              this.logger.log?.(`[presale-runner] Refunded TON to ${res.instruction.recipient} tx=${sent.txHash}`);
-            } else {
-              summary.dryRun += 1;
-              this.logger.log?.(`[presale-runner][MANUAL-REFUND] ${res.instruction.tonNano} nanoTON -> ${res.instruction.recipient} (${res.reason})`);
-            }
-          }
+          const res = await this.engine.ingestInbound(tx, nowSec);
+          if (res.action === 'REPLAY' || res.action === 'IGNORE_DUST') summary.ignored += 1;
+          else if (res.action === 'REJECT') summary.rejected += 1;
+          else if (res.action === 'CONFIRM') summary.confirmed += 1;
+          else if (res.action === 'REFUND') summary.refundQueued += 1;
         } catch (e) {
-          if (e?.code === 'REPLAY_TX') {
-            summary.ignored += 1;
-          } else {
-            summary.errors.push({ txHash: tx.txHash, code: e?.code || 'ERR', message: e?.message || String(e) });
-          }
+          summary.errors.push({ txHash: tx?.txHash, code: e?.code || 'ERR', message: e?.message || String(e) });
         }
       }
+      if (!this.execute) return summary;
+
+      summary.queued = await this.engine.queueConfirmedPayouts(nowSec);
+      const before = await this._countCompleted();
+      const ps = await this.engine.processPayouts(nowSec, {
+        a9Broadcaster: this.a9Broadcaster,
+        refundBroadcaster: this.tonRefundBroadcaster,
+        verifier: this.payoutVerifier,
+        logger: this.logger,
+      });
+      summary.paid = ps.broadcast;
+      summary.retry = ps.retry;
+      summary.review = ps.review;
+      summary.completed = Math.max(0, (await this._countCompleted()) - before);
+      summary.errors.push(...ps.errors);
+      const cs = await this.engine.processReferralCredits(nowSec, { promoEngine: this.promoEngine || this.engine.promoEngine });
+      summary.credited = cs.credited;
+      summary.review += cs.review;
+    } catch (e) {
+      summary.errors.push({ code: e?.code || 'ERR', message: e?.message || String(e) });
     } finally {
       this.running = false;
     }
     return summary;
+  }
+
+  async _countCompleted() {
+    const rows = await this.engine.repo.listOrdersByStatus('COMPLETED');
+    return rows.length;
   }
 }

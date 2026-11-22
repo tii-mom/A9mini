@@ -36,6 +36,11 @@ export const A9TMA = {
     } catch (_) {}
   },
 
+  /** 原始 initData（服务端验签用）。非 Telegram 环境返回空串，绝不伪造。 */
+  getRawInitData() {
+    return this.isTelegram() ? String(getTg().initData) : '';
+  },
+
   /** 仅在真实 Telegram WebApp 环境中返回真实用户，绝不伪造默认 ID */
   getRealTelegramUser() {
     if (!this.isTelegram()) return null;

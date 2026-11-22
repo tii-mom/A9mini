@@ -136,7 +136,8 @@ export class SocialStore {
     if (tgGroupHandle) {
       cur.tgGroupHandle = tgGroupHandle;
       cur.tgChatId = tgChatId;
-      cur.bindStatus = 'bound';
+      // Not verified against Telegram yet (bot membership + admin rights land in phase 6).
+      cur.bindStatus = 'verifying';
     }
     cur.updatedAt = nowSec;
     this.teams.set(teamId, cur);

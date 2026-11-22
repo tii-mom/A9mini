@@ -306,7 +306,7 @@ export function renderBindTgGroup(root) {
       A9Haptic.success();
       bindState = 'bound';
       store.update(s => { s.team.tgGroupBound = true; });
-      showToast(L('TG 群绑定校验通过', 'TG group verified'));
+      showToast(L('[演示] 模拟绑定状态，未连接真实 Telegram 群', '[Demo] Simulated state, no real Telegram group'));
       paint();
     };
   };
@@ -358,9 +358,9 @@ export function renderInviteShare(root) {
           <div class="share-copy-box">${pitchText}</div>
         </div>
 
-        <div class="card">
+        ${config.isDemo ? `<div class="card">
           <div class="card-header">
-            <span class="card-title">${icon('team', 15)} ${L('被邀请人列表 (18)', 'Invitees (18)')}</span>
+            <span class="card-title">${icon('team', 15)} ${L('被邀请人列表 (18) · 演示样例', 'Invitees (18) · Demo sample')}</span>
             <span class="num-xs text-muted">${L('有效 16 人', '16 Valid')}</span>
           </div>
           <div class="col-gap">
@@ -368,7 +368,10 @@ export function renderInviteShare(root) {
             <div class="list-row"><div><div class="num-sm">EQ...3312</div><div class="num-xs text-muted">2,000 TON · 2.0x</div></div><span class="chip chip-gold">${L('观察中', 'Live')}</span></div>
             <div class="list-row"><div><div class="num-sm">UQ...77ea</div><div class="num-xs text-muted">0 TON</div></div><span class="chip chip-muted">${L('待参与', 'Pending')}</span></div>
           </div>
-        </div>
+        </div>` : `<div class="card">
+          <div class="card-header"><span class="card-title">${icon('team', 15)} ${L('被邀请人列表', 'Invitees')}</span></div>
+          <div class="num-xs text-muted">${L('暂无数据：真实邀请记录需服务端确认后显示。', 'No data yet: invite records appear after server confirmation.')}</div>
+        </div>`}
       </div>
     `;
 

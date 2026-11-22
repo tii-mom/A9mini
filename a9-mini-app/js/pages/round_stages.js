@@ -232,7 +232,7 @@ export function renderParticipation(round) {
       <div class="row-between" style="align-items:flex-end;">
         <div>
           <div class="num-xs text-muted">${L('本轮用户奖励池', 'Round Reward Pool')}</div>
-          <div class="num-hero" style="margin-top:4px;">${formatNum(round.rewardBudgetA9 ?? 700000000)} <span class="num-md text-green">A9</span></div>
+          <div class="num-hero" style="margin-top:4px;">${round.rewardBudgetA9 === null || round.rewardBudgetA9 === undefined ? L('待核验', 'Pending') : formatNum(round.rewardBudgetA9)} <span class="num-md text-green">A9</span></div>
         </div>
         ${history.length > 1 ? renderLiveSparkline(history) : ''}
       </div>

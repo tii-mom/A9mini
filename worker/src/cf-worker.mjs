@@ -8,13 +8,14 @@ import { SocialStore } from './social-store.mjs';
 import { PredictionEngine } from './growth-engine.mjs';
 import { D1PromoStore } from './d1-promo-store.mjs';
 import { D1SocialStore, D1PredictionEngine, D1PresaleStore } from './d1-growth-store.mjs';
+import { D1IdentityStore, MemoryIdentityStore } from './auth.mjs';
 
 function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}) {
   return {
     'content-type': contentType,
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
-    'access-control-allow-headers': 'content-type, authorization, x-a9-admin-token',
+    'access-control-allow-headers': 'content-type, authorization, x-a9-admin-token, x-telegram-init-data',
     ...extra,
   };
 }
@@ -22,6 +23,7 @@ function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}
 // Module-scoped fallbacks for ephemeral preview/dev environments without D1 bindings
 const memSocialStore = new SocialStore();
 const memPredictionEngine = new PredictionEngine();
+const memIdentityStore = new MemoryIdentityStore();
 
 export default {
   async fetch(request, env) {
@@ -110,6 +112,8 @@ export default {
       socialStore,
       predictionEngine,
       userReader,
+      identityStore: hasD1 ? new D1IdentityStore({ db: env.DB }) : memIdentityStore,
+      publicKeyResolver: tc ? (addr) => tc.fetchWalletPublicKey(addr) : null,
     });
     const out = await router({ method: request.method, pathname: url.pathname, query, body, headers });
 

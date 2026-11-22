@@ -33,7 +33,11 @@ export const ENDPOINTS = Object.freeze({
   warmupRegister: '/api/warmup/register',
   warmupLeaderboard: '/api/warmup/leaderboard',
   teamJoin: '/api/team/join',
-  teamBindTg: '/api/team/bind-tg'
+  teamBindTg: '/api/team/bind-tg',
+  me: '/api/me',
+  tonProofPayload: '/api/auth/ton-proof/payload',
+  tonProofVerify: '/api/auth/ton-proof/verify',
+  walletUnbind: '/api/auth/wallet/unbind'
 });
 
 export class ApiError extends Error {
@@ -51,11 +55,15 @@ async function request(path, { timeoutMs = config.timeoutMs, method = 'GET', bod
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
   try {
-    const init = { method, signal: controller.signal, credentials: 'same-origin' };
+    const init = { method, signal: controller.signal, credentials: 'same-origin', headers: {} };
     if (payload !== undefined) {
-      init.headers = { 'content-type': 'application/json' };
+      init.headers['content-type'] = 'application/json';
       init.body = JSON.stringify(payload);
     }
+    // 真实模式：附带 Telegram 原始 initData，由服务端验签确定用户身份（P0-1）。
+    // 演示模式永不附带，演示身份不能冒充已认证用户。
+    const initData = config.isDemo ? '' : A9TMA.getRawInitData();
+    if (initData) init.headers.authorization = `tma ${initData}`;
     const res = await fetch(apiUrl(path), init);
     let body;
     try {
@@ -272,10 +280,32 @@ export async function requestPromoClaimIntent(walletAddress) {
  */
 export function getEffectiveUserId(user) {
   const realTgUser = A9TMA.getRealTelegramUser();
+  // 真实模式：服务端只认可已验签的 Telegram 用户；钱包地址不再充当用户 ID。
+  if (!config.isDemo) return realTgUser?.id ? String(realTgUser.id) : null;
   if (realTgUser?.id) return String(realTgUser.id);
   if (user?.connected && user?.address) return String(user.address);
-  if (config.isDemo) return 'demo_user_01';
-  return null;
+  return 'demo_user_01';
+}
+
+/** 当前 Telegram 身份与服务端确认的钱包绑定（真实模式；演示模式返回 null）。 */
+export async function fetchMe() {
+  if (config.isDemo || !A9TMA.getRawInitData()) return null;
+  return request(ENDPOINTS.me);
+}
+
+/** TON Connect ton_proof：向服务端申请一次性签名载荷。 */
+export async function requestTonProofPayload() {
+  return request(ENDPOINTS.tonProofPayload, { method: 'POST', body: {} });
+}
+
+/** TON Connect ton_proof：提交钱包签名，由服务端验证并绑定钱包。 */
+export async function submitTonProof({ address, network, proof }) {
+  return request(ENDPOINTS.tonProofVerify, { method: 'POST', body: { address, network, proof } });
+}
+
+/** 断开钱包时解除服务端绑定。 */
+export async function unbindWallet() {
+  return request(ENDPOINTS.walletUnbind, { method: 'POST', body: {} });
 }
 
 /** 24H 生死预言局：读取本轮多空实时比例 */

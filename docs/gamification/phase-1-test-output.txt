@@ -1,0 +1,92 @@
+Node v24.22.3; NODE_OPTIONS=--preserve-symlinks --preserve-symlinks-main (needed only inside the AWS Quick sandbox)
+
+$ node worker/tests/worker.test.mjs
+(exit 0)
+Running A9 v15 worker unit tests...
+  PASS  v15 round stage derives STAKING_OPEN -> OBSERVING -> SUCCEEDED without CloseStaking/Settling
+  PASS  promo hot-wallet full flow: 0.06 TON fee -> finalized verify -> TEP-74 payout with excesses back to hot wallet
+  PASS  API router serves /api/health, /api/config, /api/rounds/:id, and authenticated /api/promo/intent
+  PASS  TonCenterClient parses v15 get_protocol_state, get_round, and finalized inbound txs
+  PASS  PromoPayoutRunner polls 0.06 TON inbound fee, pays A9 with excesses to hot wallet, and ignores replays
+  PASS  createActonPromoBroadcaster passes --net and parses PROMO_PAYOUT_TX cleanly
+  PASS  PresaleHotWalletEngine handles valid fill, passive free refund, user-fault -0.05 GRAM refund, and dust ignore
+  PASS  SocialStore handles warmup registration, invite leaderboard, and captain TG-group binding
+  PASS  PredictionEngine settles PASS/BURN with 1.5x exact-slot boost and activates into promoEngine
+  PASS  Dynamic OG card routes /c/round/1 and /c/img/burn/2.svg render valid HTML & SVG
+  PASS  TonCenterClient encodes/decodes TON address BOC and reads user JettonWallet + StakeTicket
+  PASS  PresalePayoutRunner polls buy:<id> finalized GRAM, broadcasts A9 payout, confirms, and ignores replays
+  PASS  First-touch referral binding blocks self/mutual invites and credits 12% presale commission only after confirmed payout
+  PASS  POST /api/prediction/activate enforces anti-sybil capital check and voucher expiry
+  PASS  PredictionEngine applies up to 2.0x invite+exact boost and returns streak, winRate, pendingExpiresAt, winningSide
+  PASS  GET /c/img/burn/2.png returns valid PNG (1200x630 & 9x16 1080x1920) and /c/burn/2 points og:image to .png
+  PASS  D1PromoStore.creditReward preserves BigInt precision across multiple credits
+  PASS  POST /api/admin/prediction/settle rejects unauthorized calls (401) and settles with valid admin token
+  PASS  D1 full-stack persistence loop (real SQLite): bindReferral -> placeBet -> admin settle -> COMPLETED exchange + 12% credit -> activateToPromo
+All 19 A9 v15 worker tests passed.
+
+
+$ node worker/tests/p0-security.test.mjs
+(exit 0)
+Running phase-1 P0 security tests...
+  PASS  initData signed with a different bot token is rejected (forged Telegram identity)
+  PASS  editing the user id inside correctly signed initData breaks the signature
+  PASS  expired / future auth_date and missing initData are rejected; missing bot token fails closed
+  PASS  client-supplied userId never selects the account (prediction bet / record / activation)
+  PASS  unverified wallet cannot read or act on private assets; public on-chain view hides private parts
+  PASS  user A cannot read, claim or order with user B's wallet (body / path wallet ignored)
+  PASS  repeated referral submissions keep the first-touch referrer; self-referral ignored
+  PASS  non-captain cannot bind a team group; a typed @handle is reported as verifying, never bound
+  PASS  ton_proof: server payload + wallet signature binds wallet; replay, wrong domain, wrong key, foreign payload and double-binding refused
+  PASS  exact decimal money: 1.99 / 5.99 / 13.99 GRAM x 2,002 = 3,983.98 / 11,991.98 / 28,007.98 A9
+  PASS  [memory] min/max boundaries; 1.99 GRAM rejected under current 5 GRAM minimum; amounts stored exactly
+  PASS  [memory] duplicate inbound tx is a no-op; memo alone (wrong sender / wrong amount) never confirms
+  PASS  [memory] payment confirmed but broadcast fails: order stays retryable, then completes with exactly one payout
+  PASS  [memory] ambiguous broadcast failure is never blindly re-sent (verifier or manual review)
+  PASS  [memory] dry-run runner writes nothing and never calls a broadcaster
+  PASS  [memory] concurrent orders cannot oversell wallet quota or pool cap
+  PASS  [memory] expired order paid late -> passive full refund; refund broadcast failure retries then confirms
+  PASS  [memory] referral reward booked once; crash while crediting goes to review, never double-credits
+  PASS  [d1-sqlite] min/max boundaries; 1.99 GRAM rejected under current 5 GRAM minimum; amounts stored exactly
+  PASS  [d1-sqlite] duplicate inbound tx is a no-op; memo alone (wrong sender / wrong amount) never confirms
+  PASS  [d1-sqlite] payment confirmed but broadcast fails: order stays retryable, then completes with exactly one payout
+  PASS  [d1-sqlite] ambiguous broadcast failure is never blindly re-sent (verifier or manual review)
+  PASS  [d1-sqlite] dry-run runner writes nothing and never calls a broadcaster
+  PASS  [d1-sqlite] concurrent orders cannot oversell wallet quota or pool cap
+  PASS  [d1-sqlite] expired order paid late -> passive full refund; refund broadcast failure retries then confirms
+  PASS  [d1-sqlite] referral reward booked once; crash while crediting goes to review, never double-credits
+  PASS  [d1-sqlite] restart after broadcast: new process resumes from DB, confirms without re-sending
+  PASS  [d1-sqlite] migration from the v15 baseline keeps legacy rows; legacy PAID_A9 is not treated as confirmed
+  PASS  ineligible user (payout only broadcast, not confirmed) cannot activate A9 prediction reward
+  PASS  D1 social store: typed group handle stays verifying (no fake "bound")
+All 30 phase-1 P0 security tests passed.
+
+
+$ node a9-mini-app/js/batch-a-live-guard.test.mjs
+(exit 0)
+✔ Production blocks arbitrary ?api= URL override while preserving deployed apiBase (39.182125ms)
+✔ Production allows ?api= only when origin is explicitly allowlisted (37.341041ms)
+✔ Local dev preserves loopback ?api= override but rejects remote untrusted origin and bad protocols (112.329084ms)
+✔ Live mode blocks all wallet sends and fund order requests even with connected wallet (46.362333ms)
+✔ Demo mode NEVER triggers real wallet sendTransaction even when wallet SDK is connected (43.730167ms)
+✔ Telegram deep-link parser sanitizes untrusted start_param values (35.910542ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 318.660084
+
+
+$ node a9-mini-app/js/v15-tx.test.mjs
+(exit 0)
+Running A9 v15 frontend tx-builder tests...
+  PASS  encodeTicketClaimBoc encodes valid BOC magic, op 0x52540303, and 64-bit queryId
+  PASS  encodeTextCommentBoc encodes 0x00000000 prefix + UTF-8 claim memo
+  PASS  parseTonAddress decodes both friendly base64url and raw 0:hex TON addresses
+  PASS  buildV15StakeTx builds valid 2-cell TEP-74 AskToTransfer BOC with 0x5254000F child ref
+  PASS  buildV15ClaimTx and buildV15PromoFeeTx produce valid TON Connect 2.0 message payloads
+  PASS  encodeSingleCellBoc rejects payloads > 127 bytes
+All 6 v15 frontend tx-builder tests passed.
+
