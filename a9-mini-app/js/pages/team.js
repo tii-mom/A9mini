@@ -55,7 +55,7 @@ export function renderTeamHome(root, navigate) {
           <div>
             <div class="row-start" style="font-size:17px;font-weight:900;">${escapeHtml(team.name || L('我的战队', 'My Squad'))} ${icon('shieldCheck', 16, 'text-green')}</div>
             <div class="row-start" style="margin-top:4px;gap:6px;">
-              <span class="chip chip-green">${L('会长', 'Captain')} · Lv.${team.level || 1}</span>
+              <span class="chip chip-green">${L('队长', 'Captain')} · Lv.${team.level || 1}</span>
               <span class="chip chip-gold">+${team.boostPct || 0}% ${L('加成', 'Boost')}</span>
             </div>
           </div>
@@ -95,7 +95,7 @@ export function renderTeamHome(root, navigate) {
           ${(team.topMembers || []).length === 0
             ? `<div class="empty-state" style="padding:14px;grid-column:1/-1;"><div class="num-xs text-muted">${L('暂无成员闯关战绩', 'No active members yet')}</div></div>`
             : (team.topMembers || []).map((m,i) => `
-            <div class="guild-member"><img src="./assets/wealthverse/game/a${[5,2,3][i%3]}.png" alt=""><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
+            <div class="guild-member"><img src="./assets/boxheads/wealth/avatars/wlt-0${[5,4,6][i%3]}.png" alt=""><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
               <div class="num-xs text-green mono" style="font-weight:800;">${formatNum(m.ton)} GRAM</div>
             </div>
           `).join('')}
@@ -319,9 +319,9 @@ export function renderBindTgGroup(root) {
           <div class="card">
             <div class="card-title" style="margin-bottom:6px;">${icon('shieldCheck', 15, 'text-green')} ${L('服务端四重防伪核验规则', '4-Step Server Verification Rules')}</div>
             <div class="num-xs text-sec" style="line-height:1.6;">
-              1. ${L('仅会长本人（已验签绑定钱包）可发起提交与核验，普通成员将被拒绝（403）。', 'Captain-only (verified wallet required); members are rejected (403).')}<br>
+              1. ${L('仅队长本人（已验签绑定钱包）可发起提交与核验，普通成员将被拒绝（403）。', 'Captain-only (verified wallet required); members are rejected (403).')}<br>
               2. ${L('仅提交 @群名 始终停留在「核验中」，绝不伪造已绑定状态。', 'Submitting @handle only sets verifying status; never faked as bound.')}<br>
-              3. ${L('必须先将官方 Bot 拉入群且会长具备群管理员权限，否则核验失败。', 'Official bot must be in group and captain must hold group admin role.')}<br>
+              3. ${L('必须先将官方 Bot 拉入群且队长具备群管理员权限，否则核验失败。', 'Official bot must be in group and captain must hold group admin role.')}<br>
               4. ${L('同一真实群 ID（tgChatId）仅允许绑定 1 个战队；若权限丢失，巡检将自动降级为「已失效」。', 'One tgChatId binds at most one squad; lost permissions downgrade to expired.')}
             </div>
           </div>
@@ -341,7 +341,7 @@ export function renderBindTgGroup(root) {
           lastMsg = L('已提交群组信息，当前状态为「核验中」。请确保官方 Bot 已入群后点击右侧「发起服务端核验」。', 'Submitted. Status is verifying. Add the official bot to the group and click Verify Now.');
           showToast(L('已进入核验中（verifying）', 'Status: verifying'));
         } catch (e) {
-          lastMsg = e?.message || L('提交失败，请确认已在 Telegram 内打开并已验证绑定会长钱包', 'Submission failed. Verify Telegram session & captain wallet.');
+          lastMsg = e?.message || L('提交失败，请确认已在 Telegram 内打开并已验证绑定队长钱包', 'Submission failed. Verify Telegram session & captain wallet.');
           showToast(lastMsg, 'error');
         }
         paintLive();
@@ -357,7 +357,7 @@ export function renderBindTgGroup(root) {
         try {
           const res = await verifyTeamGroupTg({ teamId: tid });
           liveStatus = res?.bindStatus || 'bound';
-          lastMsg = L('服务端核验通过：Bot 在群内且会长群管理员权限有效。', 'Server verification passed: bot in group & captain admin role confirmed.');
+          lastMsg = L('服务端核验通过：Bot 在群内且队长群管理员权限有效。', 'Server verification passed: bot in group & captain admin role confirmed.');
           showToast(L('Telegram 群绑定核验通过', 'Group verification passed'));
         } catch (e) {
           if (liveStatus === 'bound') liveStatus = 'expired';

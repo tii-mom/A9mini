@@ -423,10 +423,10 @@ export async function requestPresaleIntent(walletAddress, tonAmount, referrerId 
   });
 }
 
-/** 阶段五：商会会长提交 Telegram 群名进入待核验状态（verifying，绝不直接置为 bound） */
+/** 阶段五：战队队长提交 Telegram 群名进入待核验状态（verifying，绝不直接置为 bound） */
 export async function bindTeamGroupTg({ teamId, name = null, tgGroupHandle }) {
   if (!A9TMA.getRawInitData()) {
-    throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内以会长身份提交群组绑定');
+    throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内以队长身份提交群组绑定');
   }
   return request(ENDPOINTS.teamBindTg, {
     method: 'POST',
@@ -434,10 +434,10 @@ export async function bindTeamGroupTg({ teamId, name = null, tgGroupHandle }) {
   });
 }
 
-/** 阶段五：商会会长发起 Telegram 群真实权限核验 */
+/** 阶段五：战队队长发起 Telegram 群真实权限核验 */
 export async function verifyTeamGroupTg({ teamId }) {
   if (!A9TMA.getRawInitData()) {
-    throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内以会长身份发起群核验');
+    throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内以队长身份发起群核验');
   }
   return request(ENDPOINTS.teamVerifyTg, {
     method: 'POST',

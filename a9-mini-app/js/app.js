@@ -434,7 +434,12 @@ function openSimDrawer() {
 
   simDrawerEl.querySelectorAll('[data-sim-stage]').forEach(b => {
     b.onclick = () => {
-      store.update(s => { s.round.stage = b.dataset.simStage; });
+      store.update(s => {
+        s.round.stage = b.dataset.simStage;
+        if (b.dataset.simStage === 'participation' && !(Number(s.round.earlyBirdSec) > 0)) {
+          s.round.earlyBirdSec = 10 * 3600 + 18 * 60 + 42;
+        }
+      });
       simDrawerEl.classList.add('hidden');
       navigate('/round');
     };
@@ -501,26 +506,38 @@ function startDisplayLoop() {
     if (earlyCd) earlyCd.textContent = r.earlyBirdSec === null ? '—' : formatTimer(r.earlyBirdSec);
     const earlyWinEl = document.getElementById('early-window-cd');
     if (earlyWinEl) {
-      const openAt = Number(r.stakeOpenAt || 0);
-      const closeAt = Number(r.stakeCloseAt || 0);
+      const normSec = (v) => {
+        const n = Number(v || 0);
+        if (!Number.isFinite(n) || n <= 0) return 0;
+        return n > 1e12 ? Math.floor(n / 1000) : Math.floor(n);
+      };
+      const openAt = normSec(r.stakeOpenAt);
+      const closeAt = normSec(r.stakeCloseAt);
+      let left = null;
       if (openAt > 0 && closeAt > openAt) {
         const earlyEnd = openAt + Math.floor((closeAt - openAt) / 3);
-        const left = Math.max(0, earlyEnd - Math.floor(Date.now() / 1000));
-        earlyWinEl.textContent = formatTimer(left);
-      } else if (typeof r.earlyBirdSec === 'number') {
-        earlyWinEl.textContent = formatTimer(Math.max(0, r.earlyBirdSec));
+        const diff = earlyEnd - Math.floor(Date.now() / 1000);
+        if (diff > 0) left = diff;
       }
+      if (left === null && config.isDemo && typeof r.earlyBirdSec === 'number') {
+        left = Math.max(0, Math.floor(r.earlyBirdSec));
+      }
+      earlyWinEl.textContent = formatTimer(left ?? 0);
     }
     const candleCd = document.getElementById('active-candle-cd');
     if (candleCd) {
       const hasActive = Array.isArray(r.candles) && r.candles.some(c => c.status === 'active');
       candleCd.textContent = hasActive ? `${L('剩余', 'Left')} ${formatTimer(r.activeCandleSec || 0).slice(3)}` : '—';
     }
-    const predExpCd = document.getElementById('pred-exp-cd');
-    const expAt = Number(store.state.prediction?.pendingExpiresAt);
-    if (predExpCd && Number.isFinite(expAt) && expAt > 0) {
-      const rem = Math.max(0, Math.floor((expAt - Date.now()) / 1000));
-      predExpCd.textContent = rem > 0 ? `${L('距过期', 'Expires in')} ${formatTimer(rem)}` : L('已过期', 'Expired');
+    const rawExpAt = Number(store.state.prediction?.pendingExpiresAt);
+    if (Number.isFinite(rawExpAt) && rawExpAt > 0) {
+      const expAtMs = rawExpAt < 1e12 ? rawExpAt * 1000 : rawExpAt;
+      const rem = Math.max(0, Math.floor((expAtMs - Date.now()) / 1000));
+      document.querySelectorAll('#pred-exp-cd, [data-pred-exp-cd]').forEach((el) => {
+        const isVault = el.getAttribute('data-pred-exp-cd') === 'vault';
+        const prefix = isVault ? L('作废倒计时', 'Expires') : L('距过期', 'Expires in');
+        el.textContent = rem > 0 ? `${prefix} ${formatTimer(rem)}` : L('已过期', 'Expired');
+      });
     }
   }, 1000);
 

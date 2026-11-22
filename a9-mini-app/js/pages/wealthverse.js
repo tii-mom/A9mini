@@ -8,14 +8,19 @@ import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { burstParticles, formatNum, formatTimer, renderLiveSparkline, showToast } from '../components.js';
 import { DIORAMA_BACKDROP, renderCitySandtable } from '../paper-art.js';
-import { tiers, tierVoices, tierDemoHints, characterArt } from '../wealth-art.js';
+import { BOXHEADS_SERIES, getBoxheadItem, characterArt, characterCardArt } from '../wealth-art.js';
+import { buildStartAppLink } from '../share.js';
 
 const link = (path, label, glyph) =>
   `<a href="#${path}">${icon(glyph, 16)}${label}</a>`;
 const waiting = () => L('待核验', 'Awaiting verification');
 
-function portrait(n) {
-  return `<img class="wv-person" src="${characterArt(n)}" alt="A${n}">`;
+const WEALTH_TIER_USD = [100, 500, 1500, 5000, 15000, 50000, 150000, 500000, 1000000];
+let activeGallerySeries = 'activity';
+
+function portrait(n, series = 'activity') {
+  const code = series === 'wealth' ? 'WLT' : 'ACT';
+  return `<img class="wv-person" src="${characterArt(n, series)}" alt="${code} 0${n}">`;
 }
 
 export function stageLabel(stage) {
@@ -200,32 +205,34 @@ export function renderHandbookStampCard() {
  */
 export function identityStage({ modePill = '', walletTag = '' } = {}) {
   const tier = store.state.user.previewTier || 1;
+  const series = config.isDemo ? (store.state.user.previewSeries || 'activity') : 'activity';
   const shownTier = config.isDemo ? tier : 1;
-  const [zh, en, traitZh, traitEn] = tiers[shownTier - 1];
-  const heading = config.isDemo ? `A${shownTier} · ${L(zh, en)}` : L('身份待核验', 'Identity pending');
+  const item = getBoxheadItem(shownTier, series);
+  const code = series === 'wealth' ? 'WLT' : 'ACT';
+  const heading = config.isDemo ? `${code} 0${shownTier} · ${L(item.nameZh, item.nameEn)}` : L('身份待核验', 'Identity pending');
   const subtitle = config.isDemo
-    ? `${L(traitZh, traitEn)} · ${L('轻点立牌切换预览', 'Tap to flip')}`
-    : L('连接钱包后核验持仓阶位', 'Connect wallet to verify tier');
+    ? `${L(item.traitZh, item.traitEn)} · ${L('轻点头像切换预览', 'Tap to flip')}`
+    : L('连接钱包后核验 A9 持仓阶位', 'Connect wallet to verify A9 tier');
 
   return `<section class="wv-hero profile-identity-bar">
-    <div class="identity-thumb" id="identity-standee-stage">
-      <div class="identity-base" aria-hidden="true"></div>
-      ${portrait(shownTier)}
+    <div class="identity-thumb series-${series}" id="identity-standee-stage">
+      ${series === 'wealth' ? '<div class="identity-base" aria-hidden="true"></div>' : ''}
+      ${portrait(shownTier, series)}
     </div>
     <div class="identity-meta">
       <div class="row-between" style="gap:6px;">
-        <span class="diorama-kicker">${config.isDemo ? `STICKER 0${shownTier}` : 'ON-CHAIN ID'}</span>
+        <span class="diorama-kicker">${config.isDemo ? `BOXHEADS · ${code} 0${shownTier}` : 'ON-CHAIN ID'}</span>
         ${modePill || ''}
       </div>
       <h1>${heading}</h1>
       <p>${walletTag || subtitle}</p>
       ${walletTag ? `<small>${subtitle}</small>` : ''}
     </div>
-    <a class="peel-badge identity-gallery-link" href="#/gallery">${L('图鉴', 'Gallery')} ›</a>
+    <a class="peel-badge identity-gallery-link" href="#/gallery/${item.id}">${L('图鉴', 'Gallery')} ›</a>
   </section>`;
 }
 
-/** 为背包身份栏立牌绑定 360° 翻身试穿交互（仅演示模式） */
+/** 为背包身份栏头像绑定 360° 翻身试穿交互（仅演示模式） */
 export function bindIdentityStage(root, onRerender) {
   if (!config.isDemo || !root) return;
   const img = root.querySelector('#identity-standee-stage .wv-person');
@@ -662,71 +669,175 @@ function demoProgressionInitSnapshot(uid, roundId) {
   };
 }
 
-/** 计算演示模式当前图鉴已解锁阶位（严格限定演示态，不伪造链上数据） */
-function computeDemoUnlockedTiers() {
-  const unlocked = new Set([1, 2, 3]);
+/** 计算演示模式当前 A9 持仓估值（仅演示态使用，绝不伪造链上数据） */
+function getDemoA9HoldingUsd() {
+  const u = store.state.user || {};
+  const r = store.state.round || {};
+  const totalA9 = (Number(u.a9Available) || 0) + (Number(u.a9Claimable) || 0) + (Number(u.a9Locked) || 0);
+  const price = Number(r.livePrice) || Number(r.twap24h) || 0.0025;
+  return Math.round(totalA9 * price);
+}
+
+/** 计算演示模式当前图鉴已解锁阶位（区分互动解锁 vs A9 市值达标，绝不伪造链上数据） */
+function computeDemoUnlockedTiers(series = 'activity') {
   const st = store.state;
+  if (series === 'wealth') {
+    const holdingUsd = getDemoA9HoldingUsd();
+    const unlocked = new Set();
+    WEALTH_TIER_USD.forEach((threshold, i) => {
+      if (holdingUsd >= threshold) unlocked.add(i + 1);
+    });
+    return unlocked;
+  }
+  const unlocked = new Set([1, 2, 3]);
   const stamps = Number(st.progression?.totalStamps || 0);
   const level = Number(st.progression?.level || 1);
   if ((st.market?.records || []).length > 0) unlocked.add(4);
   if ((st.certificates || []).length > 0) unlocked.add(5);
-  if (st.team?.joined || stamps >= 6) unlocked.add(6);
-  if (Number(st.round?.successCount || 0) >= 3) unlocked.add(7);
+  if (st.team?.role !== 'none' || stamps >= 6) unlocked.add(6);
+  if (Number(st.round?.successCount || 0) >= 3 || stamps >= 6) unlocked.add(7);
   if (level >= 3) unlocked.add(8);
   if (unlocked.size >= 8) unlocked.add(9);
-  if (st.user?.previewTier) unlocked.add(st.user.previewTier);
   return unlocked;
 }
 
-/** 身份图鉴（#/gallery）：收集册化（已解锁立牌 + 未解锁牛皮纸剪影槽）+ 角色翻身语音气泡 */
+/** 解析图鉴路由参数（兼容 1-9、act-01..09、wlt-01..09） */
+function parseGalleryParam(param) {
+  const raw = String(param || '').trim().toLowerCase();
+  if (raw.startsWith('wlt-')) {
+    const n = Number(raw.slice(4));
+    return { series: 'wealth', tier: n >= 1 && n <= 9 ? n : 1 };
+  }
+  if (raw.startsWith('act-')) {
+    const n = Number(raw.slice(4));
+    return { series: 'activity', tier: n >= 1 && n <= 9 ? n : 1 };
+  }
+  const n = Number(raw);
+  if (Number.isInteger(n) && n >= 1 && n <= 9) {
+    return { series: activeGallerySeries, tier: n };
+  }
+  return {
+    series: activeGallerySeries || (store.state.user.previewSeries || 'activity'),
+    tier: store.state.user.previewTier || 1,
+  };
+}
+
+/** 身份图鉴（#/gallery）：双轨 18 阶 Boxheads 收集册 + 1 对 1 精装卡背 3D 翻转 + 卡背导出与社交分享 */
 export function gallery(root, navigate, param) {
-  const n = Number(param) || 1;
-  const selected = n >= 1 && n <= 9 && Number.isInteger(n) ? n : 1;
-  const [zh, en, detail, desc] = tiers[selected - 1];
-  const [voiceZh, voiceEn] = tierVoices[selected - 1] || tierVoices[0];
-  const [hintZh, hintEn] = tierDemoHints[selected - 1] || ['', ''];
-  const demoUnlocked = config.isDemo ? computeDemoUnlockedTiers() : new Set([1]);
+  const parsed = parseGalleryParam(param);
+  activeGallerySeries = parsed.series === 'wealth' ? 'wealth' : 'activity';
+  const selected = parsed.tier;
+  const seriesMeta = BOXHEADS_SERIES[activeGallerySeries];
+  const item = getBoxheadItem(selected, activeGallerySeries);
+  const demoUnlocked = config.isDemo ? computeDemoUnlockedTiers(activeGallerySeries) : new Set();
   const isSelectedUnlocked = config.isDemo ? demoUnlocked.has(selected) : false;
+  const holdingUsd = config.isDemo ? getDemoA9HoldingUsd() : null;
+  const wealthReqUsd = WEALTH_TIER_USD[selected - 1];
+  const code = seriesMeta.code;
+
+  const unlockText = activeGallerySeries === 'wealth'
+    ? (config.isDemo
+        ? L(`A9 持仓市值门槛 $${formatNum(wealthReqUsd)}（演示持仓约 $${formatNum(holdingUsd)}）`, `A9 holding threshold $${formatNum(wealthReqUsd)} (Demo ~$${formatNum(holdingUsd)})`)
+        : L('仅当持有 A9 代币市值达到该阶梯后解锁 · 请连接钱包核验', 'Unlocked only when held A9 value reaches tier · Connect wallet to verify'))
+    : L(item.hintZh, item.hintEn);
 
   root.innerHTML =
-    `<section class="wv-hero wv-gallery-hero ${selected >= 7 ? 'diorama-stage prism' : 'diorama-stage'}">
+    `<div class="seg-tabs" id="boxhead-series-tabs" style="margin-bottom:2px;">
+      <button class="seg-tab ${activeGallerySeries === 'activity' ? 'active' : ''}" data-boxhead-series="activity" type="button">${L('互动解锁 (9)', 'Activity (9)')}</button>
+      <button class="seg-tab ${activeGallerySeries === 'wealth' ? 'active' : ''}" data-boxhead-series="wealth" type="button">${L('A9 市值达标 (9)', 'A9 Wealth (9)')}</button>
+    </div>` +
+    `<section class="wv-hero wv-gallery-hero ${selected >= 7 ? 'diorama-stage prism' : 'diorama-stage'} series-${activeGallerySeries}">
       ${DIORAMA_BACKDROP}
-      <div class="edition-art gallery-compact-art" id="gallery-standee-stage">
-        <div class="speech-bubble hidden" id="gallery-speech-bubble" role="status">“${L(voiceZh, voiceEn)}”</div>
-        <div class="standee-slot" aria-hidden="true"></div>
-        <img class="wv-person${config.isDemo && !isSelectedUnlocked ? ' is-locked-preview' : ''}" src="${characterArt(selected)}" alt="A${selected}">
+      <div class="boxhead-stage-meta">
+        <span class="chip ${activeGallerySeries === 'wealth' ? 'chip-gold' : 'chip-cyan'}">${L(seriesMeta.badgeZh, seriesMeta.badgeEn)}</span>
+        <span class="chip chip-muted mono">${code} 0${selected} · ${item.rarity}</span>
       </div>
+      <div class="boxhead-flip-scene" id="gallery-standee-stage">
+        <div class="speech-bubble hidden" id="gallery-speech-bubble" role="status">“${L(item.voiceZh, item.voiceEn)}”</div>
+        <div class="boxhead-flip-card" id="boxhead-flip-card">
+          <div class="boxhead-face front series-${activeGallerySeries}">
+            ${activeGallerySeries === 'wealth' ? '<div class="standee-slot" aria-hidden="true"></div>' : ''}
+            <img class="wv-person${config.isDemo && !isSelectedUnlocked ? ' is-locked-preview' : ''}" id="boxhead-avatar-img" src="${item.avatar}" alt="${code} 0${selected}">
+          </div>
+          <div class="boxhead-face back">
+            <img class="boxhead-card-img" id="boxhead-backing-img" src="${characterCardArt(selected, activeGallerySeries)}" alt="${code} 0${selected} Backing Card">
+          </div>
+        </div>
+      </div>
+      <button type="button" class="boxhead-flip-btn" id="btn-flip-boxhead" aria-pressed="false">
+        ${icon('refresh', 13)} <span id="btn-flip-label">${L('翻转查看精装卡背', 'Flip to Backing Card')}</span>
+      </button>
       <div class="wv-copy">
-        <small>A${selected} · ${config.isDemo ? (isSelectedUnlocked ? L('已点亮收藏 · 轻点立牌对话', 'Collected · Tap standee') : L('未解锁槽位 · 试穿预览', 'Locked slot · Preview')) : L('链上身份待核验', 'On-chain pending')}</small>
-        <h1>${L(zh, en)}</h1>
-        <p>${L(detail, desc)}</p>
-        ${config.isDemo && !isSelectedUnlocked ? `<div class="num-xs text-gold" style="margin-top:4px;font-weight:800;">${L('解锁方式：', 'Unlock: ')}${L(hintZh, hintEn)}</div>` : ''}
+        <small>${config.isDemo ? (isSelectedUnlocked ? L('已点亮收藏 · 轻点形象听台词', 'Collected · Tap avatar for quote') : L('未解锁槽位 · 预览卡背与形象', 'Locked slot · Preview only')) : L('链上核验待开启 · 形象与卡背预览', 'On-chain pending · Preview')}</small>
+        <h1>${L(item.nameZh, item.nameEn)}</h1>
+        <p>${L(item.traitZh, item.traitEn)}</p>
+        <div class="num-xs ${isSelectedUnlocked ? 'text-green' : 'text-gold'}" style="margin-top:4px;font-weight:800;">${unlockText}</div>
       </div>
     </section>` +
     `<div class="row-between" style="padding:2px 2px 0;">
-      <span class="section-kicker" style="padding:0;">${L('A1–A9 贴纸收集册（点选切换）', 'A1–A9 STICKER ALBUM')}</span>
-      <span class="chip ${config.isDemo ? 'chip-gold' : 'chip-muted'}" style="min-height:20px;font-size:10px;">${config.isDemo ? L(`演示已集 ${demoUnlocked.size} / 9`, `Demo ${demoUnlocked.size} / 9`) : L('链上核验中', 'Awaiting verify')}</span>
+      <span class="section-kicker" style="padding:0;">${activeGallerySeries === 'wealth' ? L('WLT 01–09 持仓大佬卡册', 'WLT 01–09 WEALTH ALBUM') : L('ACT 01–09 平台互动卡册', 'ACT 01–09 ACTIVITY ALBUM')}</span>
+      <span class="chip ${config.isDemo ? 'chip-gold' : 'chip-muted'}" style="min-height:20px;font-size:10px;">${config.isDemo ? L(`演示已集 ${demoUnlocked.size} / 9`, `Demo ${demoUnlocked.size} / 9`) : L('待链上核验', 'Awaiting verify')}</span>
     </div>` +
-    `<nav class="wv-gallery">${tiers.map(([a, b], i) => {
-      const idx = i + 1;
-      const locked = config.isDemo ? !demoUnlocked.has(idx) : idx > 1;
-      return `<a href="#/gallery/${idx}" class="${locked ? 'is-locked' : ''}" aria-current="${idx === selected ? 'true' : 'false'}">
+    `<nav class="wv-gallery series-${activeGallerySeries}">${seriesMeta.items.map((it) => {
+      const idx = it.tier;
+      const locked = config.isDemo ? !demoUnlocked.has(idx) : true;
+      return `<a href="#/gallery/${it.id}" class="${locked ? 'is-locked' : ''}" aria-current="${idx === selected ? 'true' : 'false'}">
         <span class="gallery-slot-badge">${locked ? (config.isDemo ? L('未解锁', 'Lock') : L('待验', 'TBD')) : '✓'}</span>
-        ${portrait(idx)}
-        <b>A${idx}</b>${L(a, b)}
+        ${portrait(idx, activeGallerySeries)}
+        <b>${code} 0${idx}</b>${L(it.nameZh, it.nameEn)}
       </a>`;
     }).join('')}</nav>` +
-    `<div class="card num-xs text-sec">${config.isDemo
-      ? L('演示模式按体验进度点亮 A1–A9 贴纸槽位；点击任意未解锁剪影仍可试穿预览，轻点上方立牌可触发角色翻身与专属台词。', 'Demo album tracks preview progress. Tap any silhouette to preview or tap the standee for voice lines.')
-      : L('当前身份与下一阶升级条件待链上核验。以上称谓与形象为收藏预览。', 'Identity and next-tier conditions await verification. Titles and portraits are previews.')}</div>` +
-    `<button class="btn btn-primary" id="wv-export">${L('保存角色预览卡', 'Save preview card')}</button>`;
+    `<div class="card num-xs text-sec">${L(seriesMeta.descZh, seriesMeta.descEn)}</div>` +
+    `<div class="col-gap" style="gap:8px;">
+      <button class="btn btn-primary" id="wv-export" type="button">${icon('download', 15)} ${L('保存精装卡背 PNG', 'Save Backing Card PNG')}</button>
+      <div class="grid-2">
+        <button class="btn btn-secondary" id="wv-share-tg" type="button">${icon('send', 14)} ${L('分享至 TG', 'Share TG')}</button>
+        <button class="btn btn-secondary" id="wv-share-x" type="button">${icon('xBrand', 14)} ${L('分享至 X', 'Share X')}</button>
+      </div>
+    </div>`;
   root.style.setProperty('--wv-hue', (selected - 1) * 19 + 'deg');
 
-  const standee = root.querySelector('#gallery-standee-stage .wv-person');
+  // 双系列切换（互动解锁 vs A9 市值达标）
+  root.querySelectorAll('[data-boxhead-series]').forEach((btn) => {
+    btn.onclick = () => {
+      const nextSeries = btn.dataset.boxheadSeries;
+      if (nextSeries === activeGallerySeries) return;
+      A9Haptic.light();
+      A9Audio.tick();
+      activeGallerySeries = nextSeries;
+      const nextPrefix = nextSeries === 'wealth' ? 'wlt' : 'act';
+      navigate(`/gallery/${nextPrefix}-0${selected}`);
+    };
+  });
+
+  // 3D 翻卡（形象 <-> 1对1精装卡背）
+  const flipCard = root.querySelector('#boxhead-flip-card');
+  const flipBtn = root.querySelector('#btn-flip-boxhead');
+  const flipLabel = root.querySelector('#btn-flip-label');
+  let isFlipped = false;
+  const setFlipped = (next) => {
+    isFlipped = Boolean(next);
+    A9Haptic.light();
+    A9Audio.flip();
+    if (flipCard) flipCard.classList.toggle('is-flipped', isFlipped);
+    if (flipBtn) flipBtn.setAttribute('aria-pressed', String(isFlipped));
+    if (flipLabel) {
+      flipLabel.textContent = isFlipped
+        ? L('翻回纸箱人形象', 'Flip to Boxhead Avatar')
+        : L('翻转查看精装卡背', 'Flip to Backing Card');
+    }
+  };
+  if (flipBtn) flipBtn.onclick = () => setFlipped(!isFlipped);
+  const backFace = root.querySelector('.boxhead-face.back');
+  if (backFace) backFace.onclick = () => setFlipped(false);
+
+  // 正面形象轻点触发专属语音气泡与纸屑
+  const standee = root.querySelector('#boxhead-avatar-img');
   const bubble = root.querySelector('#gallery-speech-bubble');
   let bubbleTimer = 0;
   if (standee) {
     standee.onclick = () => {
+      if (isFlipped) return;
       A9Haptic.light();
       A9Audio.flip();
       burstParticles(standee);
@@ -749,90 +860,118 @@ export function gallery(root, navigate, param) {
   if (config.isDemo) {
     const preview = document.createElement('button');
     preview.className = 'btn btn-secondary';
-    preview.textContent = L('在我的档案身份栏试穿', 'Preview in My Profile');
+    preview.type = 'button';
+    preview.textContent = L('设为我的档案头像（演示预览）', 'Set as My Profile Avatar (Demo)');
     preview.onclick = () => {
-      A9Haptic.light();
+      A9Haptic.success();
       A9Audio.flip();
       store.update((state) => {
         state.user.previewTier = selected;
+        state.user.previewSeries = activeGallerySeries;
       });
       navigate('/profile');
     };
     root.append(preview);
   }
 
+  // 社交分享（TG & X）
+  const shareLink = buildStartAppLink('gallery', item.id);
+  const shareCopy = L(
+    `我在 A9 BOXHEADS ARCHIVE 收藏了【${code} 0${selected} · ${item.nameZh}】(${item.rarity}) 精装卡背！来 A9 广场集章闯关解锁你的专属抽象纸箱人：`,
+    `Collected [${code} 0${selected} · ${item.nameEn}] (${item.rarity}) backing card in A9 BOXHEADS ARCHIVE! Unlock yours in A9 Plaza:`
+  );
+  const tgBtn = root.querySelector('#wv-share-tg');
+  if (tgBtn) {
+    tgBtn.onclick = () => {
+      A9Haptic.light();
+      A9TMA.shareInvite(shareLink, shareCopy);
+      showToast(L('已调起 Telegram 分享卡背', 'Opened Telegram share'));
+    };
+  }
+  const xBtn = root.querySelector('#wv-share-x');
+  if (xBtn) {
+    xBtn.onclick = () => {
+      A9Haptic.light();
+      const intentUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(shareCopy)}&url=${encodeURIComponent(shareLink)}`;
+      A9TMA.openExternalLink(intentUrl);
+      showToast(L('已打开 X 分享页面', 'Opened X share'));
+    };
+  }
+
+  // 保存精装卡背 PNG（720×960 典藏分享图，以 1 对 1 专属卡背为核心主体）
   root.querySelector('#wv-export').onclick = async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 720;
     canvas.height = 960;
     const ctx = canvas.getContext('2d');
-    const img = root.querySelector('.wv-hero .wv-person');
-    if (img && !img.complete) await img.decode().catch(() => {});
+    const cardImg = new Image();
+    cardImg.src = characterCardArt(selected, activeGallerySeries);
+    await cardImg.decode().catch(() => {});
 
-    ctx.fillStyle = '#F6F6F8';
+    const isDarkCard = activeGallerySeries === 'wealth';
+    ctx.fillStyle = isDarkCard ? '#161619' : '#F6F6F8';
     ctx.fillRect(0, 0, 720, 960);
 
-    ctx.fillStyle = '#D1D4DF';
+    ctx.fillStyle = isDarkCard ? '#262832' : '#D1D4DF';
     ctx.beginPath();
-    ctx.roundRect(42, 48, 636, 868, 36);
+    ctx.roundRect(36, 44, 648, 876, 34);
     ctx.fill();
-    ctx.fillStyle = '#FFFFFF';
+    ctx.fillStyle = isDarkCard ? '#1E2028' : '#FFFFFF';
     ctx.beginPath();
-    ctx.roundRect(42, 38, 636, 868, 36);
+    ctx.roundRect(36, 36, 648, 876, 34);
     ctx.fill();
-
-    ctx.save();
-    ctx.strokeStyle = 'rgba(138, 144, 162, 0.45)';
-    ctx.lineWidth = 2.5;
-    ctx.setLineDash([9, 8]);
-    ctx.beginPath();
-    ctx.roundRect(58, 54, 604, 836, 26);
-    ctx.stroke();
-    ctx.restore();
 
     ctx.fillStyle = '#A8000E';
     ctx.beginPath();
-    ctx.roundRect(82, 84, 96, 54, 16);
+    ctx.roundRect(72, 74, 88, 48, 14);
     ctx.fill();
     ctx.fillStyle = '#E60012';
     ctx.beginPath();
-    ctx.roundRect(82, 78, 96, 54, 16);
+    ctx.roundRect(72, 68, 88, 48, 14);
     ctx.fill();
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 30px sans-serif';
-    ctx.fillText('A9', 108, 116);
+    ctx.font = 'bold 28px sans-serif';
+    ctx.fillText('A9', 96, 102);
 
-    ctx.fillStyle = '#565B6B';
-    ctx.font = 'bold 22px sans-serif';
-    ctx.fillText(`STICKER 0${selected} · PAPER CRAFT`, 198, 114);
+    ctx.fillStyle = isDarkCard ? '#D6D8E1' : '#565B6B';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText(`BOXHEADS ARCHIVE S01 · ${code} 0${selected} · ${item.rarity}`, 178, 100);
 
-    ctx.fillStyle = '#EFEFF3';
-    ctx.beginPath();
-    ctx.ellipse(360, 686, 170, 26, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    if (img?.complete && img.naturalWidth) {
-      const scale = Math.min(480 / img.naturalWidth, 500 / img.naturalHeight);
-      const dw = img.naturalWidth * scale;
-      const dh = img.naturalHeight * scale;
-      ctx.drawImage(img, (720 - dw) / 2, 178 + (500 - dh) / 2, dw, dh);
+    if (cardImg.complete && cardImg.naturalWidth) {
+      const maxW = 540;
+      const maxH = 610;
+      const scale = Math.min(maxW / cardImg.naturalWidth, maxH / cardImg.naturalHeight);
+      const dw = cardImg.naturalWidth * scale;
+      const dh = cardImg.naturalHeight * scale;
+      const dx = (720 - dw) / 2;
+      const dy = 148 + (maxH - dh) / 2;
+      ctx.save();
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.28)';
+      ctx.shadowBlur = 24;
+      ctx.shadowOffsetY = 12;
+      ctx.drawImage(cardImg, dx, dy, dw, dh);
+      ctx.restore();
     }
 
-    ctx.fillStyle = '#1B1D24';
-    ctx.font = 'bold 50px sans-serif';
-    ctx.fillText(`A${selected} · ${L(zh, en)}`, 82, 782);
-    ctx.fillStyle = '#565B6B';
-    ctx.font = '26px sans-serif';
+    ctx.fillStyle = isDarkCard ? '#F5F6FA' : '#1B1D24';
+    ctx.font = 'bold 42px sans-serif';
+    ctx.fillText(`${code} 0${selected} · ${L(item.nameZh, item.nameEn)}`, 72, 822);
+    ctx.fillStyle = isDarkCard ? '#9BA0B2' : '#565B6B';
+    ctx.font = '22px sans-serif';
     ctx.fillText(
-      L('A9 财富大冒险 · 红白雪宣纸典藏卡', 'A9 Wealth Quest · Crisp Paper Card'),
-      82,
-      838,
+      activeGallerySeries === 'wealth'
+        ? L('A9 市值达标专属精装卡背 · BOXHEADS ARCHIVE', 'A9 Wealth Tier Backing Card · BOXHEADS ARCHIVE')
+        : L('A9 平台互动专属精装卡背 · BOXHEADS ARCHIVE', 'A9 Activity Tier Backing Card · BOXHEADS ARCHIVE'),
+      72,
+      868,
     );
 
     const a = document.createElement('a');
-    a.href = canvas.toDataURL();
-    a.download = `A9-preview-${selected}.png`;
+    a.href = canvas.toDataURL('image/png');
+    a.download = `A9-boxhead-${item.id}-card.png`;
     a.click();
+    A9Haptic.success();
+    showToast(L('精装卡背 PNG 已保存，可直接分享至社交平台', 'Backing card PNG saved for sharing'));
   };
 }
 
@@ -985,7 +1124,7 @@ export function portfolioPanel(root, guild = false) {
       row(
         L('职位', 'Role'),
         data?.team?.captainWallet === user.address && user.address
-          ? L('会长', 'Captain')
+          ? L('队长', 'Captain')
           : data?.team
             ? L('成员', 'Member')
             : waiting(),

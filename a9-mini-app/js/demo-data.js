@@ -42,6 +42,13 @@ export function demoFixture() {
     teamReleasedRaw: null,
     corridorMinUsdE8: null,
     corridorMaxUsdE8: null,
+    unlock: {
+      immediateBps: 2000,
+      lockedSlices: 4,
+      unlockedSlices: 1,
+      burnedSlices: 0,
+      lockedTotalRaw: '102720000000000'
+    },
     candles: FIXTURE_CANDLE_ROWS.map(([twap, qualified], i) => ({
       roundId: 3,
       candleIndex: i,
@@ -347,6 +354,7 @@ export function applyDemoInitialState(state) {
   const nowSec = Math.floor(Date.now() / 1000);
   state.round.stakeOpenAt = nowSec - 7200;
   state.round.stakeCloseAt = nowSec + 36 * 3600 - 7200;
+  state.round.earlyBirdSec = 10 * 3600 + 18 * 60 + 42;
   state.round.unlock = {
     immediateBps: 2000,
     lockedSlices: 4,

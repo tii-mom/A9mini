@@ -32,6 +32,8 @@ const DEFAULT_STATE = {
     a9Locked: null,
     a9TotalEarned: null,
     profileMode: 'active', // 'active' | 'empty'
+    previewTier: 1,
+    previewSeries: 'activity', // 'activity' | 'wealth'（仅内存态预览，不落盘）
     autoRenew: true,
     renewMultiplier: 2.0,
     warmupRegistered: false,

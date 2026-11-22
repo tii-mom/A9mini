@@ -28,6 +28,13 @@ function maskWallet(addr) {
   return `${s.slice(0, 4)}...${s.slice(-4)}`;
 }
 
+function formatGroupedUnits(rawBigInt, decimals = 9) {
+  const plain = formatUnits(rawBigInt, decimals);
+  const [intPart, fracPart] = plain.split('.');
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return fracPart ? `${grouped}.${fracPart}` : grouped;
+}
+
 function formatWholeNumber(rawStr) {
   try {
     const whole = BigInt(rawStr || '0') / A9_RAW;
@@ -328,8 +335,8 @@ export class TelegramBroadcaster {
       return { skipped: true, reason: 'NO_BOUND_TEAM', sentCount: 0 };
     }
 
-    const gramText = formatUnits(tonNano, 9);
-    const a9Text = formatUnits(BigInt(String(order.a9AmountRaw || '0')), 9);
+    const gramText = formatGroupedUnits(tonNano, 9);
+    const a9Text = formatGroupedUnits(BigInt(String(order.a9AmountRaw || '0')), 9);
 
     return this._broadcastToTargets({
       eventKey: `whale:${order.orderId}`,

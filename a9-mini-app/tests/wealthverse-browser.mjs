@@ -83,13 +83,13 @@ async function mobile(width, height, locale, theme) {
   await visit(page, '/challenge');
   await page.locator('.game-play').click();
   assert.match(page.url(), /#\/round$/);
-  await visit(page, '/gallery/9');
-  await page.locator('a[aria-current=true][href="#/gallery/9"]').waitFor();
+  await visit(page, '/gallery/act-09');
+  await page.locator('a[aria-current=true][href="#/gallery/act-09"]').waitFor();
   const download = page.waitForEvent('download');
   await page.locator('#wv-export').click();
-  assert.equal((await download).suggestedFilename(), 'A9-preview-9.png');
-  await page.locator('#wv-export + button').click();
-  await page.locator('.wv-hero img[alt=A9]').waitFor();
+  assert.equal((await download).suggestedFilename(), 'A9-boxhead-act-09-card.png');
+  await page.locator('#app-main > button.btn-secondary').click();
+  await page.locator('.wv-hero img[alt="ACT 09"]').waitFor();
   await visit(page, '/observation/records');
   assert.equal(await page.locator('.wv-windows span').count(), 24);
   await page.locator('[data-slot="4"]').click();
@@ -111,8 +111,8 @@ async function mobile(width, height, locale, theme) {
   assert.equal(await page.locator('.collectible-ticket:visible').count(),1);
   await page.locator('.collectible-ticket:visible').click();
   assert.match(page.url(), /#\/proof\//);
-  await page.route('**/game/a8.png', (r) => r.abort());
-  await page.goto(base + '/?mode=demo&artFailure=1#/gallery/8');
+  await page.route('**/boxheads/activity/avatars/act-08.png', (r) => r.abort());
+  await page.goto(base + '/?mode=demo&artFailure=1#/gallery/act-08');
   await page.locator('.wv-hero .wv-missing').waitFor();
   await page.close();
 }
@@ -178,8 +178,8 @@ try {
   assert.match(await page.locator('.wv-steps .current').innerText(), /40%/);
   await visit(page, '/challenge/confirm');
   assert.ok(await page.locator('#app-main button[disabled]').count());
-  await visit(page, '/gallery/9');
-  assert.equal(await page.locator('#wv-export + button').count(), 0);
+  await visit(page, '/gallery/act-09');
+  assert.equal(await page.locator('#app-main > button.btn-secondary').count(), 0);
   await visit(page, '/leaderboard');
   assert.doesNotMatch(
     await page.locator('#app-main').innerText(),

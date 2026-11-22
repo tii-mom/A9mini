@@ -64,3 +64,24 @@
 ### 关键实机截图核验
 - 白昼 390×844：[after-challenge.png](file:///Users/yu1/Desktop/A9mini/docs/gamification/phase-2-evidence/after-challenge.png)、[after-round.png](file:///Users/yu1/Desktop/A9mini/docs/gamification/phase-2-evidence/after-round.png)、[after-internal-market.png](file:///Users/yu1/Desktop/A9mini/docs/gamification/phase-2-evidence/after-internal-market.png)、[after-profile.png](file:///Users/yu1/Desktop/A9mini/docs/gamification/phase-2-evidence/after-profile.png)、[after-challenge-success.png](file:///Users/yu1/Desktop/A9mini/docs/gamification/phase-2-evidence/after-challenge-success.png)
 - 暗夜 360×780：[narrow-challenge.png](file:///Users/yu1/Desktop/A9mini/docs/gamification/phase-2-evidence/narrow-challenge.png)、[narrow-round.png](file:///Users/yu1/Desktop/A9mini/docs/gamification/phase-2-evidence/narrow-round.png)、[narrow-internal-market.png](file:///Users/yu1/Desktop/A9mini/docs/gamification/phase-2-evidence/narrow-internal-market.png)
+
+---
+
+## 三、二次深度全量复核与缺陷闭环记录
+
+在初版交付后，进一步开展了 7 维度深度审计与真机边缘压测（含 10 项端到端全场景 E2E 审计 + 4 项后端运行时/存量迁移/HTTP 进程审计），主动发现并闭环修复了以下 5 处隐患：
+
+1. **修复 2.0× 早鸟窗口与待提现金库倒计时的秒/毫秒时间戳兼容缺陷（高优真实 Bug）**：
+   - `demoFixture()` 与部分服务端结构可能提供毫秒级时间戳，此前 `renderEarlyBirdBanner` 与 `app.js` 定时循环按秒相减导致切换至「火热入场」场景时显示异常超大倒计时且不跳动，同时演示态 `earlyBirdSec` 与 `detail.unlock` 未在初始态同步补齐。
+   - 修复后，[round_stages.js](file:///Users/yu1/Desktop/A9mini/a9-mini-app/js/pages/round_stages.js)、[app.js](file:///Users/yu1/Desktop/A9mini/a9-mini-app/js/app.js)、[demo-data.js](file:///Users/yu1/Desktop/A9mini/a9-mini-app/js/demo-data.js) 全面支持 Unix 秒/毫秒自动归一化，演示态切入场阶段每秒实时倒数，并同步刷新同屏所有作废倒计时节点。
+2. **彻底清除最后一批用户可见旧词残余（「商行 / 会长」）**：
+   - 将 [growth-engine.mjs](file:///Users/yu1/Desktop/A9mini/worker/src/growth-engine.mjs) 与 [d1-growth-store.mjs](file:///Users/yu1/Desktop/A9mini/worker/src/d1-growth-store.mjs) 激活门槛错误提示中的「商行兑换」统一为「A9 兑换屋兑换」；
+   - 将 [team.js](file:///Users/yu1/Desktop/A9mini/a9-mini-app/js/pages/team.js)、[wealthverse.js](file:///Users/yu1/Desktop/A9mini/a9-mini-app/js/pages/wealthverse.js)、[data.js](file:///Users/yu1/Desktop/A9mini/a9-mini-app/js/data.js) 中用户可见的「会长」统一为「队长」。
+3. **A9 兑换屋交互一致性与 Live 禁用加固**：
+   - [warmup_market.js](file:///Users/yu1/Desktop/A9mini/a9-mini-app/js/pages/warmup_market.js) 统一动态输入时的按钮文字与成功提示为「确认兑换 / 兑换成功」，并为 Live 模式 `#btn-buy-market` 显式加上 `disabled` 属性。
+4. **TG 战队大额兑换播报数字千位分隔对齐**：
+   - [tg-broadcaster.mjs](file:///Users/yu1/Desktop/A9mini/worker/src/tg-broadcaster.mjs) 新增 `formatGroupedUnits`（如 `100,100 A9`），与全站完整千位分隔规范保持一致。
+5. **全维度安全边界与零报错二次复验全绿**：
+   - 全仓 Emoji 扫描 `0` 处；全仓敏感密钥/Token 扫描 `0` 处；静态资产引用 `0` 断链；所有 JS/MJS 语法校验全过；
+   - 7 大轮次场景（含最后 4H 红警临界态）、26 路由零断图/零报错/零禁忌词、存量 0006 有数据 D1 经 `0007` 平滑迁移并运行 `cf-worker.fetch + scheduled()`、独立 `server.mjs` HTTP 进程探测全部 **10/10 + 4/4 PASS**。
+

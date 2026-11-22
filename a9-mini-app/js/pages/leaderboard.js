@@ -55,7 +55,7 @@ export function renderLeaderboard(root) {
           <button class="seg-tab ${activeTab === 'invite' ? 'active' : ''}" data-ltab="invite">${L('邀请榜', 'Invites')}</button>
         </div>
 
-        <div class="wv-podium">${[1, 0, 2].map(i => `<div class="rank-${i + 1}"><img class="wv-person" src="${characterArt(i + 1)}" alt=""><b>#${i + 1}</b><small>${rows[i].name}</small></div>`).join('')}</div>
+        <div class="wv-podium">${[1, 0, 2].map(i => `<div class="rank-${i + 1}"><img class="wv-person" src="${characterArt(9 - i, 'wealth')}" alt=""><b>#${i + 1}</b><small>${rows[i].name}</small></div>`).join('')}</div>
 
         <div class="card">
           <div class="card-header" style="margin-bottom:4px;">

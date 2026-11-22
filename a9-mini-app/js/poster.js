@@ -2,6 +2,7 @@
 import { store } from './store.js';
 import { L } from './i18n.js';
 import { stageLabel } from './pages/wealthverse.js';
+import { characterArt } from './wealth-art.js';
 import qrcode from './vendor/qrcode.js';
 import { config } from './config.js';
 
@@ -139,7 +140,8 @@ function paintPoster(canvas, title, lines, param, tall = false) {
   };
   canvas.posterScene = standee;
   const tier = store.state.user.previewTier || 9;
-  standee.src = `./assets/wealthverse/game/a${tier}.png`;
+  const series = store.state.user.previewSeries || 'wealth';
+  standee.src = characterArt(tier, series);
 }
 
 export function renderReferralPoster(canvas) {

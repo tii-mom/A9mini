@@ -5,7 +5,7 @@ import { estimateRewardA9, fetchPredictionRound, fetchPredictionUser, submitPred
 import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { formatNum, showToast, copyText, mountSlider, burstParticles, openChoiceSheet, openModal, closeModal, bindCorridorRadarEvents } from '../components.js';
-import { characterArt, tiers, tierVoices } from '../wealth-art.js';
+import { characterArt, getBoxheadItem } from '../wealth-art.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
@@ -631,8 +631,9 @@ export function renderParticipateSuccess(root, navigate, certId) {
   }
   const shareUrl = `${window.location.origin}${window.location.pathname}?startapp=proof_${cert.id.replace('A9-STAKE-', '')}`;
   const tier = config.isDemo ? (store.state.user.previewTier || 1) : 1;
-  const [tierZh, tierEn] = tiers[tier - 1] || tiers[0];
-  const [voiceZh, voiceEn] = tierVoices[tier - 1] || tierVoices[0];
+  const series = config.isDemo ? (store.state.user.previewSeries || 'activity') : 'activity';
+  const boxhead = getBoxheadItem(tier, series);
+  const seriesCode = series === 'wealth' ? 'WLT' : 'ACT';
 
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
@@ -652,12 +653,12 @@ export function renderParticipateSuccess(root, navigate, certId) {
 
       <section class="success-cheer-card">
         <div class="success-cheer-standee">
-          <img class="wv-person" id="success-cheer-img" src="${characterArt(tier)}" alt="A${tier}">
+          <img class="wv-person" id="success-cheer-img" src="${characterArt(tier, series)}" alt="${seriesCode} 0${tier}">
         </div>
         <div class="success-cheer-copy">
-          <span class="diorama-kicker">A${tier} · ${L(tierZh, tierEn)}</span>
-          <strong>${L('伙伴已就位 · 盯紧 24H 观测盘！', 'Ready for the 24H Observation!')}</strong>
-          <p>“${L(voiceZh, voiceEn)}”</p>
+          <span class="diorama-kicker">${seriesCode} 0${tier} · ${L(boxhead.nameZh, boxhead.nameEn)}</span>
+          <strong>${L('纸箱伙伴已就位 · 盯紧 24H 观测盘！', 'Boxhead Ready for the 24H Board!')}</strong>
+          <p>“${L(boxhead.voiceZh, boxhead.voiceEn)}”</p>
         </div>
       </section>
 

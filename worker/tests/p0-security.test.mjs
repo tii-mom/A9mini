@@ -2203,7 +2203,7 @@ await test('Knife 3: TG squad broadcaster (disabled by default, bound-only targe
     const whaleCall = sentCalls[sentCalls.length - 1];
     assert.equal(whaleCall.body.chat_id, '-100888999');
     assert.ok(whaleCall.body.text.includes('50 GRAM'));
-    assert.ok(whaleCall.body.text.includes('100100 A9'));
+    assert.ok(whaleCall.body.text.includes('100,100 A9'));
 
     // Telegram API 故障时绝不阻塞主链路的 COMPLETED 状态确认
     failTelegramApi = true;

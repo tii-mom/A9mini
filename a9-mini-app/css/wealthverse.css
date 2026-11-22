@@ -569,6 +569,20 @@
   cursor: pointer;
 }
 
+.identity-thumb.series-activity {
+  padding: 0;
+  overflow: hidden;
+  background: var(--paper-tray);
+}
+
+.identity-thumb.series-activity .wv-person {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 14px;
+  filter: none;
+}
+
 .identity-meta {
   flex: 1 1 auto;
   min-width: 0;
@@ -1459,7 +1473,7 @@
 .early-bird-cd {
   font-size: 14px;
   font-weight: 900;
-  color: var(--nt-red, #E8453C);
+  color: var(--nt-red, #E60012);
   white-space: nowrap;
 }
 
@@ -1551,5 +1565,127 @@
   box-shadow: none;
   padding: 0;
   background: transparent;
+}
+
+/* --------------------------------------------------------------------------
+   九、Boxheads 双轨收集册 & 1 对 1 精装卡背 3D 翻卡舞台
+   -------------------------------------------------------------------------- */
+.boxhead-stage-meta {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.boxhead-flip-scene {
+  position: relative;
+  width: 100%;
+  height: 214px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  perspective: 960px;
+  margin: 4px 0 2px;
+}
+
+.boxhead-flip-card {
+  position: relative;
+  width: 192px;
+  height: 206px;
+  transform-style: preserve-3d;
+  transition: transform 0.56s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.boxhead-flip-card.is-flipped {
+  transform: rotateY(180deg);
+}
+
+.boxhead-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.boxhead-face.front.series-activity .wv-person {
+  width: 176px;
+  height: 176px;
+  border-radius: 22px;
+  object-fit: cover;
+  box-shadow: 0 10px 22px rgba(22, 24, 34, 0.16), 0 3px 0 rgba(22, 24, 34, 0.08);
+  filter: none;
+}
+
+.boxhead-face.front.series-wealth .wv-person {
+  width: 176px;
+  height: 176px;
+  object-fit: contain;
+  filter: var(--standee-filter);
+}
+
+.boxhead-face.back {
+  transform: rotateY(180deg);
+  cursor: pointer;
+}
+
+.boxhead-card-img {
+  max-width: 186px;
+  max-height: 204px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 14px;
+  box-shadow: 0 12px 24px rgba(14, 16, 24, 0.28);
+}
+
+.boxhead-flip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1.5px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 2.5px 0 var(--card-thickness);
+  transition: transform 0.12s var(--ease-spring), border-color 0.15s ease;
+}
+
+.boxhead-flip-btn:active {
+  transform: translateY(1.5px);
+  box-shadow: 0 1px 0 var(--card-thickness);
+}
+
+.boxhead-flip-btn[aria-pressed="true"] {
+  border-color: var(--nt-red);
+  background: var(--nt-red-soft);
+  color: var(--nt-red);
+}
+
+.wv-gallery.series-activity img {
+  border-radius: 12px;
+  object-fit: cover;
+  filter: none;
+  box-shadow: 0 3px 8px rgba(22, 24, 34, 0.10);
+}
+
+.wv-gallery.series-wealth img {
+  object-fit: contain;
+  filter: var(--standee-filter);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boxhead-flip-card {
+    transition: none;
+  }
 }
 

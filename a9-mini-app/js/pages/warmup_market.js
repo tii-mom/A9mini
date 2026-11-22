@@ -227,7 +227,7 @@ export function renderInternalMarket(root, navigate) {
           <div class="shop-counter-body">
             <header class="counter-keeper">
               <div class="counter-keeper-left">
-                <img src="./assets/wealthverse/game/a8.png" alt="">
+                <img src="./assets/boxheads/wealth/avatars/wlt-08.png" alt="">
                 <div>
                   <h2>${L('A9 兑换屋 · 固定汇率兑换柜台', 'A9 Exchange · Fixed-Rate Counter')}</h2>
                   <div class="num-xs text-muted">${L('1 GRAM = 2,002 A9 协议固定报价 · 单笔 5–200 GRAM', '1 GRAM = 2,002 A9 fixed quote · 5–200 GRAM per order')}</div>
@@ -285,7 +285,7 @@ export function renderInternalMarket(root, navigate) {
           <div class="shop-counter-body">
           <header class="counter-keeper">
             <div class="counter-keeper-left">
-              <img src="./assets/wealthverse/game/a8.png" alt="">
+              <img src="./assets/boxheads/wealth/avatars/wlt-08.png" alt="">
               <div>
                 <h2>${L('A9 兑换屋 · 固定汇率兑换柜台', 'A9 Exchange · Fixed-Rate Counter')}</h2>
                 <div class="num-xs text-muted mono">1 GRAM = ${formatNum(market.rateA9PerTon)} A9 · ${L('单笔 5–200 GRAM 协议固定报价', '5–200 GRAM fixed protocol quote')}</div>
@@ -329,7 +329,7 @@ export function renderInternalMarket(root, navigate) {
             <span>${L('可用额度', 'Avail')} <b class="mono" style="color:var(--ink);">${formatNum(availQuota)} GRAM</b></span>
           </div>
 
-          <button class="btn ${config.isDemo ? 'btn-primary' : 'btn-secondary'}" id="btn-buy-market" ${config.isDemo && (market.soldOut || availQuota <= 0) ? 'disabled' : ''}>
+          <button class="btn ${config.isDemo ? 'btn-primary' : 'btn-secondary'}" id="btn-buy-market" ${(!config.isDemo || market.soldOut || availQuota <= 0) ? 'disabled' : ''}>
             ${!config.isDemo
               ? `${icon('lock', 15)} ${L('真实模式只读 · 暂未开放兑换', 'Live Read-Only · Disabled')}`
               : market.soldOut
@@ -384,7 +384,7 @@ export function renderInternalMarket(root, navigate) {
       const a9 = payTon * market.rateA9PerTon;
       root.querySelector('#market-est-a9').textContent = `${formatNum(a9)} A9`;
       const btn = root.querySelector('#btn-buy-market');
-      if (btn && config.isDemo && !market.soldOut && user.tgBound) btn.innerHTML = `${icon('bolt', 16)} ${L(`购买 ${formatNum(a9)} A9`, `Buy ${formatNum(a9)} A9`)}`;
+      if (btn && config.isDemo && !market.soldOut && user.tgBound) btn.innerHTML = `${icon('bolt', 16)} ${L(`确认兑换 ${formatNum(a9)} A9`, `Swap ${formatNum(a9)} A9`)}`;
     };
 
     const maxBtn = root.querySelector('#btn-market-max');
@@ -419,7 +419,7 @@ export function renderInternalMarket(root, navigate) {
       } else {
         A9Haptic.success();
         burstParticles(buyBtn);
-        showToast(L(`购买成功 · +${formatNum(res.receivedA9)} A9`, `Purchased · +${formatNum(res.receivedA9)} A9`));
+        showToast(L(`兑换成功 · +${formatNum(res.receivedA9)} A9`, `Swapped · +${formatNum(res.receivedA9)} A9`));
         render();
       }
     };

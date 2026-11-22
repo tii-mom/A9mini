@@ -35,8 +35,9 @@ export function renderPendingVaultBanner(pred, round) {
   if (pendingA9 <= 0) return '';
   if (!config.isDemo && !p.loaded) return '';
 
-  const expAt = Number(p.pendingExpiresAt);
-  const expRemSec = (Number.isFinite(expAt) && expAt > Date.now()) ? Math.floor((expAt - Date.now()) / 1000) : null;
+  const rawExp = Number(p.pendingExpiresAt);
+  const expAtMs = (Number.isFinite(rawExp) && rawExp > 0) ? (rawExp < 1e12 ? rawExp * 1000 : rawExp) : 0;
+  const expRemSec = expAtMs > Date.now() ? Math.floor((expAtMs - Date.now()) / 1000) : null;
   const refPrice = (round?.priceValid !== false) ? Number(round?.livePrice || round?.twap24h || 0) : 0;
   const usdEst = refPrice > 0 ? pendingA9 * refPrice : null;
 
@@ -45,7 +46,7 @@ export function renderPendingVaultBanner(pred, round) {
       <div class="row-between" style="margin-bottom:6px;">
         <span class="chip chip-gold">${icon('unlock', 12)} ${L('待提现奖金金库 · 差最后 1 步', 'Pending Vault · 1 Step Left')}</span>
         <span class="num-xs mono text-red" style="font-weight:800;">
-          ${expRemSec !== null ? `<span id="pred-exp-cd">${L('作废倒计时', 'Expires')} ${formatTimer(expRemSec)}</span>` : L('48H 未激活自动作废', 'Expires in 48H')}
+          ${expRemSec !== null ? `<span data-pred-exp-cd="vault">${L('作废倒计时', 'Expires')} ${formatTimer(expRemSec)}</span>` : L('48H 未激活自动作废', 'Expires in 48H')}
         </span>
       </div>
       <div class="row-between" style="align-items:baseline;margin-bottom:8px;">
@@ -69,19 +70,29 @@ export function renderPendingVaultBanner(pred, round) {
 }
 
 /**
+ * 将 Unix 秒或毫秒时间戳统一归一化为秒
+ */
+function toUnixSec(v) {
+  const n = Number(v || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n > 1e12 ? Math.floor(n / 1000) : Math.floor(n);
+}
+
+/**
  * 第一刀 ②：2.0x 早鸟黄金窗口倒计时条（前 1/3 入场窗口，基于 stakeOpenAt / stakeCloseAt）
  */
 export function renderEarlyBirdBanner(round) {
   if (!round || round.stage !== 'participation') return '';
-  const openAt = Number(round.stakeOpenAt || 0);
-  const closeAt = Number(round.stakeCloseAt || 0);
+  const openAt = toUnixSec(round.stakeOpenAt);
+  const closeAt = toUnixSec(round.stakeCloseAt);
   const nowSec = Math.floor(Date.now() / 1000);
   let remSec = null;
   if (openAt > 0 && closeAt > openAt) {
     const earlyEnd = openAt + Math.floor((closeAt - openAt) / 3);
     if (nowSec < earlyEnd) remSec = earlyEnd - nowSec;
-  } else if (config.isDemo && Number(round.earlyBirdSec) > 0) {
-    remSec = Number(round.earlyBirdSec);
+  }
+  if ((remSec === null || remSec <= 0) && config.isDemo && Number(round.earlyBirdSec) > 0) {
+    remSec = Math.floor(Number(round.earlyBirdSec));
   }
   if (remSec === null || remSec <= 0) return '';
 

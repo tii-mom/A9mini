@@ -4,12 +4,12 @@ build/JettonWallet.json: OK
 build/RoundController.json: OK
 build/StakeTicket.json: OK
 === 2. Frontend live-guard & v15-tx unit tests ===
-✔ Production blocks arbitrary ?api= URL override while preserving deployed apiBase (46.700209ms)
-✔ Production allows ?api= only when origin is explicitly allowlisted (39.003291ms)
-✔ Local dev preserves loopback ?api= override but rejects remote untrusted origin and bad protocols (109.673208ms)
-✔ Live mode blocks all wallet sends and fund order requests even with connected wallet (49.545375ms)
-✔ Demo mode NEVER triggers real wallet sendTransaction even when wallet SDK is connected (43.427709ms)
-✔ Telegram deep-link parser sanitizes untrusted start_param values (38.728542ms)
+✔ Production blocks arbitrary ?api= URL override while preserving deployed apiBase (39.419625ms)
+✔ Production allows ?api= only when origin is explicitly allowlisted (37.973542ms)
+✔ Local dev preserves loopback ?api= override but rejects remote untrusted origin and bad protocols (106.961708ms)
+✔ Live mode blocks all wallet sends and fund order requests even with connected wallet (44.518291ms)
+✔ Demo mode NEVER triggers real wallet sendTransaction even when wallet SDK is connected (46.327625ms)
+✔ Telegram deep-link parser sanitizes untrusted start_param values (36.836583ms)
 Running A9 v15 frontend tx-builder tests...
   PASS  encodeTicketClaimBoc encodes valid BOC magic, op 0x52540303, and 64-bit queryId
   PASS  encodeTextCommentBoc encodes 0x00000000 prefix + UTF-8 claim memo
@@ -18,7 +18,7 @@ Running A9 v15 frontend tx-builder tests...
   PASS  buildV15ClaimTx and buildV15PromoFeeTx produce valid TON Connect 2.0 message payloads
   PASS  encodeSingleCellBoc rejects payloads > 127 bytes
 All 6 v15 frontend tx-builder tests passed.
-✔ a9-mini-app/js/v15-tx.test.mjs (41.824333ms)
+✔ a9-mini-app/js/v15-tx.test.mjs (40.385208ms)
 ℹ tests 7
 ℹ suites 0
 ℹ pass 7
@@ -26,7 +26,7 @@ All 6 v15 frontend tx-builder tests passed.
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 386.977291
+ℹ duration_ms 367.3965
 === 3. Backend worker unit tests ===
 Running A9 v15 worker unit tests...
   PASS  v15 round stage derives STAKING_OPEN -> OBSERVING -> SUCCEEDED without CloseStaking/Settling
