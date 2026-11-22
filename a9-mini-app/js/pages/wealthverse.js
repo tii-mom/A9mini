@@ -30,10 +30,10 @@ export function city() {
   const tier = store.state.user.previewTier || 1;
   const title = config.isDemo ? 'A' + tier + ' · ' + L(...tiers[tier - 1].slice(0, 2)) : waiting();
   const gates = [
-    ['/gallery','shield',L('身份图鉴','Gallery')],
-    ['/rewards','chest',L('奖励宝库','Treasury')],
-    ['/team','flag',L('商会大厅','Guild')],
-    ['/leaderboard','cup',L('荣誉排行','Rankings')]
+    ['/challenge','city',L('主城','City')],
+    ['/round','challenge',L('挑战','Challenge')],
+    ['/team','guild',L('商会','Guild')],
+    ['/profile','backpack',L('背包','Backpack')]
   ];
   return `<section class="wv-hero game-city">
     <div class="city-sky"></div>
@@ -42,8 +42,10 @@ export function city() {
     ${config.isDemo ? portrait(tier) : ''}
     <div class="city-controls"><div class="city-round"><i></i>${L('第','Round')} ${r.currentRound ?? '—'} · ${stageLabel(r.stage)}<a href="#/observation/records">${r.qualifiedCandles ?? '—'} / ${r.minQualifiedCandles ?? 16} ›</a></div>
     <a class="game-play" href="#/round">${L('进入轮次挑战','Enter challenge')} <b>›</b></a>
-    <nav class="game-gates">${gates.map(([path,asset,label])=>`<a href="#${path}"><img src="./assets/wealthverse/game/${asset}.webp" alt=""><span>${label}</span></a>`).join('')}</nav>
-    <a class="city-rules" href="#/rules">${L('玩法规则','Rulebook')} ›</a></div></section>`;
+    <nav class="game-gates">${gates.map(([path,asset,label])=>`<a href="#${path}"><img src="./assets/game-v2/gate-${asset}.webp" alt=""><span>${label}</span></a>`).join('')}</nav>
+    <nav class="city-links" aria-label="${L('主城服务','City services')}">
+      ${[['/internal/market', L('商行','Market')], ['/rewards', L('奖励','Rewards')], ['/leaderboard', L('排行','Rankings')], ['/rules', L('规则','Rules')]].map(([path,label]) => `<a href="#${path}">${label}</a>`).join('')}
+    </nav></div></section>`;
 }
 export function gallery(root, navigate, param) {
   const n = Number(param) || 1;
@@ -118,6 +120,13 @@ export function rewards(root) {
     )
     .join('');
 
+  const crystals = [
+    ['basic', L('初阶', 'Basic')],
+    ['starlight', L('星辉', 'Starlight')],
+    ['legendary', L('传说', 'Legendary')],
+  ];
+  const crystalPreview = `<section class="card"><h2 class="card-title">${L('水晶美术预览', 'Crystal art preview')}</h2>
+    <div class="crystal-preview">${crystals.map(([id, name]) => `<figure><img src="./assets/game-v2/crystal-${id}.webp" alt="" loading="lazy"><figcaption>${name}</figcaption></figure>`).join('')}</div></section>`;
   root.innerHTML =
     hero(
       L('奖励宝库', 'Reward Vault'),
@@ -137,7 +146,7 @@ export function rewards(root) {
       )
       .join(
         '',
-      )}</div><div class="card">${balances}</div><div class="card">${L('失败可能销毁此前未解锁的份额。轮次持续至奖池耗尽。', 'Failure can burn prior locked shares. Rounds continue until pool exhaustion.')}</div><nav class="wv-links">${link('/claim', L('领取明细', 'Claim details'), 'unlock')}${link('/profile', L('我的资产', 'My assets'), 'wallet')}</nav>`;
+      )}</div><div class="card">${balances}</div><div class="card">${L('失败可能销毁此前未解锁的份额。轮次持续至奖池耗尽。', 'Failure can burn prior locked shares. Rounds continue until pool exhaustion.')}</div>${crystalPreview}<nav class="wv-links">${link('/claim', L('领取明细', 'Claim details'), 'unlock')}${link('/profile', L('我的资产', 'My assets'), 'wallet')}</nav>`;
 }
 export function tower(round) {
   const labels = {

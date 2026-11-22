@@ -1,0 +1,423 @@
+{
+  "screens": [
+    {
+      "route": "/challenge",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/round",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/gallery",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/rewards",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/challenge/confirm",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/challenge/success",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/observation/records",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/warmup",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/warmup/rank",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/internal/market",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/internal/records",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/team",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/team/profile",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/team/bind-tg",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/team/invite",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/leaderboard",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/profile",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/claim",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/proof",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/renew",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/ledger",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/records",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/settings",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/risk/matrix",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/risk/audit",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/rules",
+      "width": 390,
+      "height": 844,
+      "locale": "zh-CN",
+      "theme": "light",
+      "overflow": 0
+    },
+    {
+      "route": "/challenge",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/round",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/gallery",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/rewards",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/challenge/confirm",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/challenge/success",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/observation/records",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/warmup",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/warmup/rank",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/internal/market",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/internal/records",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/team",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/team/profile",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/team/bind-tg",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/team/invite",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/leaderboard",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/profile",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/claim",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/proof",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/renew",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/ledger",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/records",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/settings",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/risk/matrix",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/risk/audit",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    },
+    {
+      "route": "/rules",
+      "width": 360,
+      "height": 780,
+      "locale": "en-US",
+      "theme": "dark",
+      "overflow": 0
+    }
+  ],
+  "errors": [],
+  "liveWriteRequests": [],
+  "liveSource": "isolated HTTP fixture"
+}

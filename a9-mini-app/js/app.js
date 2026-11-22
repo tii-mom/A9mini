@@ -34,9 +34,9 @@ const THEME_KEY = 'a9_theme_mode';
 
 const TABS = [
   { key: 'challenge', path: '/challenge',       ic: 'candles', labelKey: 'tab_challenge' },
-  { key: 'market',    path: '/internal/market', ic: 'swap',    labelKey: 'tab_market' },
+  { key: 'round',     path: '/round',           ic: 'radar',   labelKey: 'tab_round' },
   { key: 'team',      path: '/team',            ic: 'team',    labelKey: 'tab_team' },
-  { key: 'profile',   path: '/profile',         ic: 'wallet',  labelKey: 'tab_profile' }
+  { key: 'profile',   path: '/profile',         ic: 'wallet',  labelKey: 'tab_backpack' }
 ];
 
 let dataReady = false;
@@ -176,7 +176,7 @@ function renderTabBar(route) {
   if (!tabbarEl.querySelector('.dock-pill')) {
     tabbarEl.innerHTML = `<div class="dock-pill" id="dock-pill"></div>` + TABS.map(item => `
       <button class="tab-item" data-tab-key="${item.key}" data-nav="${item.path}">
-        <img class="realm-nav-icon" src="./assets/wealthverse/game/${{challenge:'castle',market:'scales',team:'flag',profile:'purse'}[item.key]}.webp" alt="">
+        <img class="realm-nav-icon" src="./assets/game-v2/gate-${{challenge:'city',round:'challenge',team:'guild',profile:'backpack'}[item.key]}.webp" alt="">
         <span class="tab-lbl">${t(item.labelKey)}</span>
         ${item.key === 'profile' ? '<span class="tab-badge hidden" id="profile-tab-badge"></span>' : ''}
       </button>

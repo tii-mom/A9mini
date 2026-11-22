@@ -111,3 +111,28 @@ body[data-game-route] .ticket-tabs button[aria-pressed=true] { background:#f5ce8
 body[data-game-route] .collectible-ticket { padding-block:12px }
 body[data-game-route] .realm-banner { min-height:clamp(96px,16svh,140px) }
 body:is([data-game-route="/leaderboard"],[data-game-route="/challenge/success"]) .realm-banner { min-height:clamp(168px,26svh,240px) }
+
+/* A9 fantasy-tech palette and separate city, character and entrance layers. */
+body[data-game-route], [data-theme=light] body[data-game-route]{
+  --bg-canvas:#13142b;--bg-panel:#242341;--bg-surface:#282748;--bg-header:#191b38;
+  --bg-elevated:#302b4e;--bg-elevated-high:#39345c;--border-hairline:#777bb557;
+  --border-subtle:#777bb57a;--border-strong:#b4b8e2;--cyan:#9ae8ff;
+}
+body[data-game-route] .app-header,body[data-game-route] .app-tabbar{background:#191a37;border-color:#575783}
+body[data-game-route] .dock-pill{background:#303557;border-color:#82cbf0}
+body[data-game-route] .app-main .card,body[data-game-route] .modal-sheet{border-color:#777bb573}
+.city-sky{background:linear-gradient(0deg,#13142b 3%,transparent 44%,#16162d55),url('../assets/game-v2/city.webp') center 44%/cover}
+.city-controls{background:linear-gradient(transparent,#13142bec 30%,#13142b 90%)}
+.city-round,.city-profile{background:#202044e8}
+.city-links{display:flex;justify-content:center;flex-wrap:wrap;gap:0 13px;margin-top:2px}
+.city-links a{display:inline-flex;align-items:center;min-height:40px;color:#a9dfff;font-size:12px;text-decoration:none}
+.game-gates a{min-width:0}
+.game-gates img,.crystal-preview img{filter:drop-shadow(0 1px 1px #f2ddb9) drop-shadow(0 3px 2px #101126)}
+.game-gates img{width:clamp(45px,13vw,58px);height:clamp(45px,13vw,58px)}
+.crystal-preview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;text-align:center}
+.crystal-preview figure{margin:0;padding:8px 2px;border-radius:8px;background:#1d1e37}
+.crystal-preview img{display:block;width:100%;height:80px;object-fit:contain;margin-bottom:6px}
+@media(prefers-reduced-motion:no-preference){
+  .game-gates a:hover img,.game-gates a:focus-visible img{transform:translateY(-3px)}
+  .game-gates img{transition:transform .15s ease}
+}

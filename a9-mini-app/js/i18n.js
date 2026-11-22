@@ -45,6 +45,8 @@ const DICT = {
   'zh-CN': {
     tab_challenge: '主城',
     tab_market: '商行',
+    tab_round: '挑战',
+    tab_backpack: '背包',
     tab_team: '商会',
     tab_leaderboard: '榜单',
     tab_profile: '资产库',
@@ -71,6 +73,8 @@ const DICT = {
   'en-US': {
     tab_challenge: 'City',
     tab_market: 'Market',
+    tab_round: 'Challenge',
+    tab_backpack: 'Backpack',
     tab_team: 'Guild',
     tab_leaderboard: 'Rankings',
     tab_profile: 'Vault',
