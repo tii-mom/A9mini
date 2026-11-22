@@ -218,11 +218,12 @@ export function portfolioPanel(root, guild = false) {
             : waiting(),
       );
     } else {
-      // The worker also returns zero on getter failure. Only positive wallet readings are distinguishable.
+      // 后端已严格区分数据不可用（a9BalanceRaw === null / balanceAvailable === false）与真实链上余额（含真实 0）。
       const balance =
+        data?.balanceAvailable !== false &&
         data?.jettonWallet &&
-        /^\d+$/.test(data.a9BalanceRaw) &&
-        BigInt(data.a9BalanceRaw) > 0n
+        typeof data.a9BalanceRaw === 'string' &&
+        /^\d+$/.test(data.a9BalanceRaw)
           ? exactA9(data.a9BalanceRaw)
           : null;
       row(L('可用 A9', 'Available A9'), balance ?? waiting());

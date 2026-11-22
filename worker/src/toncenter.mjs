@@ -38,7 +38,12 @@ export class TonCenterClient {
       body: JSON.stringify({ address, method, stack }),
     });
     if (!body?.ok || body?.result?.exit_code !== 0) {
-      throw new Error(`runGetMethod ${method} failed (exit=${body?.result?.exit_code})`);
+      const err = new Error(`runGetMethod ${method} failed (exit=${body?.result?.exit_code})`);
+      if (body?.ok && body?.result && typeof body.result.exit_code === 'number') {
+        err.isTvmError = true;
+        err.exitCode = body.result.exit_code;
+      }
+      throw err;
     }
     return body.result.stack || [];
   }
@@ -142,17 +147,35 @@ export class TonCenterClient {
     return out;
   }
 
-  /** Resolve a user's JettonWallet address & raw A9 balance from JettonMaster. */
+  /**
+   * 解析用户 JettonWallet 地址与 A9 链上余额（P0-G）。
+   * 仅在 get_wallet_data 成功，或通过 /getAddressInformation 明确核实合约处于 uninitialized（未部署）时
+   * 才返回具体余额（含真实 '0'）；任何 HTTP/网络/RPC 故障或 active 合约调用失败一律返回 a9BalanceRaw: null, balanceAvailable: false。
+   */
   async fetchUserJettonWallet(jettonMasterAddress, ownerAddress) {
     const ownerBoc = encodeAddressSliceBoc(ownerAddress);
     const s = await this.runGetMethod(jettonMasterAddress, 'get_wallet_address', [['tvm.Slice', ownerBoc]]);
     const jwAddr = decodeAddressFromStackItem(s[0]);
-    if (!jwAddr) return { jettonWallet: null, a9BalanceRaw: '0' };
+    if (!jwAddr) return { jettonWallet: null, a9BalanceRaw: null, balanceAvailable: false };
     try {
       const wd = await this.runGetMethod(jwAddr, 'get_wallet_data');
-      return { jettonWallet: jwAddr, a9BalanceRaw: TonCenterClient.parseNum(wd[0]).toString() };
-    } catch {
-      return { jettonWallet: jwAddr, a9BalanceRaw: '0' };
+      return {
+        jettonWallet: jwAddr,
+        a9BalanceRaw: TonCenterClient.parseNum(wd[0]).toString(),
+        balanceAvailable: true,
+      };
+    } catch (err) {
+      if (err?.isTvmError) {
+        try {
+          const info = await this.fetchWalletAccountState(jwAddr);
+          if (info?.state === 'uninitialized') {
+            return { jettonWallet: jwAddr, a9BalanceRaw: '0', balanceAvailable: true };
+          }
+        } catch {
+          // 账户状态查询失败时绝不能假定余额为 0
+        }
+      }
+      return { jettonWallet: jwAddr, a9BalanceRaw: null, balanceAvailable: false };
     }
   }
 
@@ -164,7 +187,7 @@ export class TonCenterClient {
       ['num', String(roundId)],
     ]);
     const ticketAddr = decodeAddressFromStackItem(s[0]);
-    if (!ticketAddr) return null;
+    if (!ticketAddr) throw new Error('get_ticket_address returned invalid address');
     try {
       const td = await this.runGetMethod(ticketAddr, 'get_ticket_data');
       return {
@@ -177,36 +200,53 @@ export class TonCenterClient {
         lockedClaimedRaw: TonCenterClient.parseNum(td[7]).toString(),
         pending: TonCenterClient.parseNum(td[8]) !== 0n,
       };
-    } catch {
-      return null; // ticket not deployed for this round
+    } catch (err) {
+      if (err?.isTvmError) {
+        const info = await this.fetchWalletAccountState(ticketAddr);
+        if (info?.state === 'uninitialized') return null; // 该轮凭证合约确实未部署
+      }
+      throw err;
     }
   }
 
-  /** Read user's on-chain JettonWallet, A9 balance, and active StakeTickets across roundIds. */
+  /**
+   * 读取用户链上 JettonWallet、A9 余额与活跃 StakeTicket（P0-G）。
+   * 链上未配置或请求失败时严格返回 a9BalanceRaw: null 与 balanceAvailable: false，绝不将查询失败显示为余额 0。
+   */
   async fetchUserPortfolio(ownerAddress, { jettonMasterAddress = null, roundControllerAddress = null, roundIds = [] } = {}) {
     let jettonWallet = null;
-    let a9BalanceRaw = '0';
+    let a9BalanceRaw = null;
+    let balanceAvailable = false;
     if (jettonMasterAddress) {
       try {
         const jw = await this.fetchUserJettonWallet(jettonMasterAddress, ownerAddress);
         jettonWallet = jw.jettonWallet;
         a9BalanceRaw = jw.a9BalanceRaw;
+        balanceAvailable = Boolean(jw.balanceAvailable);
       } catch {
-        // leave default if unreachable
+        jettonWallet = null;
+        a9BalanceRaw = null;
+        balanceAvailable = false;
       }
     }
     const tickets = [];
+    let ticketsAvailable = Boolean(roundControllerAddress);
     if (roundControllerAddress && Array.isArray(roundIds)) {
       for (const rId of roundIds) {
         try {
           const t = await this.fetchUserTicket(roundControllerAddress, ownerAddress, rId);
           if (t && BigInt(t.amountRaw) > 0n) tickets.push(t);
         } catch {
-          // ignore uninitialized ticket
+          ticketsAvailable = false;
         }
       }
     }
-    return { jettonWallet, a9BalanceRaw, tickets };
+    const onchainAvailable = Boolean(
+      (jettonMasterAddress || roundControllerAddress) &&
+      (!jettonMasterAddress || balanceAvailable) &&
+      (!roundControllerAddress || ticketsAvailable),
+    );
+    return { jettonWallet, a9BalanceRaw, balanceAvailable, tickets, ticketsAvailable, onchainAvailable };
   }
 }
 

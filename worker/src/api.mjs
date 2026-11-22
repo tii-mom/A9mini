@@ -180,7 +180,15 @@ export function createApiRouter({
       const userMatch = method === 'GET' && pathname.match(/^\/api\/user\/(.+)$/);
       if (userMatch) {
         const wallet = decodeURIComponent(userMatch[1]);
-        const onchain = userReader ? await userReader(wallet) : { jettonWallet: null, a9BalanceRaw: null, tickets: [] };
+        let onchain = { jettonWallet: null, a9BalanceRaw: null, balanceAvailable: false, tickets: [], ticketsAvailable: false, onchainAvailable: false };
+        if (userReader) {
+          try {
+            const read = await userReader(wallet);
+            if (read && typeof read === 'object') onchain = read;
+          } catch (_) {
+            // 链上查询异常时保留 null 与不可用标记，绝不返回余额 0（P0-G）。
+          }
+        }
         let owner = false;
         let viewerKey = null;
         try {

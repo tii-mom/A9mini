@@ -274,18 +274,47 @@ export class PresaleEngine {
 
   /**
    * 识别是否属于原有推广领奖业务（claim:<id>）的合法付款，避免共用热钱包时误记为兑换异常。
-   * 大额（> 0.1 GRAM）但无对应合法推广单的 claim: 备注仍按兑换异常留痕处理，防止大额误转被吞。
+   * 严格五重校验（P0-A）：
+   *   1) 备注为 claim:<id> 且已挂载推广引擎并查得对应领取单；
+   *   2) 收款钱包归属匹配：tx.to 必须等于该推广单收款热钱包（推广与兑换分热钱包时，打到兑换热钱包的转账绝不归为推广业务）；
+   *   3) 付款人归属匹配：tx.from 按 addressKey 归一化后必须等于 claim.walletAddress；
+   *   4) 金额精确匹配：receivedNano 必须严格等于 claim.feeRequiredNano（默认 0.06 GRAM），防止用合法领取单号掩盖 8 GRAM 等错额/大额入账；
+   *   5) 领取单状态合法：未过期的 PENDING_FEE，或已被推广流程用同一笔 tx.txHash 消费（FEE_CONFIRMED/PAYOUT_SENT/COMPLETED），
+   *      防止拿已过期或已完成的旧领取单号掩盖新的错付入账。
+   * 任一条件不满足时返回 false，由兑换引擎继续按粉尘（<=0.1 GRAM）或异常入账（ANOMALY，进入人工退款队列）处理。
    */
-  async _isPromoFlowTransfer(memo, receivedNano) {
+  async _isPromoFlowTransfer(tx, memo, receivedNano, nowSec) {
     if (!memo.startsWith('claim:')) return false;
     const claimId = memo.slice(6).trim();
     if (!claimId) return false;
-    if (this.promoEngine && typeof this.promoEngine.getClaim === 'function') {
-      const claim = await this.promoEngine.getClaim(claimId);
-      if (claim) return true;
+    if (!this.promoEngine || typeof this.promoEngine.getClaim !== 'function') return false;
+
+    const claim = await this.promoEngine.getClaim(claimId);
+    if (!claim) return false;
+
+    const promoDest = claim.payTo || this.promoEngine.hotWalletAddress;
+    if (!promoDest || addressKey(tx.to) !== addressKey(promoDest)) return false;
+
+    if (!tx.from || !claim.walletAddress || addressKey(tx.from) !== addressKey(claim.walletAddress)) return false;
+
+    let requiredNano;
+    try {
+      requiredNano = BigInt(String(claim.feeRequiredNano ?? ''));
+    } catch {
+      return false;
     }
-    // 标准推广领奖费为 0.06 GRAM（<= 0.1 GRAM），在未挂载 promoEngine 实例时也归类为推广流程而非粉尘/兑换单。
-    return receivedNano <= DUST_LIMIT_NANO;
+    if (requiredNano <= 0n || receivedNano !== requiredNano) return false;
+
+    if (claim.status === 'PENDING_FEE') {
+      const exp = Number(claim.expiresAt || 0);
+      if (exp > 0 && nowSec > exp) return false;
+      return true;
+    }
+    const consumedStatuses = ['FEE_CONFIRMED', 'PAYOUT_SENT', 'COMPLETED'];
+    if (consumedStatuses.includes(claim.status) && claim.feeTxHash && claim.feeTxHash === tx.txHash) {
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -307,7 +336,7 @@ export class PresaleEngine {
     }
 
     const memo = String(tx.memo || '').trim();
-    if (await this._isPromoFlowTransfer(memo, receivedNano)) {
+    if (await this._isPromoFlowTransfer(tx, memo, receivedNano, nowSec)) {
       return { action: 'OTHER_FLOW', reason: 'promo_claim', txHash: tx.txHash, sender: tx.from || null, receivedNano, memo, orderId: null };
     }
     if (receivedNano <= DUST_LIMIT_NANO) {

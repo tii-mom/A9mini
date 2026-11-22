@@ -824,31 +824,73 @@ export class D1PresaleRepo {
       .bind(p.payoutId, p.orderId, p.inboundTxHash, p.kind, p.recipient, p.amount, p.queryId, p.status, p.attempts, p.ambiguous ? 1 : 0, p.createdAt, p.updatedAt);
   }
 
+  /**
+   * 原子提交单笔链上入账（P0-I）：
+   * - 全部状态转移在单次 db.batch() 事务内一次完成，彻底消除“事务写入后、二次 UPDATE 改异常前进程崩溃”的恢复窗口。
+   * - 存在 orderUpdate 时：
+   *   1) 先尝试带状态白名单、过期时间守卫与防重放守卫（NOT EXISTS inbound）的条件 UPDATE；
+   *   2) 再用单条条件 INSERT INTO presale_inbound_txs，依据同事务内订单是否成功绑定本 tx_hash，
+   *      原子决定落库为原计划 decision 或直接落库为 ANOMALY / order_state_race / OPEN；
+   *   3) 若有 payout，仅在同事务订单绑定成功时条件插入，绝不产生孤儿 payout。
+   */
   async commitInbound({ inbound, orderUpdate, payout }) {
-    const stmts = [
-      this.db
-        .prepare(
-          `INSERT INTO presale_inbound_txs (tx_hash, order_id, sender, value_nano, memo, decision, reason, anomaly_status, refund_to, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .bind(
-          inbound.txHash, inbound.orderId, inbound.sender, inbound.valueNano, inbound.memo, inbound.decision, inbound.reason,
-          inbound.anomaly ? inbound.anomaly.status : null, inbound.anomaly ? inbound.anomaly.refundTo : null, inbound.createdAt,
-        ),
-    ];
+    const stmts = [];
     if (orderUpdate) {
       const set = buildSet(orderUpdate.patch, ORDER_COLS);
       const expCond = orderUpdate.notExpiredAt ? ' AND (expires_at = 0 OR expires_at >= ?)' : '';
       const expArgs = orderUpdate.notExpiredAt ? [orderUpdate.notExpiredAt] : [];
       stmts.push(
         this.db
-          .prepare(`UPDATE presale_orders SET ${set.sql} WHERE order_id = ? AND status IN (${orderUpdate.from.map(() => '?').join(', ')})${expCond}`)
-          .bind(...set.vals, orderUpdate.orderId, ...orderUpdate.from, ...expArgs),
+          .prepare(
+            `UPDATE presale_orders
+             SET ${set.sql}
+             WHERE order_id = ?
+               AND status IN (${orderUpdate.from.map(() => '?').join(', ')})${expCond}
+               AND NOT EXISTS (SELECT 1 FROM presale_inbound_txs WHERE tx_hash = ?)`,
+          )
+          .bind(...set.vals, orderUpdate.orderId, ...orderUpdate.from, ...expArgs, inbound.txHash),
+      );
+      const plannedAnomalyStatus = inbound.anomaly ? inbound.anomaly.status : null;
+      const plannedRefundTo = inbound.anomaly ? inbound.anomaly.refundTo : null;
+      const raceRefundTo = inbound.sender || null;
+      stmts.push(
+        this.db
+          .prepare(
+            `INSERT INTO presale_inbound_txs
+               (tx_hash, order_id, sender, value_nano, memo, decision, reason, anomaly_status, refund_to, created_at)
+             SELECT
+               ?, ?, ?, ?, ?,
+               CASE WHEN EXISTS (SELECT 1 FROM presale_orders WHERE order_id = ? AND inbound_tx_hash = ?) THEN ? ELSE 'ANOMALY' END,
+               CASE WHEN EXISTS (SELECT 1 FROM presale_orders WHERE order_id = ? AND inbound_tx_hash = ?) THEN ? ELSE 'order_state_race' END,
+               CASE WHEN EXISTS (SELECT 1 FROM presale_orders WHERE order_id = ? AND inbound_tx_hash = ?) THEN ? ELSE 'OPEN' END,
+               CASE WHEN EXISTS (SELECT 1 FROM presale_orders WHERE order_id = ? AND inbound_tx_hash = ?) THEN ? ELSE ? END,
+               ?`,
+          )
+          .bind(
+            inbound.txHash, inbound.orderId, inbound.sender, inbound.valueNano, inbound.memo,
+            orderUpdate.orderId, inbound.txHash, inbound.decision,
+            orderUpdate.orderId, inbound.txHash, inbound.reason,
+            orderUpdate.orderId, inbound.txHash, plannedAnomalyStatus,
+            orderUpdate.orderId, inbound.txHash, plannedRefundTo, raceRefundTo,
+            inbound.createdAt,
+          ),
+      );
+    } else {
+      stmts.push(
+        this.db
+          .prepare(
+            `INSERT INTO presale_inbound_txs (tx_hash, order_id, sender, value_nano, memo, decision, reason, anomaly_status, refund_to, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            inbound.txHash, inbound.orderId, inbound.sender, inbound.valueNano, inbound.memo, inbound.decision, inbound.reason,
+            inbound.anomaly ? inbound.anomaly.status : null, inbound.anomaly ? inbound.anomaly.refundTo : null, inbound.createdAt,
+          ),
       );
     }
     if (payout) {
       if (orderUpdate) {
-        // 若关联订单状态竞争更新失败，则绝不插入孤儿 payout。
+        // 仅当同事务内订单确实绑定到当前入账时才插入 payout，绝不产生孤儿 payout。
         stmts.push(
           this.db
             .prepare(
@@ -873,14 +915,7 @@ export class D1PresaleRepo {
       if (isUnique(e)) return 'REPLAY';
       throw e;
     }
-    if (orderUpdate && changes(out?.[1]) !== 1) {
-      // 竞态（订单过期释放或已被另一笔入账占用）：转入 OPEN 异常队列供人工退款，绝不超卖或遗漏资金。
-      await this.db
-        .prepare("UPDATE presale_inbound_txs SET decision = 'ANOMALY', reason = 'order_state_race', anomaly_status = 'OPEN', refund_to = ? WHERE tx_hash = ?")
-        .bind(inbound.sender || null, inbound.txHash)
-        .run();
-      return 'ORDER_RACE';
-    }
+    if (orderUpdate && changes(out?.[0]) !== 1) return 'ORDER_RACE';
     return 'OK';
   }
 
