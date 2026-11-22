@@ -10,7 +10,7 @@
  */
 
 import { config } from './config.js';
-import { demoFundsStake, demoFundsClaim, demoFundsBuy, demoFundsClaimPromo, applyDemoInitialState, resetDemoPrediction, demoInventoryEquip } from './demo-data.js';
+import { demoFundsStake, demoFundsClaim, demoFundsBuy, demoFundsClaimPromo, applyDemoInitialState, resetDemoPrediction } from './demo-data.js';
 
 const STORAGE_KEY = 'a9_ui_prefs_v1';
 const REF_SESSION_KEY = 'a9_referrer_id_v1';
@@ -149,17 +149,6 @@ const DEFAULT_STATE = {
     loaded: false,
     error: false
   },
-  inventory: {
-    items: [],
-    loadout: {
-      equippedFrame: null,
-      equippedBadge: null,
-      equippedTitle: null
-    },
-    deliveries: [],
-    filter: 'all',
-    loaded: false
-  },
   referral: {
     referrerId: null,
     pendingScrollTarget: null
@@ -273,24 +262,17 @@ class A9Store {
   }
 
   claimPromoDemo() {
-    if (!config.isDemo) return { error: '当前真实模式为只读阶段，推广奖励领取与资金支付暂未开放' };
+    if (!config.isDemo) return { error: '当前真实模式为只读阶段，邀友奖励领取与资金支付暂未开放' };
     const result = demoFundsClaimPromo(this.state);
     this.notify();
     return result;
   }
 
-  buyInternalMarket(tonAmount, skuId = null) {
-    if (!config.isDemo) return { error: '当前真实模式为只读阶段，商行购买与资金支付暂未开放' };
-    const result = demoFundsBuy(this.state, tonAmount, skuId);
+  buyInternalMarket(tonAmount) {
+    if (!config.isDemo) return { error: '当前真实模式为只读阶段，兑换屋购买与资金支付暂未开放' };
+    const result = demoFundsBuy(this.state, tonAmount);
     if (!result.error) this.notify();
     return result;
-  }
-
-  equipCosmeticDemo(category, itemId = null) {
-    if (!config.isDemo) return { error: '当前真实模式请通过 Telegram 身份核验后同步装扮' };
-    const res = demoInventoryEquip(this.state, category, itemId);
-    if (!res?.error) this.notify();
-    return res;
   }
 }
 

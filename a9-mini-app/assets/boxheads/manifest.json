@@ -1,0 +1,42 @@
+{
+  "version": "1.0",
+  "collection": "A9 Boxheads Archive S01",
+  "series": {
+    "activity": {
+      "unlockType": "platform_interaction",
+      "labelZh": "互动解锁系列",
+      "labelEn": "Activity Series",
+      "descZh": "通过平台打卡、集章手账、24H 竞猜与邀请互动解锁，每阶均配专属精装卡背。",
+      "descEn": "Unlocked via platform interactions, daily stamps, 24H predictions, and invites. Each tier pairs with a collectible backing card.",
+      "items": [
+        { "id": "act-01", "tier": 1, "rarity": "COMMON", "nameZh": "经典牛皮纸箱", "nameEn": "Kraft Classic", "avatar": "./assets/boxheads/activity/avatars/act-01.png", "card": "./assets/boxheads/activity/cards/act-01-card.png" },
+        { "id": "act-02", "tier": 2, "rarity": "UNCOMMON", "nameZh": "纯白耳机纸箱", "nameEn": "Mono Beats", "avatar": "./assets/boxheads/activity/avatars/act-02.png", "card": "./assets/boxheads/activity/cards/act-02-card.png" },
+        { "id": "act-03", "tier": 3, "rarity": "RARE", "nameZh": "青帽珊瑚纸箱", "nameEn": "Coral Cap", "avatar": "./assets/boxheads/activity/avatars/act-03.png", "card": "./assets/boxheads/activity/cards/act-03-card.png" },
+        { "id": "act-04", "tier": 4, "rarity": "EPIC", "nameZh": "冰晶透明纸箱", "nameEn": "Frost Prism", "avatar": "./assets/boxheads/activity/avatars/act-04.png", "card": "./assets/boxheads/activity/cards/act-04-card.png" },
+        { "id": "act-05", "tier": 5, "rarity": "LEGENDARY", "nameZh": "红帽正红纸箱", "nameEn": "Crimson Cap", "avatar": "./assets/boxheads/activity/avatars/act-05.png", "card": "./assets/boxheads/activity/cards/act-05-card.png" },
+        { "id": "act-06", "tier": 6, "rarity": "MYTHIC", "nameZh": "黑金裂纹金缮箱", "nameEn": "Kintsugi Noir", "avatar": "./assets/boxheads/activity/avatars/act-06.png", "card": "./assets/boxheads/activity/cards/act-06-card.png" },
+        { "id": "act-07", "tier": 7, "rarity": "ULTRA RARE", "nameZh": "黑绿电路赛博箱", "nameEn": "Neon Circuit", "avatar": "./assets/boxheads/activity/avatars/act-07.png", "card": "./assets/boxheads/activity/cards/act-07-card.png" },
+        { "id": "act-08", "tier": 8, "rarity": "SUPREME", "nameZh": "全息镭射变色箱", "nameEn": "Holo Chameleon", "avatar": "./assets/boxheads/activity/avatars/act-08.png", "card": "./assets/boxheads/activity/cards/act-08-card.png" },
+        { "id": "act-09", "tier": 9, "rarity": "ARCHIVE", "nameZh": "3D 纯金典藏箱", "nameEn": "3D Gold Archive", "avatar": "./assets/boxheads/activity/avatars/act-09.png", "card": "./assets/boxheads/activity/cards/act-09-card.png" }
+      ]
+    },
+    "wealth": {
+      "unlockType": "a9_market_cap_holding",
+      "labelZh": "A9 资产达标系列",
+      "labelEn": "A9 Wealth Series",
+      "descZh": "仅当用户持有的 A9 代币市值达到对应门槛后解锁，配暗黑潮牌精装卡背供收藏与社媒分享。",
+      "descEn": "Unlocked exclusively when the user's held A9 token market value meets the required threshold, paired with archive backing cards for sharing.",
+      "items": [
+        { "id": "wlt-01", "tier": 1, "rarity": "COMMON", "nameZh": "街头嫩芽", "nameEn": "Street Sprout", "avatar": "./assets/boxheads/wealth/avatars/wlt-01.png", "card": "./assets/boxheads/wealth/cards/wlt-01-card.png" },
+        { "id": "wlt-02", "tier": 2, "rarity": "UNCOMMON", "nameZh": "雷达猎手", "nameEn": "Field Scout", "avatar": "./assets/boxheads/wealth/avatars/wlt-02.png", "card": "./assets/boxheads/wealth/cards/wlt-02-card.png" },
+        { "id": "wlt-03", "tier": 3, "rarity": "RARE", "nameZh": "羽翼火漆", "nameEn": "Angel Parcel", "avatar": "./assets/boxheads/wealth/avatars/wlt-03.png", "card": "./assets/boxheads/wealth/cards/wlt-03-card.png" },
+        { "id": "wlt-04", "tier": 4, "rarity": "SR", "nameZh": "钻石双手", "nameEn": "Diamond Hands", "avatar": "./assets/boxheads/wealth/avatars/wlt-04.png", "card": "./assets/boxheads/wealth/cards/wlt-04-card.png" },
+        { "id": "wlt-05", "tier": 5, "rarity": "SPEC RARE", "nameZh": "红白狂怒", "nameEn": "Famicom Fury", "avatar": "./assets/boxheads/wealth/avatars/wlt-05.png", "card": "./assets/boxheads/wealth/cards/wlt-05-card.png" },
+        { "id": "wlt-06", "tier": 6, "rarity": "UR", "nameZh": "巨鲸船长", "nameEn": "Captain Whale", "avatar": "./assets/boxheads/wealth/avatars/wlt-06.png", "card": "./assets/boxheads/wealth/cards/wlt-06-card.png" },
+        { "id": "wlt-07", "tier": 7, "rarity": "EPIC", "nameZh": "大阳线狂想", "nameEn": "Candle Mind", "avatar": "./assets/boxheads/wealth/avatars/wlt-07.png", "card": "./assets/boxheads/wealth/cards/wlt-07-card.png" },
+        { "id": "wlt-08", "tier": 8, "rarity": "LEGENDARY", "nameZh": "紫金大亨", "nameEn": "Purple Tycoon", "avatar": "./assets/boxheads/wealth/avatars/wlt-08.png", "card": "./assets/boxheads/wealth/cards/wlt-08-card.png" },
+        { "id": "wlt-09", "tier": 9, "rarity": "GOD TIER", "nameZh": "螺旋至尊王", "nameEn": "Supreme Sovereign", "avatar": "./assets/boxheads/wealth/avatars/wlt-09.png", "card": "./assets/boxheads/wealth/cards/wlt-09-card.png" }
+      ]
+    }
+  }
+}

@@ -85,6 +85,81 @@
   100% { transform: translateX(250%) skewX(-22deg); opacity: 0; }
 }
 
+/* 三拍钢印出征 + 立体折纸开箱 + 翻牌盖章 + 赛点呼吸 */
+@keyframes cert-drop {
+  0%   { opacity: 0; transform: translateY(-22px) scale(0.96); }
+  70%  { opacity: 1; transform: translateY(3px) scale(1.01); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes seal-slam-impact {
+  0%   { opacity: 0; transform: scale(2.15) rotate(-26deg); }
+  62%  { opacity: 1; transform: scale(0.88) rotate(-8deg); }
+  84%  { opacity: 1; transform: scale(1.06) rotate(-13deg); }
+  100% { opacity: 1; transform: scale(1) rotate(-11deg); }
+}
+
+@keyframes card-thump {
+  0%, 100% { transform: translateY(0) scale(1); }
+  40%      { transform: translateY(3px) scale(0.992); }
+}
+
+@keyframes speech-pop {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.84); }
+  65%  { opacity: 1; transform: translateX(-50%) translateY(-2px) scale(1.03); }
+  100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+@keyframes slot-flip-stamp {
+  0%   { transform: perspective(300px) rotateY(-80deg) scale(1.18); }
+  58%  { transform: perspective(300px) rotateY(12deg) scale(0.94); }
+  100% { transform: perspective(300px) rotateY(0deg) scale(1); }
+}
+
+@keyframes matchpoint-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(242, 178, 27, 0.24), var(--surface-shadow); }
+  50%      { box-shadow: 0 0 0 4px rgba(242, 178, 27, 0.22), var(--surface-shadow); }
+}
+
+@keyframes beacon-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.92); }
+  50%      { opacity: 0.85; transform: scale(1.12); }
+}
+
+@keyframes chest-celebrate {
+  0%   { transform: scale(1, 1); }
+  30%  { transform: scale(1.08, 0.90) translateY(3px); }
+  65%  { transform: scale(0.96, 1.06) translateY(-5px); }
+  100% { transform: scale(1, 1) translateY(0); }
+}
+
+@keyframes counter-boing {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.10); }
+  100% { transform: scale(1); }
+}
+
+@keyframes coin-arc-fly {
+  0%   { opacity: 0; transform: translate(0, 0) scale(0.55) rotate(0deg); }
+  18%  { opacity: 1; transform: translate(var(--mx, 0px), var(--my, -48px)) scale(1.08) rotate(90deg); }
+  82%  { opacity: 1; transform: translate(var(--tx, 0px), var(--ty, -160px)) scale(0.88) rotate(280deg); }
+  100% { opacity: 0; transform: translate(var(--tx, 0px), var(--ty, -172px)) scale(0.35) rotate(360deg); }
+}
+
+.anim-cert-drop { animation: cert-drop 260ms var(--ease-spring) both; }
+.anim-seal-slam { animation: seal-slam-impact 240ms var(--ease-spring) 260ms both; }
+.anim-card-thump { animation: card-thump 190ms ease-out 430ms both; }
+.anim-cert-drop.anim-card-thump { animation: cert-drop 260ms var(--ease-spring) both, card-thump 190ms ease-out 430ms; }
+.anim-slot-flip { animation: slot-flip-stamp 320ms var(--ease-spring) both; }
+.anim-counter-boing { animation: counter-boing 360ms var(--ease-spring) both; }
+.anim-chest-celebrate { animation: chest-celebrate 420ms var(--ease-spring) both; }
+
+.beacon-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: beacon-pulse 2.2s ease-in-out infinite;
+}
+
 .anim-page-enter {
   animation: page-enter 210ms var(--ease-standard) both;
 }
@@ -139,7 +214,7 @@
   height: 8px;
   border-radius: 2px;
   border: 1.5px solid #FFFFFF;
-  box-shadow: 0 2px 4px rgba(43, 37, 35, 0.16);
+  box-shadow: 0 2px 4px rgba(22, 24, 34, 0.16);
   pointer-events: none;
   z-index: 160;
   animation: spark-pop 580ms var(--ease-decelerate) forwards;
@@ -194,6 +269,9 @@
 
 .cert-pass.cert-detail-card {
   position: relative;
+  overflow: hidden;
+}
+.cert-pass.cert-detail-card.success-cert-stage {
   overflow: hidden;
 }
 .cert-pass.cert-detail-card::before {

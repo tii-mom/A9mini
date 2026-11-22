@@ -25,7 +25,7 @@ export const A9TMA = {
   },
 
   syncTheme(theme) {
-    const bg = theme === 'dark' ? '#201D1B' : '#F5F0E6';
+    const bg = theme === 'dark' ? '#161619' : '#F6F6F8';
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', bg);
     const tg = getTg();

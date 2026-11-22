@@ -1,27 +1,26 @@
 <svg viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <g transform="translate(0 3.2)" stroke="#D4C9B8" stroke-width="13" stroke-linejoin="round" stroke-linecap="round" fill="#D4C9B8">
-    <rect x="21" y="27" width="54" height="47" rx="8"/>
-    <path d="M34 27L28 18L44 21L48 27L52 21L68 18L62 27Z"/>
-  </g>
-  <g stroke="#E6DEC9" stroke-width="13" stroke-linejoin="round" stroke-linecap="round" fill="#E6DEC9">
-    <rect x="21" y="27" width="54" height="47" rx="8"/>
-    <path d="M34 27L28 18L44 21L48 27L52 21L68 18L62 27Z"/>
-  </g>
-  <g stroke="#FFFFFF" stroke-width="10.2" stroke-linejoin="round" stroke-linecap="round" fill="#FFFFFF">
-    <rect x="21" y="27" width="54" height="47" rx="8"/>
-    <path d="M34 27L28 18L44 21L48 27L52 21L68 18L62 27Z"/>
-  </g>
-  <!-- 进阶贴纸盒：晴空蓝厚卡纸礼盒 + 烫金十字丝带 + 折纸蝴蝶结 -->
-  <path d="M34 27L28 18L44 21L48 27Z" fill="#F3B82C"/>
-  <path d="M62 27L68 18L52 21L48 27Z" fill="#D99B16"/>
-  <rect x="23" y="34" width="50" height="40" rx="7" fill="#2E74BC"/>
-  <rect x="23" y="32" width="50" height="39" rx="7" fill="#3A88D6"/>
-  <rect x="21" y="25" width="54" height="12" rx="5" fill="#5BA3EB"/>
-  <!-- 烫金十字腰封 -->
-  <rect x="43" y="25" width="10" height="49" fill="#F3B82C"/>
-  <rect x="23" y="46" width="50" height="8" fill="#F3B82C"/>
-  <!-- 中央翠绿贴纸徽章 -->
-  <circle cx="48" cy="50" r="9.5" fill="#FFFFFF"/>
+  <g transform="translate(0 3.6)" stroke="#C9BCA8" stroke-width="13.5" stroke-linejoin="round" stroke-linecap="round" fill="#C9BCA8"><rect x="21" y="27" width="54" height="47" rx="8"/><path d="M34 27L28 18L44 21L48 27L52 21L68 18L62 27Z"/></g>
+  <g stroke="#E4E6EE" stroke-width="13" stroke-linejoin="round" stroke-linecap="round" fill="#E4E6EE"><rect x="21" y="27" width="54" height="47" rx="8"/><path d="M34 27L28 18L44 21L48 27L52 21L68 18L62 27Z"/></g>
+  <g stroke="#FFFFFF" stroke-width="10.2" stroke-linejoin="round" stroke-linecap="round" fill="#FFFFFF"><rect x="21" y="27" width="54" height="47" rx="8"/><path d="M34 27L28 18L44 21L48 27L52 21L68 18L62 27Z"/></g>
+  <!-- 折纸金蝴蝶结 -->
+  <path d="M34 27L28 18L44 21L48 27Z" fill="#F9C33F"/>
+  <path d="M62 27L68 18L52 21L48 27Z" fill="#D49412"/>
+  <!-- 晴空蓝厚卡礼盒与折面投影 -->
+  <rect x="23" y="34" width="50" height="40" rx="7" fill="#2A6DB3"/>
+  <rect x="23" y="32" width="50" height="39" rx="7" fill="#3E8EDE"/>
+  <path d="M48 32H66C69.9 32 73 35.1 73 39V64C73 67.9 69.9 71 66 71H48V32Z" fill="#2E75BF"/>
+  <rect x="23" y="37" width="50" height="4" fill="#1F4F82" fill-opacity="0.22"/>
+  <rect x="21" y="25" width="54" height="12" rx="5" fill="#5CA6EE"/>
+  <path d="M48 25H70C72.8 25 75 27.2 75 30V32C75 34.8 72.8 37 70 37H48V25Z" fill="#4692DF"/>
+  <path d="M25 27.5H71" stroke="#CBE5FF" stroke-opacity="0.72" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- 烫金十字丝带 -->
+  <rect x="43" y="25" width="10" height="49" fill="#F5B82E"/>
+  <rect x="48" y="25" width="5" height="49" fill="#DC9A14"/>
+  <rect x="23" y="46" width="50" height="8" fill="#F5B82E"/>
+  <rect x="48" y="46" width="25" height="8" fill="#DC9A14"/>
+  <!-- 居中浮雕翠绿星章 -->
+  <circle cx="48" cy="51.6" r="9.6" fill="#1B1D24" fill-opacity="0.16"/>
+  <circle cx="48" cy="50" r="9.5" fill="#FFFDF8"/>
   <circle cx="48" cy="50" r="7.5" fill="#2DA069"/>
   <path d="M48 45L49.6 48.3L53.2 48.8L50.6 51.3L51.2 54.8L48 53.1L44.8 54.8L45.4 51.3L42.8 48.8L46.4 48.3L48 45Z" fill="#FFF7DF"/>
 </svg>

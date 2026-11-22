@@ -16,11 +16,20 @@
 }
 
 .realm-sticker {
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
+  padding: 5px;
+  border-radius: 12px;
+  background: radial-gradient(circle at 50% 30%, var(--card-bg) 0%, var(--paper-tray) 100%);
+  border: 1px solid var(--card-border);
   object-fit: contain;
   flex-shrink: 0;
   filter: var(--paper-cut-shadow);
+}
+
+[data-theme="dark"] .realm-sticker {
+  background: radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.12) 0%, rgba(38, 40, 50, 0.95) 100%);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .realm-copy { min-width: 0; }
@@ -51,6 +60,13 @@
   background: var(--card-bg);
   box-shadow: var(--surface-shadow);
   padding: 14px 15px;
+  transition: border-color 0.25s ease;
+}
+
+.observatory-stage.is-matchpoint {
+  border-color: var(--gold-border);
+  background: linear-gradient(180deg, var(--nt-gold-soft) 0%, var(--card-bg) 42%);
+  animation: matchpoint-glow 2.4s ease-in-out infinite;
 }
 
 .observatory-hud {
@@ -308,21 +324,21 @@
   border-radius: 20px;
   padding: 16px;
   border: 1px solid var(--card-border);
-  background: linear-gradient(145deg, #FFFFFF 0%, #FAF4E6 100%);
-  color: #2B2523;
+  background: linear-gradient(145deg, #FFFFFF 0%, #F4F5F8 100%);
+  color: #1B1D24;
   box-shadow: var(--interactive-shadow);
 }
 
 [data-theme="dark"] .cert-pass.front,
 [data-theme="dark"] .cert-pass:not(.back) {
-  background: linear-gradient(145deg, #332D2A 0%, #272220 100%);
-  color: #F5EFE6;
+  background: linear-gradient(145deg, #262830 0%, #1C1E24 100%);
+  color: #F5F6FA;
 }
 
 .cert-pass.back {
-  background: #2B2523;
-  border-color: #423935;
-  color: #F7F1E8;
+  background: #1B1D24;
+  border-color: #333540;
+  color: #F5F6FA;
 }
 
 .cert-pass.back .text-muted { color: #B4A89F !important; }
@@ -386,4 +402,343 @@
   font-size: 12px;
   color: var(--ink-soft);
   line-height: 1.6;
+}
+
+/* 全局厚卡纸角色立牌自适应暗夜柔光与接触影 */
+.wv-person {
+  filter: var(--standee-filter);
+}
+
+/* 8. 领奖页中央「立体折纸宝箱」演出舞台 (.claim-chest-stage) */
+.claim-chest-stage {
+  --chest-open: 0;
+  position: relative;
+  border-radius: 22px;
+  border: 1px solid var(--card-border);
+  background: linear-gradient(180deg, var(--card-soft) 0%, var(--paper-bg) 100%);
+  box-shadow: var(--surface-shadow);
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.claim-chest-stage::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 17px;
+  border: 1px dashed var(--card-stitch);
+  pointer-events: none;
+}
+
+.claim-chest-wrap {
+  position: relative;
+  width: 210px;
+  height: 168px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.origami-chest-svg {
+  width: 210px;
+  height: 168px;
+  overflow: visible;
+  filter: var(--paper-cut-shadow);
+}
+
+.origami-chest-svg .chest-lid {
+  transform-box: fill-box;
+  transform-origin: 50% 96%;
+  transform: translateY(calc(var(--chest-open) * -14px)) rotate(calc(var(--chest-open) * -28deg));
+  transition: transform 90ms linear;
+}
+
+.claim-chest-stage.is-opened .origami-chest-svg .chest-lid {
+  transform: translateY(-20px) rotate(-42deg);
+  transition: transform 380ms var(--ease-spring);
+}
+
+.origami-chest-svg .chest-glow {
+  opacity: calc(var(--chest-open) * 0.95);
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transform: scaleY(calc(0.45 + var(--chest-open) * 0.7));
+  transition: opacity 100ms linear, transform 100ms linear;
+}
+
+.claim-chest-stage.is-opened .origami-chest-svg .chest-glow {
+  opacity: 1;
+  transform: scaleY(1.18);
+  transition: opacity 320ms ease, transform 360ms var(--ease-spring);
+}
+
+.origami-chest-svg .chest-coins-peek {
+  transform: translateY(calc(var(--chest-open) * -7px));
+  transition: transform 110ms linear;
+}
+
+.claim-chest-hint {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+
+.claim-breakdown-strip {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--card-border);
+}
+
+.claim-breakdown-strip div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.claim-breakdown-strip small {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+.claim-breakdown-strip strong {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+/* 抛物线纸片金币（松手领奖飞向顶部余额） */
+.flying-coin {
+  position: fixed;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, var(--nt-gold-top) 0%, var(--nt-gold) 100%);
+  border: 2px solid #FFFDF8;
+  color: #FFFFFF;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 0 var(--nt-gold-edge), 0 4px 10px rgba(43, 37, 35, 0.22);
+  pointer-events: none;
+  z-index: 180;
+  animation: coin-arc-fly 640ms cubic-bezier(0.2, 0.85, 0.3, 1) forwards;
+}
+
+/* 9. 参与成功页：红色圆形橡皮钢印 + 下半屏角色欢呼出征卡 */
+.success-cert-stage {
+  position: relative;
+  overflow: hidden;
+}
+
+.success-stamp-seal {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 66px;
+  height: 66px;
+  border-radius: 50%;
+  border: 3px solid var(--nt-red);
+  background: rgba(230, 0, 18, 0.07);
+  color: var(--nt-red);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  line-height: 1.05;
+  box-shadow: inset 0 0 0 2px rgba(230, 0, 18, 0.22);
+  pointer-events: none;
+  z-index: 4;
+}
+
+.success-stamp-seal b {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.success-stamp-seal span {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+}
+
+.success-cheer-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--card-border);
+  background: linear-gradient(135deg, var(--card-bg) 0%, var(--card-soft) 100%);
+  box-shadow: var(--surface-shadow);
+}
+
+.success-cheer-standee {
+  position: relative;
+  width: 78px;
+  height: 82px;
+  border-radius: 15px;
+  background: linear-gradient(180deg, var(--paper-bg) 0%, var(--diorama-hill-sage) 100%);
+  border: 1px solid var(--card-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  perspective: 600px;
+}
+
+.success-cheer-standee img {
+  height: 74px;
+  width: auto;
+  object-fit: contain;
+  cursor: pointer;
+}
+
+.success-cheer-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.success-cheer-copy strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.success-cheer-copy p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+/* 10. 规则页交互折纸图解卡（早鸟权重试算 + 24H 生死线推演滑杆） */
+.rule-sim-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.weight-fold-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.weight-fold-btn {
+  padding: 10px 6px;
+  border-radius: 14px;
+  border: 1.5px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--ink-soft);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  box-shadow: 0 2.5px 0 var(--card-thickness);
+  transition: transform 0.12s var(--ease-spring), border-color 0.14s ease, background 0.14s ease;
+}
+
+.weight-fold-btn:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+.weight-fold-btn strong {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.weight-fold-btn small {
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.weight-fold-btn.active {
+  border-color: var(--nt-gold-edge);
+  background: var(--nt-gold-soft);
+  color: var(--nt-gold-ink);
+  box-shadow: 0 2.5px 0 rgba(196, 139, 18, 0.28);
+}
+
+.weight-fold-btn.active strong {
+  color: var(--nt-gold-ink);
+}
+
+.rule-verdict-box {
+  padding: 10px 12px;
+  border-radius: 13px;
+  background: var(--paper-tray);
+  border: 1px dashed var(--card-thickness);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rule-verdict-box.pass {
+  background: var(--nt-green-soft);
+  border-color: var(--green-border);
+}
+
+.rule-verdict-box.burn {
+  background: var(--nt-rose-soft);
+  border-color: var(--red-border);
+}
+
+.rule-range-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rule-range-input {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--paper-tray-deep);
+  outline: none;
+  cursor: pointer;
+}
+
+.rule-range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
+  border: 2.5px solid #FFFFFF;
+  box-shadow: 0 2.5px 0 var(--nt-red-edge), 0 4px 8px rgba(43, 37, 35, 0.2);
+  cursor: grab;
+}
+
+.rule-range-input::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
+  border: 2.5px solid #FFFFFF;
+  box-shadow: 0 2.5px 0 var(--nt-red-edge), 0 4px 8px rgba(43, 37, 35, 0.2);
+  cursor: grab;
 }

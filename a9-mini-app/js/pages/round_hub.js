@@ -4,7 +4,8 @@ import { config } from '../config.js';
 import { estimateRewardA9, fetchPredictionRound, fetchPredictionUser, submitPredictionBet, activatePredictionReward, getEffectiveUserId, rawToA9 } from '../data.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
-import { formatNum, showToast, copyText, mountSlider, openChoiceSheet, openModal, closeModal, bindCorridorRadarEvents } from '../components.js';
+import { formatNum, showToast, copyText, mountSlider, burstParticles, openChoiceSheet, openModal, closeModal, bindCorridorRadarEvents } from '../components.js';
+import { characterArt, tiers, tierVoices } from '../wealth-art.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
@@ -16,7 +17,9 @@ import {
   renderSettlementSuccess,
   renderSettlementFailed,
   renderTechnicalHalt,
-  renderPredictionCard
+  renderPredictionCard,
+  renderPendingVaultBanner,
+  renderEarlyBirdBanner
 } from './round_stages.js';
 
 export function renderChallengeHome(root, navigate) {
@@ -28,9 +31,9 @@ export function renderChallengeHome(root, navigate) {
   }
 
   if (!config.isDemo) {
-    root.innerHTML = liveRound(round) + renderPredictionCard(round,store.state.prediction,user);
-    bindPredictionCardEvents(root,navigate);
-    syncPredictionState(root,navigate);
+    root.innerHTML = `<div class="col-gap anim-page-enter">${renderPendingVaultBanner(store.state.prediction, round)}${renderEarlyBirdBanner(round)}${liveRound(round)}${renderPredictionCard(round, store.state.prediction, user)}</div>`;
+    bindPredictionCardEvents(root, navigate);
+    syncPredictionState(root, navigate);
     handlePendingDeepLinkScroll(root);
     return;
   }
@@ -54,12 +57,12 @@ export function renderChallengeHome(root, navigate) {
       title: L('切换轮次阶段 (演示)', 'Switch Round Stage (Demo)'),
       selected: round.stage,
       options: [
-        { value: 'warmup',             label: L('1. 预热阶段', '1. Warm-Up'), sub: L('预热奖励池报名', 'Warm-Up registration') },
-        { value: 'participation',      label: L('2. 参与阶段', '2. Entry'), sub: L('本轮奖励池入场', 'Round entry') },
-        { value: 'observation',        label: L('3. 观察阶段 (24H)', '3. Observation (24H)'), sub: L('24 个时段 ≥16 达标', '24 slots · 16+ to pass') },
-        { value: 'settlement_success', label: L('4. 结算 · 达标', '4. Passed'), sub: L('20% 即时 / 80% 待解锁', '20% instant / 80% vesting') },
-        { value: 'settlement_burn',    label: L('5. 结算 · 未达标', '5. Missed'), sub: L('本金按规则销毁', 'Principal burned') },
-        { value: 'halted',             label: L('6. 技术中止 · 退款', '6. Halt · Refund'), sub: L('本金原路退回', 'Principal refunded') }
+        { value: 'warmup',             label: L('1. 开局倒计时', '1. Pre-Round'), sub: L('开局预热池报名', 'Pre-round registration') },
+        { value: 'participation',      label: L('2. 火热入场', '2. Entry Open'), sub: L('早鸟权重份额与即时入场', 'Early weight & instant entry') },
+        { value: 'observation',        label: L('3. 24H 闯关中', '3. 24H Quest'), sub: L('24 个时段 ≥16 达标', '24 slots · 16+ to pass') },
+        { value: 'settlement_success', label: L('4. 通关派奖', '4. Passed'), sub: L('金库领奖与连胜解锁', 'Prize claim & vesting') },
+        { value: 'settlement_burn',    label: L('5. 未通关 · 销毁 BURN', '5. Failed · BURN'), sub: L('本金按规则销毁 BURN', 'Principal burned') },
+        { value: 'halted',             label: L('6. 异常中止 · 退回本金', '6. Aborted · Refund'), sub: L('本金原路退回', 'Principal refunded') }
       ],
       onSelect: (val) => {
         store.update(s => { s.round.stage = val; });
@@ -102,10 +105,25 @@ export function renderChallengeHome(root, navigate) {
 }
 
 function bindXShareTriggers(root) {
-  const { round } = store.state;
+  const { round, certificates } = store.state;
   root.querySelectorAll('[data-x-share]').forEach(btn => {
     btn.onclick = () => {
       const shareType = btn.dataset.xShare;
+      if (shareType === 'proof') {
+        const cert = certificates[0] || {};
+        openXShareSheet({
+          type: 'proof',
+          id: cert.id || `R${round.currentRound || 1}`,
+          context: {
+            roundId: cert.round || round.currentRound,
+            stakeTon: cert.stakeTon || round.myStakeTon || 0,
+            multiplier: cert.multiplier || round.myEarlyTier || 1,
+            qualified: round.qualifiedCandles,
+            required: round.minQualifiedCandles
+          }
+        });
+        return;
+      }
       openXShareSheet({
         type: shareType,
         id: round.currentRound || 1,
@@ -274,9 +292,9 @@ function bindPredictionCardEvents(root, navigate) {
     tgShareBtn.onclick = () => {
       const bet = prediction.currentBet;
       const ogUrl = buildOgShareUrl('bet', roundId);
-      const sideText = bet.side === 'BURN' ? L('未达标 BURN', 'BURN') : L('达标 PASS', 'PASS');
+      const sideText = bet.side === 'BURN' ? L('销毁 BURN', 'BURN') : L('通关 PASS', 'PASS');
       const text = L(
-        `我在 A9 第 ${roundId} 轮 24H 达标竞猜选了「${sideText}」${bet.guessSlots !== null && bet.guessSlots !== undefined ? `（精准 ${bet.guessSlots} 段）` : ''}，0 GRAM 免费参与，来一起猜：`,
+        `我在 A9 第 ${roundId} 轮 24H 预言擂台选了「${sideText}」${bet.guessSlots !== null && bet.guessSlots !== undefined ? `（精准 ${bet.guessSlots} 段）` : ''}，0 GRAM 免费参与，来一起猜：`,
         `I locked ${sideText} on A9 Round #${roundId} 24H Prediction (0 GRAM entry). Join the guess:`
       );
       A9TMA.shareInvite(ogUrl, text);
@@ -323,18 +341,18 @@ function bindPredictionCardEvents(root, navigate) {
         A9Haptic.success();
         A9Audio.confirm();
         const deltaA9 = rawToA9(res?.activatedRaw ?? res?.activatedDeltaRaw ?? prediction.pendingActivationRaw) || 0;
-        showToast(L(`已激活 ${formatNum(deltaA9)} A9 至推广奖励账户，可走 0.06 GRAM 提现`, `Activated ${formatNum(deltaA9)} A9 to promo balance`));
+        showToast(L(`已激活 ${formatNum(deltaA9)} A9 至邀友奖励账户，可走 0.06 GRAM 提现`, `Activated ${formatNum(deltaA9)} A9 to invite reward balance`));
         await syncPredictionState(root, navigate);
       } catch (e) {
         A9Haptic.error();
         if (e?.code === 'ACTIVATION_REQUIREMENT_UNMET') {
-          showToast(L('请先完成至少 1 笔商行兑换或链上质押后再激活', 'Complete 1 market purchase or on-chain stake before activating'), 'amber');
+          showToast(L('请先完成至少 1 笔兑换屋兑换或链上参与后再激活', 'Complete 1 exchange swap or on-chain entry before activating'), 'amber');
           actBtn.disabled = false;
         } else if (e?.code === 'VOUCHER_EXPIRED') {
           showToast(L('待激活预言券已过期并回流奖池', 'Pending prediction voucher has expired and returned to the pool'), 'amber');
           await syncPredictionState(root, navigate);
         } else {
-          showToast(e?.message || L('激活失败，请先完成 1 笔商行兑换或链上质押', 'Activation failed; complete 1 market purchase or stake first'), 'error');
+          showToast(e?.message || L('激活失败，请先完成 1 笔兑换屋兑换或链上参与', 'Activation failed; complete 1 exchange swap or entry first'), 'error');
           actBtn.disabled = false;
         }
       }
@@ -370,7 +388,7 @@ function openTransactionSheet(amount, view) {
       <div id="tx-stage-sub" class="num-xs text-muted">${L(`正在唤起 TON Connect 确认 ${formatNum(amount)} GRAM`, `Confirm ${formatNum(amount)} GRAM in wallet`)}</div>
     </div>
     <div class="col-gap">
-      <button class="btn btn-secondary" id="tx-go-profile">${L('关闭并返回「背包」查看', 'Close & view in Backpack')}</button>
+      <button class="btn btn-secondary" id="tx-go-profile">${L('关闭并返回「我的」查看', 'Close & view in Me')}</button>
     </div>
   `);
   const closeAndGo = () => { closeModal(); if (view) view(); };
@@ -395,7 +413,7 @@ function openTransactionSheet(amount, view) {
       }
       const btn = document.getElementById('tx-go-profile');
       if (btn) {
-        btn.textContent = type === 'error' ? L('关闭并重试', 'Close & Retry') : L('完成 · 返回「背包」', 'Done · Back to Backpack');
+        btn.textContent = type === 'error' ? L('关闭并重试', 'Close & Retry') : L('完成 · 返回「我的」', 'Done · Back to Me');
         btn.onclick = type === 'error' ? closeModal : closeAndGo;
       }
       showToast(sub, type);
@@ -446,7 +464,7 @@ export function renderParticipateConfirm(root, navigate) {
       </div>
 
       <div class="card">
-        <div class="card-title" style="margin-bottom:6px;">${icon('receipt', 15, 'text-green')} ${L('核对参与清单', 'Participation Checklist')}</div>
+        <div class="card-title" style="margin-bottom:6px;">${icon('receipt', 15, 'text-green')} ${L('核对入场清单', 'Entry Checklist')}</div>
         <div class="check-list">
           <div class="check-row"><span class="text-sec">${L('参与金额 / 币种', 'Amount / Asset')}</span><span class="mono" id="chk-amt" style="font-weight:700;">${formatNum(amount)} GRAM</span></div>
           <div class="check-row"><span class="text-sec">${L('预计网络费用', 'Est. Network Fee')}</span><span class="mono text-sec">~0.06 GRAM</span></div>
@@ -471,7 +489,7 @@ export function renderParticipateConfirm(root, navigate) {
 
       ${store.fundsEnabled
         ? `<div id="stake-slider-mount"></div>
-           <button class="btn btn-secondary" id="btn-confirm-accessible" type="button">${icon('check', 15)} <span id="acc-confirm-lbl">${L(`点击确认参与 ${formatNum(amount)} GRAM`, `Confirm ${formatNum(amount)} GRAM`)}</span></button>`
+           <button class="accessible-confirm-link" id="btn-confirm-accessible" type="button"><span id="acc-confirm-lbl">${L(`无法滑动？点此无障碍确认参与 ${formatNum(amount)} GRAM`, `Can’t slide? Tap to confirm ${formatNum(amount)} GRAM`)}</span></button>`
         : `<button class="btn btn-secondary" id="btn-confirm-accessible" type="button">${icon('lock', 15)} <span id="acc-confirm-lbl">${L('真实模式只读 · 暂未开放质押', 'Read-Only Mode · Staking Disabled')}</span></button>`
       }
     </div>
@@ -500,7 +518,7 @@ export function renderParticipateConfirm(root, navigate) {
     amount = Math.max(0, Number(val) || 0);
     paintEstimate();
     if (chkAmt) chkAmt.textContent = `${formatNum(amount)} GRAM`;
-    if (accLbl && store.fundsEnabled) accLbl.textContent = L(`点击确认参与 ${formatNum(amount)} GRAM`, `Confirm ${formatNum(amount)} GRAM`);
+    if (accLbl && store.fundsEnabled) accLbl.textContent = L(`无法滑动？点此无障碍确认参与 ${formatNum(amount)} GRAM`, `Can’t slide? Tap to confirm ${formatNum(amount)} GRAM`);
     const maxBal = user.tonBalance !== null && user.tonBalance !== undefined ? Math.floor(Number(user.tonBalance) || 0) : 0;
     root.querySelectorAll('[data-amt]').forEach(b => {
       b.classList.toggle('active', b.dataset.amt === 'max' ? (maxBal > 0 && amount === maxBal) : Number(b.dataset.amt) === amount);
@@ -570,7 +588,7 @@ export function renderParticipateConfirm(root, navigate) {
       setTimeout(() => {
         const cert = store.stakeTon(amount);
         if (!cert) {
-          sheet.done(L('参与失败 · 资金未扣款', 'Failed · No funds deducted'), L('未生成质押凭证，可关闭后重试', 'No certificate created, close and retry'), 'error');
+          sheet.done(L('入场失败 · 资金未扣款', 'Failed · No funds deducted'), L('未生成闯关凭证，可关闭后重试', 'No quest pass created, close and retry'), 'error');
           submitting = false;
           if (accBtn) { accBtn.disabled = false; syncAll(amount); }
           initSlider();
@@ -608,30 +626,87 @@ export function renderParticipateConfirm(root, navigate) {
 export function renderParticipateSuccess(root, navigate, certId) {
   const cert = store.state.certificates.find(c => c.id === certId) || store.state.certificates[0];
   if (!cert) {
-    root.innerHTML = `<div class="col-gap"><div class="card empty-state"><div class="num-sm text-sec">${L('暂无可展示的质押凭证', 'No certificate to show')}</div></div><button class="btn btn-secondary" data-nav="/profile">${L('返回背包', 'Back to Backpack')}</button></div>`;
+    root.innerHTML = `<div class="col-gap"><div class="card empty-state"><div class="num-sm text-sec">${L('暂无可展示的闯关凭证', 'No quest pass to show')}</div></div><button class="btn btn-secondary" data-nav="/profile">${L('返回我的', 'Back to Me')}</button></div>`;
     return;
   }
   const shareUrl = `${window.location.origin}${window.location.pathname}?startapp=proof_${cert.id.replace('A9-STAKE-', '')}`;
+  const tier = config.isDemo ? (store.state.user.previewTier || 1) : 1;
+  const [tierZh, tierEn] = tiers[tier - 1] || tiers[0];
+  const [voiceZh, voiceEn] = tierVoices[tier - 1] || tierVoices[0];
 
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
-      <div class="cert-pass cert-detail-card" style="text-align:center;">
+      <div class="cert-pass cert-detail-card success-cert-stage anim-cert-drop anim-card-thump" id="success-cert-card" style="text-align:center;">
         <span class="cert-corner tl"></span><span class="cert-corner tr"></span>
         <span class="cert-corner bl"></span><span class="cert-corner br"></span>
-        <div class="icon-badge neon" style="width:50px;height:50px;margin:0 auto 10px;border-radius:14px;">${icon('checkCircle', 26)}</div>
-        <div style="font-size:18px;font-weight:700;">${L('参与成功 · 质押凭证已生成', 'Participation Confirmed')}</div>
+        <span class="success-stamp-seal anim-seal-slam" id="success-stamp-seal" aria-hidden="true">
+          <b>${L('已出征', 'SEALED')}</b>
+          <span>ROUND ${cert.round}</span>
+        </span>
+        <div class="icon-badge neon" style="width:48px;height:48px;margin:0 auto 10px;border-radius:14px;">${icon('checkCircle', 24)}</div>
+        <div style="font-size:18px;font-weight:900;">${L('入场成功 · 凭证已盖章出征', 'Quest Entry Sealed')}</div>
         <div class="num-lg text-green" style="margin:6px 0;">${formatNum(cert.stakeTon, 2)} GRAM · ${cert.multiplier.toFixed(1)}x</div>
         <div class="num-xs text-sec clickable" id="copy-tx">#${cert.id} ${icon('copy', 12)}</div>
         <div class="num-xs text-muted" style="margin-top:4px;">${config.isDemo ? L('演示模式 · 凭证与哈希为模拟数据', 'DEMO · certificate and hash are simulated') : L('等待链上确认后开放凭证分享', 'Proof sharing opens after on-chain confirmation')}</div>
       </div>
 
-      <button class="btn btn-primary" id="share-cert-btn">${icon('send', 15)} ${L('分享战绩 · 邀请奖励 12%', 'Share · 12% Referral')}</button>
+      <section class="success-cheer-card">
+        <div class="success-cheer-standee">
+          <img class="wv-person" id="success-cheer-img" src="${characterArt(tier)}" alt="A${tier}">
+        </div>
+        <div class="success-cheer-copy">
+          <span class="diorama-kicker">A${tier} · ${L(tierZh, tierEn)}</span>
+          <strong>${L('伙伴已就位 · 盯紧 24H 观测盘！', 'Ready for the 24H Observation!')}</strong>
+          <p>“${L(voiceZh, voiceEn)}”</p>
+        </div>
+      </section>
+
+      <div class="card">
+        <div class="row-between num-xs">
+          <span class="text-muted">${L('下一步建议', 'Next step')}</span>
+          <span class="text-cyan" style="font-weight:800;">${L('达标 ≥16/24 即可瓜分奖池', '16/24 slots unlock pool')}</span>
+        </div>
+        <div class="num-xs text-sec" style="margin-top:5px;line-height:1.5;">
+          ${L('你的本轮凭证已存入「我的档案」，可随时进入「24H 观测盘」查看每一小时达标进度与盖章记录。', 'Your pass is saved in My Profile. Track every hourly stamp on the 24H Observation Board.')}
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="share-cert-btn">${icon('send', 15)} ${L('分享战绩 · 邀友奖励 12%', 'Share · 12% Invite')}</button>
       <div class="grid-2">
-        <button class="btn btn-secondary" data-nav="/proof/${cert.id}">${icon('shieldCheck', 15)} ${L('质押凭证', 'View Proof')}</button>
-        <button class="btn btn-secondary" data-nav="/profile">${icon('wallet', 15)} ${L('返回背包', 'Backpack')}</button>
+        <button class="btn btn-secondary" data-nav="/proof/${cert.id}">${icon('shieldCheck', 15)} ${L('闯关凭证', 'Quest Pass')}</button>
+        <button class="btn btn-secondary" data-nav="/round">${icon('radar', 15)} ${L('查看观测盘', '24H Board')}</button>
       </div>
     </div>
   `;
+
+  // 750ms 三拍出征演出：落位(0~260ms) -> 钢印砸落 + 纸屑(280ms) -> 伙伴立牌 360° 翻身欢呼(480ms)
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const sealEl = root.querySelector('#success-stamp-seal');
+  const cheerImg = root.querySelector('#success-cheer-img');
+  if (!reduced) {
+    setTimeout(() => {
+      if (!root.isConnected) return;
+      A9Audio.sealSlam();
+      A9Haptic.heavy();
+      if (sealEl) burstParticles(sealEl);
+    }, 280);
+    setTimeout(() => {
+      if (!root.isConnected || !cheerImg) return;
+      cheerImg.classList.add('paper-flipping');
+      setTimeout(() => cheerImg.classList.remove('paper-flipping'), 600);
+    }, 480);
+  }
+
+  if (cheerImg) {
+    cheerImg.onclick = () => {
+      A9Haptic.light();
+      A9Audio.flip();
+      burstParticles(cheerImg);
+      cheerImg.classList.remove('paper-flipping');
+      void cheerImg.offsetWidth;
+      cheerImg.classList.add('paper-flipping');
+    };
+  }
 
   root.querySelector('#copy-tx').onclick = () => copyText(cert.txHash, L('已复制哈希', 'Copied Hash'));
   root.querySelector('#share-cert-btn').onclick = () => {

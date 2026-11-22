@@ -4,6 +4,8 @@ import { rewardForWarmupRank, SocialError } from './social-store.mjs';
 import {
   GrowthError,
   VOUCHER_TTL_MS,
+  DEFAULT_FIRST_LOSS_BONUS_RAW,
+  DEFAULT_FIRST_LOSS_CAP_RAW,
   DAILY_STAMP_KEYS,
   PROGRESSION_TASKS,
   utcDayFromSec,
@@ -11,8 +13,6 @@ import {
   levelFromExp,
   computeEffectiveStreak,
   buildProgressionSummary,
-  COSMETIC_ITEM_CATALOG,
-  STICKER_PACK_CATALOG,
 } from './growth-engine.mjs';
 import { PresaleEngine, PresaleError, RESERVING_STATUSES } from './presale-hotwallet.mjs';
 import { addressKey, addressAliases } from './ton-address.mjs';
@@ -270,7 +270,7 @@ export class D1SocialStore {
       .bind(canonicalChatId, teamId)
       .first();
     if (conflict) {
-      throw new SocialError('GROUP_ALREADY_BOUND', '该 Telegram 群组已被其他商会绑定');
+      throw new SocialError('GROUP_ALREADY_BOUND', '该 Telegram 群组已被其他战队绑定');
     }
 
     if (!check.operatorIsAdmin) {
@@ -355,6 +355,24 @@ export class D1SocialStore {
     };
   }
 
+  /** 返回全部已通过四重真实核验（bind_status = 'bound' 且具备真实 tg_chat_id）的战队群。 */
+  async listBoundTeams() {
+    const res = await this.db
+      .prepare("SELECT * FROM team_groups WHERE bind_status = 'bound' AND tg_chat_id IS NOT NULL AND tg_chat_id != '' ORDER BY created_at ASC")
+      .all();
+    return (res?.results || []).map((t) => ({
+      teamId: t.team_id,
+      name: t.name,
+      captainWallet: t.captain_wallet,
+      tgGroupHandle: t.tg_group_handle || null,
+      tgChatId: t.tg_chat_id || null,
+      bindStatus: t.bind_status,
+      memberCount: Number(t.member_count),
+      createdAt: Number(t.created_at),
+      updatedAt: Number(t.updated_at),
+    }));
+  }
+
   _formatWarmup(r) {
     return {
       roundId: Number(r.round_id),
@@ -371,11 +389,24 @@ export class D1SocialStore {
 // ---------------------------------------------------------------------------
 // 2. D1PredictionEngine (prediction_rounds, prediction_bets, prediction_rewards)
 // ---------------------------------------------------------------------------
+function parseOptionalBigInt(val, fallback) {
+  if (val === undefined || val === null || val === '') return fallback;
+  const n = BigInt(String(val).trim());
+  return n < 0n ? 0n : n;
+}
+
 export class D1PredictionEngine {
-  constructor({ db, defaultPoolA9Raw = '1000000000000000' }) {
+  constructor({
+    db,
+    defaultPoolA9Raw = '1000000000000000',
+    firstLossBonusRaw = DEFAULT_FIRST_LOSS_BONUS_RAW,
+    firstLossCapRaw = DEFAULT_FIRST_LOSS_CAP_RAW,
+  }) {
     if (!db) throw new Error('Cloudflare D1 binding (env.DB) is required');
     this.db = db;
     this.defaultPoolA9Raw = BigInt(defaultPoolA9Raw);
+    this.firstLossBonusRaw = parseOptionalBigInt(firstLossBonusRaw, DEFAULT_FIRST_LOSS_BONUS_RAW);
+    this.firstLossCapRaw = parseOptionalBigInt(firstLossCapRaw, DEFAULT_FIRST_LOSS_CAP_RAW);
   }
 
   async placeBet({ roundId, userId, side, guessSlots = null, referrerId = null }, nowSec = Math.floor(Date.now() / 1000)) {
@@ -475,16 +506,22 @@ export class D1PredictionEngine {
     const nowSec = Math.floor(nowMs / 1000);
 
     const betsRes = await this.db
-      .prepare('SELECT * FROM prediction_bets WHERE round_id = ?')
+      .prepare('SELECT * FROM prediction_bets WHERE round_id = ? ORDER BY created_at ASC, user_id ASC')
       .bind(rId)
       .all();
     const bets = betsRes?.results || [];
 
     const winners = [];
     let totalWeight = 0n;
+    let firstLossRemaining = this.firstLossCapRaw;
+    let firstLossBonusCount = 0;
+    let firstLossBonusDistributed = 0n;
+    const expiresAt = nowMs + VOUCHER_TTL_MS;
+    const stmts = [];
 
     for (const b of bets) {
       const st = await this._getUserStatsRow(b.user_id);
+      const isFirstSettled = st.totalSettled === 0;
       const nextSettled = st.totalSettled + 1;
       if (b.side === winSide) {
         const exactBoost = b.guess_slots !== null && Number(b.guess_slots) === Number(actualQualified) ? 5n : 0n;
@@ -493,41 +530,71 @@ export class D1PredictionEngine {
         const weight = rawW > 20n ? 20n : rawW;
         winners.push({ bet: b, weight, st: { ...st, totalSettled: nextSettled, totalWon: st.totalWon + 1, streak: st.streak + 1 } });
         totalWeight += weight;
+      } else if (isFirstSettled && this.firstLossBonusRaw > 0n && firstLossRemaining >= this.firstLossBonusRaw) {
+        firstLossRemaining -= this.firstLossBonusRaw;
+        firstLossBonusCount += 1;
+        firstLossBonusDistributed += this.firstLossBonusRaw;
+        stmts.push(
+          this.db
+            .prepare("UPDATE prediction_bets SET status = 'LOST_FIRST_BONUS', reward_raw = ? WHERE round_id = ? AND user_id = ?")
+            .bind(this.firstLossBonusRaw.toString(), rId, b.user_id),
+          this._upsertUserStatsStmt(
+            b.user_id,
+            {
+              ...st,
+              totalSettled: nextSettled,
+              streak: 0,
+              pendingActivationRaw: st.pendingActivationRaw + this.firstLossBonusRaw,
+              pendingExpiresAt: expiresAt,
+            },
+            nowSec,
+          ),
+        );
       } else {
-        await this.db
-          .prepare("UPDATE prediction_bets SET status = 'LOST', reward_raw = '0' WHERE round_id = ? AND user_id = ?")
-          .bind(rId, b.user_id)
-          .run();
-        await this._upsertUserStats(b.user_id, { ...st, totalSettled: nextSettled, streak: 0 }, nowSec);
+        stmts.push(
+          this.db
+            .prepare("UPDATE prediction_bets SET status = 'LOST', reward_raw = '0' WHERE round_id = ? AND user_id = ?")
+            .bind(rId, b.user_id),
+          this._upsertUserStatsStmt(b.user_id, { ...st, totalSettled: nextSettled, streak: 0 }, nowSec),
+        );
       }
     }
 
     let distributed = 0n;
-    const expiresAt = nowMs + VOUCHER_TTL_MS;
     for (const { bet, weight, st } of winners) {
       const amt = totalWeight > 0n ? (pool * weight) / totalWeight : 0n;
       distributed += amt;
-      await this.db
-        .prepare("UPDATE prediction_bets SET status = 'WON_PENDING_ACTIVATION', reward_raw = ? WHERE round_id = ? AND user_id = ?")
-        .bind(amt.toString(), rId, bet.user_id)
-        .run();
-      await this._upsertUserStats(
-        bet.user_id,
-        {
-          ...st,
-          pendingActivationRaw: st.pendingActivationRaw + amt,
-          pendingExpiresAt: expiresAt,
-        },
-        nowSec,
+      stmts.push(
+        this.db
+          .prepare("UPDATE prediction_bets SET status = 'WON_PENDING_ACTIVATION', reward_raw = ? WHERE round_id = ? AND user_id = ?")
+          .bind(amt.toString(), rId, bet.user_id),
+        this._upsertUserStatsStmt(
+          bet.user_id,
+          {
+            ...st,
+            pendingActivationRaw: st.pendingActivationRaw + amt,
+            pendingExpiresAt: expiresAt,
+          },
+          nowSec,
+        ),
       );
     }
 
-    await this.db
-      .prepare('INSERT INTO prediction_rounds (round_id, winning_side, actual_qualified, settled_at) VALUES (?, ?, ?, ?)')
-      .bind(rId, winSide, Number(actualQualified), nowSec)
-      .run();
+    stmts.push(
+      this.db
+        .prepare('INSERT INTO prediction_rounds (round_id, winning_side, actual_qualified, settled_at) VALUES (?, ?, ?, ?)')
+        .bind(rId, winSide, Number(actualQualified), nowSec),
+    );
+    await this.db.batch(stmts);
 
-    return { roundId: rId, winSide, winnersCount: winners.length, distributedRaw: distributed.toString() };
+    return {
+      roundId: rId,
+      winSide,
+      winnersCount: winners.length,
+      distributedRaw: distributed.toString(),
+      firstLossBonusCount,
+      firstLossBonusDistributedRaw: firstLossBonusDistributed.toString(),
+    };
   }
 
   async activateToPromo(userId, walletAddress, promoEngine, { qualified = false, nowMs = Date.now() } = {}) {
@@ -629,8 +696,8 @@ export class D1PredictionEngine {
     };
   }
 
-  async _upsertUserStats(uid, st, nowSec) {
-    await this.db
+  _upsertUserStatsStmt(uid, st, nowSec) {
+    return this.db
       .prepare(
         `INSERT INTO prediction_rewards
          (user_id, pending_activation_raw, activated_raw, pending_expires_at, total_settled, total_won, streak, updated_at)
@@ -653,8 +720,11 @@ export class D1PredictionEngine {
         st.totalWon,
         st.streak,
         nowSec,
-      )
-      .run();
+      );
+  }
+
+  async _upsertUserStats(uid, st, nowSec) {
+    await this._upsertUserStatsStmt(uid, st, nowSec).run();
   }
 }
 
@@ -853,265 +923,6 @@ export class D1ProgressionEngine {
       expAwarded: task.exp,
       progression: await this.getUserSummary(uid, nowSec, { hasPredictionBet }),
     };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 2c. D1InventoryEngine (user_inventory_items, user_cosmetic_loadout, user_pack_deliveries)
-// ---------------------------------------------------------------------------
-export class D1InventoryEngine {
-  constructor({ db }) {
-    if (!db) throw new Error('Cloudflare D1 binding (env.DB) is required');
-    this.db = db;
-  }
-
-  async _getLoadoutRow(uid) {
-    const row = await this.db
-      .prepare('SELECT * FROM user_cosmetic_loadout WHERE user_id = ?')
-      .bind(uid)
-      .first();
-    if (!row) {
-      return {
-        userId: uid,
-        equippedFrame: null,
-        equippedBadge: null,
-        equippedTitle: null,
-        updatedAt: 0,
-      };
-    }
-    return {
-      userId: String(row.user_id),
-      equippedFrame: row.equipped_frame || null,
-      equippedBadge: row.equipped_badge || null,
-      equippedTitle: row.equipped_title || null,
-      updatedAt: Number(row.updated_at || 0),
-    };
-  }
-
-  async getUserInventory(userId) {
-    const uid = String(userId || '').trim();
-    if (!uid) throw new GrowthError('BAD_REQUEST', 'userId required');
-
-    const itemsRes = await this.db
-      .prepare('SELECT * FROM user_inventory_items WHERE user_id = ? ORDER BY acquired_at ASC, item_id ASC')
-      .bind(uid)
-      .all();
-    const items = (itemsRes?.results || []).map((r) => {
-      const meta = COSMETIC_ITEM_CATALOG[r.item_id] || {};
-      return {
-        ...meta,
-        userId: String(r.user_id),
-        itemId: String(r.item_id),
-        category: String(r.category),
-        rarity: String(r.rarity),
-        sourceSku: String(r.source_sku),
-        sourceRef: String(r.source_ref),
-        acquiredAt: Number(r.acquired_at),
-      };
-    });
-
-    const loadout = await this._getLoadoutRow(uid);
-
-    const delRes = await this.db
-      .prepare('SELECT * FROM user_pack_deliveries WHERE user_id = ? ORDER BY delivered_at DESC')
-      .bind(uid)
-      .all();
-    const deliveries = (delRes?.results || []).map((d) => {
-      const pack = STICKER_PACK_CATALOG[d.sku_id] || {};
-      let parsedItems = [];
-      try {
-        parsedItems = JSON.parse(d.items_json || '[]');
-      } catch {
-        parsedItems = [];
-      }
-      return {
-        deliveryId: String(d.delivery_id),
-        userId: String(d.user_id),
-        skuId: String(d.sku_id),
-        orderId: d.order_id || null,
-        mode: String(d.mode),
-        critFlair: Boolean(pack.critFlair),
-        affectsFinancialReward: false,
-        items: parsedItems,
-        expAwarded: Number(d.exp_awarded || 0),
-        deliveredAt: Number(d.delivered_at),
-      };
-    });
-
-    return {
-      userId: uid,
-      ledgerKind: 'IN_GAME_COSMETIC_DATABASE',
-      tradable: false,
-      affectsA9Rate: false,
-      items,
-      loadout: {
-        equippedFrame: loadout.equippedFrame,
-        equippedBadge: loadout.equippedBadge,
-        equippedTitle: loadout.equippedTitle,
-        updatedAt: loadout.updatedAt,
-      },
-      deliveries,
-    };
-  }
-
-  async deliverPack(
-    { userId, skuId, orderId = null, mode = 'SANDBOX', deliveryId = null, skipAnimation = false },
-    nowSec = Math.floor(Date.now() / 1000),
-  ) {
-    const uid = String(userId || '').trim();
-    const sKey = String(skuId || '').trim();
-    if (!uid || !sKey) throw new GrowthError('BAD_REQUEST', 'userId and skuId required');
-    const pack = STICKER_PACK_CATALOG[sKey];
-    if (!pack) throw new GrowthError('UNKNOWN_SKU', `unknown sticker pack SKU: ${sKey}`);
-    if (mode !== 'SANDBOX' && mode !== 'ONCHAIN_ORDER') {
-      throw new GrowthError('BAD_REQUEST', 'mode must be SANDBOX or ONCHAIN_ORDER');
-    }
-    if (mode === 'ONCHAIN_ORDER' && !orderId) {
-      throw new GrowthError('BAD_REQUEST', 'orderId is required for ONCHAIN_ORDER delivery');
-    }
-
-    const effDeliveryId = deliveryId
-      ? String(deliveryId).trim()
-      : mode === 'ONCHAIN_ORDER'
-        ? `order:${String(orderId).trim()}`
-        : `sandbox:${uid}:${sKey}`;
-
-    const existing = await this.db
-      .prepare('SELECT * FROM user_pack_deliveries WHERE delivery_id = ?')
-      .bind(effDeliveryId)
-      .first();
-    if (existing) {
-      if (String(existing.user_id) !== uid) {
-        throw new GrowthError('FORBIDDEN', 'delivery belongs to another user');
-      }
-      const inv = await this.getUserInventory(uid);
-      const found = inv.deliveries.find((d) => d.deliveryId === effDeliveryId);
-      return {
-        alreadyDelivered: true,
-        animationSkipped: Boolean(skipAnimation),
-        delivery: found,
-        inventory: inv,
-      };
-    }
-
-    const itemsJson = JSON.stringify(Array.from(pack.items));
-    const ins = await this.db
-      .prepare(
-        `INSERT OR IGNORE INTO user_pack_deliveries
-         (delivery_id, user_id, sku_id, order_id, mode, items_json, exp_awarded, delivered_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(effDeliveryId, uid, sKey, orderId ? String(orderId) : null, mode, itemsJson, pack.expBonus, nowSec)
-      .run();
-    const changed = Number(ins?.meta?.changes ?? ins?.changes ?? 0);
-    if (changed !== 1) {
-      const again = await this.db
-        .prepare('SELECT * FROM user_pack_deliveries WHERE delivery_id = ?')
-        .bind(effDeliveryId)
-        .first();
-      if (again && String(again.user_id) !== uid) {
-        throw new GrowthError('FORBIDDEN', 'delivery belongs to another user');
-      }
-      const inv = await this.getUserInventory(uid);
-      return {
-        alreadyDelivered: true,
-        animationSkipped: Boolean(skipAnimation),
-        delivery: inv.deliveries.find((d) => d.deliveryId === effDeliveryId) || null,
-        inventory: inv,
-      };
-    }
-
-    const loadout = await this._getLoadoutRow(uid);
-    let nextFrame = loadout.equippedFrame;
-    let nextBadge = loadout.equippedBadge;
-    let nextTitle = loadout.equippedTitle;
-
-    const stmts = [];
-    for (const itemId of pack.items) {
-      const meta = COSMETIC_ITEM_CATALOG[itemId];
-      if (!meta) continue;
-      stmts.push(
-        this.db
-          .prepare(
-            `INSERT OR IGNORE INTO user_inventory_items
-             (user_id, item_id, category, rarity, source_sku, source_ref, acquired_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .bind(uid, itemId, meta.category, meta.rarity, sKey, effDeliveryId, nowSec),
-      );
-      if (meta.category === 'frame' && !nextFrame) nextFrame = itemId;
-      if (meta.category === 'badge' && !nextBadge) nextBadge = itemId;
-      if (meta.category === 'title' && !nextTitle) nextTitle = itemId;
-    }
-
-    stmts.push(
-      this.db
-        .prepare(
-          `INSERT INTO user_cosmetic_loadout (user_id, equipped_frame, equipped_badge, equipped_title, updated_at)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(user_id) DO UPDATE SET
-             equipped_frame = COALESCE(user_cosmetic_loadout.equipped_frame, excluded.equipped_frame),
-             equipped_badge = COALESCE(user_cosmetic_loadout.equipped_badge, excluded.equipped_badge),
-             equipped_title = COALESCE(user_cosmetic_loadout.equipped_title, excluded.equipped_title),
-             updated_at = excluded.updated_at`,
-        )
-        .bind(uid, nextFrame, nextBadge, nextTitle, nowSec),
-    );
-
-    await this.db.batch(stmts);
-    const inv = await this.getUserInventory(uid);
-    return {
-      alreadyDelivered: false,
-      animationSkipped: Boolean(skipAnimation),
-      delivery: inv.deliveries.find((d) => d.deliveryId === effDeliveryId),
-      inventory: inv,
-    };
-  }
-
-  async equipItem({ userId, category, itemId = null }, nowSec = Math.floor(Date.now() / 1000)) {
-    const uid = String(userId || '').trim();
-    const cat = String(category || '').trim();
-    if (!uid || !['frame', 'badge', 'title'].includes(cat)) {
-      throw new GrowthError('BAD_REQUEST', 'valid userId and category (frame|badge|title) required');
-    }
-
-    const cleanItem = itemId === null || itemId === undefined || String(itemId).trim() === ''
-      ? null
-      : String(itemId).trim();
-
-    if (cleanItem !== null) {
-      const meta = COSMETIC_ITEM_CATALOG[cleanItem];
-      if (!meta || meta.category !== cat) {
-        throw new GrowthError('BAD_ITEM', 'item does not match category');
-      }
-      const owned = await this.db
-        .prepare('SELECT 1 AS hit FROM user_inventory_items WHERE user_id = ? AND item_id = ?')
-        .bind(uid, cleanItem)
-        .first();
-      if (!owned) {
-        throw new GrowthError('ITEM_NOT_OWNED', '尚未拥有该纸艺装扮，无法装备');
-      }
-    }
-
-    const loadout = await this._getLoadoutRow(uid);
-    const nextFrame = cat === 'frame' ? cleanItem : loadout.equippedFrame;
-    const nextBadge = cat === 'badge' ? cleanItem : loadout.equippedBadge;
-    const nextTitle = cat === 'title' ? cleanItem : loadout.equippedTitle;
-
-    await this.db
-      .prepare(
-        `INSERT INTO user_cosmetic_loadout (user_id, equipped_frame, equipped_badge, equipped_title, updated_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(user_id) DO UPDATE SET
-           equipped_frame = excluded.equipped_frame,
-           equipped_badge = excluded.equipped_badge,
-           equipped_title = excluded.equipped_title,
-           updated_at = excluded.updated_at`,
-      )
-      .bind(uid, nextFrame, nextBadge, nextTitle, nowSec)
-      .run();
-
-    return this.getUserInventory(uid);
   }
 }
 

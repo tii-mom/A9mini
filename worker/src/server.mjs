@@ -6,11 +6,12 @@ import { createApiRouter } from './api.mjs';
 import { PromoHotWalletEngine } from './promo-hotwallet.mjs';
 import { PresaleHotWalletEngine } from './presale-hotwallet.mjs';
 import { SocialStore } from './social-store.mjs';
-import { PredictionEngine, ProgressionEngine, InventoryEngine } from './growth-engine.mjs';
+import { PredictionEngine, ProgressionEngine } from './growth-engine.mjs';
 import { TonCenterClient } from './toncenter.mjs';
 import { PromoPayoutRunner } from './promo-runner.mjs';
 import { PresalePayoutRunner } from './presale-runner.mjs';
 import { MemoryIdentityStore } from './auth.mjs';
+import { TelegramBroadcaster, MemoryBroadcastLog } from './tg-broadcaster.mjs';
 
 const port = Number(process.env.A9_PORT || 8799);
 const host = process.env.A9_HOST || '127.0.0.1';
@@ -47,9 +48,23 @@ const promoEngine = process.env.A9_PROMO_HOT_WALLET_ADDRESS
   : null;
 
 const socialStore = new SocialStore();
-const predictionEngine = new PredictionEngine();
+const identityStore = new MemoryIdentityStore();
+const predictionEngine = new PredictionEngine({
+  firstLossBonusRaw: process.env.A9_PRED_FIRST_LOSS_BONUS_RAW,
+  firstLossCapRaw: process.env.A9_PRED_FIRST_LOSS_CAP_RAW,
+});
 const progressionEngine = new ProgressionEngine();
-const inventoryEngine = new InventoryEngine();
+const broadcaster = new TelegramBroadcaster({
+  enabled: process.env.A9_BROADCAST_ENABLED === '1',
+  botToken: process.env.A9_BOT_TOKEN || '',
+  botHandle: process.env.A9_TG_BOT_HANDLE || 'A9ProtocolBot',
+  publicOrigin: process.env.A9_PUBLIC_ORIGIN || '',
+  officialChannelId: process.env.A9_OFFICIAL_CHANNEL_ID || '',
+  whaleMinGram: process.env.A9_BROADCAST_WHALE_MIN_GRAM || '50',
+  socialStore,
+  identityStore,
+  dedupLog: new MemoryBroadcastLog(),
+});
 
 // 兑换业务须独立配置 A9_PRESALE_HOT_WALLET_ADDRESS 且默认关闭（A9_PRESALE_OPEN=1 显式开启）。
 const presaleHotAddr = process.env.A9_PRESALE_HOT_WALLET_ADDRESS || null;
@@ -63,14 +78,13 @@ const presaleEngine = presaleHotAddr
       userFaultFeeNano: process.env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
       promoEngine,
       socialStore,
-      inventoryEngine,
+      broadcaster,
     })
   : null;
 
 let userReader = null;
 let publicKeyResolver = null;
 let walletStateResolver = null;
-const identityStore = new MemoryIdentityStore();
 
 // Optional live TonCenter chain sync + promo/presale hot-wallet dry-run/live runners
 if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
@@ -112,6 +126,12 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
               console.log(`[a9mini-v15-worker] Auto-settled prediction round #${rId}: winSide=${res.winSide}, winners=${res.winnersCount}`);
             }
           }
+          await broadcaster.processRoundSnapshot({
+            roundId: rId,
+            round: rd,
+            candles: existing?.candles || [],
+            observationSeconds: stateStore.getTiming().observationSeconds,
+          });
         }
       }
     } catch (e) {
@@ -168,7 +188,7 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
   }
 }
 
-const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, inventoryEngine, userReader, identityStore, publicKeyResolver, walletStateResolver });
+const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, userReader, identityStore, publicKeyResolver, walletStateResolver });
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${host}:${port}`);

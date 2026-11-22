@@ -813,4 +813,62 @@ await test('D1 full-stack persistence loop (real SQLite): bindReferral -> placeB
   assert.equal((await promo.getBalance(USER_W)).claimableRaw, '20000000000000');
 });
 
+await test('PredictionEngine first-loss rookie bonus: first wrong bet earns 500 A9 (48h TTL) without touching winner pool', async () => {
+  const { PredictionEngine, VOUCHER_TTL_MS } = await import('../src/growth-engine.mjs');
+  const pred = new PredictionEngine({ defaultPoolA9Raw: '10000000000000' }); // 10,000 A9 winner pool
+  pred.placeBet({ roundId: 1, userId: 'winner_1', side: 'PASS' }, 100);
+  pred.placeBet({ roundId: 1, userId: 'rookie_1', side: 'BURN' }, 101);
+
+  const nowMs = 1_760_000_000_000;
+  const res = pred.settleRoundBets(1, true, 18, '10000000000000', nowMs);
+  assert.equal(res.winnersCount, 1);
+  // 赢家拿满全部 10,000 A9，新人保底绝不侵占赢家主奖池
+  assert.equal(res.distributedRaw, '10000000000000');
+  assert.equal(res.firstLossBonusCount, 1);
+  assert.equal(res.firstLossBonusDistributedRaw, '500000000000');
+
+  const rookie = pred.getUserSummary('rookie_1', 1);
+  assert.equal(rookie.pendingActivationRaw, '500000000000');
+  assert.equal(rookie.pendingExpiresAt, nowMs + VOUCHER_TTL_MS);
+  assert.equal(rookie.currentBet.status, 'LOST_FIRST_BONUS');
+  assert.equal(rookie.currentBet.rewardRaw, '500000000000');
+});
+
+await test('PredictionEngine first-loss rookie bonus: second loss gets 0, round budget cap truncates, and 0 disables', async () => {
+  const { PredictionEngine } = await import('../src/growth-engine.mjs');
+  // 单轮硬上限 1,000 A9，每人 500 A9 -> 最多补贴 2 名新人，第 3 名被硬上限截断
+  const pred = new PredictionEngine({
+    defaultPoolA9Raw: '10000000000000',
+    firstLossBonusRaw: '500000000000',
+    firstLossCapRaw: '1000000000000',
+  });
+  pred.placeBet({ roundId: 1, userId: 'r1', side: 'BURN' }, 100);
+  pred.placeBet({ roundId: 1, userId: 'r2', side: 'BURN' }, 101);
+  pred.placeBet({ roundId: 1, userId: 'r3', side: 'BURN' }, 102);
+
+  const s1 = pred.settleRoundBets(1, true, 17, '10000000000000', 1_000_000);
+  assert.equal(s1.firstLossBonusCount, 2);
+  assert.equal(s1.firstLossBonusDistributedRaw, '1000000000000');
+  assert.equal(pred.getUserSummary('r1', 1).pendingActivationRaw, '500000000000');
+  assert.equal(pred.getUserSummary('r2', 1).pendingActivationRaw, '500000000000');
+  assert.equal(pred.getUserSummary('r3', 1).pendingActivationRaw, '0');
+  assert.equal(pred.getUserSummary('r3', 1).currentBet.status, 'LOST');
+
+  // 第 2 轮：r1 再次押错（已非首次结算），不再发放保底；新用户 r4 首次押错照常获得 500 A9
+  pred.placeBet({ roundId: 2, userId: 'r1', side: 'BURN' }, 200);
+  pred.placeBet({ roundId: 2, userId: 'r4', side: 'BURN' }, 201);
+  const s2 = pred.settleRoundBets(2, true, 18, '10000000000000', 2_000_000);
+  assert.equal(s2.firstLossBonusCount, 1);
+  assert.equal(pred.getUserSummary('r1', 2).pendingActivationRaw, '500000000000'); // 仅保留第 1 轮未变的 500 A9
+  assert.equal(pred.getUserSummary('r1', 2).currentBet.status, 'LOST');
+  assert.equal(pred.getUserSummary('r4', 2).pendingActivationRaw, '500000000000');
+
+  // 设 0 热关闭
+  const predOff = new PredictionEngine({ firstLossBonusRaw: '0' });
+  predOff.placeBet({ roundId: 1, userId: 'off_u', side: 'BURN' }, 100);
+  const sOff = predOff.settleRoundBets(1, true, 16, '10000000000000', 1_000_000);
+  assert.equal(sOff.firstLossBonusCount, 0);
+  assert.equal(predOff.getUserSummary('off_u', 1).pendingActivationRaw, '0');
+});
+
 console.log(`All ${passed} A9 v15 worker tests passed.`);

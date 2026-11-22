@@ -1,3 +1,33 @@
+=== 1. v15 contract SHA-256 baseline ===
+build/JettonMaster.json: OK
+build/JettonWallet.json: OK
+build/RoundController.json: OK
+build/StakeTicket.json: OK
+=== 2. Frontend live-guard & v15-tx unit tests ===
+✔ Production blocks arbitrary ?api= URL override while preserving deployed apiBase (46.700209ms)
+✔ Production allows ?api= only when origin is explicitly allowlisted (39.003291ms)
+✔ Local dev preserves loopback ?api= override but rejects remote untrusted origin and bad protocols (109.673208ms)
+✔ Live mode blocks all wallet sends and fund order requests even with connected wallet (49.545375ms)
+✔ Demo mode NEVER triggers real wallet sendTransaction even when wallet SDK is connected (43.427709ms)
+✔ Telegram deep-link parser sanitizes untrusted start_param values (38.728542ms)
+Running A9 v15 frontend tx-builder tests...
+  PASS  encodeTicketClaimBoc encodes valid BOC magic, op 0x52540303, and 64-bit queryId
+  PASS  encodeTextCommentBoc encodes 0x00000000 prefix + UTF-8 claim memo
+  PASS  parseTonAddress decodes both friendly base64url and raw 0:hex TON addresses
+  PASS  buildV15StakeTx builds valid 2-cell TEP-74 AskToTransfer BOC with 0x5254000F child ref
+  PASS  buildV15ClaimTx and buildV15PromoFeeTx produce valid TON Connect 2.0 message payloads
+  PASS  encodeSingleCellBoc rejects payloads > 127 bytes
+All 6 v15 frontend tx-builder tests passed.
+✔ a9-mini-app/js/v15-tx.test.mjs (41.824333ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 386.977291
+=== 3. Backend worker unit tests ===
 Running A9 v15 worker unit tests...
   PASS  v15 round stage derives STAKING_OPEN -> OBSERVING -> SUCCEEDED without CloseStaking/Settling
   PASS  promo hot-wallet full flow: 0.06 TON fee -> finalized verify -> TEP-74 payout with excesses back to hot wallet
@@ -18,7 +48,10 @@ Running A9 v15 worker unit tests...
   PASS  D1PromoStore.creditReward preserves BigInt precision across multiple credits
   PASS  POST /api/admin/prediction/settle rejects unauthorized calls (401) and settles with valid admin token
   PASS  D1 full-stack persistence loop (real SQLite): bindReferral -> placeBet -> admin settle -> COMPLETED exchange + 12% credit -> activateToPromo
-All 19 A9 v15 worker tests passed.
+  PASS  PredictionEngine first-loss rookie bonus: first wrong bet earns 500 A9 (48h TTL) without touching winner pool
+  PASS  PredictionEngine first-loss rookie bonus: second loss gets 0, round budget cap truncates, and 0 disables
+All 21 A9 v15 worker tests passed.
+=== 4. Backend P0 security & D1/Miniflare full-stack tests ===
 Running phase-1 P0 security tests...
   PASS  initData signed with a different bot token is rejected (forged Telegram identity)
   PASS  editing the user id inside correctly signed initData breaks the signature
@@ -85,34 +118,7 @@ Running phase-1 P0 security tests...
   PASS  D1 social store: typed group handle stays verifying (no fake "bound")
   PASS  admin anomaly API requires the admin token and resolves with an audit trail
   PASS  Phase 3: Handbook Stamp progression loop (new user, consecutive check-ins, UTC boundary, idempotency, cross-user auth & strict asset isolation)
-  PASS  Phase 4: Three-tier Sticker Packs (pack_basic / pack_plus / pack_deluxe), sandbox unfold idempotency, ownership check & loadout persistence
+  PASS  Step 0 & Knife 2: Item shop/inventory fully removed (404), pure 1 GRAM=2,002 A9 (5..200 GRAM) enforced, rookie first-loss 500 A9 bonus + anti-sybil activation
   PASS  Phase 5: Guild TG group real permission verification (captain, bot-in-group, admin check, hijack prevention, expiry) & startapp attribution
-  PASS  Phase 6: Market 1.99 / 5.99 / 13.99 GRAM Sticker Pack orders (exact A9 math, atomic pack delivery only on COMPLETED, late 1.99 refund, wrong-amount anomaly)
+  PASS  Knife 3: TG squad broadcaster (disabled by default, bound-only targets, short startapp <=64B, D1 dedup, 4 climax events, whale >=50 GRAM only, non-blocking on API failure)
 All 68 phase-1 P0 security tests passed.
-✔ Production blocks arbitrary ?api= URL override while preserving deployed apiBase (37.654875ms)
-✔ Production allows ?api= only when origin is explicitly allowlisted (35.588375ms)
-✔ Local dev preserves loopback ?api= override but rejects remote untrusted origin and bad protocols (109.0135ms)
-✔ Live mode blocks all wallet sends and fund order requests even with connected wallet (44.749167ms)
-✔ Demo mode NEVER triggers real wallet sendTransaction even when wallet SDK is connected (85.396208ms)
-✔ Telegram deep-link parser sanitizes untrusted start_param values (44.657625ms)
-Running A9 v15 frontend tx-builder tests...
-  PASS  encodeTicketClaimBoc encodes valid BOC magic, op 0x52540303, and 64-bit queryId
-  PASS  encodeTextCommentBoc encodes 0x00000000 prefix + UTF-8 claim memo
-  PASS  parseTonAddress decodes both friendly base64url and raw 0:hex TON addresses
-  PASS  buildV15StakeTx builds valid 2-cell TEP-74 AskToTransfer BOC with 0x5254000F child ref
-  PASS  buildV15ClaimTx and buildV15PromoFeeTx produce valid TON Connect 2.0 message payloads
-  PASS  encodeSingleCellBoc rejects payloads > 127 bytes
-All 6 v15 frontend tx-builder tests passed.
-✔ a9-mini-app/js/v15-tx.test.mjs (37.19225ms)
-ℹ tests 7
-ℹ suites 0
-ℹ pass 7
-ℹ fail 0
-ℹ cancelled 0
-ℹ skipped 0
-ℹ todo 0
-ℹ duration_ms 409.758792
-build/JettonMaster.json: OK
-build/JettonWallet.json: OK
-build/RoundController.json: OK
-build/StakeTicket.json: OK

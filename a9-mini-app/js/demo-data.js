@@ -115,14 +115,14 @@ export function demoWalletSendResult(action = 'demo_tx') {
   };
 }
 
-/** 演示模式推广奖励模拟领取（不发真实网络订单，不触发钱包签名）。 */
+/** 演示模式邀友奖励模拟领取（不发真实网络订单，不触发钱包签名）。 */
 export function demoFundsClaimPromo(state) {
   const amountA9 = 96500;
   const txHash = demoTxHash('EQP');
   if (state?.ledger) {
     state.ledger.unshift({
       id: `PR-${Date.now().toString().slice(-4)}`,
-      type: '演示推广奖励领取 (0.06 GRAM 模拟)',
+      type: '演示邀友奖励领取 (0.06 GRAM 模拟)',
       source: '演示推广热钱包',
       amount: `+${amountA9.toLocaleString('en-US')} A9`,
       status: '演示完成',
@@ -175,138 +175,26 @@ export function demoFundsClaim(state) {
   return claimable;
 }
 
-export const DEMO_STICKER_PACKS = [
-  {
-    skuId: 'pack_basic',
-    zh: '基础贴纸包',
-    en: 'Basic Sticker Pack',
-    asset: 'crystal-basic',
-    priceGram: 1.99,
-    a9Amount: 3983.98,
-    expBonus: 100,
-    critFlair: false,
-    items: ['frame_cotton', 'badge_seal_red'],
-    descZh: '含 3,983.98 A9 + 素棉立牌底座 + 初心火漆贴纸',
-    descEn: '3,983.98 A9 + Cotton Base + Wax Seal Sticker'
-  },
-  {
-    skuId: 'pack_plus',
-    zh: '进阶贴纸盒',
-    en: 'Plus Sticker Box',
-    asset: 'crystal-starlight',
-    priceGram: 5.99,
-    a9Amount: 11991.98,
-    expBonus: 350,
-    critFlair: false,
-    items: ['frame_origami', 'badge_star_compass'],
-    descZh: '含 11,991.98 A9 + 晴空烫金底座 + 星航折纸贴纸',
-    descEn: '11,991.98 A9 + Sky Origami Base + Star Sticker'
-  },
-  {
-    skuId: 'pack_deluxe',
-    zh: '豪华贴纸礼盒',
-    en: 'Deluxe Sticker Box',
-    asset: 'crystal-legendary',
-    priceGram: 13.99,
-    a9Amount: 28007.98,
-    expBonus: 1000,
-    critFlair: true,
-    items: ['frame_royal_foil', 'badge_royal_crown', 'title_foil_collector'],
-    descZh: '含 28,007.98 A9 + 皇家金箔底座 + 皇冠金章 + 典藏称号',
-    descEn: '28,007.98 A9 + Gold-Foil Base + Crown Crest + Title'
-  }
-];
-
-export const DEMO_COSMETIC_ITEMS = {
-  frame_cotton: { itemId: 'frame_cotton', category: 'frame', rarity: 'basic', sourceSku: 'pack_basic', zh: '素棉立牌底座', en: 'Cotton Standee Base' },
-  badge_seal_red: { itemId: 'badge_seal_red', category: 'badge', rarity: 'basic', sourceSku: 'pack_basic', zh: '初心火漆贴纸', en: 'Red Wax Seal Sticker' },
-  frame_origami: { itemId: 'frame_origami', category: 'frame', rarity: 'plus', sourceSku: 'pack_plus', zh: '晴空烫金底座', en: 'Sky Origami Base' },
-  badge_star_compass: { itemId: 'badge_star_compass', category: 'badge', rarity: 'plus', sourceSku: 'pack_plus', zh: '星航折纸贴纸', en: 'Star Origami Sticker' },
-  frame_royal_foil: { itemId: 'frame_royal_foil', category: 'frame', rarity: 'deluxe', sourceSku: 'pack_deluxe', zh: '皇家金箔底座', en: 'Royal Gold-Foil Base' },
-  badge_royal_crown: { itemId: 'badge_royal_crown', category: 'badge', rarity: 'deluxe', sourceSku: 'pack_deluxe', zh: '传世皇冠金章', en: 'Royal Crown Crest' },
-  title_foil_collector: { itemId: 'title_foil_collector', category: 'title', rarity: 'deluxe', sourceSku: 'pack_deluxe', zh: '金箔典藏家称号', en: 'Gold-Foil Collector' }
-};
-
-export function demoFundsBuy(state, tonAmount, skuId = null) {
-  const pack = skuId ? DEMO_STICKER_PACKS.find(p => p.skuId === skuId) : DEMO_STICKER_PACKS.find(p => Math.abs(p.priceGram - Number(tonAmount)) < 0.001);
-  const amt = pack ? pack.priceGram : Number(tonAmount);
+export function demoFundsBuy(state, tonAmount) {
+  const amt = Number(tonAmount);
   const availQuota = state.market.unlockedQuotaTon - state.market.usedQuotaTon;
-  if (!pack && (amt < state.market.minOrderTon || amt > state.market.maxOrderTon)) return { error: '单笔金额须在 5 - 200 GRAM 之间或选择三档贴纸包' };
+  if (amt < state.market.minOrderTon || amt > state.market.maxOrderTon) return { error: '单笔金额须在 5 - 200 GRAM 之间' };
   if (amt > availQuota) return { error: `超出当前可用额度 (${availQuota} GRAM)` };
   if (amt > state.user.tonBalance) return { error: 'GRAM 余额不足' };
-  const receivedA9 = Number((amt * state.market.rateA9PerTon).toFixed(2));
+  const receivedA9 = Math.round(amt * state.market.rateA9PerTon);
   state.user.tonBalance = Number((state.user.tonBalance - amt).toFixed(2));
-  state.user.a9Available = Number((state.user.a9Available + receivedA9).toFixed(2));
-  state.market.usedQuotaTon = Number((state.market.usedQuotaTon + amt).toFixed(2));
+  state.user.a9Available += receivedA9;
+  state.market.usedQuotaTon += amt;
   const orderId = `IM-${Date.now().toString().slice(-4)}`;
   state.market.records.unshift({
     id: orderId,
-    skuId: pack ? pack.skuId : null,
-    packNameZh: pack ? pack.zh : null,
-    packNameEn: pack ? pack.en : null,
     ton: amt,
     a9: receivedA9,
     status: '演示成交',
     hash: demoTxHash('EQD'),
     time: '刚刚'
   });
-  let deliveredPack = null;
-  if (pack) {
-    deliveredPack = demoInventoryDeliver(state, pack.skuId, orderId);
-  }
-  return { receivedA9, pack, deliveredPack, orderId };
-}
-
-export function demoInventoryDeliver(state, skuId, orderRef = 'sandbox') {
-  const pack = DEMO_STICKER_PACKS.find(p => p.skuId === skuId);
-  if (!pack || !state?.inventory) return null;
-  const inv = state.inventory;
-  const deliveryId = `${orderRef}:${skuId}`;
-  const existing = inv.deliveries.find(d => d.deliveryId === deliveryId);
-  if (existing) return existing;
-
-  const unlockedItems = [];
-  for (const itemId of pack.items) {
-    const meta = DEMO_COSMETIC_ITEMS[itemId];
-    if (!meta) continue;
-    if (!inv.items.some(x => x.itemId === itemId)) {
-      inv.items.push({ ...meta, acquiredAt: Date.now(), sourceRef: deliveryId });
-    }
-    unlockedItems.push(meta);
-    if (meta.category === 'frame') inv.loadout.equippedFrame = itemId;
-    if (meta.category === 'badge') inv.loadout.equippedBadge = itemId;
-    if (meta.category === 'title') inv.loadout.equippedTitle = itemId;
-  }
-  if (state.progression) {
-    state.progression.exp = (Number(state.progression.exp) || 0) + pack.expBonus;
-    state.progression.level = Math.floor(state.progression.exp / 200) + 1;
-    state.progression.currentLevelExp = state.progression.exp % 200;
-    state.progression.progressPct = Math.min(100, Math.round((state.progression.currentLevelExp / 200) * 100));
-  }
-  const rec = {
-    deliveryId,
-    skuId: pack.skuId,
-    critFlair: pack.critFlair,
-    a9Amount: pack.a9Amount,
-    expAwarded: pack.expBonus,
-    items: unlockedItems,
-    deliveredAt: Date.now()
-  };
-  inv.deliveries.unshift(rec);
-  return rec;
-}
-
-export function demoInventoryEquip(state, category, itemId = null) {
-  if (!state?.inventory) return null;
-  const inv = state.inventory;
-  const clean = itemId ? String(itemId).trim() : null;
-  if (clean && !inv.items.some(x => x.itemId === clean && x.category === category)) {
-    return { error: '尚未拥有该纸艺装扮' };
-  }
-  if (category === 'frame') inv.loadout.equippedFrame = clean;
-  if (category === 'badge') inv.loadout.equippedBadge = clean;
-  if (category === 'title') inv.loadout.equippedTitle = clean;
-  return inv;
+  return { receivedA9, orderId };
 }
 
 export const DEMO_SOCIAL_FEEDS = [
@@ -414,7 +302,7 @@ export function applyDemoInitialState(state) {
     },
     {
       id: 'LD-8814',
-      type: '直邀推广奖励 (12%)',
+      type: '直邀奖励 (12%)',
       source: '好友 UQ...8892 参与',
       amount: '+18,400 A9',
       status: '已到账',
@@ -438,7 +326,7 @@ export function applyDemoInitialState(state) {
     captainHistoryTon: 618.4,
     captainHistoryA9: 184200,
     tgGroupBound: true,
-    tgGroupHandle: '@A9_Paper_Guild',
+    tgGroupHandle: '@A9_Paper_Squad',
     tgGroupMembers: 468,
     recruitMinTon: 50,
     topMembers: [
@@ -456,23 +344,26 @@ export function applyDemoInitialState(state) {
     activeRpc: 'Toncenter Mainnet L1'
   };
 
-  state.inventory = {
-    items: [
-      { ...DEMO_COSMETIC_ITEMS.frame_cotton, acquiredAt: Date.now() - 3600000, sourceRef: 'demo:init' },
-      { ...DEMO_COSMETIC_ITEMS.badge_seal_red, acquiredAt: Date.now() - 3600000, sourceRef: 'demo:init' }
-    ],
-    loadout: {
-      equippedFrame: 'frame_cotton',
-      equippedBadge: 'badge_seal_red',
-      equippedTitle: null
-    },
-    deliveries: [],
-    filter: 'all',
-    loaded: true
+  const nowSec = Math.floor(Date.now() / 1000);
+  state.round.stakeOpenAt = nowSec - 7200;
+  state.round.stakeCloseAt = nowSec + 36 * 3600 - 7200;
+  state.round.unlock = {
+    immediateBps: 2000,
+    lockedSlices: 4,
+    unlockedSlices: 1,
+    burnedSlices: 0,
+    lockedTotalRaw: '102720000000000'
   };
+  if (state.prediction) {
+    state.prediction.pendingActivationRaw = '12500000000000';
+    state.prediction.pendingExpiresAt = Date.now() + 26 * 3600 * 1000;
+    state.prediction.passPct = 61;
+    state.prediction.burnPct = 39;
+    state.prediction.total = 3000;
+  }
 }
 
-/* ---------------- 演示模式：24H 生死预言局内存状态（DEMO ONLY） ---------------- */
+/* ---------------- 演示模式：24H 预言擂台内存状态（DEMO ONLY） ---------------- */
 
 const demoPredRounds = new Map();
 const demoPredUsers = new Map();
@@ -601,7 +492,7 @@ export function demoProgressionClaim({ userId, taskKey, roundId = 3 }) {
   const pred = demoPredictionUser(userId, roundId);
   const hasPred = Boolean(pred?.currentBet);
   if (tKey === 'daily_prediction' && !hasPred) {
-    throw new Error('请先参与本轮 0 GRAM 24H 达标竞猜后再盖章');
+    throw new Error('请先参与本轮 0 GRAM 24H 预言擂台后再盖章');
   }
   if (tKey === 'daily_full_bonus') {
     const allDone = DEMO_DAILY_KEYS.every(k => u.todayClaims.has(k));
@@ -611,7 +502,7 @@ export function demoProgressionClaim({ userId, taskKey, roundId = 3 }) {
     throw new Error('连续打卡满 3 天后解锁');
   }
   if (tKey === 'ach_pred_pioneer' && !hasPred && !u.todayClaims.has('daily_prediction')) {
-    throw new Error('需完成至少 1 次 24H 达标竞猜后解锁');
+    throw new Error('需完成至少 1 次 24H 预言擂台后解锁');
   }
 
   if (isAch) {
@@ -732,8 +623,8 @@ export const DEMO_RANKS = {
   ],
   team: [
     { rank: '01', name: '暖棉纸冒险团', ton: '580,000 GRAM', a9: '120,000,000 A9', me: true },
-    { rank: '02', name: '折纸星航商会', ton: '462,000 GRAM', a9: '94,200,000 A9' },
-    { rank: '03', name: '金箔典藏商会', ton: '295,000 GRAM', a9: '61,500,000 A9' }
+    { rank: '02', name: '折纸星航战队', ton: '462,000 GRAM', a9: '94,200,000 A9' },
+    { rank: '03', name: '金箔典藏战队', ton: '295,000 GRAM', a9: '61,500,000 A9' }
   ],
   invite: [
     { rank: '01', name: 'UQ...9F21', ton: '42 Invites', a9: '320,000 A9' },
@@ -752,8 +643,8 @@ export const personalRanks = [
   ];
 export const teamRanks = [
     { r: '01', addr: '暖棉纸冒险团', invites: 186, reward: 'Lv.4 · +15%', me: true },
-    { r: '02', addr: '折纸星航商会', invites: 142, reward: 'Lv.4 · +15%' },
-    { r: '03', addr: '金箔典藏商会', invites: 94, reward: 'Lv.3 · +10%' }
+    { r: '02', addr: '折纸星航战队', invites: 142, reward: 'Lv.4 · +15%' },
+    { r: '03', addr: '金箔典藏战队', invites: 94, reward: 'Lv.3 · +10%' }
   ];
 
 export function tickDemoPrice(r) {

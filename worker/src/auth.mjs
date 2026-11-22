@@ -435,6 +435,12 @@ export class MemoryIdentityStore {
   async unbindWallet(tg) {
     return this.bindings.delete(String(tg));
   }
+
+  /** 根据已绑定的钱包地址反查 Telegram 用户 ID（用于生成短长度 startapp 归因链接，避免突破 64 字节上限）。 */
+  async getTelegramUserIdByWallet(walletAddress) {
+    if (!walletAddress) return null;
+    return this._ownerOf(addressKey(walletAddress));
+  }
 }
 
 function rowToBinding(r) {
@@ -555,6 +561,15 @@ export class D1IdentityStore {
   async unbindWallet(tg) {
     const res = await this.db.prepare('DELETE FROM wallet_bindings WHERE tg_user_id = ?').bind(String(tg)).run();
     return Number(res?.meta?.changes || 0) > 0;
+  }
+
+  async getTelegramUserIdByWallet(walletAddress) {
+    if (!walletAddress) return null;
+    const row = await this.db
+      .prepare('SELECT tg_user_id FROM wallet_bindings WHERE wallet_key = ? LIMIT 1')
+      .bind(addressKey(walletAddress))
+      .first();
+    return row?.tg_user_id ? String(row.tg_user_id) : null;
   }
 }
 

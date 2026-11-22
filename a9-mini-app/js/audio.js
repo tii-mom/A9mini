@@ -1,13 +1,16 @@
 /**
- * A9 任天堂手工纸艺轻音效与微触感引擎
+ * A9 任天堂手工纸艺轻音效、材质拟音（Foley）与微触感引擎
+ * - 零外部音频资源，纯 Web Audio API 合成：纸张翻页、木质棘轮、升调五声音阶、折纸宝箱弹开、橡皮钢印砸落
  * - 默认静音，仅在用户主动开启后（localStorage: a9_sound_enabled === '1'）发声
- * - AudioContext 仅在明确手势下懒初始化
+ * - AudioContext 仅在明确用户手势下懒初始化
  * - 精细指针设备的 3D 凭证反光采用 rAF 节流并在切页时干净释放
  */
 
 const SOUND_KEY = 'a9_sound_enabled';
+const PENTA_SCALE = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5, 1174.66, 1318.51];
 
 let audioCtx = null;
+let cachedNoiseBuffer = null;
 let enabled = (() => {
   try {
     return localStorage.getItem(SOUND_KEY) === '1';
@@ -25,6 +28,20 @@ function ensureCtx() {
   return audioCtx;
 }
 
+function getNoiseBuffer(ctx) {
+  if (cachedNoiseBuffer && cachedNoiseBuffer.sampleRate === ctx.sampleRate) {
+    return cachedNoiseBuffer;
+  }
+  const len = Math.floor(ctx.sampleRate * 0.28);
+  const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  cachedNoiseBuffer = buffer;
+  return buffer;
+}
+
 function playTone(freq, startOffset, duration, type = 'triangle', peakGain = 0.065, endFreq = null) {
   const ctx = ensureCtx();
   if (!ctx) return;
@@ -34,15 +51,38 @@ function playTone(freq, startOffset, duration, type = 'triangle', peakGain = 0.0
   osc.type = type;
   osc.frequency.setValueAtTime(freq, now);
   if (endFreq !== null) {
-    osc.frequency.exponentialRampToValueAtTime(endFreq, now + duration);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(20, endFreq), now + duration);
   }
   gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.linearRampToValueAtTime(peakGain, now + 0.012);
+  gain.gain.linearRampToValueAtTime(peakGain, now + Math.min(0.012, duration * 0.3));
   gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
   osc.connect(gain);
   gain.connect(ctx.destination);
   osc.start(now);
   osc.stop(now + duration + 0.02);
+}
+
+/** 带通扫频白噪声：模拟暖棉纸翻页沙沙声 / 木质棘轮短擦声 */
+function playFilteredNoise(startOffset, duration, startFreq, endFreq, q = 2.2, peakGain = 0.05) {
+  const ctx = ensureCtx();
+  if (!ctx) return;
+  const now = ctx.currentTime + startOffset;
+  const src = ctx.createBufferSource();
+  src.buffer = getNoiseBuffer(ctx);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.Q.setValueAtTime(q, now);
+  filter.frequency.setValueAtTime(startFreq, now);
+  filter.frequency.exponentialRampToValueAtTime(Math.max(60, endFreq), now + duration);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.linearRampToValueAtTime(peakGain, now + Math.min(0.015, duration * 0.25));
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  src.connect(filter);
+  filter.connect(gain);
+  gain.connect(ctx.destination);
+  src.start(now);
+  src.stop(now + duration + 0.02);
 }
 
 export const A9Audio = {
@@ -59,26 +99,72 @@ export const A9Audio = {
 
   /** 轻快木琴点击音 */
   tick() {
-    playTone(520, 0, 0.075, 'triangle', 0.06, 680);
+    playTone(520, 0, 0.07, 'triangle', 0.055, 680);
   },
 
-  /** 底栏切换圆润啵声 */
+  /** 底栏切换圆润啵声 + 极轻纸张拂过 */
   tab() {
-    playTone(440, 0, 0.06, 'sine', 0.055, 590);
-    playTone(660, 0.035, 0.08, 'triangle', 0.048);
+    playFilteredNoise(0, 0.055, 1100, 2200, 1.8, 0.022);
+    playTone(440, 0, 0.06, 'sine', 0.05, 590);
+    playTone(660, 0.032, 0.075, 'triangle', 0.045);
+  },
+
+  /** 棉纸翻页沙沙声（切页 / 纸牌翻面） */
+  pageTurn() {
+    playFilteredNoise(0, 0.095, 780, 2600, 1.5, 0.042);
+    playTone(390, 0.01, 0.055, 'sine', 0.02, 520);
+  },
+
+  /** 木质棘轮咔哒声（右滑每经过 10% 刻度触发，音高随 step 1..9 逐级攀升） */
+  ratchet(step = 1) {
+    const idx = Math.max(1, Math.min(10, Number(step) || 1));
+    const baseFreq = 340 + idx * 62;
+    playFilteredNoise(0, 0.024, 1600 + idx * 140, 2800 + idx * 150, 3.4, 0.032);
+    playTone(baseFreq, 0, 0.036, 'triangle', 0.052, baseFreq * 1.18);
   },
 
   /** 纸片 360° 翻身跳起音 */
   flip() {
-    playTone(340, 0, 0.09, 'triangle', 0.055, 620);
-    playTone(780, 0.06, 0.11, 'sine', 0.048, 980);
+    playFilteredNoise(0, 0.08, 900, 2400, 1.6, 0.032);
+    playTone(340, 0, 0.09, 'triangle', 0.052, 620);
+    playTone(780, 0.058, 0.11, 'sine', 0.045, 980);
+  },
+
+  /** 任天堂升调五声音阶（按已达标时段数递增音阶，≥16 奏三音达标琶音） */
+  scaleChime(passedCount = 1) {
+    const n = Math.max(0, Number(passedCount) || 0);
+    const note = PENTA_SCALE[Math.min(PENTA_SCALE.length - 1, Math.floor(n / 2))];
+    playTone(170, 0, 0.055, 'sine', 0.06, 86);
+    playTone(note, 0.03, 0.13, 'triangle', 0.058);
+    if (n >= 16) {
+      playTone(1046.5, 0.09, 0.14, 'triangle', 0.055);
+      playTone(1318.51, 0.16, 0.22, 'triangle', 0.065);
+    }
   },
 
   /** 橡皮圆章盖下 + 达标小和弦 */
   stamp() {
-    playTone(180, 0, 0.07, 'sine', 0.08, 92);
+    playFilteredNoise(0, 0.045, 420, 980, 1.8, 0.036);
+    playTone(180, 0, 0.07, 'sine', 0.078, 86);
     playTone(587.33, 0.045, 0.12, 'triangle', 0.055);
     playTone(880.0, 0.095, 0.16, 'triangle', 0.055);
+  },
+
+  /** 厚重橡皮钢印砸纸（参与成功页出征盖章） */
+  sealSlam() {
+    playFilteredNoise(0, 0.065, 320, 860, 1.4, 0.058);
+    playTone(165, 0, 0.11, 'sine', 0.095, 52);
+    playTone(523.25, 0.075, 0.11, 'triangle', 0.052);
+    playTone(783.99, 0.14, 0.18, 'triangle', 0.058);
+  },
+
+  /** 折纸宝箱弹开 + 金币三连叮铃 */
+  chestOpen() {
+    playFilteredNoise(0, 0.075, 900, 2800, 1.6, 0.046);
+    playTone(260, 0, 0.07, 'triangle', 0.06, 480);
+    playTone(987.77, 0.055, 0.11, 'triangle', 0.065);
+    playTone(1318.51, 0.13, 0.13, 'triangle', 0.072);
+    playTone(1567.98, 0.21, 0.26, 'sine', 0.068);
   },
 
   /** 任天堂双音金币叮铃（提交/领取/开启确认） */

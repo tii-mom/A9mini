@@ -16,7 +16,7 @@ import { triggerStoryShare } from '../share.js';
 
 export function renderTeamHome(root, navigate) {
   if (!config.isDemo) {
-    root.innerHTML=`<form class="card col-gap"><label>${L('商会编号','Guild ID')} <input name="guild" required maxlength="64"></label><button class="btn btn-primary">${L('申请加入','Join guild')}</button><output></output></form>`;
+    root.innerHTML=`<form class="card col-gap"><label>${L('战队编号','Squad ID')} <input name="guild" required maxlength="64"></label><button class="btn btn-primary">${L('申请加入','Join squad')}</button><output></output></form>`;
     portfolioPanel(root,true);
     const form=root.querySelector('form');
     form.onsubmit=async event=>{
@@ -29,7 +29,7 @@ export function renderTeamHome(root, navigate) {
         await joinTeam({teamId:form.elements.guild.value.trim(),walletAddress:wallet,userId:getEffectiveUserId(store.state.user),referrerId:store.state.referral.referrerId});
         renderTeamHome(root,navigate);
       } catch {
-        form.querySelector('output').textContent=L('加入失败，请核对商会编号后重试','Join failed. Check the guild ID and retry.');
+        form.querySelector('output').textContent=L('加入失败，请核对战队编号后重试','Join failed. Check the squad ID and retry.');
         button.disabled=false;
       }
     };return;
@@ -53,7 +53,7 @@ export function renderTeamHome(root, navigate) {
       <div class="card card-hero guild-board">
         <div class="row-between" style="margin-bottom:8px;">
           <div>
-            <div class="row-start" style="font-size:17px;font-weight:900;">${escapeHtml(team.name || L('我的商会', 'My Guild'))} ${icon('shieldCheck', 16, 'text-green')}</div>
+            <div class="row-start" style="font-size:17px;font-weight:900;">${escapeHtml(team.name || L('我的战队', 'My Squad'))} ${icon('shieldCheck', 16, 'text-green')}</div>
             <div class="row-start" style="margin-top:4px;gap:6px;">
               <span class="chip chip-green">${L('会长', 'Captain')} · Lv.${team.level || 1}</span>
               <span class="chip chip-gold">+${team.boostPct || 0}% ${L('加成', 'Boost')}</span>
@@ -78,7 +78,7 @@ export function renderTeamHome(root, navigate) {
         </div>
 
         <div class="row-between num-xs text-muted" style="margin-bottom:5px;">
-          <span>${L('本轮商会冲刺进度', 'Round Sprint Progress')}</span>
+          <span>${L('本轮战队冲刺进度', 'Round Sprint Progress')}</span>
           <span class="mono" style="color:var(--ink);font-weight:800;">${progressPct}%</span>
         </div>
         <div class="progress-track" style="margin-bottom:12px;"><div class="progress-fill" style="width:${progressPct}%"></div></div>
@@ -93,9 +93,9 @@ export function renderTeamHome(root, navigate) {
         </div>
         <div class="guild-roster">
           ${(team.topMembers || []).length === 0
-            ? `<div class="empty-state" style="padding:14px;grid-column:1/-1;"><div class="num-xs text-muted">${L('暂无成员参与记录', 'No active members yet')}</div></div>`
+            ? `<div class="empty-state" style="padding:14px;grid-column:1/-1;"><div class="num-xs text-muted">${L('暂无成员闯关战绩', 'No active members yet')}</div></div>`
             : (team.topMembers || []).map((m,i) => `
-            <div class="guild-member"><img src="./assets/wealthverse/game/a${[5,2,3][i%3]}.webp" alt=""><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
+            <div class="guild-member"><img src="./assets/wealthverse/game/a${[5,2,3][i%3]}.png" alt=""><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
               <div class="num-xs text-green mono" style="font-weight:800;">${formatNum(m.ton)} GRAM</div>
             </div>
           `).join('')}
@@ -112,7 +112,7 @@ export function renderTeamHome(root, navigate) {
       <div class="card card-hero guild-board">
         <div class="row-between" style="margin-bottom:8px;">
           <div>
-            <div style="font-size:17px;font-weight:900;">${L('折纸星航商会', 'Origami Voyagers')}</div>
+            <div style="font-size:17px;font-weight:900;">${L('折纸星航战队', 'Origami Voyagers')}</div>
             <div class="row-start" style="margin-top:4px;gap:6px;">
               <span class="chip chip-cyan">${L('成员', 'Member')} · Lv.3</span>
               <span class="chip chip-gold">+10% ${L('加成', 'Boost')}</span>
@@ -125,40 +125,40 @@ export function renderTeamHome(root, navigate) {
 
         <div class="metric-strip">
           <div class="metric-cell"><span class="num-xs text-muted">${L('团队加成收益', 'Squad Bonus')}</span><span class="num-md text-green">+184,200 A9</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('邀请返佣', 'Referral')}</span><span class="num-md text-gold">+96,500 A9</span></div>
+          <div class="metric-cell"><span class="num-xs text-muted">${L('邀友奖励', 'Invite Rewards')}</span><span class="num-md text-gold">+96,500 A9</span></div>
         </div>
         <button class="btn btn-primary" data-nav="/team/invite">${icon('qr', 16)} ${L('邀请好友 · 冲击 Lv.4 (+15%)', 'Invite Friends · Reach +15%')}</button>
       </div>
 
       <div class="grid-3">
         <button class="btn btn-secondary btn-sm" data-nav="/leaderboard" style="width:100%;min-height:42px;">${icon('trophy', 14)} ${L('排行榜', 'Ranks')}</button>
-        <button class="btn btn-secondary btn-sm" data-nav="/team/profile/TM-8829" style="width:100%;min-height:42px;">${icon('layers', 14)} ${L('商会主页', 'Guild')}</button>
-        <button class="btn btn-secondary btn-sm" id="btn-open-group" style="width:100%;min-height:42px;">${icon('send', 14)} ${L('商会群', 'Chat')}</button>
+        <button class="btn btn-secondary btn-sm" data-nav="/team/profile/TM-8829" style="width:100%;min-height:42px;">${icon('layers', 14)} ${L('战队名片', 'Squad Card')}</button>
+        <button class="btn btn-secondary btn-sm" id="btn-open-group" style="width:100%;min-height:42px;">${icon('send', 14)} ${L('战队群', 'Chat')}</button>
       </div>
       <div class="row-between num-xs" style="padding:4px 2px;">
-        <button class="btn btn-sm" id="btn-switch-team" style="background:transparent;color:var(--text-secondary);padding:0;box-shadow:none;">${L('切换商会（每赛季限 1 次）', 'Switch Guild (1/season)')}</button>
-        <button class="btn btn-sm" id="btn-leave-team" style="background:transparent;color:var(--red);padding:0;box-shadow:none;">${L('退出商会', 'Leave')}</button>
+        <button class="btn btn-sm" id="btn-switch-team" style="background:transparent;color:var(--text-secondary);padding:0;box-shadow:none;">${L('切换战队（每赛季限 1 次）', 'Switch Squad (1/season)')}</button>
+        <button class="btn btn-sm" id="btn-leave-team" style="background:transparent;color:var(--red);padding:0;box-shadow:none;">${L('退出战队', 'Leave')}</button>
       </div>
     `;
   } else {
     const squads = [
-      { id: 'TM-0001', name: L('暖棉纸冒险团', 'Paper Craft Guild'), lv: 'Lv.4', boost: '+15%', members: '412/500' },
-      { id: 'TM-8829', name: L('折纸星航商会', 'Origami Voyagers'), lv: 'Lv.3', boost: '+10%', members: '84/100' },
-      { id: 'TM-3042', name: L('金箔典藏商会', 'Gold Foil Collectors'), lv: 'Lv.3', boost: '+10%', members: '66/100' }
+      { id: 'TM-0001', name: L('暖棉纸冒险团', 'Paper Craft Squad'), lv: 'Lv.4', boost: '+15%', members: '412/500' },
+      { id: 'TM-8829', name: L('折纸星航战队', 'Origami Voyagers'), lv: 'Lv.3', boost: '+10%', members: '84/100' },
+      { id: 'TM-3042', name: L('金箔典藏战队', 'Gold Foil Collectors'), lv: 'Lv.3', boost: '+10%', members: '66/100' }
     ];
     html = `
       <div class="card card-hero guild-board">
         <div class="row-between" style="margin-bottom:6px;">
-          <span class="chip chip-gold">${L('未加入商会 · 最高 +15%', 'No Guild · Up to +15%')}</span>
+          <span class="chip chip-gold">${L('未加入战队 · 最高 +15%', 'No Squad · Up to +15%')}</span>
           ${rolePill}
         </div>
-        <div style="font-size:17px;font-weight:900;">${L('加入一个活跃商会', 'Join an Active Guild')}</div>
-        <div class="text-sec" style="font-size:12px;margin-top:4px;">${L('免费加入后，自动提升每轮收益分配与商行可用额度。', 'Join free to boost round rewards and market quota.')}</div>
+        <div style="font-size:17px;font-weight:900;">${L('加入一个活跃战队', 'Join an Active Squad')}</div>
+        <div class="text-sec" style="font-size:12px;margin-top:4px;">${L('免费加入后，自动提升每轮收益分配与兑换屋可用额度。', 'Join free to boost round rewards and exchange quota.')}</div>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <div class="card-title">${L('推荐商会', 'Featured Guilds')}</div>
+          <div class="card-title">${L('推荐战队', 'Featured Squads')}</div>
           <button class="text-link-btn" data-nav="/leaderboard" type="button">${L('查看排行', 'Rankings')} ${icon('chevronRight', 13)}</button>
         </div>
         <div>
@@ -270,7 +270,7 @@ export function renderTeamProfile(root, navigate, id) {
     <div class="col-gap anim-page-enter">
       <div class="card card-hero">
         <span class="chip chip-gold">#${safeId} · Lv.4</span>
-        <div class="row-start" style="font-size:20px;font-weight:700;margin-top:8px;">${L('暖棉纸冒险团', 'Paper Craft Guild')} ${icon('shieldCheck', 18, 'text-green')}</div>
+        <div class="row-start" style="font-size:20px;font-weight:700;margin-top:8px;">${L('暖棉纸冒险团', 'Paper Craft Squad')} ${icon('shieldCheck', 18, 'text-green')}</div>
         <div class="metric-strip cols-3">
           <div class="metric-cell"><span class="num-xs text-muted">${L('加成', 'Boost')}</span><span class="num-md text-green">+15%</span></div>
           <div class="metric-cell"><span class="num-xs text-muted">${L('成员', 'Members')}</span><span class="num-md">412</span></div>
@@ -286,7 +286,7 @@ export function renderBindTgGroup(root) {
   const { team } = store.state;
   if (!config.isDemo) {
     let liveStatus = 'unbound';
-    let lastMsg = L('填写商会编号与 Telegram 群 @用户名 后先进入核验中，再由服务端核验 Bot 入群状态、群管理员权限与群唯一性。', 'Submit Guild ID and Telegram @group handle to enter verifying state, then run server verification for bot presence, admin role, and group uniqueness.');
+    let lastMsg = L('填写战队编号与 Telegram 群 @用户名 后先进入核验中，再由服务端核验 Bot 入群状态、群管理员权限与群唯一性。', 'Submit Squad ID and Telegram @group handle to enter verifying state, then run server verification for bot presence, admin role, and group uniqueness.');
     const statusChip = {
       unbound: ['chip-muted', L('未绑定', 'Unbound')],
       verifying: ['chip-gold', L('核验中', 'Verifying')],
@@ -299,12 +299,12 @@ export function renderBindTgGroup(root) {
         <div class="col-gap anim-page-enter">
           <div class="card card-hero">
             <div class="row-between" style="margin-bottom:8px;">
-              <span class="card-title">${icon('send', 15, 'text-gold')} ${L('商会 Telegram 群真实核验', 'Guild Telegram Group Verification')}</span>
+              <span class="card-title">${icon('send', 15, 'text-gold')} ${L('战队 Telegram 群真实核验', 'Squad Telegram Group Verification')}</span>
               <span class="chip ${cls}" id="live-tg-bind-status">${txt}</span>
             </div>
             <div class="num-xs text-sec" id="live-tg-bind-msg" style="margin-bottom:12px;line-height:1.5;">${escapeHtml(lastMsg)}</div>
             <form id="live-tg-bind-form" class="col-gap">
-              <label class="num-xs text-sec">${L('商会编号 (Team ID)', 'Guild ID')}
+              <label class="num-xs text-sec">${L('战队编号 (Squad ID)', 'Squad ID')}
                 <input name="teamId" class="input-box" style="width:100%;margin-top:4px;padding:8px 10px;" placeholder="TM-0001" required maxlength="64" value="${escapeHtml(team.id || '')}">
               </label>
               <label class="num-xs text-sec">${L('Telegram 群组 @用户名', 'Telegram Group @handle')}
@@ -322,7 +322,7 @@ export function renderBindTgGroup(root) {
               1. ${L('仅会长本人（已验签绑定钱包）可发起提交与核验，普通成员将被拒绝（403）。', 'Captain-only (verified wallet required); members are rejected (403).')}<br>
               2. ${L('仅提交 @群名 始终停留在「核验中」，绝不伪造已绑定状态。', 'Submitting @handle only sets verifying status; never faked as bound.')}<br>
               3. ${L('必须先将官方 Bot 拉入群且会长具备群管理员权限，否则核验失败。', 'Official bot must be in group and captain must hold group admin role.')}<br>
-              4. ${L('同一真实群 ID（tgChatId）仅允许绑定 1 个商会；若权限丢失，巡检将自动降级为「已失效」。', 'One tgChatId binds at most one guild; lost permissions downgrade to expired.')}
+              4. ${L('同一真实群 ID（tgChatId）仅允许绑定 1 个战队；若权限丢失，巡检将自动降级为「已失效」。', 'One tgChatId binds at most one squad; lost permissions downgrade to expired.')}
             </div>
           </div>
         </div>
@@ -349,7 +349,7 @@ export function renderBindTgGroup(root) {
       root.querySelector('#btn-live-verify-tg').onclick = async () => {
         const tid = form.elements.teamId.value.trim();
         if (!tid) {
-          showToast(L('请先填写商会编号', 'Enter Guild ID first'), 'amber');
+          showToast(L('请先填写战队编号', 'Enter Squad ID first'), 'amber');
           return;
         }
         const verifyBtn = root.querySelector('#btn-live-verify-tg');
@@ -417,18 +417,18 @@ export function renderInviteShare(root) {
   let template = 'invite';
 
   const pitchText = L(
-    `来 A9 财富主城查看轮次挑战与商会：${inviteLink}`,
-    `Explore the A9 Wealth City and Guild: ${inviteLink}`
+    `来 A9 广场查看轮次闯关与战队：${inviteLink}`,
+    `Explore A9 Plaza, Round Quest and Squads: ${inviteLink}`
   );
 
   const paint = () => {
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         <div class="card card-hero">
-          ${config.isDemo ? L('演示推广奖励','Demo promotion rewards') : L('推广奖励等待核验','Promotion rewards await verification')}
+          ${config.isDemo ? L('演示邀友奖励','Demo invite rewards') : L('邀友奖励等待核验','Invite rewards await verification')}
           <button class="btn btn-secondary btn-sm" id="btn-claim-promo-hot" style="width:100%;margin-top:12px;">${icon(config.isDemo ? 'wallet' : 'lock', 14)} ${config.isDemo
-            ? L('领取推广奖励（演示模拟 0.06 GRAM）', 'Claim Promo Rewards (Demo 0.06 GRAM)')
-            : L('真实模式只读 · 推广领奖暂未开放', 'Read-Only Mode · Promo Claim Disabled')}</button>
+            ? L('领取邀友奖励（演示模拟 0.06 GRAM）', 'Claim Invite Rewards (Demo 0.06 GRAM)')
+            : L('真实模式只读 · 邀友领奖暂未开放', 'Read-Only Mode · Invite Claim Disabled')}</button>
           ${!config.isDemo ? `<div class="num-xs text-muted" id="live-readonly-promo-notice" style="margin-top:6px;">${L('当前真实模式仅支持只读浏览与连接钱包，暂不创建 0.06 GRAM 付款单或发起签名。', 'Live mode is read-only; no 0.06 GRAM payment intent or signature will be created.')}</div>` : ''}
         </div>
 

@@ -307,11 +307,11 @@ class A9TonConnect {
     return await this._dispatch(buildV15ClaimTx(target, queryId), 'demo_v15_claim');
   }
 
-  /** v15 推广奖励领取（live 模式强制禁用；demo 模式仅返回模拟回执）。 */
+  /** v15 邀友奖励领取（live 模式强制禁用；demo 模式仅返回模拟回执）。 */
   async sendV15PromoFee(intent) {
     if (!config.isDemo) throw createFundsDisabledError();
     if (!intent?.payTo || !intent?.memo) {
-      const err = new Error('推广奖励支付单无效，请重新获取');
+      const err = new Error('邀友奖励支付单无效，请重新获取');
       err.code = 'BAD_PROMO_INTENT';
       throw err;
     }

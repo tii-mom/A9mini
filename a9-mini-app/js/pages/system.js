@@ -26,14 +26,14 @@ const RISK_STATES = [
   { id: '09', code: 'ERR_0x2209_ORACLE_CIRCUIT_BREAK', cat: 'quota', title: '预言机喂价异常熔断 (Pyth/RedStone)', desc: '跨链报价偏差 > 8.5%，系统自动开启安全隔离并 100% 锁定退还本金。', action: '查看熔断审计报告' },
   { id: '10', code: 'ERR_0x2210_NO_CLAIMABLE_BAL', cat: 'quota', title: '待领取奖励为空', desc: '当前可提取额度为 0，其余资产仍在 80% 线性归属周期。', action: '查看线性释放计划' },
   { id: '11', code: 'ERR_0x2211_GAS_ESTIMATE_FAIL', cat: 'quota', title: '智能合约领取 Gas 估算失败', desc: 'TVM 预执行抛出 Out-of-gas 警告，建议提高 Gas 上限至 0.15 GRAM。', action: '以 0.15 GRAM 重试' },
-  { id: '12', code: 'ERR_0x3312_TG_AUTH_REQUIRED', cat: 'market', title: '未绑定 TG 账号阻断商行兑换', desc: '独立外部钱包缺少 Telegram InitData 签名校验。', action: '绑定 Telegram 账号' },
-  { id: '13', code: 'ERR_0x3313_PRESALE_SOLD_OUT', cat: 'market', title: '商行当期额度已售罄 (Sold Out)', desc: '商行总额度已被抢空，后发交易由系统原路免手续费退还。', action: '查询自动退款流水' },
-  { id: '14', code: 'ERR_0x3314_USER_CANCELLATION', cat: 'market', title: '用户主动取消商行订单', desc: '锁仓前主动撤单，扣除固定 0.05 GRAM 计算损耗费后退回余额。', action: '确认撤单规则' },
+  { id: '12', code: 'ERR_0x3312_TG_AUTH_REQUIRED', cat: 'market', title: '未绑定 TG 账号阻断兑换屋兑换', desc: '独立外部钱包缺少 Telegram InitData 签名校验。', action: '绑定 Telegram 账号' },
+  { id: '13', code: 'ERR_0x3313_PRESALE_SOLD_OUT', cat: 'market', title: '兑换屋当期额度已售罄 (Sold Out)', desc: '兑换屋总额度已被抢空，后发交易由系统原路免手续费退还。', action: '查询自动退款流水' },
+  { id: '14', code: 'ERR_0x3314_USER_CANCELLATION', cat: 'market', title: '用户主动取消兑换屋订单', desc: '锁仓前主动撤单，扣除固定 0.05 GRAM 计算损耗费后退回余额。', action: '确认撤单规则' },
   { id: '15', code: 'ERR_0x3315_DUST_NON_REFUNDABLE', cat: 'market', title: '粉尘金额转账 (≤0.1 GRAM 拦截)', desc: '微小数额低于链上拆单成本，协议直接拦截。', action: '调整至有效档位' },
-  { id: '16', code: 'ERR_0x4416_CAPTAIN_CANNOT_EXIT', cat: 'team', title: '团队队长试图退团阻断', desc: '队长绑定分润金库，需先移交队长权限方可离团。', action: '前往移交队长权限' },
-  { id: '17', code: 'ERR_0x4417_TEAM_SWITCH_QUOTA', cat: 'team', title: '赛季内切换团队超过 1 次限制', desc: '每个赛季严格限制仅可迁移团队 1 次，防止套利。', action: '等待下赛季重置' },
-  { id: '18', code: 'ERR_0x4418_PREHEAT_ELIGIBILITY', cat: 'team', title: '预热未达到 ≥1 名有效直邀门槛', desc: '需至少邀请 1 位完成入金认证的真实伙伴以激活排位资格。', action: '分享专属邀请链' },
-  { id: '19', code: 'ERR_0x4419_INVITE_HARDCAP', cat: 'team', title: '邀请奖励达 320,000 A9 单轮硬顶', desc: '单地址单轮邀请分润封顶，多余积分自动转入社区奖池。', action: '查看返佣上限' },
+  { id: '16', code: 'ERR_0x4416_CAPTAIN_CANNOT_EXIT', cat: 'team', title: '战队队长试图退队阻断', desc: '队长绑定分润金库，需先移交队长权限方可离队。', action: '前往移交队长权限' },
+  { id: '17', code: 'ERR_0x4417_TEAM_SWITCH_QUOTA', cat: 'team', title: '赛季内切换战队超过 1 次限制', desc: '每个赛季严格限制仅可迁移战队 1 次，防止套利。', action: '等待下赛季重置' },
+  { id: '18', code: 'ERR_0x4418_PREHEAT_ELIGIBILITY', cat: 'team', title: '开局预热未达到 ≥1 名有效直邀门槛', desc: '需至少邀请 1 位完成入金认证的真实伙伴以激活排位资格。', action: '分享专属邀请链' },
+  { id: '19', code: 'ERR_0x4419_INVITE_HARDCAP', cat: 'team', title: '邀友奖励达 320,000 A9 单轮硬顶', desc: '单地址单轮邀友奖励封顶，多余积分自动转入社区奖池。', action: '查看邀友奖励上限' },
   { id: '20', code: 'ERR_0x5520_TG_BOT_PERM_LOST', cat: 'sys', title: 'TG 群组解绑 / Bot 管理员权限丢失', desc: '关联群组撤销了 @A9Terminal_bot 管理员权限。', action: '重新授权 Bot Admin' },
   { id: '21', code: 'ERR_0x5521_RENEWAL_TIMEOUT', cat: 'sys', title: '续期策略撤销超时 (<30分钟锁定)', desc: '已进入新轮开盘前 30 分钟锁定缓冲期。', action: '等待下轮开盘后调整' },
   { id: '22', code: 'ERR_0x5522_UPGRADE_PAUSED', cat: 'sys', title: '智能合约升级维护公告态', desc: '多签理事会正在执行 TVM 无缝升级，暂停读写 15 分钟。', action: '订阅官方升级频道' }
@@ -50,8 +50,8 @@ export function renderSettingsPage(root) {
       <div class="card">
         <div class="list-row">
           <div>
-            <div style="font-weight:800;">${L('暖炭暗夜纸本', 'Dark Paper Theme')}</div>
-            <div class="num-xs text-muted">${isDark ? L('当前：暗夜暖炭纸本', 'Current: Dark charcoal paper') : L('当前：白昼暖棉纸', 'Current: Warm cotton paper')}</div>
+            <div style="font-weight:800;">${L('石墨暗夜纸本', 'Graphite Dark Theme')}</div>
+            <div class="num-xs text-muted">${isDark ? L('当前：石墨暗夜纸本', 'Current: Graphite dark paper') : L('当前：红白雪宣纸', 'Current: Crisp snow paper')}</div>
           </div>
           <div class="a9-switch ${isDark ? 'on' : ''}" id="set-theme-switch" role="switch" aria-checked="${isDark}" tabindex="0"></div>
         </div>
@@ -71,7 +71,7 @@ export function renderSettingsPage(root) {
           <span class="chip ${user.connected ? 'chip-green' : 'chip-gold'}">${user.connected ? L('已连接', 'Connected') : L('去连接', 'Connect')}</span>
         </div>
         <div class="list-row clickable" id="set-tg-row" style="margin-top:6px;">
-          <div><div style="font-weight:700;">${L('Telegram 账号绑定', 'Telegram Binding')}</div><div class="num-xs text-muted">${user.tgBound ? user.username : L('商行兑换与商会功能需绑定', 'Required for Market & Guild')}</div></div>
+          <div><div style="font-weight:700;">${L('Telegram 账号绑定', 'Telegram Binding')}</div><div class="num-xs text-muted">${user.tgBound ? user.username : L('兑换屋与战队功能需绑定', 'Required for Exchange & Squad')}</div></div>
           <span class="chip ${user.tgBound ? 'chip-green' : 'chip-gold'}">${user.tgBound ? L('已绑定', 'Bound') : L('立即绑定', 'Bind')}</span>
         </div>
         <div class="list-row clickable" id="set-lang-row" style="margin-top:6px;">
@@ -87,8 +87,8 @@ export function renderSettingsPage(root) {
       </div>
 
       <div class="grid-2">
-        <button class="btn btn-secondary" data-nav="/rules">${icon('book', 15)} ${L('玩法规则', 'Rules FAQ')}</button>
-        <button class="btn btn-secondary" data-nav="/risk/matrix">${icon('shieldAlert', 15)} ${L('风控与自检', 'Risk Guards')}</button>
+        <button class="btn btn-secondary" data-nav="/rules">${icon('book', 15)} ${L('闯关指南', 'How to Play')}</button>
+        <button class="btn btn-secondary" data-nav="/risk/matrix">${icon('shieldAlert', 15)} ${L('安全护盾', 'Safety Shield')}</button>
       </div>
       ${config.isDemo ? `<button class="btn btn-danger" id="btn-reset-demo">${icon('refresh', 15)} ${L('重置本地演示数据', 'Reset Demo Data')}</button>` : ''}
     </div>
@@ -98,7 +98,7 @@ export function renderSettingsPage(root) {
   if (themeSw) {
     const doTheme = (e) => {
       const next = toggleTheme(e);
-      showToast(next === 'dark' ? L('已切换暖炭暗夜纸本', 'Dark paper theme') : L('已切换白昼暖棉纸', 'Warm paper theme'));
+      showToast(next === 'dark' ? L('已切换石墨暗夜纸本', 'Graphite dark theme') : L('已切换红白雪宣纸', 'Crisp snow paper theme'));
     };
     themeSw.onclick = doTheme;
     themeSw.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doTheme(e); } };
@@ -142,7 +142,7 @@ export function renderSettingsPage(root) {
 
 export function renderRiskMatrix(root) {
   if (!config.isDemo) {
-    root.innerHTML = `<section class="card col-gap"><h2>${L('风控保护说明', 'Risk Guard Reference')}</h2><p class="num-xs text-sec">${L('真实模式当前处于只读验收阶段，实时风控告警流待主网接入后开放展示；本页仅在演示模式支持模拟拦截。', 'Live mode is read-only; live risk telemetry awaits mainnet integration. Interactive simulations are demo-only.')}</p></section>`;
+    root.innerHTML = `<section class="card col-gap"><h2>${L('安全护盾说明', 'Safety Shield Reference')}</h2><p class="num-xs text-sec">${L('真实模式当前处于只读验收阶段，实时风控告警流待主网接入后开放展示；本页仅在演示模式支持模拟拦截。', 'Live mode is read-only; live safety telemetry awaits mainnet integration. Interactive simulations are demo-only.')}</p></section>`;
     return;
   }
   let filter = 'all';
@@ -165,8 +165,8 @@ export function renderRiskMatrix(root) {
           <button class="seg-tab ${filter === 'all' ? 'active' : ''}" data-rf="all">全部 22</button>
           <button class="seg-tab ${filter === 'wallet' ? 'active' : ''}" data-rf="wallet">钱包/链</button>
           <button class="seg-tab ${filter === 'quota' ? 'active' : ''}" data-rf="quota">额度/观察</button>
-          <button class="seg-tab ${filter === 'market' ? 'active' : ''}" data-rf="market">商行</button>
-          <button class="seg-tab ${filter === 'team' ? 'active' : ''}" data-rf="team">商会</button>
+          <button class="seg-tab ${filter === 'market' ? 'active' : ''}" data-rf="market">兑换屋</button>
+          <button class="seg-tab ${filter === 'team' ? 'active' : ''}" data-rf="team">战队</button>
         </div>
 
         <div class="col-gap">
@@ -220,9 +220,9 @@ export function renderRiskAudit(root) {
       <div class="col-gap anim-page-enter">
         <section class="card empty-state">
           <div class="icon-badge sky">${icon('shieldCheck', 20)}</div>
-          <div style="font-size:15px;font-weight:800;">${L('暂无链上审计记录', 'No audit events yet')}</div>
-          <p class="num-xs text-sec" style="margin:0;max-width:260px;">${L('实时审计事件流将在主网合约接入后按时间展示。', 'On-chain audit logs will appear chronologically after mainnet launch.')}</p>
-          <a class="btn btn-secondary btn-sm" style="margin-top:8px;" href="#/round">${L('返回轮次挑战', 'Back to Challenge')}</a>
+          <div style="font-size:15px;font-weight:800;">${L('暂无链上验真记录', 'No on-chain proofs yet')}</div>
+          <p class="num-xs text-sec" style="margin:0;max-width:260px;">${L('实时验真事件流将在主网合约接入后按时间展示。', 'On-chain proof logs will appear chronologically after mainnet launch.')}</p>
+          <a class="btn btn-secondary btn-sm" style="margin-top:8px;" href="#/round">${L('返回轮次闯关', 'Back to Quest')}</a>
         </section>
       </div>`;
     return;
@@ -273,12 +273,64 @@ export function renderRulesPage(root) {
         <div class="row-between">
           <div>
             <span class="diorama-kicker">A9 / RULEBOOK</span>
-            <h2 style="margin:3px 0 4px;font-size:18px;font-weight:900;">${L('3 分钟看懂 A9 玩法', 'Understand A9 in 3 Minutes')}</h2>
-            <p class="num-xs text-sec" style="margin:0;">${L('v15 使用 A9 质押；24 个时段达标 ≥16 段胜出，失败轮按规则销毁本轮质押本金。', 'v15 stakes A9; 16/24 qualified slots win, while failed rounds burn round principal.')}</p>
+            <h2 style="margin:3px 0 4px;font-size:18px;font-weight:900;">${L('3 分钟玩懂 A9 玩法', 'Understand A9 in 3 Minutes')}</h2>
+            <p class="num-xs text-sec" style="margin:0;">${L('动手点一点下方折纸图解卡，瞬间看懂早鸟权重份额与 16/24 通关线。', 'Tap & slide the origami cards below to feel early weights and the 16/24 rule.')}</p>
           </div>
-          <img src="./assets/paper-craft/rules.svg" alt="" style="width:48px;height:48px;filter:var(--paper-cut-shadow);flex-shrink:0;">
+          <img src="./assets/paper-craft/rules.png" alt="" style="width:48px;height:48px;filter:var(--paper-cut-shadow);flex-shrink:0;">
         </div>
       </div>
+
+      <!-- 交互折纸卡 1：早鸟权重份额对比 -->
+      <section class="card rule-sim-card" id="rule-weight-sim">
+        <div class="row-between">
+          <div class="card-title">${icon('bolt', 15, 'text-gold')} ${L('交互折纸 · 早鸟权重份额', 'Interactive · Early Weight')}</div>
+          <span class="chip chip-gold mono">${L('上限 15×', '15× Cap')}</span>
+        </div>
+        <div class="weight-fold-grid" role="group" aria-label="${L('选择早鸟档位', 'Select early tier')}">
+          <button type="button" class="weight-fold-btn active" data-rule-weight="2.0" aria-pressed="true">
+            <strong>2.0×</strong>
+            <small>${L('首段早鸟', 'Early')}</small>
+          </button>
+          <button type="button" class="weight-fold-btn" data-rule-weight="1.4" aria-pressed="false">
+            <strong>1.4×</strong>
+            <small>${L('中段稳进', 'Middle')}</small>
+          </button>
+          <button type="button" class="weight-fold-btn" data-rule-weight="1.0" aria-pressed="false">
+            <strong>1.0×</strong>
+            <small>${L('末段压哨', 'Late')}</small>
+          </button>
+        </div>
+        <div class="rule-verdict-box" id="rule-weight-output">
+          <div class="row-between num-xs">
+            <span class="text-sec">${L('假设参与 100 GRAM 折算权重', '100 GRAM effective weight')}</span>
+            <b class="mono text-gold" id="rule-weight-val">200 权重份（相对末段 2.00 倍）</b>
+          </div>
+          <div class="num-xs text-muted" id="rule-weight-desc">${L('仅影响达标后奖励池瓜分份额，不改变本金或 15 倍封顶上限。', 'Only affects reward pool share on passing rounds; 15× cap unchanged.')}</div>
+        </div>
+      </section>
+
+      <!-- 交互折纸卡 2：24H 达标通关线推演滑杆 -->
+      <section class="card rule-sim-card" id="rule-slot-sim">
+        <div class="row-between">
+          <div class="card-title">${icon('radar', 15, 'text-cyan')} ${L('交互折纸 · 24H 通关线推演', 'Interactive · 16/24 Threshold')}</div>
+          <span class="chip chip-green mono" id="rule-slot-pill">16 / 24</span>
+        </div>
+        <div class="rule-range-wrap">
+          <input class="rule-range-input" id="rule-slot-range" type="range" min="0" max="24" step="1" value="16" aria-label="${L('模拟达标时段数', 'Simulate qualified slots')}">
+          <div class="row-between num-xs text-muted mono">
+            <span>0</span>
+            <span class="text-gold" style="font-weight:800;">★ 16 ${L('达标线', 'Goal')}</span>
+            <span>24</span>
+          </div>
+        </div>
+        <div class="rule-verdict-box pass" id="rule-slot-output">
+          <div class="row-between num-xs">
+            <b id="rule-slot-title" class="text-green">${L('达标胜出 ✓ · 解锁本轮奖池', 'Round Passed ✓ · Pool Unlocked')}</b>
+            <span class="mono text-sec" id="rule-slot-sub">16 ≥ 16</span>
+          </div>
+          <div class="num-xs text-sec" id="rule-slot-desc">${L('按全网累计胜场阶梯释放：1–5 胜即时 20%，6–10 胜即时 40%，11 胜起 100% 秒领。', 'Vesting by global wins: 1–5 wins 20%, 6–10 wins 40%, 11+ wins 100% instant.')}</div>
+        </div>
+      </section>
 
       <div class="card">
         <details class="faq-item" open>
@@ -303,9 +355,9 @@ export function renderRulesPage(root) {
         </details>
 
         <details class="faq-item">
-          <summary><span>${L('4. 推广奖励与商会加成如何领取？', '4. How are referral rewards claimed?')}</span><span class="faq-arrow">${icon('chevronDown', 15)}</span></summary>
+          <summary><span>${L('4. 邀友奖励与战队加成如何领取？', '4. How are invite rewards claimed?')}</span><span class="faq-arrow">${icon('chevronDown', 15)}</span></summary>
           <div class="faq-body">
-            ${L('后台独立核算推广奖励（直邀 12% / 团队 18%）。领取时支付 0.06 GRAM 网络费用，由推广热钱包自动发 A9。当前真实模式处于只读验收阶段，真实领取入口暂未开放。', 'Referral rewards are tracked off-chain. Claiming pays a 0.06 GRAM network fee and the hot wallet sends A9. Live claims are currently disabled in read-only mode.')}
+            ${L('后台独立核算邀友奖励（直邀 12% / 战队 18%）。领取时支付 0.06 GRAM 网络费用，由推广热钱包自动发 A9。当前真实模式处于只读验收阶段，真实领取入口暂未开放。', 'Invite rewards are tracked off-chain. Claiming pays a 0.06 GRAM network fee and the hot wallet sends A9. Live claims are currently disabled in read-only mode.')}
           </div>
         </details>
       </div>
@@ -313,6 +365,78 @@ export function renderRulesPage(root) {
       <button class="btn btn-secondary" data-nav="/risk/matrix">${icon('shieldAlert', 15)} ${L('查看 22 项链上风控保护', 'View 22 On-Chain Risk Guards')}</button>
     </div>
   `;
+
+  // 绑定交互折纸卡 1：早鸟权重切换
+  const wVal = root.querySelector('#rule-weight-val');
+  const wDesc = root.querySelector('#rule-weight-desc');
+  root.querySelectorAll('[data-rule-weight]').forEach((btn) => {
+    btn.onclick = () => {
+      A9Haptic.tick();
+      A9Audio.pageTurn();
+      const mult = Number(btn.dataset.ruleWeight) || 1;
+      root.querySelectorAll('[data-rule-weight]').forEach((b) => {
+        const on = b === btn;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', String(on));
+      });
+      if (wVal) {
+        wVal.textContent = L(
+          `${Math.round(100 * mult)} 权重份（相对末段 ${mult.toFixed(2)} 倍）`,
+          `${Math.round(100 * mult)} shares (${mult.toFixed(2)}× vs late)`
+        );
+      }
+      if (wDesc) {
+        wDesc.textContent = mult === 2
+          ? L('首段早鸟享有最高 2.0× 分配权重，同样本金分得双倍基础份额。', 'Early 2.0× earns double base reward weight for the same principal.')
+          : mult === 1.4
+            ? L('中段参与享有 1.4× 权重，在节奏与份额间取得平衡。', 'Middle tier earns 1.4× weight, balancing timing and share.')
+            : L('末段按 1.0× 基础权重计入，仍享受完整的 15× 奖励封顶空间。', 'Late entry counts at 1.0× base weight with full 15× reward cap.');
+      }
+    };
+  });
+
+  // 绑定交互折纸卡 2：24H 生死线推演滑杆
+  const rangeEl = root.querySelector('#rule-slot-range');
+  const slotPill = root.querySelector('#rule-slot-pill');
+  const slotOut = root.querySelector('#rule-slot-output');
+  const slotTitle = root.querySelector('#rule-slot-title');
+  const slotSub = root.querySelector('#rule-slot-sub');
+  const slotDesc = root.querySelector('#rule-slot-desc');
+  if (rangeEl) {
+    let prevSlot = Number(rangeEl.value);
+    rangeEl.oninput = () => {
+      const v = Number(rangeEl.value);
+      if (v !== prevSlot) {
+        A9Haptic.tick();
+        if (v === 16) A9Audio.scaleChime(16);
+        else A9Audio.ratchet(Math.max(1, Math.min(9, Math.ceil((v / 24) * 9))));
+        prevSlot = v;
+      }
+      const pass = v >= 16;
+      if (slotPill) {
+        slotPill.textContent = `${v} / 24`;
+        slotPill.className = `chip ${pass ? 'chip-green' : 'chip-red'} mono`;
+      }
+      if (slotOut) {
+        slotOut.classList.toggle('pass', pass);
+        slotOut.classList.toggle('burn', !pass);
+      }
+      if (slotTitle) {
+        slotTitle.className = pass ? 'text-green' : 'text-red';
+        slotTitle.textContent = pass
+          ? L('达标胜出 ✓ · 解锁本轮奖池', 'Round Passed ✓ · Pool Unlocked')
+          : L('未达门槛 × · 触发对称销毁', 'Below 16 × · Symmetric Burn');
+      }
+      if (slotSub) {
+        slotSub.textContent = pass ? `${v} ≥ 16` : `${v} < 16（${L(`差 ${16 - v} 段`, `${16 - v} short`)}）`;
+      }
+      if (slotDesc) {
+        slotDesc.textContent = pass
+          ? L('按全网累计胜场阶梯释放：1–5 胜即时 20%，6–10 胜即时 40%，11 胜起 100% 秒领。', 'Vesting by global wins: 1–5 wins 20%, 6–10 wins 40%, 11+ wins 100% instant.')
+          : L('失败轮按 v15 规则销毁当轮质押本金、一半当轮奖池与未解锁余量，另一半滚存下轮。', 'Failed rounds burn round principal, half of the round pool, and unvested balances.');
+      }
+    };
+  }
 }
 
 export function renderNotFoundPage(root) {
@@ -322,7 +446,7 @@ export function renderNotFoundPage(root) {
         <div class="icon-badge red" style="width:46px;height:46px;border-radius:13px;">${icon('shieldAlert', 22)}</div>
         <div class="num-xl" style="margin-top:4px;">404</div>
         <div class="text-sec" style="font-size:12px;">${L('该页面不存在或路由链接已失效', 'This page was not found or the link has expired')}</div>
-        <button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/challenge">${icon('arrowLeft', 14)} ${L('返回主城首页', 'Back to City')}</button>
+        <button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/challenge">${icon('arrowLeft', 14)} ${L('返回 A9 广场', 'Back to Plaza')}</button>
       </div>
     </div>
   `;

@@ -1,5 +1,5 @@
 /**
- * 荣誉排行榜 (/leaderboard) — 轻战报摘要 + Top 3 立牌领奖台 + 紧凑完整列表 + 状态记忆
+ * 财富榜 (/leaderboard) — 轻战报摘要 + Top 3 立牌领奖台 + 紧凑完整列表 + 状态记忆
  */
 
 import { A9Haptic } from '../tma.js';
@@ -17,10 +17,10 @@ export function renderLeaderboard(root) {
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         <section class="card empty-state">
-          <img src="./assets/paper-craft/trophy.svg" alt="" style="width:58px;height:58px;filter:var(--paper-cut-shadow);">
+          <img src="./assets/paper-craft/trophy.png" alt="" style="width:58px;height:58px;filter:var(--paper-cut-shadow);">
           <div style="font-size:16px;font-weight:900;">${L('榜单数据待核验', 'Rankings awaiting verification')}</div>
-          <div class="num-xs text-sec" style="max-width:260px;">${L('个人榜、商会榜与邀请榜将在服务端同步后展示。', 'Personal, guild and invite rankings appear once synced from the server.')}</div>
-          <a class="btn btn-secondary btn-sm" style="margin-top:8px;" href="#/challenge">${L('返回主城', 'Back to City')}</a>
+          <div class="num-xs text-sec" style="max-width:260px;">${L('个人榜、战队榜与邀请榜将在服务端同步后展示。', 'Personal, squad and invite rankings appear once synced from the server.')}</div>
+          <a class="btn btn-secondary btn-sm" style="margin-top:8px;" href="#/challenge">${L('返回广场', 'Back to Plaza')}</a>
         </section>
       </div>`;
     return;
@@ -51,7 +51,7 @@ export function renderLeaderboard(root) {
 
         <div class="seg-tabs">
           <button class="seg-tab ${activeTab === 'personal' ? 'active' : ''}" data-ltab="personal">${L('个人榜', 'Traders')}</button>
-          <button class="seg-tab ${activeTab === 'team' ? 'active' : ''}" data-ltab="team">${L('商会榜', 'Guilds')}</button>
+          <button class="seg-tab ${activeTab === 'team' ? 'active' : ''}" data-ltab="team">${L('战队榜', 'Squads')}</button>
           <button class="seg-tab ${activeTab === 'invite' ? 'active' : ''}" data-ltab="invite">${L('邀请榜', 'Invites')}</button>
         </div>
 

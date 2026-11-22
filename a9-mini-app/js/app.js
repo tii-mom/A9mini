@@ -133,12 +133,12 @@ function renderHeader(route) {
     <div class="header-left">
       ${isStack && !inTelegram ? `<button class="icon-btn" id="hdr-back" aria-label="Back">${icon('arrowLeft', 16)}</button>` : ''}
       ${!isStack
-        ? `<div class="header-brand"><span class="brand-mark">A9</span>${config.isDemo ? `<span class="chip chip-muted" style="height:20px;font-size:10px;padding:0 7px;">DEMO</span>` : ''}</div>`
-        : `<div class="header-title">${titleText}${config.isDemo ? '<small>DEMO</small>' : ''}</div>`
+        ? `<div class="header-brand"><span class="brand-mark"><svg class="brand-spiral" viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M16 24C13.5 34.5 18.5 47 31 50.5C44.5 54 55 44 55 31C55 18 44.5 10 33 11.5C22.5 13 18 22.5 20.5 31.5C22.8 39.5 31.5 43.5 38.5 39.5C44.5 36 45 27.5 39.5 23.5C35.2 20.5 29.8 22.8 29.5 27.5" stroke="#FFFFFF" stroke-width="8.5" stroke-linecap="round"/></svg><span>A9</span></span>${config.isDemo ? `<span class="header-demo-dot">DEMO</span>` : ''}</div>`
+        : `<div class="header-title"><span class="header-title-text">${titleText}</span></div>`
       }
     </div>
     <div class="header-right">
-      ${config.isDemo ? `<button class="icon-btn" id="btn-open-sim" aria-label="${L('演示控制台', 'Demo console')}" title="${L('演示控制台', 'Demo console')}">${icon('sliders', 14)}</button>` : ''}
+      ${config.isDemo ? `<button class="icon-btn has-demo-pip" id="btn-open-sim" aria-label="${L('演示控制台', 'Demo console')}" title="${L('演示控制台 (DEMO)', 'Demo console (DEMO)')}">${icon('sliders', 14)}</button>` : ''}
       <button class="wallet-pill ${user.connected ? '' : 'disconnected'}" id="btn-wallet-pill">
         <span class="live-dot ${user.connected ? '' : 'amber'}"></span>
         <span>${user.connected ? (user.shortAddress || (user.address ? (user.address.length > 12 ? `${user.address.slice(0, 4)}...${user.address.slice(-4)}` : user.address) : t('connect_wallet'))) : t('connect_wallet')}</span>
@@ -275,8 +275,11 @@ export function renderCurrentRoute() {
   }
   const prevPath = lastRenderedPath;
   route.render(mainEl, navigate, param);
-  if (route.path !== prevPath && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    mainEl.animate?.([{opacity:0.7, transform:'translateY(5px)'},{opacity:1, transform:'none'}],{duration:180,easing:'ease-out'});
+  if (prevPath && route.path !== prevPath) {
+    if (route.shell === 'stack') A9Audio.pageTurn();
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      mainEl.animate?.([{opacity:0.7, transform:'translateY(5px)'},{opacity:1, transform:'none'}],{duration:180,easing:'ease-out'});
+    }
   }
   lastRenderedPath = route.path;
   lastFullHash = currentHash;
@@ -391,12 +394,12 @@ function openSimDrawer() {
 
       <div class="caps text-muted">${L('轮次阶段', 'Round Stage')}</div>
       <div class="grid-2">
-        <button class="quick-btn ${round.stage === 'warmup' ? 'active' : ''}" data-sim-stage="warmup">${L('1. 预热阶段', '1. Warm-Up')}</button>
-        <button class="quick-btn ${round.stage === 'participation' ? 'active' : ''}" data-sim-stage="participation">${L('2. 参与阶段', '2. Entry')}</button>
-        <button class="quick-btn ${round.stage === 'observation' ? 'active' : ''}" data-sim-stage="observation">${L('3. 观察阶段', '3. Observe')}</button>
-        <button class="quick-btn ${round.stage === 'settlement_success' ? 'active' : ''}" data-sim-stage="settlement_success">${L('4. 结算 · 达标', '4. Passed')}</button>
-        <button class="quick-btn ${round.stage === 'settlement_burn' ? 'active' : ''}" data-sim-stage="settlement_burn">${L('5. 结算 · 未达标', '5. Missed')}</button>
-        <button class="quick-btn ${round.stage === 'halted' ? 'active' : ''}" data-sim-stage="halted">${L('6. 技术中止', '6. Halted')}</button>
+        <button class="quick-btn ${round.stage === 'warmup' ? 'active' : ''}" data-sim-stage="warmup">${L('1. 开局倒计时', '1. Pre-Round')}</button>
+        <button class="quick-btn ${round.stage === 'participation' ? 'active' : ''}" data-sim-stage="participation">${L('2. 火热入场', '2. Entry Open')}</button>
+        <button class="quick-btn ${round.stage === 'observation' ? 'active' : ''}" data-sim-stage="observation">${L('3. 24H 闯关中', '3. 24H Quest')}</button>
+        <button class="quick-btn ${round.stage === 'settlement_success' ? 'active' : ''}" data-sim-stage="settlement_success">${L('4. 通关派奖', '4. Passed')}</button>
+        <button class="quick-btn ${round.stage === 'settlement_burn' ? 'active' : ''}" data-sim-stage="settlement_burn">${L('5. 未通关 · 销毁 BURN', '5. Failed · BURN')}</button>
+        <button class="quick-btn ${round.stage === 'halted' ? 'active' : ''}" data-sim-stage="halted">${L('6. 异常中止 · 退回本金', '6. Aborted · Refund')}</button>
       </div>
 
       <div class="caps text-muted">${L('24H 时段状态演练（观察页）', '24H Slot Simulation (Observe)')}</div>
@@ -407,7 +410,7 @@ function openSimDrawer() {
         <button class="quick-btn" data-sim-radar="batch">${L('批量补齐历史时段', 'Batch Backfill')}</button>
       </div>
 
-      <div class="caps text-muted">${L('团队角色', 'Squad Role')}</div>
+      <div class="caps text-muted">${L('战队角色', 'Squad Role')}</div>
       <div class="grid-3">
         <button class="quick-btn ${team.role === 'captain' ? 'active' : ''}" data-sim-role="captain">${L('队长', 'Captain')}</button>
         <button class="quick-btn ${team.role === 'member' ? 'active' : ''}" data-sim-role="member">${L('成员', 'Member')}</button>
@@ -416,12 +419,12 @@ function openSimDrawer() {
 
       <div class="caps text-muted">${L('快捷直达', 'Jump To')}</div>
       <div class="grid-2">
-        <button class="quick-btn" data-sim-nav="/warmup">${icon('flame', 13)} ${L('预热', 'Warm-Up')}</button>
-        <button class="quick-btn" data-sim-nav="/internal/market">${icon('swap', 13)} ${L('商行', 'Market')}</button>
-        <button class="quick-btn" data-sim-nav="/team/invite">${icon('qr', 13)} ${L('海报', 'Poster')}</button>
-        <button class="quick-btn" data-sim-nav="/claim">${icon('bolt', 13)} ${L('领取', 'Claim')}</button>
-        <button class="quick-btn" data-sim-nav="/settings">${icon('settings', 13)} ${L('设置', 'Settings')}</button>
-        <button class="quick-btn" data-sim-nav="/rules">${icon('book', 13)} ${L('规则', 'Rules')}</button>
+        <button class="quick-btn" data-sim-nav="/warmup">${icon('flame', 13)} ${L('开局预热', 'Pre-Round')}</button>
+        <button class="quick-btn" data-sim-nav="/internal/market">${icon('swap', 13)} ${L('A9 兑换屋', 'A9 Exchange')}</button>
+        <button class="quick-btn" data-sim-nav="/team/invite">${icon('qr', 13)} ${L('邀友赢奖', 'Invite & Earn')}</button>
+        <button class="quick-btn" data-sim-nav="/claim">${icon('bolt', 13)} ${L('金库领奖', 'Claim Prizes')}</button>
+        <button class="quick-btn" data-sim-nav="/settings">${icon('settings', 13)} ${L('偏好设置', 'Settings')}</button>
+        <button class="quick-btn" data-sim-nav="/rules">${icon('book', 13)} ${L('闯关指南', 'How to Play')}</button>
       </div>
     </div>
   `;
@@ -496,6 +499,18 @@ function startDisplayLoop() {
     if (roundCd) roundCd.textContent = r.countdownSec === null ? '—' : formatTimer(r.countdownSec);
     const earlyCd = document.getElementById('early-cd');
     if (earlyCd) earlyCd.textContent = r.earlyBirdSec === null ? '—' : formatTimer(r.earlyBirdSec);
+    const earlyWinEl = document.getElementById('early-window-cd');
+    if (earlyWinEl) {
+      const openAt = Number(r.stakeOpenAt || 0);
+      const closeAt = Number(r.stakeCloseAt || 0);
+      if (openAt > 0 && closeAt > openAt) {
+        const earlyEnd = openAt + Math.floor((closeAt - openAt) / 3);
+        const left = Math.max(0, earlyEnd - Math.floor(Date.now() / 1000));
+        earlyWinEl.textContent = formatTimer(left);
+      } else if (typeof r.earlyBirdSec === 'number') {
+        earlyWinEl.textContent = formatTimer(Math.max(0, r.earlyBirdSec));
+      }
+    }
     const candleCd = document.getElementById('active-candle-cd');
     if (candleCd) {
       const hasActive = Array.isArray(r.candles) && r.candles.some(c => c.status === 'active');

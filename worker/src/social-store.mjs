@@ -297,10 +297,10 @@ export class SocialStore {
     }
 
     const canonicalChatId = String(check.chatId);
-    // 防同名群或群 ID 冒用：同一真实 tgChatId 不能被两个商会同时绑定
+    // 防同名群或群 ID 冒用：同一真实 tgChatId 不能被两个战队同时绑定
     for (const other of this.teams.values()) {
       if (other.teamId !== teamId && other.tgChatId === canonicalChatId && other.bindStatus === 'bound') {
-        throw new SocialError('GROUP_ALREADY_BOUND', '该 Telegram 群组已被其他商会绑定');
+        throw new SocialError('GROUP_ALREADY_BOUND', '该 Telegram 群组已被其他战队绑定');
       }
     }
 
@@ -336,6 +336,17 @@ export class SocialStore {
     if (!teamId) return null;
     const team = this.teams.get(teamId);
     return team ? this.formatTeam(team) : null;
+  }
+
+  /** 返回全部已通过四重真实核验（bindStatus === 'bound' 且具备真实 tgChatId）的战队群。 */
+  listBoundTeams() {
+    const out = [];
+    for (const t of this.teams.values()) {
+      if (t.bindStatus === 'bound' && t.tgChatId) {
+        out.push(this.formatTeam(t));
+      }
+    }
+    return out;
   }
 
   formatTeam(t) {

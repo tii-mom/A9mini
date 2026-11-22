@@ -3,7 +3,7 @@
 import { buildV15ConfigPayload, mapV15RoundDetail } from './v15-indexer.mjs';
 import { PromoError } from './promo-hotwallet.mjs';
 import { PresaleError } from './presale-hotwallet.mjs';
-import { GrowthError, renderOgCardPng, renderOgCardSvg, renderOgLandingHtml, STICKER_PACK_CATALOG, COSMETIC_ITEM_CATALOG } from './growth-engine.mjs';
+import { GrowthError, renderOgCardPng, renderOgCardSvg, renderOgLandingHtml } from './growth-engine.mjs';
 import { SocialError, parseStartAppParam, createTelegramBotGroupVerifier } from './social-store.mjs';
 import { AuthError, MemoryIdentityStore, allowedProofDomains, createRequestAuth, expectedChainId, verifyTonProof } from './auth.mjs';
 import { addressKey, normalizeTonAddress } from './ton-address.mjs';
@@ -78,7 +78,6 @@ export function createApiRouter({
   socialStore = null,
   predictionEngine = null,
   progressionEngine = null,
-  inventoryEngine = null,
   userReader = null,
   identityStore = new MemoryIdentityStore(),
   publicKeyResolver = null,
@@ -105,10 +104,8 @@ export function createApiRouter({
               minOrderNano: presaleEngine.minOrderNano.toString(),
               maxOrderNano: presaleEngine.maxOrderNano.toString(),
               open: presaleEngine.open,
-              stickerPacks: Object.values(STICKER_PACK_CATALOG),
             }
-          : { enabled: false, address: null, rateA9PerTon: null, rateA9PerGram: null, open: false, stickerPacks: Object.values(STICKER_PACK_CATALOG) };
-        base.cosmeticCatalog = COSMETIC_ITEM_CATALOG;
+          : { enabled: false, address: null, rateA9PerTon: null, rateA9PerGram: null, open: false };
         return ok(base);
       }
 
@@ -246,14 +243,13 @@ export function createApiRouter({
         if (!presaleEngine) return err('PRESALE_DISABLED', 'presale hot wallet not configured', 503);
         const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
         const amount = body?.tonAmount ?? body?.gramAmount;
-        const skuId = body?.skuId ? String(body.skuId).trim() : null;
-        if (!skuId && (amount === undefined || amount === null || amount === '')) {
-          return err('BAD_REQUEST', 'gramAmount or skuId required', 400);
+        if (amount === undefined || amount === null || amount === '') {
+          return err('BAD_REQUEST', 'gramAmount required', 400);
         }
         const rawRef = String(body?.referrerId || '').trim() || null;
         if (socialStore && rawRef) await socialStore.bindReferral(walletAddress, rawRef, nowSec);
         const effectiveRef = socialStore ? await socialStore.getReferrer(walletAddress) : null;
-        return ok(await presaleEngine.createOrderIntent(walletAddress, amount, nowSec, { referrerId: effectiveRef, tgUserId: identity.telegramUserId, skuId }));
+        return ok(await presaleEngine.createOrderIntent(walletAddress, amount, nowSec, { referrerId: effectiveRef, tgUserId: identity.telegramUserId }));
       }
 
       const poMatch = method === 'GET' && pathname.match(/^\/api\/presale\/orders\/(.+)$/);
@@ -438,56 +434,6 @@ export function createApiRouter({
               userId: id.telegramUserId,
               taskKey: body?.taskKey,
               hasPredictionBet,
-            },
-            nowSec,
-          ),
-        );
-      }
-
-      // Phase 4: Paper-Craft Sticker Packs, Inventory & Cosmetic Loadout (strictly tied to verified Telegram user)
-      const invUserMatch = method === 'GET' && pathname.match(/^\/api\/inventory\/(?:user\/)?(.+)$/);
-      if (invUserMatch) {
-        if (!inventoryEngine) return err('INVENTORY_DISABLED', 'inventory engine not configured', 503);
-        const id = await auth.telegram();
-        const requested = decodeURIComponent(invUserMatch[1]);
-        if (requested !== 'me' && requested !== id.telegramUserId) {
-          return err('FORBIDDEN', 'cannot read another user\'s inventory', 403);
-        }
-        return ok(await inventoryEngine.getUserInventory(id.telegramUserId));
-      }
-
-      if (method === 'POST' && pathname === '/api/inventory/sandbox-open') {
-        if (!inventoryEngine) return err('INVENTORY_DISABLED', 'inventory engine not configured', 503);
-        const id = await auth.telegram();
-        if (body?.userId && String(body.userId) !== id.telegramUserId) {
-          return err('FORBIDDEN', 'userId does not match the signed-in Telegram user', 403);
-        }
-        return ok(
-          await inventoryEngine.deliverPack(
-            {
-              userId: id.telegramUserId,
-              skuId: body?.skuId,
-              mode: 'SANDBOX',
-              deliveryId: body?.deliveryId || null,
-              skipAnimation: Boolean(body?.skipAnimation),
-            },
-            nowSec,
-          ),
-        );
-      }
-
-      if (method === 'POST' && pathname === '/api/inventory/equip') {
-        if (!inventoryEngine) return err('INVENTORY_DISABLED', 'inventory engine not configured', 503);
-        const id = await auth.telegram();
-        if (body?.userId && String(body.userId) !== id.telegramUserId) {
-          return err('FORBIDDEN', 'userId does not match the signed-in Telegram user', 403);
-        }
-        return ok(
-          await inventoryEngine.equipItem(
-            {
-              userId: id.telegramUserId,
-              category: body?.category,
-              itemId: body?.itemId ?? null,
             },
             nowSec,
           ),

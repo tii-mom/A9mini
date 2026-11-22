@@ -22,7 +22,7 @@ body {
   background-color: var(--paper-bg);
   background-image:
     url('../assets/paper-craft/cotton-paper-tile.png'),
-    radial-gradient(rgba(138, 124, 106, 0.065) 1px, transparent 1px);
+    radial-gradient(rgba(27, 29, 36, 0.048) 1px, transparent 1px);
   background-size: 128px 128px, 22px 22px;
   color: var(--ink);
   font-family: var(--font-sans);
@@ -91,7 +91,7 @@ img {
 .header-left, .header-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -106,45 +106,66 @@ img {
 .header-brand {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
 }
 
 .brand-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 28px;
-  padding: 0 11px;
+  gap: 5px;
+  height: 29px;
+  padding: 0 10px 0 8px;
   border-radius: 9px;
   background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
   color: #FFFFFF;
   font-weight: 900;
-  font-size: 14px;
+  font-size: 13.5px;
   letter-spacing: -0.02em;
   box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.34), 0 2.5px 0 var(--nt-red-edge);
 }
 
+.brand-spiral {
+  width: 15px;
+  height: 15px;
+  display: block;
+  flex-shrink: 0;
+}
+
 .header-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
   font-size: 15px;
   font-weight: 900;
   color: var(--ink);
+}
+
+.header-title-text {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.header-title small {
-  margin-left: 5px;
-  padding: 1.5px 6px;
-  border-radius: 6px;
+.header-demo-dot {
+  display: inline-flex;
+  align-items: center;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 5px;
   background: var(--paper-tray);
-  color: var(--ink-soft);
-  font-size: 9.5px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
   font-weight: 800;
-  vertical-align: middle;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
 }
 
 .icon-btn {
+  position: relative;
   width: 32px;
   height: 32px;
   padding: 0;
@@ -161,6 +182,18 @@ img {
   transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
+.icon-btn.has-demo-pip::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--nt-gold);
+  border: 1px solid var(--card-bg);
+}
+
 .icon-btn:active {
   transform: translateY(2px);
   box-shadow: 0 0.5px 0 var(--card-thickness);
@@ -169,16 +202,16 @@ img {
 .wallet-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   height: 32px;
-  max-width: 148px;
-  padding: 0 11px;
+  max-width: 142px;
+  padding: 0 10px;
   border-radius: 999px;
   border: 1px solid var(--card-border);
   background: var(--card-bg);
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
@@ -186,6 +219,13 @@ img {
   text-overflow: ellipsis;
   box-shadow: inset 0 1px 0 var(--card-highlight), 0 2.5px 0 var(--card-thickness);
   transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+@media (max-width: 374px) {
+  .app-header { padding-left: 11px; padding-right: 11px; gap: 6px; }
+  .header-title { font-size: 14px; }
+  .wallet-pill { padding: 0 8px; font-size: 10.5px; max-width: 118px; }
+  .icon-btn { width: 30px; height: 30px; }
 }
 
 .wallet-pill:active {
@@ -343,11 +383,11 @@ img {
   position: absolute;
   top: -1px;
   right: -1px;
-  width: 22px;
-  height: 22px;
+  width: 17px;
+  height: 17px;
   background: linear-gradient(225deg, var(--paper-bg) 47%, var(--card-thickness) 49.5%, var(--card-soft) 53%, var(--card-bg) 100%);
-  border-bottom-left-radius: 8px;
-  box-shadow: -2px 2px 5px rgba(43, 37, 35, 0.08);
+  border-bottom-left-radius: 7px;
+  box-shadow: -1.5px 1.5px 4px rgba(43, 37, 35, 0.08);
   pointer-events: none;
   z-index: 3;
 }
@@ -355,6 +395,11 @@ img {
 .card-hero > * {
   position: relative;
   z-index: 1;
+}
+
+/* 顶部左右排布避开右上 17px 折纸卷角，彻底杜绝压字 */
+.card-hero > .row-between:first-child {
+  padding-right: 16px;
 }
 
 .card-glow-red {
@@ -448,7 +493,7 @@ img {
   box-shadow:
     inset 0 2px 0 rgba(255, 255, 255, 0.32),
     0 4px 0 var(--nt-red-edge),
-    0 8px 16px rgba(232, 69, 60, 0.22);
+    0 8px 16px rgba(230, 0, 18, 0.22);
 }
 
 .btn-primary:active:not(:disabled) {
@@ -994,6 +1039,29 @@ img {
   z-index: 2;
 }
 
+/* 第 16 段达标生死线立体金旗角标 */
+.candle-cell[data-candle-idx="16"]::after {
+  content: '★';
+  position: absolute;
+  top: -4px;
+  right: -3px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, var(--nt-gold-top) 0%, var(--nt-gold) 100%);
+  color: #FFFFFF;
+  font-size: 9px;
+  line-height: 15px;
+  text-align: center;
+  box-shadow: 0 1.5px 0 var(--nt-gold-edge);
+  z-index: 3;
+}
+
+#a9-radar-card.is-matchpoint {
+  border-color: var(--gold-border);
+  animation: matchpoint-glow 2.4s ease-in-out infinite;
+}
+
 /* 固定高度判定依据栏（切换时段零跳动） */
 .candle-inspector {
   min-height: 74px;
@@ -1148,13 +1216,51 @@ img {
   top: 0;
   bottom: 0;
   width: 0%;
+  opacity: 0;
   background: var(--nt-red-soft);
-  border-right: 2px dashed rgba(232, 69, 60, 0.28);
+  border-right: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
+}
+
+.a9-slider.dragging .a9-slider-fill {
+  opacity: 1;
+  border-right: 2px dashed rgba(230, 0, 18, 0.30);
 }
 
 .a9-slider.completed .a9-slider-fill {
+  opacity: 1;
   background: var(--nt-green-soft);
   border-right: 0;
+}
+
+/* 无障碍降级轻文字确认入口（取代冗余第二个大按钮） */
+.accessible-confirm-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-underline-offset: 3px;
+}
+
+.accessible-confirm-link:hover,
+.accessible-confirm-link:focus-visible {
+  color: var(--ink-soft);
+}
+
+.accessible-confirm-link:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .a9-slider-label {
@@ -1357,6 +1463,20 @@ img {
   border-radius: 18px;
   border: 1px dashed var(--card-stitch);
   pointer-events: none;
+}
+
+/* 底栏下方视口级渐隐收口遮罩（避开 .app-tabbar 的 transform 包含块陷阱） */
+.tma-shell:not(:has(.app-main.no-tabbar))::after {
+  content: '';
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 0;
+  width: min(100vw, 440px);
+  height: calc(44px + var(--wv-safe-bottom));
+  background: linear-gradient(180deg, transparent 0%, var(--paper-bg) 56%, var(--paper-bg) 100%);
+  pointer-events: none;
+  z-index: 42;
 }
 
 .dock-pill { display: none; }

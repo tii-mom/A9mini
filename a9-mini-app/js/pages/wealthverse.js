@@ -1,5 +1,5 @@
 import { fetchUserPortfolio, fetchProgressionUser, claimProgressionTask, getEffectiveUserId } from '../data.js';
-import { DEMO_COSMETIC_ITEMS } from '../demo-data.js';
+import { renderPendingVaultBanner, renderEarlyBirdBanner } from './round_stages.js';
 import { L } from '../i18n.js';
 import { config } from '../config.js';
 import { store } from '../store.js';
@@ -7,8 +7,8 @@ import { icon } from '../icons.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { burstParticles, formatNum, formatTimer, renderLiveSparkline, showToast } from '../components.js';
-import { DIORAMA_BACKDROP, CITY_SANDTABLE_BACKDROP } from '../paper-art.js';
-import { tiers, characterArt } from '../wealth-art.js';
+import { DIORAMA_BACKDROP, renderCitySandtable } from '../paper-art.js';
+import { tiers, tierVoices, tierDemoHints, characterArt } from '../wealth-art.js';
 
 const link = (path, label, glyph) =>
   `<a href="#${path}">${icon(glyph, 16)}${label}</a>`;
@@ -20,12 +20,12 @@ function portrait(n) {
 
 export function stageLabel(stage) {
   const stages = {
-    warmup: ['预热阶段', 'Warm-up'],
-    participation: ['参与阶段', 'Entry open'],
-    observation: ['观察阶段', 'Observing'],
-    settlement_success: ['已结算 · 达标', 'Settled · passed'],
-    settlement_burn: ['已结算 · 未达标', 'Settled · missed'],
-    halted: ['技术中止', 'Aborted'],
+    warmup: ['开局倒计时', 'Pre-round'],
+    participation: ['火热入场', 'Entry open'],
+    observation: ['24H 闯关中', '24H Quest'],
+    settlement_success: ['通关派奖', 'Passed · Payout'],
+    settlement_burn: ['未通关 · 销毁', 'Failed · Burn'],
+    halted: ['异常中止 · 退回本金', 'Aborted · Refund'],
   };
   return stages[stage] ? L(...stages[stage]) : waiting();
 }
@@ -56,8 +56,8 @@ function handbookLevelTitle(lv) {
 }
 
 /**
- * 阶段三：主城手账集章卡（Handbook Stamp Card）
- * - 每日 4 枚手盖橡皮圆章（打卡 / 0 GRAM 竞猜 / 24H 巡视 / 纸艺分享）+ 满章加赠 + 成长等级与成就徽章
+ * 阶段三：广场手账集章卡（Handbook Stamp Card）
+ * - 每日 4 枚手盖橡皮圆章（打卡 / 0 GRAM 预言 / 24H 巡视 / 纸艺分享）+ 满章加赠 + 成长等级与成就徽章
  * - 显式标明：非链上代币资产，不可交易或直接兑换 A9 / GRAM
  */
 export function renderHandbookStampCard() {
@@ -70,7 +70,7 @@ export function renderHandbookStampCard() {
     return `
       <section class="card handbook-stamp-card" id="a9-handbook-card">
         <div class="row-between">
-          <div class="card-title">${icon('checkCircle', 15, 'text-green')} ${L('主城集章手账', 'City Stamp Logbook')}</div>
+          <div class="card-title">${icon('checkCircle', 15, 'text-green')} ${L('广场集章手账', 'Plaza Stamp Logbook')}</div>
           <span class="chip chip-muted">${L('游戏成长数据', 'In-Game EXP')}</span>
         </div>
         <p class="num-xs text-sec" style="margin:8px 0 0;line-height:1.5;">${L('请在 Telegram 小程序内打开以同步你的每日集章进度、连续打卡天数与手账等级（非代币资产，不可兑换 A9/GRAM）。', 'Open inside Telegram Mini App to sync your daily stamps, streak and handbook level (non-financial growth data).')}</p>
@@ -82,7 +82,7 @@ export function renderHandbookStampCard() {
     return `
       <section class="card handbook-stamp-card" id="a9-handbook-card">
         <div class="row-between">
-          <div class="card-title">${icon('shieldAlert', 15, 'text-red')} ${L('主城集章手账', 'City Stamp Logbook')}</div>
+          <div class="card-title">${icon('shieldAlert', 15, 'text-red')} ${L('广场集章手账', 'Plaza Stamp Logbook')}</div>
           <button class="btn btn-secondary btn-sm" id="btn-prog-retry" type="button">${L('重试读取', 'Retry')}</button>
         </div>
         <p class="num-xs text-muted" style="margin:6px 0 0;">${L('手账集章数据暂不可读取，请点击重试。', 'Handbook progression unavailable. Tap to retry.')}</p>
@@ -98,7 +98,7 @@ export function renderHandbookStampCard() {
   const dailyTasks = [
     {
       key: 'daily_checkin',
-      zh: '主城打卡',
+      zh: '广场打卡',
       en: 'Check-in',
       exp: 30,
       done: todaySet.has('daily_checkin'),
@@ -148,7 +148,7 @@ export function renderHandbookStampCard() {
     <section class="card handbook-stamp-card" id="a9-handbook-card" data-round="${r.currentRound ?? 1}">
       <div class="row-between" style="margin-bottom:6px;">
         <div class="row-start" style="gap:6px;flex-wrap:wrap;">
-          <strong class="card-title">${L('主城集章手账', 'City Stamp Logbook')}</strong>
+          <strong class="card-title">${L('广场集章手账', 'Plaza Stamp Logbook')}</strong>
           <span class="chip chip-gold">Lv.${prog.level || 1} · ${handbookLevelTitle(prog.level)}</span>
         </div>
         <span class="chip chip-muted mono">${L('连签', 'Streak')} ${prog.checkinStreak || 0}${L('天', 'd')} · ${prog.dailyDoneCount || 0}/4</span>
@@ -202,22 +202,13 @@ export function identityStage({ modePill = '', walletTag = '' } = {}) {
   const tier = store.state.user.previewTier || 1;
   const shownTier = config.isDemo ? tier : 1;
   const [zh, en, traitZh, traitEn] = tiers[shownTier - 1];
-  const loadout = store.state.inventory?.loadout || {};
-  const frameItem = loadout.equippedFrame ? DEMO_COSMETIC_ITEMS[loadout.equippedFrame] : null;
-  const badgeItem = loadout.equippedBadge ? DEMO_COSMETIC_ITEMS[loadout.equippedBadge] : null;
-  const titleItem = loadout.equippedTitle ? DEMO_COSMETIC_ITEMS[loadout.equippedTitle] : null;
   const heading = config.isDemo ? `A${shownTier} · ${L(zh, en)}` : L('身份待核验', 'Identity pending');
-  const cosmeticTag = [
-    frameItem ? L(frameItem.zh, frameItem.en) : null,
-    badgeItem ? L(badgeItem.zh, badgeItem.en) : null,
-    titleItem ? L(titleItem.zh, titleItem.en) : null,
-  ].filter(Boolean).join(' · ');
   const subtitle = config.isDemo
-    ? `${cosmeticTag || L(traitZh, traitEn)} · ${L('轻点立牌换装', 'Tap to flip')}`
+    ? `${L(traitZh, traitEn)} · ${L('轻点立牌切换预览', 'Tap to flip')}`
     : L('连接钱包后核验持仓阶位', 'Connect wallet to verify tier');
 
-  return `<section class="wv-hero profile-identity-bar" data-equipped-frame="${loadout.equippedFrame || ''}" data-equipped-badge="${loadout.equippedBadge || ''}">
-    <div class="identity-thumb ${loadout.equippedFrame ? `cos-${loadout.equippedFrame}` : ''}" id="identity-standee-stage">
+  return `<section class="wv-hero profile-identity-bar">
+    <div class="identity-thumb" id="identity-standee-stage">
       <div class="identity-base" aria-hidden="true"></div>
       ${portrait(shownTier)}
     </div>
@@ -359,9 +350,9 @@ export function city() {
     dotTone = 'red';
     showSlotTrack = true;
   } else if (r.stage === 'halted') {
-    focusKicker = L('安全保护 · 技术中止', 'SAFETY HALT');
-    focusHtml = `<span class="focus-accent-gold">${L('技术中止', 'Aborted')}</span>`;
-    focusSub = L('触发预言机安全保护 · 质押本金按规则原路退回', 'Oracle halt triggered · principal refunded');
+    focusKicker = L('安全保护 · 异常中止', 'SAFETY HALT');
+    focusHtml = `<span class="focus-accent-gold">${L('异常中止 · 退回本金', 'Aborted · Refund')}</span>`;
+    focusSub = L('触发预言机安全保护 · 参与本金按规则原路退回', 'Oracle halt triggered · principal refunded');
     ctaText = L('查看保护说明', 'View halt status');
     dotTone = 'gold';
   } else {
@@ -371,24 +362,45 @@ export function city() {
   }
 
   const gates = [
-    ['/internal/market', 'market', L('主城商行', 'Market'),   L('兑换 A9', 'Swap A9')],
-    ['/rewards',         'vault',  L('奖励宝库', 'Rewards'),  L('阶梯解锁', 'Vesting')],
-    ['/leaderboard',     'trophy', L('荣誉排行', 'Rankings'), L('全网榜单', 'Top Ranks')],
-    ['/rules',           'rules',  L('玩法规则', 'Rules'),    L('常见问题', 'FAQ Guide')],
+    ['/internal/market', 'market', L('A9 兑换屋', 'Exchange'), L('兑换 A9', 'Swap A9')],
+    ['/rewards',         'vault',  L('奖金金库', 'Vault'),     L('连胜解锁', 'Vesting')],
+    ['/leaderboard',     'trophy', L('财富榜', 'Rich List'),   L('全网榜单', 'Top Ranks')],
+    ['/rules',           'rules',  L('闯关指南', 'Guide'),     L('常见问题', 'FAQ Guide')],
   ];
 
   const showPredRatio = config.isDemo || (pred?.loaded && Number(pred.total) > 0);
   const passPct = Number.isFinite(Number(pred?.passPct)) ? Number(pred.passPct) : 61;
   const burnPct = Number.isFinite(Number(pred?.burnPct)) ? Number(pred.burnPct) : 39;
 
+  // 按真实轮次状态与赛点驱动广场动态沙盘情绪
+  const isSprint4h = r.stage === 'observation' && Number(r.countdownSec) > 0 && Number(r.countdownSec) <= 14400;
+  const isRedAlert = (isSprint4h && passed !== null && passed >= 12 && passed <= 15) || r.stage === 'settlement_burn';
+  const isMatchPoint = r.stage === 'observation' && !awaitingSettle && (isSprint4h || (passed !== null && passed >= Math.max(1, required - 2) && passed < required));
+  const sandtableMood = r.stage === 'warmup'
+    ? 'warmup'
+    : r.stage === 'participation'
+      ? 'participation'
+      : (r.stage === 'settlement_success' || awaitingSettle)
+        ? 'pass'
+        : r.stage === 'settlement_burn'
+          ? 'burn'
+          : isMatchPoint
+            ? 'matchpoint'
+            : 'observation';
+
+  const prog = store.state.progression || {};
   return `<section class="wv-hero game-city anim-page-enter">
-    <div class="diorama-stage city-hub-stage">
-      ${CITY_SANDTABLE_BACKDROP}
+    ${renderPendingVaultBanner(pred, r)}
+    ${renderEarlyBirdBanner(r)}
+
+    <div class="diorama-stage city-hub-stage${isRedAlert ? ' alert-red-mode' : ''}" data-mood="${sandtableMood}">
+      ${renderCitySandtable(sandtableMood)}
 
       <div class="city-hub-top">
         <div class="city-round-pill">
           <span class="live-dot ${dotTone}"></span>
           <span>${L('第', 'R')} ${r.currentRound ?? '—'} ${L('轮', '')} · ${stageLabel(r.stage)}</span>
+          ${isMatchPoint ? `<span class="chip chip-gold" style="min-height:18px;font-size:9.5px;padding:0 6px;">${L('赛点', 'MATCH PT')}</span>` : ''}
         </div>
         <div class="city-cd-badge" title="${L('当前阶段剩余时间', 'Time remaining')}">
           ${icon('clock', 12)}
@@ -402,11 +414,11 @@ export function city() {
           <div class="city-focus-val">${focusHtml}</div>
           <p class="city-focus-sub">${focusSub}</p>
         </div>
-        <img class="city-hub-emblem" src="./assets/paper-craft/tower.svg" alt="" aria-hidden="true">
+        <img class="city-hub-emblem" src="./assets/paper-craft/tower.png" alt="" aria-hidden="true">
       </div>
 
       ${showSlotTrack ? `
-        <a class="city-slot-strip" href="#/observation/records">
+        <a class="city-slot-strip${isMatchPoint ? ' is-matchpoint' : ''}" href="#/observation/records">
           <div class="city-slot-dots" aria-label="${L('24H 时段进度', '24H slot progress')}">${slotDots}</div>
           <div class="row-between city-price-inline">
             <span>${L('目标', 'Target')} <b class="mono">${priceOrDash(r.targetPrice)}</b></span>
@@ -443,33 +455,31 @@ export function city() {
     <nav class="game-gates">
       ${gates.map(([path, asset, label, sub]) => `
         <a href="#${path}">
-          <img src="./assets/paper-craft/${asset}.svg" alt="">
+          <img src="./assets/paper-craft/${asset}.png" alt="">
           <span>${label}</span>
           <small>${sub}</small>
         </a>
       `).join('')}
     </nav>
 
-    <div class="section-kicker">${L('更多参与与生态进展', 'MORE ACTIVITIES & PROTOCOL')}</div>
+    <div class="section-kicker">${L('24H 预言对抗与协议生态', '24H PREDICTION & PROTOCOL')}</div>
 
-    ${renderHandbookStampCard()}
-
-    <div class="card clickable city-pred-card" id="city-pred-jump" role="button" tabindex="0">
+    <div class="card clickable city-pred-card${isRedAlert ? ' alert-red-mode' : ''}" id="city-pred-jump" role="button" tabindex="0">
       <div class="row-between">
         <div class="row-start">
-          <span class="chip chip-green">${L('0 GRAM 免费猜', '0 GRAM Free')}</span>
-          <strong class="city-pred-title">${L('24H 达标竞猜', '24H Pass/Burn Guess')}</strong>
+          <span class="chip ${isRedAlert ? 'chip-red' : 'chip-green'}">${isRedAlert ? L('最后 4H 红警', '4H RED ALERT') : L('0 GRAM 免费猜', '0 GRAM Free')}</span>
+          <strong class="city-pred-title">${L('24H 预言擂台', '24H Prediction Arena')}</strong>
         </div>
-        <span class="city-pred-go">${L('去竞猜', 'Guess')} ›</span>
+        <span class="city-pred-go">${L('立即站队', 'Pick Side')} ›</span>
       </div>
-      <p class="city-pred-desc">${L('免费预测本轮达标或未达标，命中可赢取 A9 加成补贴券。', 'Predict PASS or BURN for free and win A9 bonus vouchers.')}</p>
+      <p class="city-pred-desc">${L('0 GRAM 站队通关 PASS 或销毁 BURN，新人首轮参与保底 500 A9 待解锁体验金。', 'Call PASS or BURN for 0 GRAM. First-round rookies get a 500 A9 vault floor.')}</p>
       ${showPredRatio ? `
         <div class="city-pred-bar-wrap">
           <div class="row-between num-xs">
-            <span class="text-green">PASS ${passPct}%</span>
-            <span class="text-red">BURN ${burnPct}%</span>
+            <span class="text-green" style="font-weight:800;">${L('通关多军 PASS', 'PASS')} ${passPct}%</span>
+            <span class="text-red" style="font-weight:800;">${L('销毁空军 BURN', 'BURN')} ${burnPct}%</span>
           </div>
-          <div class="pred-split-bar" style="height:7px;margin-top:4px;">
+          <div class="pred-split-bar pred-versus-bar" style="height:8px;margin-top:4px;">
             <div class="pred-split-pass" style="width:${passPct}%;"></div>
             <div class="pred-split-burn" style="width:${burnPct}%;"></div>
           </div>
@@ -481,14 +491,28 @@ export function city() {
       <a class="city-meta-tile" href="#/rewards">
         <small>${L('全网累计达标', 'Global Wins')}</small>
         <strong>${wins == null ? waiting() : `${wins} ${L('轮', 'wins')}`}</strong>
-        <span>${unlockPct ? L(`当前即时解锁 ${unlockPct}`, `${unlockPct} instant`) : L('查看三阶解锁', 'Vesting tiers')} ›</span>
+        <span>${unlockPct ? L(`当前即时解锁 ${unlockPct}`, `${unlockPct} instant`) : L('查看连胜解锁', 'Vesting tiers')} ›</span>
       </a>
       <a class="city-meta-tile" href="#/team/invite">
-        <small>${L('推广返佣体系', 'Referral Bonus')}</small>
+        <small>${L('邀友奖励体系', 'Invite Rewards')}</small>
         <strong>12% + 18%</strong>
         <span>${L('生成邀请海报', 'Invite poster')} ›</span>
       </a>
     </div>
+
+    <details class="handbook-collapse" id="a9-handbook-collapse">
+      <summary class="handbook-collapse-summary">
+        <span class="row-start" style="gap:6px;">
+          ${icon('checkCircle', 14, 'text-green')}
+          <strong>${L('日常集章手账', 'Daily Stamp Logbook')}</strong>
+          <span class="chip chip-muted mono" style="height:19px;font-size:10px;padding:0 6px;">Lv.${prog.level || 1} · ${prog.dailyDoneCount || 0}/4</span>
+        </span>
+        <span class="num-xs text-muted">${L('展开盖章', 'Expand')} ▾</span>
+      </summary>
+      <div class="handbook-collapse-body">
+        ${renderHandbookStampCard()}
+      </div>
+    </details>
   </section>`;
 }
 
@@ -551,7 +575,7 @@ function bindHandbookStampEvents(root, navigate) {
         A9Haptic.light();
         A9Audio.tick();
         store.state.referral.pendingScrollTarget = 'prediction';
-        showToast(L('请先完成本轮 0 GRAM 24H 达标竞猜后盖章', 'Complete your 0 GRAM 24H prediction first'));
+        showToast(L('请先完成本轮 0 GRAM 24H 预言擂台后盖章', 'Complete your 0 GRAM 24H prediction first'));
         if (navigate) navigate('/round');
         else window.location.hash = '#/round';
         return;
@@ -638,31 +662,69 @@ function demoProgressionInitSnapshot(uid, roundId) {
   };
 }
 
-/** 身份图鉴（#/gallery）：精简顶部展示台高度，下方 3×3 统一缩略图一屏易选 */
+/** 计算演示模式当前图鉴已解锁阶位（严格限定演示态，不伪造链上数据） */
+function computeDemoUnlockedTiers() {
+  const unlocked = new Set([1, 2, 3]);
+  const st = store.state;
+  const stamps = Number(st.progression?.totalStamps || 0);
+  const level = Number(st.progression?.level || 1);
+  if ((st.market?.records || []).length > 0) unlocked.add(4);
+  if ((st.certificates || []).length > 0) unlocked.add(5);
+  if (st.team?.joined || stamps >= 6) unlocked.add(6);
+  if (Number(st.round?.successCount || 0) >= 3) unlocked.add(7);
+  if (level >= 3) unlocked.add(8);
+  if (unlocked.size >= 8) unlocked.add(9);
+  if (st.user?.previewTier) unlocked.add(st.user.previewTier);
+  return unlocked;
+}
+
+/** 身份图鉴（#/gallery）：收集册化（已解锁立牌 + 未解锁牛皮纸剪影槽）+ 角色翻身语音气泡 */
 export function gallery(root, navigate, param) {
   const n = Number(param) || 1;
   const selected = n >= 1 && n <= 9 && Number.isInteger(n) ? n : 1;
   const [zh, en, detail, desc] = tiers[selected - 1];
+  const [voiceZh, voiceEn] = tierVoices[selected - 1] || tierVoices[0];
+  const [hintZh, hintEn] = tierDemoHints[selected - 1] || ['', ''];
+  const demoUnlocked = config.isDemo ? computeDemoUnlockedTiers() : new Set([1]);
+  const isSelectedUnlocked = config.isDemo ? demoUnlocked.has(selected) : false;
+
   root.innerHTML =
     `<section class="wv-hero wv-gallery-hero ${selected >= 7 ? 'diorama-stage prism' : 'diorama-stage'}">
       ${DIORAMA_BACKDROP}
       <div class="edition-art gallery-compact-art" id="gallery-standee-stage">
+        <div class="speech-bubble hidden" id="gallery-speech-bubble" role="status">“${L(voiceZh, voiceEn)}”</div>
         <div class="standee-slot" aria-hidden="true"></div>
-        ${portrait(selected)}
+        <img class="wv-person${config.isDemo && !isSelectedUnlocked ? ' is-locked-preview' : ''}" src="${characterArt(selected)}" alt="A${selected}">
       </div>
       <div class="wv-copy">
-        <small>A${selected} / ${L('身份预览', 'Identity preview')}</small>
+        <small>A${selected} · ${config.isDemo ? (isSelectedUnlocked ? L('已点亮收藏 · 轻点立牌对话', 'Collected · Tap standee') : L('未解锁槽位 · 试穿预览', 'Locked slot · Preview')) : L('链上身份待核验', 'On-chain pending')}</small>
         <h1>${L(zh, en)}</h1>
         <p>${L(detail, desc)}</p>
+        ${config.isDemo && !isSelectedUnlocked ? `<div class="num-xs text-gold" style="margin-top:4px;font-weight:800;">${L('解锁方式：', 'Unlock: ')}${L(hintZh, hintEn)}</div>` : ''}
       </div>
     </section>` +
-    `<div class="section-kicker">${L('A1–A9 全阶身份图鉴（点选切换）', 'A1–A9 COLLECTION (TAP TO SELECT)')}</div>` +
-    `<nav class="wv-gallery">${tiers.map(([a, b], i) => `<a href="#/gallery/${i + 1}" aria-current="${i + 1 === selected ? 'true' : 'false'}">${portrait(i + 1)}<b>A${i + 1}</b>${L(a, b)}</a>`).join('')}</nav>` +
-    `<div class="card num-xs text-sec">${L('当前身份与下一阶升级条件待链上核验。以上称谓与形象为收藏预览。', 'Identity and next-tier conditions await verification. Titles and portraits are previews.')}</div>` +
+    `<div class="row-between" style="padding:2px 2px 0;">
+      <span class="section-kicker" style="padding:0;">${L('A1–A9 贴纸收集册（点选切换）', 'A1–A9 STICKER ALBUM')}</span>
+      <span class="chip ${config.isDemo ? 'chip-gold' : 'chip-muted'}" style="min-height:20px;font-size:10px;">${config.isDemo ? L(`演示已集 ${demoUnlocked.size} / 9`, `Demo ${demoUnlocked.size} / 9`) : L('链上核验中', 'Awaiting verify')}</span>
+    </div>` +
+    `<nav class="wv-gallery">${tiers.map(([a, b], i) => {
+      const idx = i + 1;
+      const locked = config.isDemo ? !demoUnlocked.has(idx) : idx > 1;
+      return `<a href="#/gallery/${idx}" class="${locked ? 'is-locked' : ''}" aria-current="${idx === selected ? 'true' : 'false'}">
+        <span class="gallery-slot-badge">${locked ? (config.isDemo ? L('未解锁', 'Lock') : L('待验', 'TBD')) : '✓'}</span>
+        ${portrait(idx)}
+        <b>A${idx}</b>${L(a, b)}
+      </a>`;
+    }).join('')}</nav>` +
+    `<div class="card num-xs text-sec">${config.isDemo
+      ? L('演示模式按体验进度点亮 A1–A9 贴纸槽位；点击任意未解锁剪影仍可试穿预览，轻点上方立牌可触发角色翻身与专属台词。', 'Demo album tracks preview progress. Tap any silhouette to preview or tap the standee for voice lines.')
+      : L('当前身份与下一阶升级条件待链上核验。以上称谓与形象为收藏预览。', 'Identity and next-tier conditions await verification. Titles and portraits are previews.')}</div>` +
     `<button class="btn btn-primary" id="wv-export">${L('保存角色预览卡', 'Save preview card')}</button>`;
   root.style.setProperty('--wv-hue', (selected - 1) * 19 + 'deg');
 
   const standee = root.querySelector('#gallery-standee-stage .wv-person');
+  const bubble = root.querySelector('#gallery-speech-bubble');
+  let bubbleTimer = 0;
   if (standee) {
     standee.onclick = () => {
       A9Haptic.light();
@@ -671,13 +733,23 @@ export function gallery(root, navigate, param) {
       standee.classList.remove('paper-flipping');
       void standee.offsetWidth;
       standee.classList.add('paper-flipping');
+      if (bubble) {
+        clearTimeout(bubbleTimer);
+        bubble.classList.remove('hidden');
+        bubble.style.animation = 'none';
+        void bubble.offsetWidth;
+        bubble.style.animation = '';
+        bubbleTimer = setTimeout(() => {
+          if (bubble.isConnected) bubble.classList.add('hidden');
+        }, 2800);
+      }
     };
   }
 
   if (config.isDemo) {
     const preview = document.createElement('button');
     preview.className = 'btn btn-secondary';
-    preview.textContent = L('在背包身份栏试穿', 'Preview in Backpack bar');
+    preview.textContent = L('在我的档案身份栏试穿', 'Preview in My Profile');
     preview.onclick = () => {
       A9Haptic.light();
       A9Audio.flip();
@@ -697,10 +769,10 @@ export function gallery(root, navigate, param) {
     const img = root.querySelector('.wv-hero .wv-person');
     if (img && !img.complete) await img.decode().catch(() => {});
 
-    ctx.fillStyle = '#F5F0E6';
+    ctx.fillStyle = '#F6F6F8';
     ctx.fillRect(0, 0, 720, 960);
 
-    ctx.fillStyle = '#D4C8B5';
+    ctx.fillStyle = '#D1D4DF';
     ctx.beginPath();
     ctx.roundRect(42, 48, 636, 868, 36);
     ctx.fill();
@@ -710,7 +782,7 @@ export function gallery(root, navigate, param) {
     ctx.fill();
 
     ctx.save();
-    ctx.strokeStyle = 'rgba(178, 162, 138, 0.55)';
+    ctx.strokeStyle = 'rgba(138, 144, 162, 0.45)';
     ctx.lineWidth = 2.5;
     ctx.setLineDash([9, 8]);
     ctx.beginPath();
@@ -718,11 +790,11 @@ export function gallery(root, navigate, param) {
     ctx.stroke();
     ctx.restore();
 
-    ctx.fillStyle = '#B82D25';
+    ctx.fillStyle = '#A8000E';
     ctx.beginPath();
     ctx.roundRect(82, 84, 96, 54, 16);
     ctx.fill();
-    ctx.fillStyle = '#E8453C';
+    ctx.fillStyle = '#E60012';
     ctx.beginPath();
     ctx.roundRect(82, 78, 96, 54, 16);
     ctx.fill();
@@ -730,11 +802,11 @@ export function gallery(root, navigate, param) {
     ctx.font = 'bold 30px sans-serif';
     ctx.fillText('A9', 108, 116);
 
-    ctx.fillStyle = '#675E58';
+    ctx.fillStyle = '#565B6B';
     ctx.font = 'bold 22px sans-serif';
     ctx.fillText(`STICKER 0${selected} · PAPER CRAFT`, 198, 114);
 
-    ctx.fillStyle = '#EFE9DE';
+    ctx.fillStyle = '#EFEFF3';
     ctx.beginPath();
     ctx.ellipse(360, 686, 170, 26, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -746,13 +818,13 @@ export function gallery(root, navigate, param) {
       ctx.drawImage(img, (720 - dw) / 2, 178 + (500 - dh) / 2, dw, dh);
     }
 
-    ctx.fillStyle = '#2B2523';
+    ctx.fillStyle = '#1B1D24';
     ctx.font = 'bold 50px sans-serif';
     ctx.fillText(`A${selected} · ${L(zh, en)}`, 82, 782);
-    ctx.fillStyle = '#675E58';
+    ctx.fillStyle = '#565B6B';
     ctx.font = '26px sans-serif';
     ctx.fillText(
-      L('A9 财富进化世界 · 暖棉纸典藏卡', 'A9 Wealthverse · Paper Craft Card'),
+      L('A9 财富大冒险 · 红白雪宣纸典藏卡', 'A9 Wealth Quest · Crisp Paper Card'),
       82,
       838,
     );
@@ -786,12 +858,6 @@ export function rewards(root) {
     )
     .join('');
 
-  const crystals = [
-    ['crystal-basic',     L('基础贴纸包 · 1.99 GRAM', 'Basic Pack · 1.99 GRAM')],
-    ['crystal-starlight', L('进阶贴纸盒 · 5.99 GRAM', 'Plus Box · 5.99 GRAM')],
-    ['crystal-legendary', L('豪华贴纸礼盒 · 13.99 GRAM', 'Deluxe Box · 13.99 GRAM')],
-  ];
-
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
       <section class="card card-hero wv-vault-summary">
@@ -801,7 +867,7 @@ export function rewards(root) {
             <h2 style="margin:3px 0 0;font-size:19px;font-weight:900;">${L('当前解锁档位', 'Current Vesting Tier')}</h2>
             <p class="num-xs text-sec" style="margin:4px 0 0;">${L('全网累计达标', 'Global wins')} · <b class="mono" style="color:var(--ink);">${n ?? waiting()}</b> · ${L('即时解锁', 'Instant')} <b class="mono text-gold">${curUnlockLabel}</b></p>
           </div>
-          <img src="./assets/paper-craft/vault.svg" alt="" style="width:54px;height:54px;filter:var(--paper-cut-shadow);flex-shrink:0;">
+          <img src="./assets/paper-craft/vault.png" alt="" style="width:54px;height:54px;filter:var(--paper-cut-shadow);flex-shrink:0;">
         </div>
         <div class="wv-steps" style="margin-top:12px;">
           ${[
@@ -821,25 +887,14 @@ export function rewards(root) {
 
       <section class="card">
         <div class="card-header" style="margin-bottom:4px;">
-          <h3 class="card-title">${icon('wallet', 15, 'text-gold')} ${L('我的宝库余额', 'My Vault Balances')}</h3>
+          <h3 class="card-title">${icon('wallet', 15, 'text-gold')} ${L('我的金库余额', 'My Vault Balances')}</h3>
           <span class="chip ${config.isDemo ? 'chip-muted' : 'chip-gold'}">${config.isDemo ? L('演示数据', 'DEMO') : L('待核验', 'PENDING')}</span>
         </div>
         <div>${balances}</div>
         <p class="num-xs text-muted" style="margin:10px 0 0;line-height:1.5;">${L('失败轮可能按规则销毁此前未解锁份额；轮次持续开放至奖池耗尽。', 'Failure can burn prior locked shares. Rounds continue until pool exhaustion.')}</p>
       </section>
 
-      <nav class="wv-links">${link('/claim', L('领取明细', 'Claim details'), 'unlock')}${link('/profile', L('我的背包', 'My backpack'), 'wallet')}</nav>
-
-      <div class="section-kicker">${L('概念收藏预览 · 非已拥有资产', 'CONCEPT ART PREVIEW · NOT OWNED ITEMS')}</div>
-      <section class="card">
-        <div class="row-between" style="margin-bottom:4px;">
-          <h3 class="card-title">${L('三档贴纸礼盒预览', 'Sticker Pack Preview')}</h3>
-          <span class="chip chip-muted">${L('仅预览', 'Preview')}</span>
-        </div>
-        <div class="crystal-preview">
-          ${crystals.map(([id, name]) => `<figure><img src="./assets/paper-craft/${id}.svg" alt="" loading="lazy"><figcaption>${name}</figcaption></figure>`).join('')}
-        </div>
-      </section>
+      <nav class="wv-links">${link('/claim', L('金库领奖', 'Claim Prizes'), 'unlock')}${link('/profile', L('我的档案', 'My Profile'), 'wallet')}</nav>
     </div>
   `;
 }
@@ -899,17 +954,17 @@ export function portfolioPanel(root, guild = false) {
   else root.append(panel);
   const links = guild
     ? [
-        ['/team/profile', '商会资料', 'Guild profile'],
-        ['/team/bind-tg', '群组绑定', 'Group binding'],
-        ['/team/invite', '邀请', 'Invite'],
-        ['/leaderboard', '排行榜', 'Rankings'],
+        ['/team/profile', '战队名片', 'Squad Card'],
+        ['/team/bind-tg', '绑定 TG 群', 'Link TG Group'],
+        ['/team/invite', '邀友赢奖', 'Invite & Earn'],
+        ['/leaderboard', '财富榜', 'Rich List'],
       ]
     : [
-        ['/claim', '领取明细', 'Claims'],
-        ['/ledger', '账单', 'Ledger'],
-        ['/records', '历史记录', 'History'],
-        ['/proof', '质押凭证', 'Tickets'],
-        ['/settings', '设置', 'Settings'],
+        ['/claim', '金库领奖', 'Claim Prizes'],
+        ['/ledger', '收益账本', 'Reward Ledger'],
+        ['/records', '闯关战绩', 'Quest History'],
+        ['/proof', '闯关凭证', 'Quest Pass'],
+        ['/settings', '偏好设置', 'Settings'],
       ];
   function show(data, state, isError = false) {
     panel.replaceChildren();
@@ -925,7 +980,7 @@ export function portfolioPanel(root, guild = false) {
       panel.append(el);
     };
     if (guild) {
-      row(L('商会', 'Guild'), data?.team?.name || waiting());
+      row(L('战队', 'Squad'), data?.team?.name || waiting());
       row(L('成员', 'Members'), data?.team?.memberCount ?? waiting());
       row(
         L('职位', 'Role'),

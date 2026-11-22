@@ -5,10 +5,11 @@ import { TonCenterClient } from './toncenter.mjs';
 import { PromoHotWalletEngine } from './promo-hotwallet.mjs';
 import { PresaleHotWalletEngine } from './presale-hotwallet.mjs';
 import { SocialStore } from './social-store.mjs';
-import { PredictionEngine, ProgressionEngine, InventoryEngine } from './growth-engine.mjs';
+import { PredictionEngine, ProgressionEngine } from './growth-engine.mjs';
 import { D1PromoStore } from './d1-promo-store.mjs';
-import { D1SocialStore, D1PredictionEngine, D1ProgressionEngine, D1InventoryEngine, D1PresaleStore } from './d1-growth-store.mjs';
+import { D1SocialStore, D1PredictionEngine, D1ProgressionEngine, D1PresaleStore } from './d1-growth-store.mjs';
 import { D1IdentityStore, MemoryIdentityStore } from './auth.mjs';
+import { TelegramBroadcaster, D1BroadcastLog, MemoryBroadcastLog } from './tg-broadcaster.mjs';
 
 function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}) {
   return {
@@ -24,8 +25,22 @@ function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}
 const memSocialStore = new SocialStore();
 const memPredictionEngine = new PredictionEngine();
 const memProgressionEngine = new ProgressionEngine();
-const memInventoryEngine = new InventoryEngine();
 const memIdentityStore = new MemoryIdentityStore();
+const memBroadcastLog = new MemoryBroadcastLog();
+
+function buildBroadcaster(env, { socialStore, identityStore, hasD1 }) {
+  return new TelegramBroadcaster({
+    enabled: env.A9_BROADCAST_ENABLED === '1',
+    botToken: env.A9_BOT_TOKEN || '',
+    botHandle: env.A9_TG_BOT_HANDLE || 'A9ProtocolBot',
+    publicOrigin: env.A9_PUBLIC_ORIGIN || '',
+    officialChannelId: env.A9_OFFICIAL_CHANNEL_ID || '',
+    whaleMinGram: env.A9_BROADCAST_WHALE_MIN_GRAM || '50',
+    socialStore,
+    identityStore,
+    dedupLog: hasD1 ? new D1BroadcastLog({ db: env.DB }) : memBroadcastLog,
+  });
+}
 
 export default {
   async fetch(request, env) {
@@ -73,10 +88,15 @@ export default {
     };
 
     const hasD1 = Boolean(env.DB);
+    const identityStore = hasD1 ? new D1IdentityStore({ db: env.DB }) : memIdentityStore;
     const socialStore = hasD1 ? new D1SocialStore({ db: env.DB }) : memSocialStore;
-    const predictionEngine = hasD1 ? new D1PredictionEngine({ db: env.DB }) : memPredictionEngine;
+    const predOpts = {
+      firstLossBonusRaw: env.A9_PRED_FIRST_LOSS_BONUS_RAW,
+      firstLossCapRaw: env.A9_PRED_FIRST_LOSS_CAP_RAW,
+    };
+    const predictionEngine = hasD1 ? new D1PredictionEngine({ db: env.DB, ...predOpts }) : memPredictionEngine;
     const progressionEngine = hasD1 ? new D1ProgressionEngine({ db: env.DB }) : memProgressionEngine;
-    const inventoryEngine = hasD1 ? new D1InventoryEngine({ db: env.DB }) : memInventoryEngine;
+    const broadcaster = buildBroadcaster(env, { socialStore, identityStore, hasD1 });
 
     const promoEngine = env.A9_PROMO_HOT_WALLET_ADDRESS
       ? (hasD1
@@ -104,7 +124,7 @@ export default {
       userFaultFeeNano: env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
       promoEngine,
       socialStore,
-      inventoryEngine,
+      broadcaster,
     };
     const presaleEngine = presaleHotAddr
       ? (hasD1 ? new D1PresaleStore({ db: env.DB, ...presaleOpts }) : new PresaleHotWalletEngine(presaleOpts))
@@ -126,9 +146,8 @@ export default {
       socialStore,
       predictionEngine,
       progressionEngine,
-      inventoryEngine,
       userReader,
-      identityStore: hasD1 ? new D1IdentityStore({ db: env.DB }) : memIdentityStore,
+      identityStore,
       publicKeyResolver: tc ? (addr) => tc.fetchWalletPublicKey(addr) : null,
       walletStateResolver: tc ? (addr) => tc.fetchWalletAccountState(addr) : null,
     });
@@ -142,5 +161,42 @@ export default {
       });
     }
     return new Response(JSON.stringify(out.body), { status: out.status, headers: corsHeaders() });
+  },
+
+  /** Cloudflare Cron 定时巡检：同步链上最新轮次、自动结算预言池并幂等推送战队 TG 群战报。 */
+  async scheduled(_controller, env) {
+    if (!env.TONCENTER_API_BASE || !env.A9_ROUND_CONTROLLER_ADDRESS) return;
+    const tc = new TonCenterClient({ apiBase: env.TONCENTER_API_BASE, apiKey: env.TONCENTER_API_KEY || '' });
+    const hasD1 = Boolean(env.DB);
+    const identityStore = hasD1 ? new D1IdentityStore({ db: env.DB }) : memIdentityStore;
+    const socialStore = hasD1 ? new D1SocialStore({ db: env.DB }) : memSocialStore;
+    const predictionEngine = hasD1
+      ? new D1PredictionEngine({
+          db: env.DB,
+          firstLossBonusRaw: env.A9_PRED_FIRST_LOSS_BONUS_RAW,
+          firstLossCapRaw: env.A9_PRED_FIRST_LOSS_CAP_RAW,
+        })
+      : memPredictionEngine;
+    const broadcaster = buildBroadcaster(env, { socialStore, identityStore, hasD1 });
+
+    const obsSec = Number(env.A9_OBS_SECONDS || 86400);
+    const nowSec = Math.floor(Date.now() / 1000);
+    try {
+      const ps = await tc.fetchProtocolState(env.A9_ROUND_CONTROLLER_ADDRESS);
+      if (!ps?.currentRoundId || ps.currentRoundId <= 0) return;
+      const startId = Math.max(1, ps.currentRoundId - 1);
+      for (let rId = startId; rId <= ps.currentRoundId; rId += 1) {
+        const rd = await tc.fetchRound(env.A9_ROUND_CONTROLLER_ADDRESS, rId);
+        if (rd.status === 2 || rd.status === 3) {
+          const stats = await predictionEngine.getRoundStats(rId);
+          if (!stats.settled) {
+            await predictionEngine.settleRoundBets(rId, rd.status === 2, Number(rd.qualifiedCandles || 0));
+          }
+        }
+        await broadcaster.processRoundSnapshot({ roundId: rId, round: rd, candles: [], nowSec, observationSeconds: obsSec });
+      }
+    } catch (e) {
+      console.error('[a9mini-v15-worker] scheduled sync error:', e?.message || e);
+    }
   },
 };

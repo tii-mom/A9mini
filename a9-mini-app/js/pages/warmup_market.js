@@ -1,4 +1,4 @@
-import { personalRanks, teamRanks, DEMO_STICKER_PACKS, DEMO_COSMETIC_ITEMS } from '../demo-data.js';
+import { personalRanks, teamRanks } from '../demo-data.js';
 import { fetchWarmupRank } from '../data.js';
 /**
  * Warm-up & Internal Market Pages — Aligned Rules + Zero-Friction Drawers
@@ -31,8 +31,8 @@ export function renderWarmupHome(root, navigate) {
   ];
 
   const roundLabel = round.currentRound
-    ? L(`第 ${round.currentRound} 轮预热 (12H)`, `R${round.currentRound} Warm-Up (12H)`)
-    : L('预热状态待核验', 'Warm-Up Pending');
+    ? L(`第 ${round.currentRound} 轮开局预热 (12H)`, `R${round.currentRound} Pre-Round (12H)`)
+    : L('开局预热待核验', 'Pre-Round Pending');
   const cdText = round.earlyBirdSec === null || round.earlyBirdSec === undefined
     ? '—'
     : formatTimer(round.earlyBirdSec);
@@ -44,7 +44,7 @@ export function renderWarmupHome(root, navigate) {
           <span class="chip chip-gold">${roundLabel}</span>
           <span class="row-start num-sm text-sec">${icon('clock', 13)} <span id="early-cd" class="mono">${cdText}</span></span>
         </div>
-        <div class="num-xs text-muted">${L('本轮预热奖励池', 'Warm-Up Pool')}</div>
+        <div class="num-xs text-muted">${L('本轮开局预热池', 'Pre-Round Pool')}</div>
         <div class="num-hero" style="margin-top:4px;">${config.isDemo ? '8,000,000 <span class="num-md text-green">A9</span>' : L('待核验', 'Awaiting verification')}</div>
 
         ${config.isDemo ? `
@@ -56,7 +56,7 @@ export function renderWarmupHome(root, navigate) {
         ` : ''}
 
         ${!reg
-          ? `<button class="btn btn-primary" id="btn-register-warmup">${icon('bolt', 16)} ${L('立即报名预热 (需 ≥1 有效直邀)', 'Join Warm-Up (≥1 Invite)')}</button>`
+          ? `<button class="btn btn-primary" id="btn-register-warmup">${icon('bolt', 16)} ${L('立即报名开局预热 (需 ≥1 有效直邀)', 'Join Pre-Round (≥1 Invite)')}</button>`
           : `<button class="btn btn-primary" id="btn-share-warmup">${icon('send', 15)} ${L('分享冲榜 · 冲击前 10 名', 'Share to Reach Top 10')}</button>`
         }
       </div>
@@ -89,11 +89,11 @@ export function renderWarmupHome(root, navigate) {
       </div>
 
       <div class="grid-2">
-        <button class="btn btn-secondary" data-nav="/warmup/rank">${icon('trophy', 15)} ${L('预热榜', 'Board')}</button>
+        <button class="btn btn-secondary" data-nav="/warmup/rank">${icon('trophy', 15)} ${L('早鸟先锋榜', 'Early Bird Board')}</button>
         <button class="btn btn-secondary" id="btn-copy-invite">${icon('copy', 15)} ${L('复制邀请链', 'Copy Link')}</button>
       </div>
 
-      ${reg ? `<button class="btn btn-sm" id="btn-cancel-warmup" style="width:100%;background:transparent;color:var(--text-muted);font-weight:500;">${L('取消本轮预热报名', 'Cancel Warm-Up Registration')}</button>` : ''}
+      ${reg ? `<button class="btn btn-sm" id="btn-cancel-warmup" style="width:100%;background:transparent;color:var(--text-muted);font-weight:500;">${L('取消本轮开局预热报名', 'Cancel Pre-Round Registration')}</button>` : ''}
     </div>
   `;
 
@@ -113,7 +113,7 @@ export function renderWarmupHome(root, navigate) {
           A9Haptic.success();
           burstParticles(regBtn);
           store.update(s => { s.user.warmupRegistered = true; });
-          showToast(L('预热报名成功', 'Warm-Up registered'));
+          showToast(L('开局预热报名成功', 'Pre-Round registered'));
           renderWarmupHome(root, navigate);
         } catch (e) {
           showToast(e?.message || L('预热报名失败，请重试', 'Registration failed'), 'error');
@@ -131,7 +131,7 @@ export function renderWarmupHome(root, navigate) {
   const shareBtn = root.querySelector('#btn-share-warmup');
   if (shareBtn) {
     shareBtn.onclick = () => {
-      A9TMA.shareInvite(inviteUrl, config.isDemo ? 'A9 8,000,000 A9 Warm-Up Pool' : L('A9 协议预热活动入口', 'A9 Protocol Warm-Up'));
+      A9TMA.shareInvite(inviteUrl, config.isDemo ? 'A9 8,000,000 A9 Pre-Round Pool' : L('A9 协议开局预热入口', 'A9 Protocol Pre-Round'));
       showToast(L('已调起分享', 'Share opened'));
     };
   }
@@ -157,7 +157,7 @@ export function renderWarmupRank(root) {
         panel.textContent=L('暂无预热排名','No warm-up rankings yet');
         return;
       }
-      panel.textContent=L('正在读取预热榜','Loading warm-up rankings');
+      panel.textContent=L('正在读取早鸟先锋榜','Loading early bird rankings');
       try {
         const rows=await fetchWarmupRank(store.state.round.currentRound);
         panel.textContent=L('预热邀请榜','Warm-up invites');
@@ -188,8 +188,8 @@ export function renderWarmupRank(root) {
         </div>
 
         <div class="seg-tabs">
-          <button class="seg-tab ${tab === 'personal' ? 'active' : ''}" data-wt="personal">${L('个人预热榜 (前50)', 'Top 50 Users')}</button>
-          <button class="seg-tab ${tab === 'team' ? 'active' : ''}" data-wt="team">${L('团队预热榜', 'Top Teams')}</button>
+          <button class="seg-tab ${tab === 'personal' ? 'active' : ''}" data-wt="personal">${L('个人先锋榜 (前50)', 'Top 50 Users')}</button>
+          <button class="seg-tab ${tab === 'team' ? 'active' : ''}" data-wt="team">${L('战队先锋榜', 'Top Squads')}</button>
         </div>
 
         <div class="card">
@@ -227,38 +227,23 @@ export function renderInternalMarket(root, navigate) {
           <div class="shop-counter-body">
             <header class="counter-keeper">
               <div class="counter-keeper-left">
-                <img src="./assets/wealthverse/game/a8.webp" alt="">
+                <img src="./assets/wealthverse/game/a8.png" alt="">
                 <div>
-                  <h2>${L('主城商行 · 贴纸礼盒柜台', 'City Shop · Sticker Packs')}</h2>
-                  <div class="num-xs text-muted">${L('买贴纸道具包即含定额协议 A9（1 GRAM = 2,002 A9）', 'Sticker packs include fixed-rate A9 tokens (1 GRAM = 2,002 A9)')}</div>
+                  <h2>${L('A9 兑换屋 · 固定汇率兑换柜台', 'A9 Exchange · Fixed-Rate Counter')}</h2>
+                  <div class="num-xs text-muted">${L('1 GRAM = 2,002 A9 协议固定报价 · 单笔 5–200 GRAM', '1 GRAM = 2,002 A9 fixed quote · 5–200 GRAM per order')}</div>
                 </div>
               </div>
               <span class="chip chip-gold">${L('只读模式', 'READ-ONLY')}</span>
             </header>
-            <div class="sticker-pack-shelf" style="margin-bottom:12px;">
-              ${DEMO_STICKER_PACKS.map(p => `
-                <div class="sticker-pack-card ${p.critFlair ? 'deluxe' : ''}">
-                  <img src="./assets/paper-craft/${p.asset}.svg" alt="">
-                  <div class="sticker-pack-info">
-                    <div class="row-between">
-                      <strong>${L(p.zh, p.en)}</strong>
-                      <span class="chip chip-gold mono">${p.priceGram} GRAM</span>
-                    </div>
-                    <div class="num-xs text-green" style="font-weight:800;margin-top:2px;">+${formatNum(p.a9Amount, 2)} A9 · +${p.expBonus} EXP</div>
-                    <div class="num-xs text-sec">${L(p.descZh, p.descEn)}</div>
-                  </div>
-                </div>
-              `).join('')}
-            </div>
             <div class="sub-tile" style="margin-bottom:12px;">
               <div class="row-between num-xs"><span class="text-sec">${L('钱包可用额度', 'Wallet quota')}</span><b class="mono">${L('待核验', 'Pending')}</b></div>
               <div class="row-between num-xs" style="margin-top:6px;"><span class="text-sec">${L('当前兑换报价', 'Swap rate')}</span><b class="mono">${L('待核验', 'Pending')}</b></div>
             </div>
-            <p class="num-xs text-sec" style="margin:0 0 12px;line-height:1.5;">${L('真实模式下商品购买与固定兑换入口暂未开放，不会发起下单或钱包签名。', 'Live pack purchases and fixed-rate swaps are currently disabled. No order or wallet signature will be triggered.')}</p>
-            <button class="btn btn-secondary" disabled id="btn-buy-market">${icon('lock', 15)} ${L('真实模式只读 · 暂未开放购买', 'Live read-only · purchase disabled')}</button>
+            <p class="num-xs text-sec" style="margin:0 0 12px;line-height:1.5;">${L('真实模式下固定兑换入口暂未开放，不会发起下单或钱包签名。', 'Live fixed-rate swaps are currently disabled. No order or wallet signature will be triggered.')}</p>
+            <button class="btn btn-secondary" disabled id="btn-buy-market">${icon('lock', 15)} ${L('真实模式只读 · 暂未开放兑换', 'Live read-only · swap disabled')}</button>
           </div>
         </section>
-        <a class="btn btn-secondary" href="#/internal/records">${icon('receipt', 15)} ${L('查看订单记录', 'Order history')}</a>
+        <a class="btn btn-secondary" href="#/internal/records">${icon('receipt', 15)} ${L('查看兑换小票', 'Exchange Receipts')}</a>
       </div>`;
     return;
   }
@@ -276,7 +261,7 @@ export function renderInternalMarket(root, navigate) {
       <div class="empty-state" style="padding:14px 6px;">
         <div class="icon-badge gold" style="width:48px;height:48px;border-radius:14px;">${icon('send', 22)}</div>
         <div style="font-size:17px;font-weight:700;margin-top:4px;">${L('需要绑定 Telegram 账号', 'Telegram Binding Required')}</div>
-        <div class="text-sec" style="font-size:12px;max-width:280px;">${L('主城商行与商会加成功能必须绑定 Telegram 身份，点击下方 1 秒完成绑定。', 'City market & guild boost require Telegram binding. Complete in 1 tap.')}</div>
+        <div class="text-sec" style="font-size:12px;max-width:280px;">${L('A9 兑换屋与战队加成功能必须绑定 Telegram 身份，点击下方 1 秒完成绑定。', 'A9 Exchange & squad boost require Telegram binding. Complete in 1 tap.')}</div>
         <button class="btn btn-primary" id="sheet-bind-tg-btn" style="margin-top:10px;">${icon('checkCircle', 16)} ${L('立即绑定 Telegram', 'Bind Telegram Now')}</button>
         <button class="btn btn-secondary" id="sheet-bind-cancel">${L('稍后再说', 'Later')}</button>
       </div>
@@ -286,66 +271,13 @@ export function renderInternalMarket(root, navigate) {
       A9Haptic.success();
       store.update(s => { s.user.tgBound = true; });
       closeModal();
-      showToast(L('Telegram 账号已绑定，可立即购买', 'Telegram bound! Ready to buy.'));
+      showToast(L('Telegram 账号已绑定，可立即兑换', 'Telegram bound! Ready to swap.'));
       if (afterBind) afterBind();
     };
   };
 
-  const openPackUnfoldModal = (pack, res) => {
-    const itemMetas = pack.items.map(id => DEMO_COSMETIC_ITEMS[id]).filter(Boolean);
-    openModal(`
-      <div class="sheet-handle"></div>
-      <div class="pack-unfold-stage ${pack.critFlair ? 'crit-foil' : ''}" id="pack-unfold-stage">
-        <div class="row-between">
-          <span class="chip ${pack.critFlair ? 'chip-gold' : 'chip-green'}">
-            ${pack.critFlair ? L('金箔闪卡演出 · 仅视觉装扮特效', 'Gold-Foil Crit · Visual Flair Only') : L('确定性交付 · 已入背包', 'Deterministic Delivery · In Backpack')}
-          </span>
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-skip-pack-anim" style="min-height:28px;padding:0 10px;">${L('跳过动画', 'Skip')}</button>
-        </div>
-        <div class="pack-unfold-hero">
-          <img src="./assets/paper-craft/${pack.asset}.svg" alt="" class="pack-unfold-img">
-          <h3>${L(pack.zh, pack.en)}</h3>
-          <div class="num-lg text-green mono">+${formatNum(res.receivedA9, 2)} A9</div>
-          <div class="num-xs text-muted">${L(`已扣除 ${pack.priceGram} GRAM · 手账经验 +${pack.expBonus} EXP`, `Paid ${pack.priceGram} GRAM · +${pack.expBonus} EXP`)}</div>
-        </div>
-        <div class="sub-tile" id="pack-delivered-items">
-          <div class="num-xs text-muted" style="margin-bottom:6px;">${L('已解锁并自动装备的纸艺藏品（不影响 A9 兑换比例与收益）：', 'Unlocked paper-craft items (visual only, no effect on A9 yield):')}</div>
-          ${itemMetas.map(m => `
-            <div class="row-between num-xs" style="padding:4px 0;">
-              <strong>✓ ${L(m.zh, m.en)}</strong>
-              <span class="text-sec">${m.category === 'frame' ? L('立牌底座', 'Standee Base') : m.category === 'badge' ? L('纸艺贴纸', 'Sticker') : L('典藏称号', 'Title')}</span>
-            </div>
-          `).join('')}
-        </div>
-        <div class="grid-2" style="margin-top:10px;">
-          <button type="button" class="btn btn-primary" id="btn-go-backpack-cos">${L('去背包查看装扮', 'View in Backpack')}</button>
-          <button type="button" class="btn btn-secondary" id="btn-close-pack-modal">${L('继续逛商行', 'Keep Shopping')}</button>
-        </div>
-      </div>
-    `);
-    const stageEl = document.getElementById('pack-unfold-stage');
-    const skipBtn = document.getElementById('btn-skip-pack-anim');
-    if (skipBtn && stageEl) {
-      skipBtn.onclick = () => {
-        stageEl.classList.add('anim-skipped');
-        skipBtn.textContent = L('已跳过动画 · 交付完成', 'Skipped · Delivered');
-        skipBtn.disabled = true;
-      };
-    }
-    const goBp = document.getElementById('btn-go-backpack-cos');
-    if (goBp) {
-      goBp.onclick = () => {
-        closeModal();
-        if (navigate) navigate('/profile');
-        else window.location.hash = '#/profile';
-      };
-    }
-    const closeBtn = document.getElementById('btn-close-pack-modal');
-    if (closeBtn) closeBtn.onclick = closeModal;
-  };
-
   const render = () => {
-    const estA9 = Number((payTon * market.rateA9PerTon).toFixed(2));
+    const estA9 = Math.round(payTon * market.rateA9PerTon);
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         <div class="card card-hero exchange-counter ${market.soldOut ? 'card-glow-red' : ''}">
@@ -353,33 +285,14 @@ export function renderInternalMarket(root, navigate) {
           <div class="shop-counter-body">
           <header class="counter-keeper">
             <div class="counter-keeper-left">
-              <img src="./assets/wealthverse/game/a8.webp" alt="">
+              <img src="./assets/wealthverse/game/a8.png" alt="">
               <div>
-                <h2>${L('主城商行 · 贴纸礼盒与配额柜台', 'City Shop · Sticker Packs & Quota')}</h2>
-                <div class="num-xs text-muted mono">1 GRAM = ${formatNum(market.rateA9PerTon)} A9 · ${L('买道具包即含定额 A9', 'Packs include A9 tokens')}</div>
+                <h2>${L('A9 兑换屋 · 固定汇率兑换柜台', 'A9 Exchange · Fixed-Rate Counter')}</h2>
+                <div class="num-xs text-muted mono">1 GRAM = ${formatNum(market.rateA9PerTon)} A9 · ${L('单笔 5–200 GRAM 协议固定报价', '5–200 GRAM fixed protocol quote')}</div>
               </div>
             </div>
             <span class="chip ${market.soldOut ? 'chip-red' : !user.tgBound ? 'chip-amber' : 'chip-green'}">${market.soldOut ? L('已售罄', 'SOLD OUT') : !user.tgBound ? L('需绑定 TG', 'BIND TG') : L('演示开放', 'DEMO OPEN')}</span>
           </header>
-
-          <div class="sticker-pack-shelf" style="margin-bottom:14px;">
-            ${DEMO_STICKER_PACKS.map(p => `
-              <div class="sticker-pack-card ${p.critFlair ? 'deluxe' : ''}" data-pack-sku="${p.skuId}">
-                <img src="./assets/paper-craft/${p.asset}.svg" alt="">
-                <div class="sticker-pack-info">
-                  <div class="row-between">
-                    <strong>${L(p.zh, p.en)}</strong>
-                    <span class="chip ${p.critFlair ? 'chip-gold' : 'chip-green'} mono">${p.priceGram} GRAM</span>
-                  </div>
-                  <div class="num-xs text-green mono" style="font-weight:800;margin-top:2px;">+${formatNum(p.a9Amount, 2)} A9 · +${p.expBonus} EXP</div>
-                  <div class="num-xs text-sec">${L(p.descZh, p.descEn)}</div>
-                </div>
-                <button type="button" class="btn btn-primary btn-sm" data-buy-pack="${p.skuId}" ${market.soldOut ? 'disabled' : ''} style="min-width:74px;min-height:36px;padding:0 10px;">
-                  ${L('购买拆封', 'Buy Pack')}
-                </button>
-              </div>
-            `).join('')}
-          </div>
 
           ${market.soldOut ? `
             <div class="sub-tile" style="border-color:var(--red-border);margin-bottom:12px;">
@@ -402,7 +315,7 @@ export function renderInternalMarket(root, navigate) {
 
           <div class="sub-tile row-between exchange-receipt">
             <div class="row-start" style="gap:8px;">
-              <img src="./assets/paper-craft/ticket.svg" alt="">
+              <img src="./assets/paper-craft/ticket.png" alt="">
               <div>
                 <div class="num-xs text-muted">${L('2. 预计获得（估算）', '2. Estimated Receive')}</div>
                 <div class="num-xs text-sec">${L('按当前汇率折算', 'At current fixed rate')}</div>
@@ -450,7 +363,7 @@ export function renderInternalMarket(root, navigate) {
             <div class="row-start">
               <span class="icon-badge sky" style="width:36px;height:36px;border-radius:11px;">${icon('receipt', 15)}</span>
               <div>
-                <div style="font-weight:600;font-size:14px;">${L('商行订单记录', 'Market Order History')}</div>
+                <div style="font-weight:600;font-size:14px;">${L('兑换小票', 'Exchange Receipts')}</div>
                 <div class="num-xs text-muted">${L(`共 ${market.records.length} 笔订单 · 含成交与退款明细`, `${market.records.length} orders · fills & refunds`)}</div>
               </div>
             </div>
@@ -488,38 +401,11 @@ export function renderInternalMarket(root, navigate) {
       b.onclick = () => { A9Haptic.light(); payTon = Number(b.dataset.qton); render(); };
     });
 
-    root.querySelectorAll('[data-buy-pack]').forEach(btn => {
-      btn.onclick = () => {
-        if (!config.isDemo || !store.fundsEnabled) {
-          A9Haptic.warning();
-          showToast(L('当前真实模式处于只读验收阶段，贴纸礼盒购买暂未开放', 'Live mode is read-only; pack purchases are disabled'), 'amber');
-          return;
-        }
-        if (!user.tgBound) {
-          openTgBindSheet(render);
-          return;
-        }
-        const skuId = btn.dataset.buyPack;
-        const pack = DEMO_STICKER_PACKS.find(p => p.skuId === skuId);
-        if (!pack) return;
-        const res = store.buyInternalMarket(pack.priceGram, pack.skuId);
-        if (res.error) {
-          A9Haptic.error();
-          showToast(res.error, 'error');
-        } else {
-          A9Haptic.success();
-          burstParticles(btn);
-          render();
-          openPackUnfoldModal(pack, res);
-        }
-      };
-    });
-
     const buyBtn = root.querySelector('#btn-buy-market');
     buyBtn.onclick = async () => {
       if (!config.isDemo || !store.fundsEnabled) {
         A9Haptic.warning();
-        showToast(L('当前真实模式处于只读验收阶段，商行下单与钱包签名暂未开放', 'Live mode is read-only; market orders and wallet signing are disabled'), 'amber');
+        showToast(L('当前真实模式处于只读验收阶段，兑换屋下单与钱包签名暂未开放', 'Live mode is read-only; exchange orders and wallet signing are disabled'), 'amber');
         return;
       }
       if (!user.tgBound) {
@@ -550,11 +436,11 @@ export function renderInternalRecords(root) {
     <div class="col-gap anim-page-enter">
       <div class="card">
         <div class="card-header">
-          <div class="card-title">${icon('receipt', 15)} ${L('商行订单记录', 'Market Orders')}</div>
+          <div class="card-title">${icon('receipt', 15)} ${L('兑换小票', 'Exchange Receipts')}</div>
           <span class="chip chip-muted">${records.length}</span>
         </div>
         ${records.length === 0 ? `
-          <div class="empty-state"><div class="num-sm text-muted">${L('暂无商行订单', 'No orders yet')}</div></div>
+          <div class="empty-state"><div class="num-sm text-muted">${L('暂无兑换小票', 'No receipts yet')}</div></div>
         ` : `
           <div class="col-gap">
             ${records.map(r => `

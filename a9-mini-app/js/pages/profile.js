@@ -8,10 +8,11 @@ import { portfolioPanel, identityStage, bindIdentityStage } from './wealthverse.
 import { store } from '../store.js';
 import { config } from '../config.js';
 import { uiMemory } from '../app.js';
-import { demoTxHash, DEMO_COSMETIC_ITEMS } from '../demo-data.js';
+import { demoTxHash } from '../demo-data.js';
 import { A9Haptic } from '../tma.js';
 import { A9Audio } from '../audio.js';
-import { formatNum, showToast, copyText, mountSlider, renderCorridorRadar, bindCorridorRadarEvents, animateSlotCounter, openChoiceSheet, openModal, closeModal } from '../components.js';
+import { formatNum, showToast, copyText, mountSlider, renderCorridorRadar, bindCorridorRadarEvents, animateSlotCounter, launchCoinArc, burstParticles, openChoiceSheet, openModal, closeModal } from '../components.js';
+import { renderOrigamiChestSvg } from '../paper-art.js';
 import { renderProofFlexPoster, renderStoryPoster, downloadPosterPng } from '../poster.js';
 import { openXShareSheet, triggerStoryShare } from '../share.js';
 import { icon } from '../icons.js';
@@ -19,71 +20,6 @@ import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
 
 const amountOrDash = (v, suffix = '') => (v === null || v === undefined ? L('未获取', 'Unavailable') : `${formatNum(v)}${suffix}`);
-
-function renderCosmeticBoxCard() {
-  const inv = store.state.inventory || { items: [], loadout: {}, filter: 'all' };
-  const items = Array.isArray(inv.items) ? inv.items : [];
-  const loadout = inv.loadout || {};
-  const curFilter = inv.filter || 'all';
-  const catLabel = {
-    frame: L('立牌底座', 'Standee Base'),
-    badge: L('纸艺贴纸', 'Sticker Badge'),
-    title: L('典藏称号', 'Collector Title'),
-  };
-  const rarityBadge = {
-    basic: ['chip-muted', L('基础', 'Basic')],
-    plus: ['chip-blue', L('进阶', 'Plus')],
-    deluxe: ['chip-gold', L('金箔典藏', 'Gold-Foil')],
-  };
-
-  return `
-    <div class="card" id="a9-cosmetic-box">
-      <div class="card-header">
-        <div class="card-title">${icon('layers', 16, 'text-gold')} ${L('贴纸与纸艺装扮匣', 'Sticker & Cosmetic Box')}</div>
-        <a class="text-link-btn" href="#/internal/market">${L('去商行获取', 'Shop Packs')} ›</a>
-      </div>
-      <nav class="ticket-tabs" id="cosmetic-filter-tabs" aria-label="${L('筛选装扮', 'Filter cosmetics')}">
-        ${[
-          ['all', L('全部', 'All')],
-          ['frame', L('底座', 'Bases')],
-          ['badge', L('贴纸', 'Stickers')],
-          ['title', L('称号', 'Titles')],
-        ].map(([val, lbl]) => `<button type="button" data-cos-filter="${val}" aria-pressed="${val === curFilter}">${lbl}</button>`).join('')}
-      </nav>
-      <div class="col-gap" style="margin-top:8px;">
-        ${items.length === 0
-          ? `<div class="empty-state" style="padding:12px;"><div class="num-xs text-muted">${L('暂未拥有纸艺装扮 · 可前往主城商行拆封贴纸包', 'No paper-craft cosmetics owned yet')}</div></div>`
-          : items.map((it) => {
-              const meta = DEMO_COSMETIC_ITEMS[it.itemId] || it;
-              const isEquipped =
-                (meta.category === 'frame' && loadout.equippedFrame === it.itemId) ||
-                (meta.category === 'badge' && loadout.equippedBadge === it.itemId) ||
-                (meta.category === 'title' && loadout.equippedTitle === it.itemId);
-              const [rCls, rTxt] = rarityBadge[meta.rarity] || rarityBadge.basic;
-              const hidden = curFilter !== 'all' && meta.category !== curFilter;
-              return `
-                <div class="list-row cosmetic-item-row" data-cos-cat="${meta.category}" data-cos-id="${it.itemId}" ${hidden ? 'hidden' : ''}>
-                  <div>
-                    <div class="row-start" style="gap:6px;">
-                      <strong class="num-sm">${L(meta.zh, meta.en)}</strong>
-                      <span class="chip ${rCls}" style="height:18px;font-size:10px;padding:0 6px;">${rTxt}</span>
-                    </div>
-                    <div class="num-xs text-muted">${catLabel[meta.category] || meta.category} · ${L('仅展示装扮，不影响 A9 收益', 'Visual only · no financial effect')}</div>
-                  </div>
-                  <button type="button" class="btn ${isEquipped ? 'btn-secondary' : 'btn-primary'} btn-sm"
-                    data-equip-item="${it.itemId}"
-                    data-equip-cat="${meta.category}"
-                    data-equipped="${isEquipped}"
-                    style="min-width:68px;min-height:32px;padding:0 10px;">
-                    ${isEquipped ? L('卸下', 'Unequip') : L('装备', 'Equip')}
-                  </button>
-                </div>
-              `;
-            }).join('')}
-      </div>
-    </div>
-  `;
-}
 
 export function renderProfileHome(root, navigate) {
   if (!config.isDemo) {
@@ -108,16 +44,16 @@ export function renderProfileHome(root, navigate) {
         ${identityStage({ modePill, walletTag })}
         <div class="card card-hero">
           <div class="empty-state" style="padding:12px 8px 6px;">
-            <img src="./assets/paper-craft/vault.svg" alt="" style="width:64px;height:64px;filter:var(--paper-cut-shadow);">
+            <img src="./assets/paper-craft/vault.png" alt="" style="width:64px;height:64px;filter:var(--paper-cut-shadow);">
             <div style="font-size:17px;font-weight:800;margin-top:4px;">${L('还没有持仓与收益', 'No Active Position Yet')}</div>
             <div class="text-sec" style="font-size:12px;max-width:260px;">${L('最低 10 GRAM 即可参与，达标后按权重瓜分本轮奖励。', 'Join from 10 GRAM; rewards are shared by weight if the round passes.')}</div>
             <button class="btn btn-primary" style="margin-top:10px;" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L('立即参与', 'Stake Now')}</button>
-            <button class="btn btn-secondary" data-nav="/internal/market">${icon('swap', 15)} ${L('主城商行兑换 A9', 'Market Swap')}</button>
+            <button class="btn btn-secondary" data-nav="/internal/market">${icon('swap', 15)} ${L('A9 兑换屋兑换', 'A9 Exchange')}</button>
           </div>
         </div>
         <div class="grid-2">
-          <button class="cmd-tile" data-nav="/team/invite"><span class="icon-badge amber">${icon('qr', 15)}</span><span>${L('邀请海报', 'Poster')}</span></button>
-          <button class="cmd-tile" data-nav="/settings"><span class="icon-badge">${icon('settings', 15)}</span><span>${L('主城设置', 'Settings')}</span></button>
+          <button class="cmd-tile" data-nav="/team/invite"><span class="icon-badge amber">${icon('qr', 15)}</span><span>${L('邀友赢奖', 'Invite & Earn')}</span></button>
+          <button class="cmd-tile" data-nav="/settings"><span class="icon-badge">${icon('settings', 15)}</span><span>${L('偏好设置', 'Settings')}</span></button>
         </div>
       </div>
     `;
@@ -169,16 +105,14 @@ export function renderProfileHome(root, navigate) {
 
         ${todoCardHtml}
 
-        ${renderCosmeticBoxCard()}
-
         <div class="card">
           <div class="card-header"><div class="card-title">${icon('shieldCheck', 16, 'text-green')} ${L('凭证收藏册', 'Ticket Collection')}</div><span class="chip chip-muted">${certificates.length}</span></div>
           <nav class="ticket-tabs" id="ticket-filter-tabs" aria-label="${L('筛选凭证', 'Filter tickets')}">${[['all', L('全部', 'All')], ['observation', L('观察中', 'Observing')], ['settled', L('已结算', 'Settled')]].map(([value, label]) => `<button type="button" data-ticket-filter="${value}" aria-pressed="${value === activeFilter}">${label}</button>`).join('')}</nav>
-          <p class="ticket-empty" hidden>${L('该状态下暂无质押凭证', 'No tickets in this state')}</p>
+          <p class="ticket-empty" hidden>${L('该状态下暂无闯关凭证', 'No quest passes in this state')}</p>
           ${certificates.length === 0
-            ? `<div class="empty-state" style="padding:14px;"><div class="num-xs text-muted">${L('暂无参与中的质押凭证', 'No active stake tickets')}</div><button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/round">${L('前往轮次挑战', 'Go to challenge')}</button></div>`
+            ? `<div class="empty-state" style="padding:14px;"><div class="num-xs text-muted">${L('暂无进行中的闯关凭证', 'No active quest passes')}</div><button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/round">${L('前往轮次闯关', 'Go to Quest')}</button></div>`
             : certificates.map(c => `
-              <div class="list-row clickable collectible-ticket" data-ticket-state="${c.status}" data-nav="/proof/${c.id}" ${activeFilter !== 'all' && c.status !== activeFilter ? 'hidden' : ''}><img src="./assets/paper-craft/ticket.svg" alt="">
+              <div class="list-row clickable collectible-ticket" data-ticket-state="${c.status}" data-nav="/proof/${c.id}" ${activeFilter !== 'all' && c.status !== activeFilter ? 'hidden' : ''}><img src="./assets/paper-craft/ticket.png" alt="">
                 <div>
                   <div class="num-sm">#${c.id}</div>
                   <div class="num-xs text-muted">${L('第', 'R')}${c.round}${L('轮', '')} · ${formatNum(c.stakeTon)} GRAM</div>
@@ -193,9 +127,9 @@ export function renderProfileHome(root, navigate) {
         </div>
 
         <div class="grid-4">
-          <button class="cmd-tile" data-nav="/proof"><span class="icon-badge orange">${icon('shieldCheck', 16)}</span><span>${L('凭证', 'Proof')}</span></button>
-          <button class="cmd-tile" data-nav="/ledger"><span class="icon-badge emerald">${icon('receipt', 16)}</span><span>${L('账单', 'Ledger')}</span></button>
-          <button class="cmd-tile" data-nav="/renew"><span class="icon-badge sky">${icon('refresh', 16)}</span><span>${L('续期', 'Renew')}</span></button>
+          <button class="cmd-tile" data-nav="/proof"><span class="icon-badge orange">${icon('shieldCheck', 16)}</span><span>${L('凭证', 'Pass')}</span></button>
+          <button class="cmd-tile" data-nav="/ledger"><span class="icon-badge emerald">${icon('receipt', 16)}</span><span>${L('账本', 'Ledger')}</span></button>
+          <button class="cmd-tile" data-nav="/renew"><span class="icon-badge sky">${icon('refresh', 16)}</span><span>${L('连闯', 'Auto')}</span></button>
           <button class="cmd-tile" data-nav="/settings"><span class="icon-badge">${icon('settings', 16)}</span><span>${L('设置', 'Settings')}</span></button>
         </div>
       </div>
@@ -237,34 +171,6 @@ export function renderProfileHome(root, navigate) {
     }
     const connectBtn = root.querySelector('#profile-connect');
     if (connectBtn) connectBtn.onclick = () => tonConnect.openConnectModal(() => renderProfileHome(root, navigate));
-
-    root.querySelector('#cosmetic-filter-tabs')?.addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-cos-filter]');
-      if (!btn) return;
-      A9Haptic.light();
-      A9Audio.tick();
-      const f = btn.dataset.cosFilter;
-      store.state.inventory.filter = f;
-      root.querySelectorAll('[data-cos-cat]').forEach((row) => {
-        row.hidden = f !== 'all' && row.dataset.cosCat !== f;
-      });
-      root.querySelectorAll('[data-cos-filter]').forEach((b) => {
-        b.setAttribute('aria-pressed', String(b.dataset.cosFilter === f));
-      });
-    });
-
-    root.querySelectorAll('[data-equip-item]').forEach((btn) => {
-      btn.onclick = () => {
-        A9Haptic.light();
-        A9Audio.flip();
-        const itemId = btn.dataset.equipItem;
-        const cat = btn.dataset.equipCat;
-        const already = btn.dataset.equipped === 'true';
-        store.equipCosmeticDemo(cat, already ? null : itemId);
-        showToast(already ? L('已卸下该纸艺装扮', 'Cosmetic unequipped') : L('已装备至个人身份铭牌栏', 'Cosmetic equipped'));
-        renderProfileHome(root, navigate);
-      };
-    });
   }
 
   bindIdentityStage(root, () => renderProfileHome(root, navigate));
@@ -305,7 +211,7 @@ export function renderClaimPage(root) {
           <div class="num-xs text-sec" style="line-height:1.5;">${L('当前真实模式处于只读验收阶段，凭证领取与钱包签名暂未开放，请等待主网验收完成后开放。', 'Live mode is currently read-only; StakeTicket claim signing will open after mainnet acceptance.')}</div>
         </div>
         <button class="btn btn-secondary" id="btn-claim-readonly" type="button">${icon('lock', 15)} ${L('真实模式只读 · 暂未开放领取', 'Read-Only Mode · Claim Disabled')}</button>
-        <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回背包', 'Back to Backpack')}</button>
+        <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回我的', 'Back to Me')}</button>
       </div>
     `;
     const roBtn = root.querySelector('#btn-claim-readonly');
@@ -320,21 +226,40 @@ export function renderClaimPage(root) {
 
   let claimedAmount = 0;
   const paint = () => {
+    const availNow = Number(store.state.user.a9Available || 0);
+    const lockedNow = Number(store.state.user.a9Locked || 0);
     if (claimedAmount > 0) {
       const txHash = demoTxHash('EQC');
       root.innerHTML = `
         <div class="col-gap anim-page-enter">
-          <div class="card card-hero" style="text-align:center;padding:26px 14px;">
-            <div class="icon-badge neon" style="width:52px;height:52px;margin:0 auto 12px;border-radius:14px;">${icon('checkCircle', 28)}</div>
-            <div style="font-size:18px;font-weight:700;">${L('演示领取完成', 'Demo claim complete')}</div>
-            <div class="num-hero" style="margin:6px 0;">+${formatNum(claimedAmount)} <span class="num-md text-green">A9</span></div>
+          <div class="card card-hero success-cert-stage anim-cert-drop" style="text-align:center;padding:24px 16px;">
+            <span class="success-stamp-seal anim-seal-slam" aria-hidden="true"><b>${L('已入账', 'CLAIMED')}</b><span>A9 VAULT</span></span>
+            <img src="./assets/paper-craft/vault.png" alt="" style="width:68px;height:68px;margin:0 auto 8px;filter:var(--paper-cut-shadow);">
+            <div style="font-size:18px;font-weight:900;">${L('折纸宝箱已开启 · 演示入账完成', 'Paper Chest Opened · Demo Claimed')}</div>
+            <div class="num-hero text-green" id="claimed-final-num" style="margin:6px 0;">+${formatNum(claimedAmount)} <span class="num-md text-green">A9</span></div>
             <div class="num-xs text-sec clickable" id="copy-claim-tx">${txHash} ${icon('copy', 12)}</div>
             <div class="num-xs text-muted" style="margin-top:6px;">${L('演示哈希 · 非链上交易', 'Demo hash · not an on-chain tx')}</div>
           </div>
+
+          <div class="card">
+            <div class="card-title" style="margin-bottom:6px;">${icon('wallet', 15, 'text-gold')} ${L('账户余额已更新', 'Account Balance Updated')}</div>
+            <div class="metric-strip cols-2" style="margin:6px 0 0;padding:8px 0 0;border-bottom:0;">
+              <div class="metric-cell">
+                <span class="num-xs text-muted">${L('当前可用 A9', 'Available A9')}</span>
+                <span class="num-md text-green mono" id="claimed-avail-num">${formatNum(availNow)} A9</span>
+              </div>
+              <div class="metric-cell">
+                <span class="num-xs text-muted">${L('待解锁余额', 'Remaining Locked')}</span>
+                <span class="num-md mono">${formatNum(lockedNow)} A9</span>
+              </div>
+            </div>
+          </div>
+
           <button class="btn btn-primary" data-nav="/ledger">${icon('receipt', 15)} ${L('查看收益明细', 'View Ledger')}</button>
-          <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回背包', 'Back to Backpack')}</button>
+          <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回我的', 'Back to Me')}</button>
         </div>
       `;
+      animateSlotCounter(root.querySelector('#claimed-avail-num'), availNow, { duration: 480, suffix: ' A9' });
       root.querySelector('#copy-claim-tx').onclick = () => copyText(txHash, L('已复制哈希', 'Copied Hash'));
       return;
     }
@@ -344,24 +269,72 @@ export function renderClaimPage(root) {
         <div class="card card-hero">
           <div class="row-between" style="margin-bottom:8px;">
             <span class="num-xs text-muted">${L('即刻可领 (20%)', 'Claimable Now (20%)')}</span>
-            <span class="chip chip-green">${L('演示', 'DEMO')}</span>
+            <span class="chip chip-muted mono" id="claim-avail-pill">${L('账户可用', 'Avail')}: ${formatNum(availNow)} A9</span>
           </div>
           <div class="num-hero" id="claim-counter">${formatNum(claimable || 0)} A9</div>
         </div>
-        ${claimable > 0
-          ? `<div id="claim-slider-mount"></div>`
-          : `<div class="card empty-state"><div class="num-sm text-sec">${L('当前无可领余额', 'Nothing to claim right now')}</div></div>`
-        }
+
+        ${claimable > 0 ? `
+          <section class="claim-chest-stage" id="claim-chest-stage">
+            <span class="diorama-kicker">ORIGAMI REWARD CHEST</span>
+            <div class="claim-chest-wrap" id="claim-chest-wrap">
+              ${renderOrigamiChestSvg()}
+            </div>
+            <div class="claim-chest-hint" id="claim-chest-hint">${L('向右拖动滑块，掀开折纸宝箱收入账户', 'Slide right to lift the paper chest lid')}</div>
+            <div class="claim-breakdown-strip">
+              <div><small>${L('本批释放', 'Immediate')}</small><strong class="text-green">20%</strong></div>
+              <div><small>${L('待解锁余量', 'Locked')}</small><strong>${formatNum(lockedNow)}</strong></div>
+              <div><small>${L('演示网络费', 'Demo Fee')}</small><strong>0 GRAM</strong></div>
+            </div>
+          </section>
+          <div id="claim-slider-mount"></div>
+        ` : `
+          <div class="card empty-state">
+            <img src="./assets/paper-craft/vault.png" alt="" style="width:60px;height:60px;filter:var(--paper-cut-shadow);">
+            <div class="num-sm text-sec">${L('当前无可领余额，宝箱已清空', 'Nothing to claim right now')}</div>
+            <button class="btn btn-secondary btn-sm" style="margin-top:6px;" data-nav="/profile">${L('返回我的', 'Back to Me')}</button>
+          </div>
+        `}
       </div>
     `;
     if (claimable > 0) {
+      const stageEl = root.querySelector('#claim-chest-stage');
+      const wrapEl = root.querySelector('#claim-chest-wrap');
+      const hintEl = root.querySelector('#claim-chest-hint');
+      const availPill = root.querySelector('#claim-avail-pill');
+
       animateSlotCounter(root.querySelector('#claim-counter'), claimable, { duration: 550, suffix: ' A9' });
       mountSlider(root.querySelector('#claim-slider-mount'), {
-        label: L(`右滑提取 ${formatNum(claimable)} A9`, `Slide to Claim ${formatNum(claimable)} A9`),
+        label: L(`右滑开启宝箱 · 领 ${formatNum(claimable)} A9`, `Slide to Open Chest · ${formatNum(claimable)} A9`),
+        silentConfirmAudio: true,
+        onProgress: (p) => {
+          if (stageEl) stageEl.style.setProperty('--chest-open', p.toFixed(3));
+          if (hintEl) {
+            if (p >= 0.8) hintEl.textContent = L('金光已满！松手瞬间收入囊中', 'Golden glow full! Release to claim');
+            else if (p > 0.12) hintEl.textContent = L(`箱盖掀开中 ${Math.round(p * 100)}%…`, `Lifting chest lid ${Math.round(p * 100)}%…`);
+            else hintEl.textContent = L('向右拖动滑块，掀开折纸宝箱收入账户', 'Slide right to lift the paper chest lid');
+          }
+        },
         onConfirm: async () => {
+          A9Audio.chestOpen();
+          if (stageEl) stageEl.classList.add('is-opened');
+          if (wrapEl) {
+            wrapEl.classList.add('anim-chest-celebrate');
+            burstParticles(wrapEl);
+            launchCoinArc(wrapEl, availPill, 6);
+          }
           claimedAmount = store.claimRewards();
-          showToast(L(`已提取 ${formatNum(claimedAmount)} A9`, `Claimed ${formatNum(claimedAmount)} A9`));
-          paint();
+          const nextAvail = Number(store.state.user.a9Available || 0);
+          setTimeout(() => {
+            if (availPill && availPill.isConnected) {
+              availPill.textContent = `${L('账户可用', 'Avail')}: ${formatNum(nextAvail)} A9`;
+              availPill.classList.add('anim-counter-boing');
+            }
+          }, 380);
+          showToast(L(`宝箱已开启 · 入账 ${formatNum(claimedAmount)} A9`, `Chest opened · +${formatNum(claimedAmount)} A9`));
+          setTimeout(() => {
+            if (root.isConnected) paint();
+          }, 760);
         }
       });
     }
@@ -376,11 +349,11 @@ export function renderProofDetail(root, navigate, certId) {
       <div class="col-gap anim-page-enter">
         <div class="card empty-state">
           <div class="icon-badge orange" style="width:48px;height:48px;border-radius:14px;">${icon('shieldCheck', 22)}</div>
-          <div style="font-weight:700;font-size:15px;margin-top:4px;">${L('暂无质押凭证', 'No Certificate Yet')}</div>
-          <div class="num-xs text-muted" style="max-width:240px;">${L('完成任意一轮 GRAM 参与后，将自动铸造链上 SBT 质押凭证。', 'Complete any round stake to mint your on-chain SBT certificate.')}</div>
-          <button class="btn btn-primary btn-sm" style="margin-top:10px;" data-nav="/challenge/confirm">${icon('bolt', 14)} ${L('立即参与获取凭证', 'Stake to Mint')}</button>
+          <div style="font-weight:700;font-size:15px;margin-top:4px;">${L('暂无闯关凭证', 'No Quest Pass Yet')}</div>
+          <div class="num-xs text-muted" style="max-width:240px;">${L('完成任意一轮 GRAM 入场后，将自动铸造链上 SBT 闯关凭证。', 'Complete any round entry to mint your on-chain SBT quest pass.')}</div>
+          <button class="btn btn-primary btn-sm" style="margin-top:10px;" data-nav="/challenge/confirm">${icon('bolt', 14)} ${L('立即入场获取凭证', 'Enter to Mint')}</button>
         </div>
-        <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回背包', 'Back to Backpack')}</button>
+        <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回我的', 'Back to Me')}</button>
       </div>
     `;
     return;
@@ -437,7 +410,7 @@ export function renderProofDetail(root, navigate, certId) {
       ${renderCorridorRadar(round.candles || [], round.targetPrice, round.activeCandleSec || 0, round.livePrice, { qualified: round.qualifiedCandles || 0, minQualified: round.minQualifiedCandles || 16, seen: round.candlesSeen || 0 })}
 
       <div class="card row-between">
-        <span class="row-start" style="font-weight:600;">${icon('refresh', 15, 'text-gold')} ${L('到期自动续期', 'Auto-Rollover')}</span>
+        <span class="row-start" style="font-weight:600;">${icon('refresh', 15, 'text-gold')} ${L('自动连闯', 'Auto-Continue')}</span>
         <div class="a9-switch ${cert.autoRenew ? 'on' : ''}" id="cert-renew-switch"></div>
       </div>
     </div>
@@ -532,7 +505,7 @@ export function renderRenewPage(root) {
     <div class="col-gap anim-page-enter">
       <div class="card card-hero">
         <div class="row-between" style="margin-bottom:8px;">
-          <div class="card-title">${icon('refresh', 16, 'text-gold')} ${L('自动续期', 'Auto-Rollover')}</div>
+          <div class="card-title">${icon('refresh', 16, 'text-gold')} ${L('自动连闯', 'Auto-Continue')}</div>
           <div class="a9-switch ${user.autoRenew ? 'on' : ''}" id="global-renew-sw"></div>
         </div>
         <div class="text-sec" style="font-size:12px;">${L(`达标结算后自动将当前质押转入${nextRoundZh}，按参与时段锁定早鸟权重。`, `Auto-rolls stake into ${nextRoundEn} after a passing settlement.`)}</div>
@@ -557,7 +530,7 @@ export function renderLedgerPage(root) {
     { type: L('暂无收益记录', 'No reward records'), time: '—', amount: '0 A9', status: L('空', 'Empty'), cat: 'all' }
   ];
   const categories = [
-    ['all', L('全部', 'All')], ['user', L('用户奖励', 'User')], ['promo', L('推广奖励', 'Promo')], ['warmup', L('预热奖励', 'Warm-Up')]
+    ['all', L('全部', 'All')], ['user', L('用户奖励', 'User')], ['promo', L('邀友奖励', 'Invite')], ['warmup', L('开局预热', 'Pre-Round')]
   ];
   const paint = () => {
     if (viewMode === 'records') {
@@ -565,19 +538,19 @@ export function renderLedgerPage(root) {
       root.innerHTML = `
         <div class="col-gap anim-page-enter">
           <div class="seg-tabs">
-            <button class="seg-tab" data-lmode="ledger" type="button">${L('奖励明细', 'Ledger')}</button>
-            <button class="seg-tab active" data-lmode="records" type="button">${L('参与战绩', 'History')}</button>
+            <button class="seg-tab" data-lmode="ledger" type="button">${L('收益账本', 'Ledger')}</button>
+            <button class="seg-tab active" data-lmode="records" type="button">${L('闯关战绩', 'History')}</button>
           </div>
           <div class="card card-hero">
             <div class="num-xs text-muted">${L('累计质押本金', 'Total Staked')}</div>
             <div class="num-hero">${formatNum(history.reduce((s, c) => s + (c.stakeTon || 0), 0), 2)} <span class="num-md text-green">GRAM</span></div>
           </div>
           <div class="col-gap">
-            ${history.length === 0 ? `<div class="card empty-state"><div class="num-xs text-muted">${L('暂无参与记录', 'No records')}</div></div>` : history.map(h => `
+            ${history.length === 0 ? `<div class="card empty-state"><div class="num-xs text-muted">${L('暂无闯关战绩', 'No history')}</div></div>` : history.map(h => `
               <div class="card clickable" data-nav="/proof/${h.id}">
                 <div class="row-between">
                   <div><div style="font-weight:700;">${L('第', 'R')} ${h.round} ${L('轮', '')} · <span class="text-sec">${formatNum(h.stakeTon)} GRAM</span></div><div class="num-xs text-muted">${h.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</div></div>
-                  <div style="text-align:right;"><div class="num-sm text-green">${formatNum(h.estRewardA9)} A9</div><div class="num-xs text-muted">${L('凭证', 'Proof')} ${icon('chevronRight', 11)}</div></div>
+                  <div style="text-align:right;"><div class="num-sm text-green">${formatNum(h.estRewardA9)} A9</div><div class="num-xs text-muted">${L('凭证', 'Pass')} ${icon('chevronRight', 11)}</div></div>
                 </div>
               </div>
             `).join('')}
@@ -592,8 +565,8 @@ export function renderLedgerPage(root) {
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         <div class="seg-tabs">
-          <button class="seg-tab active" data-lmode="ledger" type="button">${L('奖励明细', 'Ledger')}</button>
-          <button class="seg-tab" data-lmode="records" type="button">${L('参与战绩', 'History')}</button>
+          <button class="seg-tab active" data-lmode="ledger" type="button">${L('收益账本', 'Ledger')}</button>
+          <button class="seg-tab" data-lmode="records" type="button">${L('闯关战绩', 'History')}</button>
         </div>
         <div class="filter-row">${categories.map(([v, label]) => `<button class="filter-pill ${activeFilter === v ? 'active' : ''}" data-lf="${v}">${label}</button>`).join('')}</div>
         <div class="card"><div class="col-gap">

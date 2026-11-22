@@ -56,7 +56,7 @@ export function burstParticles(originEl) {
   const rect = originEl?.getBoundingClientRect();
   const cx = rect ? rect.left + rect.width * 0.8 : window.innerWidth / 2;
   const cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
-  const colors = ['#E8453C', '#F3B82C', '#2DA069', '#3A88D6'];
+  const colors = ['#E60012', '#F2B21B', '#14B064', '#2F80ED'];
 
   for (let i = 0; i < 12; i++) {
     const p = document.createElement('span');
@@ -234,13 +234,9 @@ export function renderLiveSparkline(points) {
 }
 
 /**
- * 3-Moment Interactive Slider:
- * 1. Drag: rAF-throttled smooth follow, single light haptic+tick at 80% threshold, 180ms rebound
- * 2. Submit: immediate "确认中" state
- * 3. Result: caller displays result & recovers if cancelled/failed
- * Also supports keyboard Enter/Space on the handle.
+ * 3-Moment Interactive Slider（木质棘轮拟音 + 每 10% 震动同步 + 实时进度回调 + 初始零毛边）
  */
-export function mountSlider(containerEl, { label = '右滑确认', onConfirm }) {
+export function mountSlider(containerEl, { label = '右滑确认', onConfirm, onProgress = null, silentConfirmAudio = false }) {
   if (!containerEl) return;
   cleanupActiveInteractions();
   activeSliderAbort = new AbortController();
@@ -270,6 +266,7 @@ export function mountSlider(containerEl, { label = '右滑确认', onConfirm }) 
   let dragging = false;
   let completed = false;
   let armedNotified = false;
+  let lastRatchetStep = 0;
   let startX = 0;
   let maxDrag = 0;
   let latestX = 0;
@@ -288,11 +285,12 @@ export function mountSlider(containerEl, { label = '右滑确认', onConfirm }) 
     handle.style.transform = 'scale(1)';
     handle.innerHTML = icon('check', 19);
     labelEl.textContent = L('确认中…', 'Confirming…');
-    slider.classList.remove('armed');
+    slider.classList.remove('armed', 'dragging');
     slider.classList.add('completed');
+    if (onProgress) onProgress(1);
     burstParticles(slider);
     A9Haptic.success();
-    A9Audio.confirm();
+    if (!silentConfirmAudio) A9Audio.confirm();
     setTimeout(() => onConfirm && onConfirm(), 180);
   };
 
@@ -304,6 +302,17 @@ export function mountSlider(containerEl, { label = '右滑确认', onConfirm }) 
     handle.style.left = `${delta + 4}px`;
     fill.style.width = `${(progress * 100).toFixed(1)}%`;
     handle.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
+    if (onProgress) onProgress(progress);
+
+    // 每经过 10% 刻度触发木质棘轮咔哒声 + 轻触觉震动
+    const ratchetStep = Math.floor(progress * 10);
+    if (ratchetStep > lastRatchetStep && ratchetStep >= 1 && ratchetStep <= 9) {
+      lastRatchetStep = ratchetStep;
+      A9Haptic.tick();
+      A9Audio.ratchet(ratchetStep);
+    } else if (ratchetStep < lastRatchetStep) {
+      lastRatchetStep = ratchetStep;
+    }
 
     const isArmed = progress >= SNAP_THRESHOLD;
     if (isArmed && !slider.classList.contains('armed')) {
@@ -315,8 +324,7 @@ export function mountSlider(containerEl, { label = '右滑确认', onConfirm }) 
       }
       if (!armedNotified) {
         armedNotified = true;
-        A9Haptic.light();
-        A9Audio.tick();
+        A9Haptic.medium();
       }
     } else if (!isArmed && slider.classList.contains('armed')) {
       slider.classList.remove('armed');
@@ -329,12 +337,15 @@ export function mountSlider(containerEl, { label = '右滑确认', onConfirm }) 
     if (completed) return;
     dragging = true;
     armedNotified = false;
+    lastRatchetStep = 0;
     startX = getClientX(e);
     latestX = startX;
     maxDrag = Math.max(1, slider.clientWidth - handle.clientWidth - 8);
+    slider.classList.add('dragging');
     handle.style.transition = 'none';
     fill.style.transition = 'none';
     handle.style.transform = 'scale(0.95)';
+    A9Haptic.light();
   };
 
   const onMove = (e) => {
@@ -363,7 +374,9 @@ export function mountSlider(containerEl, { label = '右滑确认', onConfirm }) 
       handle.style.transform = 'scale(1)';
       progress = 0;
       armedNotified = false;
-      slider.classList.remove('armed');
+      lastRatchetStep = 0;
+      slider.classList.remove('armed', 'dragging');
+      if (onProgress) onProgress(0);
       const txt = labelEl.querySelector('.slider-text');
       if (txt && txt.dataset.orig) txt.textContent = txt.dataset.orig;
     }
@@ -398,6 +411,34 @@ export function animateSlotCounter(el, target, { duration = 420, decimals = 0, p
     if (p < 1) requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+}
+
+/** 领奖开箱抛物线纸片金币动画（由宝箱飞向目标金额胶囊，尊重 reduced-motion） */
+export function launchCoinArc(fromEl, toEl, count = 6) {
+  if (!fromEl || !toEl) return;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  const from = fromEl.getBoundingClientRect();
+  const to = toEl.getBoundingClientRect();
+  const sx = from.left + from.width / 2;
+  const sy = from.top + from.height * 0.42;
+  const dx = (to.left + to.width / 2) - sx;
+  const dy = (to.top + to.height / 2) - sy;
+
+  for (let i = 0; i < count; i++) {
+    const coin = document.createElement('span');
+    coin.className = 'flying-coin';
+    coin.textContent = 'A9';
+    const spread = (i - (count - 1) / 2) * 26;
+    coin.style.left = `${sx - 12}px`;
+    coin.style.top = `${sy - 12}px`;
+    coin.style.setProperty('--mx', `${spread}px`);
+    coin.style.setProperty('--my', `${-44 - (i % 3) * 18}px`);
+    coin.style.setProperty('--tx', `${dx + spread * 0.16}px`);
+    coin.style.setProperty('--ty', `${dy}px`);
+    coin.style.animationDelay = `${i * 48}ms`;
+    document.body.appendChild(coin);
+    setTimeout(() => coin.remove(), 740 + i * 48);
+  }
 }
 
 /**
@@ -496,9 +537,10 @@ export function renderCorridorRadar(candles, targetPrice, activeCandleSec, liveP
     `;
   }).join('');
 
+  const isMatchPoint = Boolean(meta.sprint4h) || (passed >= Math.max(1, required - 2) && passed < required);
   const sprintBadge = meta.sprint4h
     ? `<span class="chip chip-red" style="height:20px;font-size:10px;padding:0 7px;">${L('最后 4H 冲刺', 'Last 4H')}</span>`
-    : '';
+    : (isMatchPoint ? `<span class="chip chip-gold" style="height:20px;font-size:10px;padding:0 7px;">${L('赛点冲刺', 'Match Point')}</span>` : '');
 
   const initSlotInfo = {
     index: defaultSlot.index,
@@ -508,7 +550,7 @@ export function renderCorridorRadar(candles, targetPrice, activeCandleSec, liveP
   };
 
   return `
-    <div class="card" id="a9-radar-card" data-target-price="${targetPrice ?? ''}">
+    <div class="card${isMatchPoint ? ' is-matchpoint' : ''}" id="a9-radar-card" data-target-price="${targetPrice ?? ''}">
       <div class="card-header" style="margin-bottom:8px;">
         <div class="row-start" style="gap:6px;flex-wrap:wrap;">
           <div class="card-title">${icon('radar', 15, 'text-cyan')} ${L('24H 观测盘', '24H Observation Board')}</div>
@@ -590,8 +632,10 @@ export function syncRadarInPlace(round, { batch = false } = {}) {
     if (idxEl) idxEl.textContent = String(c.index).padStart(2, '0');
 
     if (!batch && !reduced && prevStatus === 'active' && c.status === 'closed') {
-      cell.classList.add('anim-slot-confirmed');
-      setTimeout(() => cell.classList.remove('anim-slot-confirmed'), 260);
+      cell.classList.add('anim-slot-flip');
+      if (c.bull) A9Audio.scaleChime(passed);
+      else A9Audio.stamp();
+      setTimeout(() => cell.classList.remove('anim-slot-flip'), 360);
     }
   });
 
@@ -647,16 +691,24 @@ export function bindCorridorRadarEvents(root) {
 
   const selectCandle = (cell) => {
     A9Haptic.light();
-    if (cell.dataset.candleConfirmed === 'true') A9Audio.stamp();
-    else A9Audio.tick();
+    const isConfirmed = cell.dataset.candleConfirmed === 'true';
+    const isBull = cell.dataset.candleBull === 'true';
+    const idx = Number(cell.dataset.candleIdx);
+    if (isConfirmed && isBull) A9Audio.scaleChime(idx);
+    else if (isConfirmed) A9Audio.stamp();
+    else A9Audio.pageTurn();
     root.querySelectorAll('.candle-cell.selected').forEach(c => c.classList.remove('selected'));
     cell.classList.add('selected');
+    cell.classList.remove('anim-slot-flip');
+    void cell.offsetWidth;
+    cell.classList.add('anim-slot-flip');
+    setTimeout(() => cell.classList.remove('anim-slot-flip'), 340);
     const insp = root.querySelector('#candle-inspector');
     if (insp) {
       insp.innerHTML = buildInspectorHtml({
-        index: Number(cell.dataset.candleIdx),
+        index: idx,
         status: cell.dataset.candleStatus,
-        bull: cell.dataset.candleBull === 'true',
+        bull: isBull,
         priceText: cell.dataset.candlePrice
       }, targetPrice, 0);
     }

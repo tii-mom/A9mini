@@ -1,25 +1,22 @@
 <svg viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <g transform="translate(0 3.2)" stroke="#D4C9B8" stroke-width="13" stroke-linejoin="round" stroke-linecap="round" fill="#D4C9B8">
-    <rect x="20" y="24" width="56" height="52" rx="9"/>
-    <path d="M35 24L38 13L48 19L58 13L61 24H35Z"/>
-  </g>
-  <g stroke="#E6DEC9" stroke-width="13" stroke-linejoin="round" stroke-linecap="round" fill="#E6DEC9">
-    <rect x="20" y="24" width="56" height="52" rx="9"/>
-    <path d="M35 24L38 13L48 19L58 13L61 24H35Z"/>
-  </g>
-  <g stroke="#FFFFFF" stroke-width="10.2" stroke-linejoin="round" stroke-linecap="round" fill="#FFFFFF">
-    <rect x="20" y="24" width="56" height="52" rx="9"/>
-    <path d="M35 24L38 13L48 19L58 13L61 24H35Z"/>
-  </g>
-  <!-- 豪华贴纸礼盒：珊瑚朱红与金箔压纹精装立体书礼盒 + 顶部折纸皇冠 + 飘带书签 -->
-  <path d="M35 24L38 13L48 19L58 13L61 24H35Z" fill="#F3B82C"/>
-  <rect x="20" y="26" width="56" height="50" rx="8" fill="#B82D25"/>
-  <rect x="20" y="23" width="56" height="49" rx="8" fill="#E8453C"/>
-  <!-- 书脊与金箔内框 -->
-  <path d="M28 23V72" stroke="#B82D25" stroke-width="3"/>
-  <rect x="33" y="29" width="37" height="37" rx="5" stroke="#FFD97D" stroke-width="2" stroke-dasharray="3.5 2.5"/>
-  <!-- 金箔立体盾章 -->
-  <path d="M51.5 35L62 40V49C62 55.2 57.5 60.2 51.5 62C45.5 60.2 41 55.2 41 49V40L51.5 35Z" fill="#F3B82C"/>
+  <g transform="translate(0 3.6)" stroke="#C9BCA8" stroke-width="13.5" stroke-linejoin="round" stroke-linecap="round" fill="#C9BCA8"><rect x="20" y="24" width="56" height="52" rx="9"/><path d="M35 24L38 13L48 19L58 13L61 24H35Z"/></g>
+  <g stroke="#E4E6EE" stroke-width="13" stroke-linejoin="round" stroke-linecap="round" fill="#E4E6EE"><rect x="20" y="24" width="56" height="52" rx="9"/><path d="M35 24L38 13L48 19L58 13L61 24H35Z"/></g>
+  <g stroke="#FFFFFF" stroke-width="10.2" stroke-linejoin="round" stroke-linecap="round" fill="#FFFFFF"><rect x="20" y="24" width="56" height="52" rx="9"/><path d="M35 24L38 13L48 19L58 13L61 24H35Z"/></g>
+  <!-- 顶部金箔折纸皇冠 -->
+  <path d="M35 24L38 13L48 19L58 13L61 24H35Z" fill="#F9C33F"/>
+  <path d="M48 19L58 13L61 24H48V19Z" fill="#DC9A14"/>
+  <!-- 精装立体书礼盒 + 书脊压痕与顶部高光 -->
+  <rect x="20" y="26" width="56" height="50" rx="8" fill="#A82720"/>
+  <rect x="20" y="23" width="56" height="49" rx="8" fill="#E60012"/>
+  <path d="M48 23H68C72.4 23 76 26.6 76 31V64C76 68.4 72.4 72 68 72H48V23Z" fill="#D2352D"/>
+  <path d="M24 25.5H72" stroke="#FFC4BD" stroke-opacity="0.58" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M28 23V72" stroke="#A62620" stroke-width="3"/>
+  <path d="M30.5 23.5V71.5" stroke="#FFBEB6" stroke-opacity="0.45" stroke-width="1"/>
+  <rect x="33" y="29" width="37" height="37" rx="5" stroke="#FFE08B" stroke-width="1.8" stroke-dasharray="3.5 2.5"/>
+  <!-- 立体浮雕金箔盾章 -->
+  <path d="M51.5 36.6L62 41.6V50.6C62 56.8 57.5 61.8 51.5 63.6C45.5 61.8 41 56.8 41 50.6V41.6L51.5 36.6Z" fill="#1B1D24" fill-opacity="0.18"/>
+  <path d="M51.5 35L62 40V49C62 55.2 57.5 60.2 51.5 62C45.5 60.2 41 55.2 41 49V40L51.5 35Z" fill="#F9C33F"/>
+  <path d="M51.5 35L62 40V49C62 55.2 57.5 60.2 51.5 62V35Z" fill="#DC9A14"/>
   <path d="M51.5 38L59 41.8V48.6C59 53.3 55.7 57.1 51.5 58.6C47.3 57.1 44 53.3 44 48.6V41.8L51.5 38Z" fill="#FFF7DF"/>
-  <path d="M51.5 42L53.1 45.4L56.8 45.9L54.1 48.5L54.8 52.1L51.5 50.3L48.2 52.1L48.9 48.5L46.2 45.9L49.9 45.4L51.5 42Z" fill="#E8453C"/>
+  <path d="M51.5 42L53.1 45.4L56.8 45.9L54.1 48.5L54.8 52.1L51.5 50.3L48.2 52.1L48.9 48.5L46.2 45.9L49.9 45.4L51.5 42Z" fill="#E60012"/>
 </svg>
