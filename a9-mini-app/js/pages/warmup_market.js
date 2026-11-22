@@ -1,4 +1,4 @@
-import { personalRanks, teamRanks } from '../demo-data.js';
+import { personalRanks, teamRanks, DEMO_STICKER_PACKS, DEMO_COSMETIC_ITEMS } from '../demo-data.js';
 import { fetchWarmupRank } from '../data.js';
 /**
  * Warm-up & Internal Market Pages — Aligned Rules + Zero-Friction Drawers
@@ -229,18 +229,33 @@ export function renderInternalMarket(root, navigate) {
               <div class="counter-keeper-left">
                 <img src="./assets/wealthverse/game/a8.webp" alt="">
                 <div>
-                  <h2>${L('主城商行兑换', 'City Market Swap')}</h2>
-                  <div class="num-xs text-muted">${L('固定兑换报价 · 待核验', 'Fixed rate · awaiting verification')}</div>
+                  <h2>${L('主城商行 · 贴纸礼盒柜台', 'City Shop · Sticker Packs')}</h2>
+                  <div class="num-xs text-muted">${L('买贴纸道具包即含定额协议 A9（1 GRAM = 2,002 A9）', 'Sticker packs include fixed-rate A9 tokens (1 GRAM = 2,002 A9)')}</div>
                 </div>
               </div>
               <span class="chip chip-gold">${L('只读模式', 'READ-ONLY')}</span>
             </header>
+            <div class="sticker-pack-shelf" style="margin-bottom:12px;">
+              ${DEMO_STICKER_PACKS.map(p => `
+                <div class="sticker-pack-card ${p.critFlair ? 'deluxe' : ''}">
+                  <img src="./assets/paper-craft/${p.asset}.svg" alt="">
+                  <div class="sticker-pack-info">
+                    <div class="row-between">
+                      <strong>${L(p.zh, p.en)}</strong>
+                      <span class="chip chip-gold mono">${p.priceGram} GRAM</span>
+                    </div>
+                    <div class="num-xs text-green" style="font-weight:800;margin-top:2px;">+${formatNum(p.a9Amount, 2)} A9 · +${p.expBonus} EXP</div>
+                    <div class="num-xs text-sec">${L(p.descZh, p.descEn)}</div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
             <div class="sub-tile" style="margin-bottom:12px;">
               <div class="row-between num-xs"><span class="text-sec">${L('钱包可用额度', 'Wallet quota')}</span><b class="mono">${L('待核验', 'Pending')}</b></div>
               <div class="row-between num-xs" style="margin-top:6px;"><span class="text-sec">${L('当前兑换报价', 'Swap rate')}</span><b class="mono">${L('待核验', 'Pending')}</b></div>
             </div>
-            <p class="num-xs text-sec" style="margin:0 0 12px;line-height:1.5;">${L('真实模式下固定兑换入口暂未开放，不会发起下单或钱包签名。', 'Live fixed-rate swaps are currently disabled. No order or wallet signature will be triggered.')}</p>
-            <button class="btn btn-secondary" disabled id="btn-buy-market">${icon('lock', 15)} ${L('真实模式只读 · 暂未开放兑换', 'Live read-only · swap disabled')}</button>
+            <p class="num-xs text-sec" style="margin:0 0 12px;line-height:1.5;">${L('真实模式下商品购买与固定兑换入口暂未开放，不会发起下单或钱包签名。', 'Live pack purchases and fixed-rate swaps are currently disabled. No order or wallet signature will be triggered.')}</p>
+            <button class="btn btn-secondary" disabled id="btn-buy-market">${icon('lock', 15)} ${L('真实模式只读 · 暂未开放购买', 'Live read-only · purchase disabled')}</button>
           </div>
         </section>
         <a class="btn btn-secondary" href="#/internal/records">${icon('receipt', 15)} ${L('查看订单记录', 'Order history')}</a>
@@ -276,8 +291,61 @@ export function renderInternalMarket(root, navigate) {
     };
   };
 
+  const openPackUnfoldModal = (pack, res) => {
+    const itemMetas = pack.items.map(id => DEMO_COSMETIC_ITEMS[id]).filter(Boolean);
+    openModal(`
+      <div class="sheet-handle"></div>
+      <div class="pack-unfold-stage ${pack.critFlair ? 'crit-foil' : ''}" id="pack-unfold-stage">
+        <div class="row-between">
+          <span class="chip ${pack.critFlair ? 'chip-gold' : 'chip-green'}">
+            ${pack.critFlair ? L('金箔闪卡演出 · 仅视觉装扮特效', 'Gold-Foil Crit · Visual Flair Only') : L('确定性交付 · 已入背包', 'Deterministic Delivery · In Backpack')}
+          </span>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-skip-pack-anim" style="min-height:28px;padding:0 10px;">${L('跳过动画', 'Skip')}</button>
+        </div>
+        <div class="pack-unfold-hero">
+          <img src="./assets/paper-craft/${pack.asset}.svg" alt="" class="pack-unfold-img">
+          <h3>${L(pack.zh, pack.en)}</h3>
+          <div class="num-lg text-green mono">+${formatNum(res.receivedA9, 2)} A9</div>
+          <div class="num-xs text-muted">${L(`已扣除 ${pack.priceGram} GRAM · 手账经验 +${pack.expBonus} EXP`, `Paid ${pack.priceGram} GRAM · +${pack.expBonus} EXP`)}</div>
+        </div>
+        <div class="sub-tile" id="pack-delivered-items">
+          <div class="num-xs text-muted" style="margin-bottom:6px;">${L('已解锁并自动装备的纸艺藏品（不影响 A9 兑换比例与收益）：', 'Unlocked paper-craft items (visual only, no effect on A9 yield):')}</div>
+          ${itemMetas.map(m => `
+            <div class="row-between num-xs" style="padding:4px 0;">
+              <strong>✓ ${L(m.zh, m.en)}</strong>
+              <span class="text-sec">${m.category === 'frame' ? L('立牌底座', 'Standee Base') : m.category === 'badge' ? L('纸艺贴纸', 'Sticker') : L('典藏称号', 'Title')}</span>
+            </div>
+          `).join('')}
+        </div>
+        <div class="grid-2" style="margin-top:10px;">
+          <button type="button" class="btn btn-primary" id="btn-go-backpack-cos">${L('去背包查看装扮', 'View in Backpack')}</button>
+          <button type="button" class="btn btn-secondary" id="btn-close-pack-modal">${L('继续逛商行', 'Keep Shopping')}</button>
+        </div>
+      </div>
+    `);
+    const stageEl = document.getElementById('pack-unfold-stage');
+    const skipBtn = document.getElementById('btn-skip-pack-anim');
+    if (skipBtn && stageEl) {
+      skipBtn.onclick = () => {
+        stageEl.classList.add('anim-skipped');
+        skipBtn.textContent = L('已跳过动画 · 交付完成', 'Skipped · Delivered');
+        skipBtn.disabled = true;
+      };
+    }
+    const goBp = document.getElementById('btn-go-backpack-cos');
+    if (goBp) {
+      goBp.onclick = () => {
+        closeModal();
+        if (navigate) navigate('/profile');
+        else window.location.hash = '#/profile';
+      };
+    }
+    const closeBtn = document.getElementById('btn-close-pack-modal');
+    if (closeBtn) closeBtn.onclick = closeModal;
+  };
+
   const render = () => {
-    const estA9 = payTon * market.rateA9PerTon;
+    const estA9 = Number((payTon * market.rateA9PerTon).toFixed(2));
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         <div class="card card-hero exchange-counter ${market.soldOut ? 'card-glow-red' : ''}">
@@ -287,12 +355,31 @@ export function renderInternalMarket(root, navigate) {
             <div class="counter-keeper-left">
               <img src="./assets/wealthverse/game/a8.webp" alt="">
               <div>
-                <h2>${L('固定兑换柜台', 'Exchange Counter')}</h2>
-                <div class="num-xs text-muted mono">1 GRAM = ${formatNum(market.rateA9PerTon)} A9</div>
+                <h2>${L('主城商行 · 贴纸礼盒与配额柜台', 'City Shop · Sticker Packs & Quota')}</h2>
+                <div class="num-xs text-muted mono">1 GRAM = ${formatNum(market.rateA9PerTon)} A9 · ${L('买道具包即含定额 A9', 'Packs include A9 tokens')}</div>
               </div>
             </div>
             <span class="chip ${market.soldOut ? 'chip-red' : !user.tgBound ? 'chip-amber' : 'chip-green'}">${market.soldOut ? L('已售罄', 'SOLD OUT') : !user.tgBound ? L('需绑定 TG', 'BIND TG') : L('演示开放', 'DEMO OPEN')}</span>
           </header>
+
+          <div class="sticker-pack-shelf" style="margin-bottom:14px;">
+            ${DEMO_STICKER_PACKS.map(p => `
+              <div class="sticker-pack-card ${p.critFlair ? 'deluxe' : ''}" data-pack-sku="${p.skuId}">
+                <img src="./assets/paper-craft/${p.asset}.svg" alt="">
+                <div class="sticker-pack-info">
+                  <div class="row-between">
+                    <strong>${L(p.zh, p.en)}</strong>
+                    <span class="chip ${p.critFlair ? 'chip-gold' : 'chip-green'} mono">${p.priceGram} GRAM</span>
+                  </div>
+                  <div class="num-xs text-green mono" style="font-weight:800;margin-top:2px;">+${formatNum(p.a9Amount, 2)} A9 · +${p.expBonus} EXP</div>
+                  <div class="num-xs text-sec">${L(p.descZh, p.descEn)}</div>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" data-buy-pack="${p.skuId}" ${market.soldOut ? 'disabled' : ''} style="min-width:74px;min-height:36px;padding:0 10px;">
+                  ${L('购买拆封', 'Buy Pack')}
+                </button>
+              </div>
+            `).join('')}
+          </div>
 
           ${market.soldOut ? `
             <div class="sub-tile" style="border-color:var(--red-border);margin-bottom:12px;">
@@ -399,6 +486,33 @@ export function renderInternalMarket(root, navigate) {
 
     root.querySelectorAll('[data-qton]').forEach(b => {
       b.onclick = () => { A9Haptic.light(); payTon = Number(b.dataset.qton); render(); };
+    });
+
+    root.querySelectorAll('[data-buy-pack]').forEach(btn => {
+      btn.onclick = () => {
+        if (!config.isDemo || !store.fundsEnabled) {
+          A9Haptic.warning();
+          showToast(L('当前真实模式处于只读验收阶段，贴纸礼盒购买暂未开放', 'Live mode is read-only; pack purchases are disabled'), 'amber');
+          return;
+        }
+        if (!user.tgBound) {
+          openTgBindSheet(render);
+          return;
+        }
+        const skuId = btn.dataset.buyPack;
+        const pack = DEMO_STICKER_PACKS.find(p => p.skuId === skuId);
+        if (!pack) return;
+        const res = store.buyInternalMarket(pack.priceGram, pack.skuId);
+        if (res.error) {
+          A9Haptic.error();
+          showToast(res.error, 'error');
+        } else {
+          A9Haptic.success();
+          burstParticles(btn);
+          render();
+          openPackUnfoldModal(pack, res);
+        }
+      };
     });
 
     const buyBtn = root.querySelector('#btn-buy-market');

@@ -1237,3 +1237,103 @@
   background: var(--nt-gold-soft, rgba(243, 184, 44, 0.16));
   color: var(--nt-gold-ink, #8C5700);
 }
+
+/* --------------------------------------------------------------------------
+   八、阶段四 & 六：三档贴纸礼盒货架 (.sticker-pack-shelf) & 拆封演出 & 背包装扮
+   -------------------------------------------------------------------------- */
+.sticker-pack-shelf {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sticker-pack-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 11px;
+  border-radius: 16px;
+  border: 1.5px solid var(--card-border-strong, var(--card-border));
+  background: var(--card-bg);
+  box-shadow: 0 3px 0 var(--card-thickness);
+  min-width: 0;
+}
+
+.sticker-pack-card.deluxe {
+  border-color: var(--nt-gold-edge, rgba(217, 138, 28, 0.55));
+  background: linear-gradient(135deg, var(--card-bg) 0%, var(--nt-gold-soft, rgba(243, 184, 44, 0.12)) 100%);
+}
+
+.sticker-pack-card > img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: var(--paper-cut-shadow);
+}
+
+.sticker-pack-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.sticker-pack-info .row-between strong {
+  white-space: nowrap;
+  font-size: 13.5px;
+}
+
+#cosmetic-filter-tabs {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.pack-unfold-stage {
+  padding: 12px;
+  border-radius: 18px;
+  border: 2px solid var(--card-border-strong, var(--card-border));
+  background: var(--card-bg);
+}
+
+.pack-unfold-stage.crit-foil {
+  border-color: var(--nt-gold-edge, rgba(217, 138, 28, 0.55));
+  background: linear-gradient(180deg, var(--card-bg) 0%, var(--nt-gold-soft, rgba(243, 184, 44, 0.12)) 100%);
+}
+
+.pack-unfold-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin: 10px 0;
+}
+
+.pack-unfold-img {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  filter: var(--paper-cut-shadow);
+}
+
+/* 背包身份立牌底座装扮变体 */
+.identity-thumb.cos-frame_cotton,
+.wv-identity.cos-frame_cotton {
+  border-color: var(--card-border-strong, rgba(164, 150, 136, 0.45));
+}
+
+.identity-thumb.cos-frame_origami,
+.wv-identity.cos-frame_origami {
+  border: 2px solid rgba(58, 136, 214, 0.55);
+  box-shadow: 0 3px 0 rgba(42, 108, 178, 0.25);
+}
+
+.identity-thumb.cos-frame_royal_foil,
+.wv-identity.cos-frame_royal_foil {
+  border: 2px solid var(--nt-gold-edge, #D98A1C);
+  background: linear-gradient(135deg, var(--card-bg) 0%, var(--nt-gold-soft, rgba(243, 184, 44, 0.20)) 100%);
+  box-shadow: 0 3px 0 rgba(184, 115, 16, 0.28);
+}
+
+.cosmetic-item-row {
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+

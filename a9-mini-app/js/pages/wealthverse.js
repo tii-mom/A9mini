@@ -1,4 +1,5 @@
 import { fetchUserPortfolio, fetchProgressionUser, claimProgressionTask, getEffectiveUserId } from '../data.js';
+import { DEMO_COSMETIC_ITEMS } from '../demo-data.js';
 import { L } from '../i18n.js';
 import { config } from '../config.js';
 import { store } from '../store.js';
@@ -201,13 +202,22 @@ export function identityStage({ modePill = '', walletTag = '' } = {}) {
   const tier = store.state.user.previewTier || 1;
   const shownTier = config.isDemo ? tier : 1;
   const [zh, en, traitZh, traitEn] = tiers[shownTier - 1];
+  const loadout = store.state.inventory?.loadout || {};
+  const frameItem = loadout.equippedFrame ? DEMO_COSMETIC_ITEMS[loadout.equippedFrame] : null;
+  const badgeItem = loadout.equippedBadge ? DEMO_COSMETIC_ITEMS[loadout.equippedBadge] : null;
+  const titleItem = loadout.equippedTitle ? DEMO_COSMETIC_ITEMS[loadout.equippedTitle] : null;
   const heading = config.isDemo ? `A${shownTier} · ${L(zh, en)}` : L('身份待核验', 'Identity pending');
+  const cosmeticTag = [
+    frameItem ? L(frameItem.zh, frameItem.en) : null,
+    badgeItem ? L(badgeItem.zh, badgeItem.en) : null,
+    titleItem ? L(titleItem.zh, titleItem.en) : null,
+  ].filter(Boolean).join(' · ');
   const subtitle = config.isDemo
-    ? `${L(traitZh, traitEn)} · ${L('轻点立牌换装', 'Tap to flip')}`
+    ? `${cosmeticTag || L(traitZh, traitEn)} · ${L('轻点立牌换装', 'Tap to flip')}`
     : L('连接钱包后核验持仓阶位', 'Connect wallet to verify tier');
 
-  return `<section class="wv-hero profile-identity-bar">
-    <div class="identity-thumb" id="identity-standee-stage">
+  return `<section class="wv-hero profile-identity-bar" data-equipped-frame="${loadout.equippedFrame || ''}" data-equipped-badge="${loadout.equippedBadge || ''}">
+    <div class="identity-thumb ${loadout.equippedFrame ? `cos-${loadout.equippedFrame}` : ''}" id="identity-standee-stage">
       <div class="identity-base" aria-hidden="true"></div>
       ${portrait(shownTier)}
     </div>

@@ -5,11 +5,11 @@ import assert from 'node:assert/strict';
 import { createApiRouter } from '../src/api.mjs';
 import { MemoryIdentityStore, D1IdentityStore, signTelegramInitData, verifyTelegramInitData } from '../src/auth.mjs';
 import { PresaleHotWalletEngine, PRESALE_STATUS, STALE_BROADCAST_SEC } from '../src/presale-hotwallet.mjs';
-import { D1PresaleStore, D1SocialStore, D1PredictionEngine, D1ProgressionEngine } from '../src/d1-growth-store.mjs';
+import { D1PresaleStore, D1SocialStore, D1PredictionEngine, D1ProgressionEngine, D1InventoryEngine } from '../src/d1-growth-store.mjs';
 import { PresalePayoutRunner } from '../src/presale-runner.mjs';
 import { PromoHotWalletEngine } from '../src/promo-hotwallet.mjs';
-import { SocialStore } from '../src/social-store.mjs';
-import { PredictionEngine, ProgressionEngine } from '../src/growth-engine.mjs';
+import { SocialStore, parseStartAppParam, createTelegramBotGroupVerifier } from '../src/social-store.mjs';
+import { PredictionEngine, ProgressionEngine, InventoryEngine, STICKER_PACK_CATALOG, COSMETIC_ITEM_CATALOG } from '../src/growth-engine.mjs';
 import { parseDecimalUnits, formatUnits } from '../src/money.mjs';
 import { normalizeTonAddress, formatTonAddress, parseTonAddress } from '../src/ton-address.mjs';
 import { TEST_BOT_TOKEN, tgHeaders, createSqliteD1, FRESH_SCHEMA, MIGRATIONS, completePurchase, dumpDb, createMiniflareD1, makeV4R2Wallet, signTonProof, PROOF_FIXTURES } from './helpers/test-env.mjs';
@@ -37,12 +37,13 @@ const ENV = { A9_BOT_TOKEN: TEST_BOT_TOKEN, A9_TON_PROOF_DOMAINS: 'a9.example', 
 function buildRouter(extra = {}) {
   const identityStore = extra.identityStore || new MemoryIdentityStore();
   const promoEngine = extra.promoEngine || new PromoHotWalletEngine({ hotWalletAddress: HOT });
-  const presaleEngine = extra.presaleEngine || new PresaleHotWalletEngine({ hotWalletAddress: HOT, open: true });
+  const progressionEngine = extra.progressionEngine || new ProgressionEngine();
+  const inventoryEngine = extra.inventoryEngine || new InventoryEngine({ progressionEngine });
+  const presaleEngine = extra.presaleEngine || new PresaleHotWalletEngine({ hotWalletAddress: HOT, open: true, inventoryEngine });
   const socialStore = extra.socialStore || new SocialStore();
   const predictionEngine = extra.predictionEngine || new PredictionEngine();
-  const progressionEngine = extra.progressionEngine || new ProgressionEngine();
-  const route = createApiRouter({ env: ENV, stateStore, identityStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, ...extra });
-  return { route, identityStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine };
+  const route = createApiRouter({ env: ENV, stateStore, identityStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, inventoryEngine, ...extra });
+  return { route, identityStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, inventoryEngine };
 }
 
 /** Both storage backends must behave identically (explicit open:true for order-flow suites; default closed tested separately). */
@@ -1793,6 +1794,471 @@ await test('Phase 3: Handbook Stamp progression loop (new user, consecutive chec
       progressionEngine: new D1ProgressionEngine({ db: mf.db }),
       presaleEngine: new D1PresaleStore({ db: mf.db, hotWalletAddress: HOT, open: true }),
     }));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4: Three-tier Sticker Packs (1.99 / 5.99 / 13.99 GRAM), Sandbox Unfolding, Idempotency & Cosmetic Loadout
+// ---------------------------------------------------------------------------
+await test('Phase 4: Three-tier Sticker Packs (pack_basic / pack_plus / pack_deluxe), sandbox unfold idempotency, ownership check & loadout persistence', async () => {
+  const runSuite = async (label, makeEngines) => {
+    const { progressionEngine, inventoryEngine } = await makeEngines();
+    const { route } = buildRouter({ progressionEngine, inventoryEngine });
+
+    const nowSec = 1_760_000_000;
+    const hAlice = await tgHeaders(4401, { nowSec });
+    const hBob = await tgHeaders(4402, { nowSec });
+
+    const hasItem = (inv, itemId) => inv.items.some((x) => x.itemId === itemId);
+
+    // 1. 新用户初始背包：零已拥有装扮、零已装备项，与链上资产严格物理分表
+    const initInv = await route({ method: 'GET', pathname: '/api/inventory/me', headers: hAlice, nowSec });
+    assert.equal(initInv.status, 200, label);
+    assert.equal(initInv.body.data.ledgerKind, 'IN_GAME_COSMETIC_DATABASE');
+    assert.equal(initInv.body.data.tradable, false);
+    assert.equal(initInv.body.data.affectsA9Rate, false);
+    assert.equal(initInv.body.data.items.length, 0);
+    assert.equal(initInv.body.data.loadout.equippedFrame, null);
+    assert.equal(initInv.body.data.loadout.equippedBadge, null);
+    assert.equal(initInv.body.data.loadout.equippedTitle, null);
+
+    // 2. 跨用户越权防护：Bob 无法读取或装备 Alice 的背包
+    assert.equal((await route({ method: 'GET', pathname: '/api/inventory/user/4401', headers: hBob, nowSec })).status, 403);
+    assert.equal((await route({ method: 'POST', pathname: '/api/inventory/equip', headers: hBob, body: { userId: '4401', category: 'frame', itemId: 'frame_cotton' }, nowSec })).status, 403);
+
+    // 3. 未拥有的装扮禁止装备 (ITEM_NOT_OWNED)；非法槽位拒绝 (BAD_REQUEST)
+    const unownedTry = await route({ method: 'POST', pathname: '/api/inventory/equip', headers: hAlice, body: { category: 'frame', itemId: 'frame_royal_foil' }, nowSec });
+    assert.equal(unownedTry.status, 400);
+    assert.equal(unownedTry.body.error.code, 'ITEM_NOT_OWNED');
+
+    const badSlotTry = await route({ method: 'POST', pathname: '/api/inventory/equip', headers: hAlice, body: { category: 'weapon', itemId: 'frame_cotton' }, nowSec });
+    assert.equal(badSlotTry.status, 400);
+    assert.equal(badSlotTry.body.error.code, 'BAD_REQUEST');
+
+    // 4. 沙盒拆封三档贴纸包 (pack_basic / pack_plus / pack_deluxe) + 重复 deliveryId 幂等防重发 + 跳过动画验证
+    const openBasic = await route({
+      method: 'POST',
+      pathname: '/api/inventory/sandbox-open',
+      headers: hAlice,
+      body: { skuId: 'pack_basic', deliveryId: 'req-basic-1', skipAnimation: true },
+      nowSec,
+    });
+    assert.equal(openBasic.status, 200);
+    assert.equal(openBasic.body.data.alreadyDelivered, false);
+    assert.equal(openBasic.body.data.animationSkipped, true);
+    assert.equal(openBasic.body.data.delivery.skuId, 'pack_basic');
+    assert.equal(openBasic.body.data.delivery.critFlair, false);
+    assert.equal(openBasic.body.data.delivery.affectsFinancialReward, false);
+    assert.ok(hasItem(openBasic.body.data.inventory, 'frame_cotton'));
+    assert.ok(hasItem(openBasic.body.data.inventory, 'badge_seal_red'));
+    // 首次获得自动装备到空槽位
+    assert.equal(openBasic.body.data.inventory.loadout.equippedFrame, 'frame_cotton');
+    assert.equal(openBasic.body.data.inventory.loadout.equippedBadge, 'badge_seal_red');
+
+    // 同一 deliveryId 重复请求（模拟跳过动画/刷新/重试）必须幂等，绝不重复写入
+    const openBasicDup = await route({
+      method: 'POST',
+      pathname: '/api/inventory/sandbox-open',
+      headers: hAlice,
+      body: { skuId: 'pack_basic', deliveryId: 'req-basic-1' },
+      nowSec,
+    });
+    assert.equal(openBasicDup.status, 200);
+    assert.equal(openBasicDup.body.data.alreadyDelivered, true);
+    assert.equal(openBasicDup.body.data.inventory.items.length, 2);
+    assert.equal(openBasicDup.body.data.inventory.deliveries.length, 1);
+
+    // 拆封进阶贴纸盒 (5.99 GRAM) 与豪华贴纸礼盒 (13.99 GRAM，带金箔闪卡演出 critFlair: true)
+    const openPlus = await route({
+      method: 'POST',
+      pathname: '/api/inventory/sandbox-open',
+      headers: hAlice,
+      body: { skuId: 'pack_plus', deliveryId: 'req-plus-1' },
+      nowSec,
+    });
+    assert.equal(openPlus.status, 200);
+    assert.ok(hasItem(openPlus.body.data.inventory, 'frame_origami'));
+    assert.ok(hasItem(openPlus.body.data.inventory, 'badge_star_compass'));
+
+    const openDeluxe = await route({
+      method: 'POST',
+      pathname: '/api/inventory/sandbox-open',
+      headers: hAlice,
+      body: { skuId: 'pack_deluxe', deliveryId: 'req-deluxe-1' },
+      nowSec,
+    });
+    assert.equal(openDeluxe.status, 200);
+    assert.equal(openDeluxe.body.data.delivery.critFlair, true);
+    assert.equal(openDeluxe.body.data.delivery.affectsFinancialReward, false);
+    assert.ok(hasItem(openDeluxe.body.data.inventory, 'frame_royal_foil'));
+    assert.ok(hasItem(openDeluxe.body.data.inventory, 'badge_royal_crown'));
+    assert.ok(hasItem(openDeluxe.body.data.inventory, 'title_foil_collector'));
+
+    // 5. 装备与卸下三类槽位（frame / badge / title）并验证持久化恢复
+    await route({ method: 'POST', pathname: '/api/inventory/equip', headers: hAlice, body: { category: 'frame', itemId: 'frame_royal_foil' }, nowSec });
+    await route({ method: 'POST', pathname: '/api/inventory/equip', headers: hAlice, body: { category: 'badge', itemId: 'badge_royal_crown' }, nowSec });
+    const eqTitle = await route({ method: 'POST', pathname: '/api/inventory/equip', headers: hAlice, body: { category: 'title', itemId: 'title_foil_collector' }, nowSec });
+    assert.equal(eqTitle.status, 200);
+    assert.equal(eqTitle.body.data.loadout.equippedFrame, 'frame_royal_foil');
+    assert.equal(eqTitle.body.data.loadout.equippedBadge, 'badge_royal_crown');
+    assert.equal(eqTitle.body.data.loadout.equippedTitle, 'title_foil_collector');
+
+    // 卸下称号 (itemId: null) 并重新查询验证持久化
+    await route({ method: 'POST', pathname: '/api/inventory/equip', headers: hAlice, body: { category: 'title', itemId: null }, nowSec });
+    const afterUnequip = await route({ method: 'GET', pathname: '/api/inventory/me', headers: hAlice, nowSec });
+    assert.equal(afterUnequip.body.data.loadout.equippedFrame, 'frame_royal_foil');
+    assert.equal(afterUnequip.body.data.loadout.equippedBadge, 'badge_royal_crown');
+    assert.equal(afterUnequip.body.data.loadout.equippedTitle, null);
+  };
+
+  await runSuite('memory', async () => {
+    const progressionEngine = new ProgressionEngine();
+    return { progressionEngine, inventoryEngine: new InventoryEngine({ progressionEngine }) };
+  });
+
+  await runSuite('d1-sqlite', async () => {
+    const db = createSqliteD1(MIGRATIONS);
+    const progressionEngine = new D1ProgressionEngine({ db });
+    return { progressionEngine, inventoryEngine: new D1InventoryEngine({ db, progressionEngine }) };
+  });
+
+  const mf = await createMiniflareD1();
+  if (mf) {
+    MF_DISPOSE.push(mf.dispose);
+    await runSuite('d1-miniflare', async () => {
+      const progressionEngine = new D1ProgressionEngine({ db: mf.db });
+      return { progressionEngine, inventoryEngine: new D1InventoryEngine({ db: mf.db, progressionEngine }) };
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5: Guild Telegram Group Real Permission Verification & startapp Deep-link First-Touch Attribution
+// ---------------------------------------------------------------------------
+await test('Phase 5: Guild TG group real permission verification (captain, bot-in-group, admin check, hijack prevention, expiry) & startapp attribution', async () => {
+  // 1. startapp 深链解析单元测试
+  assert.deepEqual(parseStartAppParam('invite_7101'), { raw: 'invite_7101', kind: 'invite', teamId: null, targetId: null, referrerId: '7101' });
+  assert.deepEqual(parseStartAppParam('invite_G-PAPER_7101'), { raw: 'invite_G-PAPER_7101', kind: 'invite', teamId: 'G-PAPER', targetId: 'G-PAPER', referrerId: '7101' });
+  assert.deepEqual(parseStartAppParam('round_1_7101'), { raw: 'round_1_7101', kind: 'round', teamId: null, targetId: '1', referrerId: '7101' });
+  assert.equal(parseStartAppParam('bad param with spaces!'), null);
+
+  const runSuite = async (label, makeSocialAndIdentity) => {
+    const { socialStore, identityStore } = await makeSocialAndIdentity();
+    let mockTgState = {
+      botInGroup: true,
+      operatorIsAdmin: true,
+      chatId: '-100555666777',
+      groupHandle: '@warm_paper_guild',
+    };
+    const telegramGroupVerifier = async ({ tgChatId, tgGroupHandle }) => ({
+      botInGroup: mockTgState.botInGroup,
+      operatorIsAdmin: mockTgState.operatorIsAdmin,
+      chatId: mockTgState.botInGroup ? (mockTgState.chatId || tgChatId || '-100555666777') : null,
+      groupHandle: mockTgState.groupHandle || tgGroupHandle || null,
+      reason: !mockTgState.botInGroup ? 'BOT_NOT_IN_GROUP' : (mockTgState.operatorIsAdmin ? 'OK' : 'NOT_GROUP_ADMIN'),
+    });
+
+    const { route } = buildRouter({ socialStore, identityStore, telegramGroupVerifier });
+    const nowSec = 1_760_100_000;
+    await identityStore.bindWallet('5501', 'EQ_CAP_P5', nowSec);
+    await identityStore.bindWallet('5502', 'EQ_MEM_P5', nowSec);
+    await identityStore.bindWallet('5503', 'EQ_CAP2_P5', nowSec);
+
+    const hCap = await tgHeaders(5501, { nowSec });
+    const hMem = await tgHeaders(5502, { nowSec });
+    const hCap2 = await tgHeaders(5503, { nowSec });
+
+    // 2. startapp 邀请归因：跨钱包别名自邀拦截、首次有效归因锁定、互邀环路拦截
+    // 5501 尝试用自己的 TG ID 或自己已绑定的钱包 EQ_CAP_P5 自邀 -> bound 为 null, referrerId 为 null
+    const selfTry1 = await route({ method: 'POST', pathname: '/api/referral/attribution', headers: hCap, body: { startapp: 'invite_5501' }, nowSec });
+    assert.equal(selfTry1.body.data.bound, null, label);
+    assert.equal(selfTry1.body.data.referrerId, null);
+
+    const selfTry2 = await route({ method: 'POST', pathname: '/api/referral/attribution', headers: hCap, body: { startapp: 'invite_EQ_CAP_P5' }, nowSec });
+    assert.equal(selfTry2.body.data.bound, null);
+    assert.equal(selfTry2.body.data.referrerId, null);
+
+    // 5502 首次通过 startapp: 'invite_G-P5_5501' 归因到 5501 -> 成功并同步绑定到 5502 及其钱包别名
+    const attrOk = await route({ method: 'POST', pathname: '/api/referral/attribution', headers: hMem, body: { startapp: 'invite_G-P5_5501' }, nowSec });
+    assert.equal(attrOk.status, 200);
+    assert.equal(attrOk.body.data.referrerId, '5501');
+    assert.equal(attrOk.body.data.parsed.teamId, 'G-P5');
+
+    // 5502 再次点击 5503 的邀请链接 -> 保持首次归因 5501 不变
+    const attrSecond = await route({ method: 'POST', pathname: '/api/referral/attribution', headers: hMem, body: { startapp: 'invite_5503' }, nowSec });
+    assert.equal(attrSecond.body.data.referrerId, '5501');
+
+    // 5501 尝试反向归因给 5502 -> 防环路拦截，bound 为 null, referrerId 保持 null
+    const mutualTry = await route({ method: 'POST', pathname: '/api/referral/attribution', headers: hCap, body: { startapp: 'invite_5502' }, nowSec });
+    assert.equal(mutualTry.body.data.bound, null);
+    assert.equal(mutualTry.body.data.referrerId, null);
+
+    // 3. 商会 TG 群绑定与真实权限核验
+    // 会长 5501 提交 @warm_paper_guild -> 初始状态必须为 verifying（绝不直接 bound）
+    const bindInit = await route({
+      method: 'POST',
+      pathname: '/api/team/bind-tg',
+      headers: hCap,
+      body: { teamId: 'G-P5', name: '暖棉纸冒险团', tgGroupHandle: '@warm_paper_guild' },
+      nowSec,
+    });
+    assert.equal(bindInit.status, 200);
+    assert.equal(bindInit.body.data.bindStatus, 'verifying');
+
+    // 普通成员 5502 尝试触发核验 -> 403 NOT_CAPTAIN
+    await route({ method: 'POST', pathname: '/api/team/join', headers: hMem, body: { teamId: 'G-P5' }, nowSec });
+    const memVerify = await route({ method: 'POST', pathname: '/api/team/verify-tg', headers: hMem, body: { teamId: 'G-P5' }, nowSec });
+    assert.equal(memVerify.status, 403);
+    assert.equal(memVerify.body.error.code, 'NOT_CAPTAIN');
+
+    // 场景 A：Bot 尚未进群 -> 400 BOT_NOT_IN_GROUP，状态仍为 verifying
+    mockTgState.botInGroup = false;
+    const botMissingRes = await route({ method: 'POST', pathname: '/api/team/verify-tg', headers: hCap, body: { teamId: 'G-P5' }, nowSec });
+    assert.equal(botMissingRes.status, 400);
+    assert.equal(botMissingRes.body.error.code, 'BOT_NOT_IN_GROUP');
+
+    // 场景 B：Bot 在群内，但会长在群内不是管理员 -> 400 NOT_GROUP_ADMIN
+    mockTgState.botInGroup = true;
+    mockTgState.operatorIsAdmin = false;
+    const notAdminRes = await route({ method: 'POST', pathname: '/api/team/verify-tg', headers: hCap, body: { teamId: 'G-P5' }, nowSec });
+    assert.equal(notAdminRes.status, 400);
+    assert.equal(notAdminRes.body.error.code, 'NOT_GROUP_ADMIN');
+
+    // 场景 C：Bot 在群内且会长是管理员 -> 核验通过，转为 bound
+    mockTgState.operatorIsAdmin = true;
+    const verifyOk = await route({ method: 'POST', pathname: '/api/team/verify-tg', headers: hCap, body: { teamId: 'G-P5' }, nowSec });
+    assert.equal(verifyOk.status, 200);
+    assert.equal(verifyOk.body.data.bindStatus, 'bound');
+    assert.equal(verifyOk.body.data.tgChatId, '-100555666777');
+
+    // 场景 D：另一商会 G-OTHER 尝试冒用同一个 Telegram 群 (-100555666777) -> 400 GROUP_ALREADY_BOUND
+    await route({
+      method: 'POST',
+      pathname: '/api/team/bind-tg',
+      headers: hCap2,
+      body: { teamId: 'G-OTHER', name: '冒用测试商会', tgGroupHandle: '@warm_paper_guild' },
+      nowSec,
+    });
+    const hijackTry = await route({ method: 'POST', pathname: '/api/team/verify-tg', headers: hCap2, body: { teamId: 'G-OTHER' }, nowSec });
+    assert.equal(hijackTry.status, 400);
+    assert.equal(hijackTry.body.error.code, 'GROUP_ALREADY_BOUND');
+
+    // 场景 E：已绑定群后续 Bot 被移出群或会长失去管理员权限 -> 重新核验将已绑定状态自动降级为 expired
+    mockTgState.botInGroup = false;
+    const lostPermRes = await route({ method: 'POST', pathname: '/api/team/verify-tg', headers: hCap, body: { teamId: 'G-P5' }, nowSec: nowSec + 60 });
+    assert.equal(lostPermRes.status, 400);
+    const teamAfterLost = await route({ method: 'GET', pathname: '/api/team/EQ_CAP_P5', headers: hCap, nowSec: nowSec + 61 });
+    assert.equal(teamAfterLost.body.data.bindStatus, 'expired');
+  };
+
+  await runSuite('memory', async () => ({
+    socialStore: new SocialStore(),
+    identityStore: new MemoryIdentityStore(),
+  }));
+
+  await runSuite('d1-sqlite', async () => {
+    const db = createSqliteD1(MIGRATIONS);
+    return {
+      socialStore: new D1SocialStore({ db }),
+      identityStore: new D1IdentityStore({ db }),
+    };
+  });
+
+  const mf = await createMiniflareD1();
+  if (mf) {
+    MF_DISPOSE.push(mf.dispose);
+    await runSuite('d1-miniflare', async () => ({
+      socialStore: new D1SocialStore({ db: mf.db }),
+      identityStore: new D1IdentityStore({ db: mf.db }),
+    }));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Phase 6: Market 1.99 / 5.99 / 13.99 GRAM Sticker Pack Orders (Method A: A9 Token + Cosmetic Pack Delivery & Sandbox)
+// ---------------------------------------------------------------------------
+await test('Phase 6: Market 1.99 / 5.99 / 13.99 GRAM Sticker Pack orders (exact A9 math, atomic pack delivery only on COMPLETED, late 1.99 refund, wrong-amount anomaly)', async () => {
+  const runSuite = async (label, makeEngines) => {
+    const { presaleEngine, inventoryEngine, promoEngine, socialStore, identityStore } = await makeEngines();
+    const { route } = buildRouter({ presaleEngine, inventoryEngine, promoEngine, socialStore, identityStore });
+
+    const nowSec = 1_760_200_000;
+    await identityStore.bindWallet('6601', 'EQ_BUYER_P6', nowSec);
+    await identityStore.bindWallet('6602', 'EQ_REF_P6', nowSec);
+    const hBuyer = await tgHeaders(6601, { nowSec });
+
+    const hasItem = (inv, itemId) => inv.items.some((x) => x.itemId === itemId);
+
+    // 1. SKU 校验：非法 skuId 拒绝 (UNKNOWN_SKU)；传了 skuId 但篡改金额拒绝 (BAD_AMOUNT)
+    const badSku = await route({
+      method: 'POST',
+      pathname: '/api/presale/intent',
+      headers: hBuyer,
+      body: { skuId: 'pack_mythic_999' },
+      nowSec,
+    });
+    assert.equal(badSku.status, 400, label);
+    assert.equal(badSku.body.error.code, 'UNKNOWN_SKU');
+
+    const badPrice = await route({
+      method: 'POST',
+      pathname: '/api/presale/intent',
+      headers: hBuyer,
+      body: { skuId: 'pack_basic', gramAmount: '5.99' },
+      nowSec,
+    });
+    assert.equal(badPrice.status, 400);
+    assert.equal(badPrice.body.error.code, 'BAD_AMOUNT');
+
+    // 2. 创建三档贴纸包订单（1.99 / 5.99 / 13.99 GRAM）并验证精确 A9 换算与配额预占
+    const oBasicRes = await route({
+      method: 'POST',
+      pathname: '/api/presale/intent',
+      headers: hBuyer,
+      body: { skuId: 'pack_basic', referrerId: 'EQ_REF_P6' },
+      nowSec,
+    });
+    assert.equal(oBasicRes.status, 200);
+    const oBasic = oBasicRes.body.data;
+    assert.equal(oBasic.skuId, 'pack_basic');
+    assert.equal(oBasic.tonNano, '1990000000');
+    assert.equal(oBasic.a9AmountRaw, '3983980000000');
+
+    // 未完成链上支付前，背包绝不提前发放 pack_basic 道具
+    const invBeforePay = await route({ method: 'GET', pathname: '/api/inventory/me', headers: hBuyer, nowSec });
+    assert.equal(hasItem(invBeforePay.body.data, 'badge_seal_red'), false);
+
+    // 3. 链上入账确认 -> 广播 A9 (PAYOUT_SENT) 时仍未最终确认，确认 (COMPLETED) 后自动交付 A9 + 贴纸包道具 + 12% 推荐返佣
+    await presaleEngine.ingestInbound(
+      { txHash: 'tx-p6-basic', finality: 'finalized', to: HOT, from: 'EQ_BUYER_P6', valueNano: oBasic.tonNano, memo: oBasic.memo },
+      nowSec + 10,
+    );
+    await presaleEngine.queueConfirmedPayouts(nowSec + 11);
+    await presaleEngine.processPayouts(nowSec + 12, {
+      a9Broadcaster: async () => ({ txHash: 'out-p6-basic' }),
+      verifier: async () => ({ state: 'PENDING' }),
+    });
+    assert.equal((await presaleEngine.getOrder(oBasic.orderId)).status, PRESALE_STATUS.PAYOUT_SENT);
+    // PAYOUT_SENT 阶段尚未最终确认，道具仍未入库
+    assert.equal(hasItem((await route({ method: 'GET', pathname: '/api/inventory/me', headers: hBuyer, nowSec: nowSec + 13 })).body.data, 'badge_seal_red'), false);
+
+    // 链上确认发币成功 -> COMPLETED -> 自动触发 deliverPack 入库！
+    await presaleEngine.processPayouts(nowSec + 20, {
+      verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }),
+    });
+    await presaleEngine.processReferralCredits(nowSec + 20);
+    assert.equal((await presaleEngine.getOrder(oBasic.orderId)).status, PRESALE_STATUS.COMPLETED);
+
+    const invAfterComplete = await route({ method: 'GET', pathname: '/api/inventory/me', headers: hBuyer, nowSec: nowSec + 21 });
+    assert.equal(hasItem(invAfterComplete.body.data, 'frame_cotton'), true);
+    assert.equal(hasItem(invAfterComplete.body.data, 'badge_seal_red'), true);
+
+    // 邀请人 EQ_REF_P6 精确获得 3,983.98 A9 的 12% = 478.0776 A9 (478077600000 raw)
+    const refBal = await promoEngine.getBalance('EQ_REF_P6');
+    assert.equal(BigInt(refBal.claimableRaw), (3983980000000n * 12n) / 100n);
+
+    // 4. 购买豪华贴纸礼盒 (13.99 GRAM -> 28,007.98 A9) 并完成链上确认 -> 自动入库皇家金箔全套装扮
+    const oDeluxeRes = await route({
+      method: 'POST',
+      pathname: '/api/presale/intent',
+      headers: hBuyer,
+      body: { skuId: 'pack_deluxe' },
+      nowSec: nowSec + 30,
+    });
+    assert.equal(oDeluxeRes.status, 200);
+    const oDeluxe = oDeluxeRes.body.data;
+    assert.equal(oDeluxe.skuId, 'pack_deluxe');
+    assert.equal(oDeluxe.tonNano, '13990000000');
+    assert.equal(oDeluxe.a9AmountRaw, '28007980000000');
+
+    await presaleEngine.ingestInbound(
+      { txHash: 'tx-p6-deluxe', finality: 'finalized', to: HOT, from: 'EQ_BUYER_P6', valueNano: oDeluxe.tonNano, memo: oDeluxe.memo },
+      nowSec + 35,
+    );
+    await presaleEngine.queueConfirmedPayouts(nowSec + 36);
+    await presaleEngine.processPayouts(nowSec + 37, {
+      a9Broadcaster: async () => ({ txHash: 'out-p6-deluxe' }),
+      verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }),
+    });
+    assert.equal((await presaleEngine.getOrder(oDeluxe.orderId)).status, PRESALE_STATUS.COMPLETED);
+
+    const invAfterDeluxe = await route({ method: 'GET', pathname: '/api/inventory/me', headers: hBuyer, nowSec: nowSec + 38 });
+    assert.equal(hasItem(invAfterDeluxe.body.data, 'frame_royal_foil'), true);
+    assert.equal(hasItem(invAfterDeluxe.body.data, 'badge_royal_crown'), true);
+    assert.equal(hasItem(invAfterDeluxe.body.data, 'title_foil_collector'), true);
+
+    // 5. 1.99 GRAM 贴纸包订单超时后到账：触发免手续费被动全额退款 (1.99 GRAM >= 1.0 GRAM)，且不额外发放道具
+    const oLateBasic = (await route({
+      method: 'POST',
+      pathname: '/api/presale/intent',
+      headers: hBuyer,
+      body: { skuId: 'pack_basic' },
+      nowSec: nowSec + 100,
+    })).body.data;
+    await presaleEngine.ingestInbound(
+      { txHash: 'tx-p6-late-basic', finality: 'finalized', to: HOT, from: 'EQ_BUYER_P6', valueNano: oLateBasic.tonNano, memo: oLateBasic.memo },
+      nowSec + 100 + 31 * 60,
+    );
+    assert.equal((await presaleEngine.getOrder(oLateBasic.orderId)).status, PRESALE_STATUS.REFUND_PENDING);
+    await presaleEngine.processPayouts(nowSec + 100 + 32 * 60, {
+      refundBroadcaster: async () => ({ txHash: 'rf-p6-late-basic' }),
+      verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }),
+    });
+    assert.equal((await presaleEngine.getOrder(oLateBasic.orderId)).status, PRESALE_STATUS.REFUNDED);
+    assert.equal((await presaleEngine.repo.getPayout('refund:tx-p6-late-basic')).amount, '1990000000');
+    assert.equal((await route({ method: 'GET', pathname: '/api/inventory/me', headers: hBuyer, nowSec: nowSec + 3000 })).body.data.deliveries.length, 2);
+
+    // 6. 5.99 GRAM 进阶贴纸盒订单错付 1.99 GRAM -> 进入 ANOMALY 人工审核队列，不发币不发道具
+    const oPlus = (await route({
+      method: 'POST',
+      pathname: '/api/presale/intent',
+      headers: hBuyer,
+      body: { skuId: 'pack_plus' },
+      nowSec: nowSec + 3100,
+    })).body.data;
+    assert.equal(oPlus.tonNano, '5990000000');
+    const wrongAmtRes = await presaleEngine.ingestInbound(
+      { txHash: 'tx-p6-wrong-amt', finality: 'finalized', to: HOT, from: 'EQ_BUYER_P6', valueNano: '1990000000', memo: oPlus.memo },
+      nowSec + 3110,
+    );
+    assert.equal(wrongAmtRes.action, 'ANOMALY');
+    assert.equal(wrongAmtRes.reason, 'amount_mismatch');
+    assert.equal(hasItem((await route({ method: 'GET', pathname: '/api/inventory/me', headers: hBuyer, nowSec: nowSec + 3111 })).body.data, 'frame_origami'), false);
+  };
+
+  await runSuite('memory', async () => {
+    const progressionEngine = new ProgressionEngine();
+    const inventoryEngine = new InventoryEngine({ progressionEngine });
+    const promoEngine = new PromoHotWalletEngine({ hotWalletAddress: HOT });
+    const socialStore = new SocialStore();
+    const identityStore = new MemoryIdentityStore();
+    const presaleEngine = new PresaleHotWalletEngine({ hotWalletAddress: HOT, open: true, promoEngine, socialStore, inventoryEngine });
+    return { presaleEngine, inventoryEngine, promoEngine, socialStore, identityStore };
+  });
+
+  await runSuite('d1-sqlite', async () => {
+    const db = createSqliteD1(MIGRATIONS);
+    const progressionEngine = new D1ProgressionEngine({ db });
+    const inventoryEngine = new D1InventoryEngine({ db, progressionEngine });
+    const promoEngine = new PromoHotWalletEngine({ hotWalletAddress: HOT });
+    const socialStore = new D1SocialStore({ db });
+    const identityStore = new D1IdentityStore({ db });
+    const presaleEngine = new D1PresaleStore({ db, hotWalletAddress: HOT, open: true, promoEngine, socialStore, inventoryEngine });
+    return { presaleEngine, inventoryEngine, promoEngine, socialStore, identityStore };
+  });
+
+  const mf = await createMiniflareD1();
+  if (mf) {
+    MF_DISPOSE.push(mf.dispose);
+    await runSuite('d1-miniflare', async () => {
+      const progressionEngine = new D1ProgressionEngine({ db: mf.db });
+      const inventoryEngine = new D1InventoryEngine({ db: mf.db, progressionEngine });
+      const promoEngine = new PromoHotWalletEngine({ hotWalletAddress: HOT });
+      const socialStore = new D1SocialStore({ db: mf.db });
+      const identityStore = new D1IdentityStore({ db: mf.db });
+      const presaleEngine = new D1PresaleStore({ db: mf.db, hotWalletAddress: HOT, open: true, promoEngine, socialStore, inventoryEngine });
+      return { presaleEngine, inventoryEngine, promoEngine, socialStore, identityStore };
+    });
   }
 });
 

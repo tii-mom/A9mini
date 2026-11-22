@@ -175,25 +175,138 @@ export function demoFundsClaim(state) {
   return claimable;
 }
 
-export function demoFundsBuy(state, tonAmount) {
-  const amt = Number(tonAmount);
+export const DEMO_STICKER_PACKS = [
+  {
+    skuId: 'pack_basic',
+    zh: '基础贴纸包',
+    en: 'Basic Sticker Pack',
+    asset: 'crystal-basic',
+    priceGram: 1.99,
+    a9Amount: 3983.98,
+    expBonus: 100,
+    critFlair: false,
+    items: ['frame_cotton', 'badge_seal_red'],
+    descZh: '含 3,983.98 A9 + 素棉立牌底座 + 初心火漆贴纸',
+    descEn: '3,983.98 A9 + Cotton Base + Wax Seal Sticker'
+  },
+  {
+    skuId: 'pack_plus',
+    zh: '进阶贴纸盒',
+    en: 'Plus Sticker Box',
+    asset: 'crystal-starlight',
+    priceGram: 5.99,
+    a9Amount: 11991.98,
+    expBonus: 350,
+    critFlair: false,
+    items: ['frame_origami', 'badge_star_compass'],
+    descZh: '含 11,991.98 A9 + 晴空烫金底座 + 星航折纸贴纸',
+    descEn: '11,991.98 A9 + Sky Origami Base + Star Sticker'
+  },
+  {
+    skuId: 'pack_deluxe',
+    zh: '豪华贴纸礼盒',
+    en: 'Deluxe Sticker Box',
+    asset: 'crystal-legendary',
+    priceGram: 13.99,
+    a9Amount: 28007.98,
+    expBonus: 1000,
+    critFlair: true,
+    items: ['frame_royal_foil', 'badge_royal_crown', 'title_foil_collector'],
+    descZh: '含 28,007.98 A9 + 皇家金箔底座 + 皇冠金章 + 典藏称号',
+    descEn: '28,007.98 A9 + Gold-Foil Base + Crown Crest + Title'
+  }
+];
+
+export const DEMO_COSMETIC_ITEMS = {
+  frame_cotton: { itemId: 'frame_cotton', category: 'frame', rarity: 'basic', sourceSku: 'pack_basic', zh: '素棉立牌底座', en: 'Cotton Standee Base' },
+  badge_seal_red: { itemId: 'badge_seal_red', category: 'badge', rarity: 'basic', sourceSku: 'pack_basic', zh: '初心火漆贴纸', en: 'Red Wax Seal Sticker' },
+  frame_origami: { itemId: 'frame_origami', category: 'frame', rarity: 'plus', sourceSku: 'pack_plus', zh: '晴空烫金底座', en: 'Sky Origami Base' },
+  badge_star_compass: { itemId: 'badge_star_compass', category: 'badge', rarity: 'plus', sourceSku: 'pack_plus', zh: '星航折纸贴纸', en: 'Star Origami Sticker' },
+  frame_royal_foil: { itemId: 'frame_royal_foil', category: 'frame', rarity: 'deluxe', sourceSku: 'pack_deluxe', zh: '皇家金箔底座', en: 'Royal Gold-Foil Base' },
+  badge_royal_crown: { itemId: 'badge_royal_crown', category: 'badge', rarity: 'deluxe', sourceSku: 'pack_deluxe', zh: '传世皇冠金章', en: 'Royal Crown Crest' },
+  title_foil_collector: { itemId: 'title_foil_collector', category: 'title', rarity: 'deluxe', sourceSku: 'pack_deluxe', zh: '金箔典藏家称号', en: 'Gold-Foil Collector' }
+};
+
+export function demoFundsBuy(state, tonAmount, skuId = null) {
+  const pack = skuId ? DEMO_STICKER_PACKS.find(p => p.skuId === skuId) : DEMO_STICKER_PACKS.find(p => Math.abs(p.priceGram - Number(tonAmount)) < 0.001);
+  const amt = pack ? pack.priceGram : Number(tonAmount);
   const availQuota = state.market.unlockedQuotaTon - state.market.usedQuotaTon;
-  if (amt < state.market.minOrderTon || amt > state.market.maxOrderTon) return { error: '单笔金额须在 5 - 200 GRAM 之间' };
+  if (!pack && (amt < state.market.minOrderTon || amt > state.market.maxOrderTon)) return { error: '单笔金额须在 5 - 200 GRAM 之间或选择三档贴纸包' };
   if (amt > availQuota) return { error: `超出当前可用额度 (${availQuota} GRAM)` };
   if (amt > state.user.tonBalance) return { error: 'GRAM 余额不足' };
-  const receivedA9 = amt * state.market.rateA9PerTon;
+  const receivedA9 = Number((amt * state.market.rateA9PerTon).toFixed(2));
   state.user.tonBalance = Number((state.user.tonBalance - amt).toFixed(2));
-  state.user.a9Available += receivedA9;
-  state.market.usedQuotaTon += amt;
+  state.user.a9Available = Number((state.user.a9Available + receivedA9).toFixed(2));
+  state.market.usedQuotaTon = Number((state.market.usedQuotaTon + amt).toFixed(2));
+  const orderId = `IM-${Date.now().toString().slice(-4)}`;
   state.market.records.unshift({
-    id: `IM-${Date.now().toString().slice(-4)}`,
+    id: orderId,
+    skuId: pack ? pack.skuId : null,
+    packNameZh: pack ? pack.zh : null,
+    packNameEn: pack ? pack.en : null,
     ton: amt,
     a9: receivedA9,
     status: '演示成交',
     hash: demoTxHash('EQD'),
     time: '刚刚'
   });
-  return { receivedA9 };
+  let deliveredPack = null;
+  if (pack) {
+    deliveredPack = demoInventoryDeliver(state, pack.skuId, orderId);
+  }
+  return { receivedA9, pack, deliveredPack, orderId };
+}
+
+export function demoInventoryDeliver(state, skuId, orderRef = 'sandbox') {
+  const pack = DEMO_STICKER_PACKS.find(p => p.skuId === skuId);
+  if (!pack || !state?.inventory) return null;
+  const inv = state.inventory;
+  const deliveryId = `${orderRef}:${skuId}`;
+  const existing = inv.deliveries.find(d => d.deliveryId === deliveryId);
+  if (existing) return existing;
+
+  const unlockedItems = [];
+  for (const itemId of pack.items) {
+    const meta = DEMO_COSMETIC_ITEMS[itemId];
+    if (!meta) continue;
+    if (!inv.items.some(x => x.itemId === itemId)) {
+      inv.items.push({ ...meta, acquiredAt: Date.now(), sourceRef: deliveryId });
+    }
+    unlockedItems.push(meta);
+    if (meta.category === 'frame') inv.loadout.equippedFrame = itemId;
+    if (meta.category === 'badge') inv.loadout.equippedBadge = itemId;
+    if (meta.category === 'title') inv.loadout.equippedTitle = itemId;
+  }
+  if (state.progression) {
+    state.progression.exp = (Number(state.progression.exp) || 0) + pack.expBonus;
+    state.progression.level = Math.floor(state.progression.exp / 200) + 1;
+    state.progression.currentLevelExp = state.progression.exp % 200;
+    state.progression.progressPct = Math.min(100, Math.round((state.progression.currentLevelExp / 200) * 100));
+  }
+  const rec = {
+    deliveryId,
+    skuId: pack.skuId,
+    critFlair: pack.critFlair,
+    a9Amount: pack.a9Amount,
+    expAwarded: pack.expBonus,
+    items: unlockedItems,
+    deliveredAt: Date.now()
+  };
+  inv.deliveries.unshift(rec);
+  return rec;
+}
+
+export function demoInventoryEquip(state, category, itemId = null) {
+  if (!state?.inventory) return null;
+  const inv = state.inventory;
+  const clean = itemId ? String(itemId).trim() : null;
+  if (clean && !inv.items.some(x => x.itemId === clean && x.category === category)) {
+    return { error: '尚未拥有该纸艺装扮' };
+  }
+  if (category === 'frame') inv.loadout.equippedFrame = clean;
+  if (category === 'badge') inv.loadout.equippedBadge = clean;
+  if (category === 'title') inv.loadout.equippedTitle = clean;
+  return inv;
 }
 
 export const DEMO_SOCIAL_FEEDS = [
@@ -341,6 +454,21 @@ export function applyDemoInitialState(state) {
     oracleDeviationPct: 0.12,
     blockHeight: 48291042,
     activeRpc: 'Toncenter Mainnet L1'
+  };
+
+  state.inventory = {
+    items: [
+      { ...DEMO_COSMETIC_ITEMS.frame_cotton, acquiredAt: Date.now() - 3600000, sourceRef: 'demo:init' },
+      { ...DEMO_COSMETIC_ITEMS.badge_seal_red, acquiredAt: Date.now() - 3600000, sourceRef: 'demo:init' }
+    ],
+    loadout: {
+      equippedFrame: 'frame_cotton',
+      equippedBadge: 'badge_seal_red',
+      equippedTitle: null
+    },
+    deliveries: [],
+    filter: 'all',
+    loaded: true
   };
 }
 

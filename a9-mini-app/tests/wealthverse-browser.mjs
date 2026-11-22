@@ -92,6 +92,13 @@ async function mobile(width, height, locale, theme) {
   await page.locator('[data-slot="24"]').click();
   assert.match(await page.locator('.star-reading').innerText(), /尚未开始|Upcoming/);
   await visit(page,'/internal/market');
+  assert.equal(await page.locator('.sticker-pack-card').count(), 3);
+  await page.locator('[data-buy-pack="pack_deluxe"]').click();
+  await page.locator('#pack-unfold-stage').waitFor();
+  assert.match(await page.locator('#pack-unfold-stage').innerText(), /28,007\.98 A9/);
+  await page.locator('#btn-skip-pack-anim').click();
+  assert.equal(await page.locator('#btn-skip-pack-anim').isDisabled(), true);
+  await page.locator('#btn-close-pack-modal').click();
   await page.locator('[data-qton="50"]').click();
   assert.equal(await page.locator('#market-ton-input').inputValue(),'50');
   assert.match(await page.locator('#market-est-a9').innerText(), /100,100 A9/);
@@ -100,6 +107,14 @@ async function mobile(width, height, locale, theme) {
   await visit(page,'/team');
   assert.equal(await page.locator('.guild-member').count(),3);
   await visit(page,'/profile');
+  await page.locator('#a9-cosmetic-box').waitFor();
+  await page.locator('#identity-standee-stage.cos-frame_royal_foil').waitFor();
+  await page.locator('[data-cos-filter="frame"]').click();
+  assert.equal(await page.locator('.cosmetic-item-row:visible').count(), 2);
+  await page.locator('[data-equip-item="frame_cotton"]').click();
+  await page.locator('#identity-standee-stage.cos-frame_cotton').waitFor();
+  await page.locator('[data-equip-item="frame_royal_foil"]').click();
+  await page.locator('#identity-standee-stage.cos-frame_royal_foil').waitFor();
   await page.locator('[data-ticket-filter="settled"]').click();
   assert.equal(await page.locator('.collectible-ticket:visible').count(),1);
   await page.locator('.collectible-ticket:visible').click();

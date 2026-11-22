@@ -1,6 +1,6 @@
 // A9 Protocol v15 — Cloudflare D1 Persistence Adapters for Social, Prediction & Presale.
 // Matches worker/schema.sql tables and mirrors the in-memory engine interfaces 1:1.
-import { rewardForWarmupRank } from './social-store.mjs';
+import { rewardForWarmupRank, SocialError } from './social-store.mjs';
 import {
   GrowthError,
   VOUCHER_TTL_MS,
@@ -11,6 +11,8 @@ import {
   levelFromExp,
   computeEffectiveStreak,
   buildProgressionSummary,
+  COSMETIC_ITEM_CATALOG,
+  STICKER_PACK_CATALOG,
 } from './growth-engine.mjs';
 import { PresaleEngine, PresaleError, RESERVING_STATUSES } from './presale-hotwallet.mjs';
 import { addressKey, addressAliases } from './ton-address.mjs';
@@ -34,37 +36,53 @@ export class D1SocialStore {
     return row ? String(row.referrer_id) : null;
   }
 
-  async bindReferral(subjectKey, referrerId, nowSec = Math.floor(Date.now() / 1000)) {
+  async bindReferral(subjectKey, referrerId, nowSec = Math.floor(Date.now() / 1000), { aliases = [] } = {}) {
     const subj = String(subjectKey || '').trim();
     const ref = String(referrerId || '').trim();
-    if (!subj || !ref || subj === ref || addressKey(subj) === addressKey(ref)) return null;
+    if (!subj || !ref) return null;
 
-    const existing = await this.db
-      .prepare('SELECT subject_key, referrer_id, bound_at FROM referrals WHERE subject_key = ?')
-      .bind(subj)
-      .first();
-    if (existing) {
-      return {
-        subjectKey: existing.subject_key,
-        referrerId: existing.referrer_id,
-        boundAt: Number(existing.bound_at),
-      };
+    const allSubjects = [subj, ...aliases.map((a) => String(a || '').trim()).filter(Boolean)];
+    const refKey = addressKey(ref);
+    for (const s of allSubjects) {
+      if (s === ref || addressKey(s) === refKey) return null;
+    }
+
+    for (const s of allSubjects) {
+      const existing = await this.db
+        .prepare('SELECT subject_key, referrer_id, bound_at FROM referrals WHERE subject_key = ?')
+        .bind(s)
+        .first();
+      if (existing) {
+        if (s !== subj) {
+          await this.db
+            .prepare('INSERT OR IGNORE INTO referrals (subject_key, referrer_id, bound_at) VALUES (?, ?, ?)')
+            .bind(subj, existing.referrer_id, Number(existing.bound_at))
+            .run();
+        }
+        return {
+          subjectKey: subj,
+          referrerId: String(existing.referrer_id),
+          boundAt: Number(existing.bound_at),
+        };
+      }
     }
 
     // Anti-cycle walk up to depth 8
+    const subjectKeys = new Set(allSubjects.map((s) => addressKey(s)));
     let cursor = ref;
-    const subjKey = addressKey(subj);
     for (let depth = 0; depth < 8 && cursor; depth += 1) {
       const parent = await this.getReferrer(cursor);
       if (!parent) break;
-      if (parent === subj || addressKey(parent) === subjKey) return null;
+      if (allSubjects.includes(parent) || subjectKeys.has(addressKey(parent))) return null;
       cursor = parent;
     }
 
-    await this.db
-      .prepare('INSERT INTO referrals (subject_key, referrer_id, bound_at) VALUES (?, ?, ?)')
-      .bind(subj, ref, nowSec)
-      .run();
+    for (const s of allSubjects) {
+      await this.db
+        .prepare('INSERT OR IGNORE INTO referrals (subject_key, referrer_id, bound_at) VALUES (?, ?, ?)')
+        .bind(s, ref, nowSec)
+        .run();
+    }
     return { subjectKey: subj, referrerId: ref, boundAt: nowSec };
   }
 
@@ -157,15 +175,15 @@ export class D1SocialStore {
   }
 
   async createOrBindTeamGroup({ teamId, name, captainWallet, tgGroupHandle, tgChatId = null }, nowSec = Math.floor(Date.now() / 1000)) {
-    if (!teamId || !captainWallet) throw new Error('teamId and captainWallet required');
+    if (!teamId || !captainWallet) throw new SocialError('BAD_REQUEST', 'teamId and captainWallet required');
     const cur = await this.db.prepare('SELECT * FROM team_groups WHERE team_id = ?').bind(teamId).first();
-    if (cur && cur.captain_wallet !== captainWallet) {
-      throw new Error('only captain can bind TG group');
+    if (cur && addressKey(cur.captain_wallet) !== addressKey(captainWallet)) {
+      throw new SocialError('NOT_CAPTAIN', 'only captain can bind TG group');
     }
     const nextName = name || cur?.name || teamId;
     const nextHandle = tgGroupHandle || cur?.tg_group_handle || null;
     const nextChatId = tgGroupHandle ? tgChatId : (cur?.tg_chat_id || null);
-    // Not verified against Telegram yet (phase 6): a handle alone is never reported as bound.
+    // Not verified against Telegram yet: a handle alone is never reported as bound.
     const nextStatus = tgGroupHandle ? 'verifying' : (cur?.bind_status || 'unbound');
     const createdAt = cur ? Number(cur.created_at) : nowSec;
     const memberCount = cur ? Number(cur.member_count) : 1;
@@ -199,6 +217,87 @@ export class D1SocialStore {
       bindStatus: nextStatus,
       memberCount,
       createdAt,
+      updatedAt: nowSec,
+    };
+  }
+
+  async verifyTeamGroupBinding(
+    { teamId, captainWallet, telegramUserId, telegramVerifier },
+    nowSec = Math.floor(Date.now() / 1000),
+  ) {
+    if (!teamId || !captainWallet) throw new SocialError('BAD_REQUEST', 'teamId and captainWallet required');
+    const cur = await this.db.prepare('SELECT * FROM team_groups WHERE team_id = ?').bind(teamId).first();
+    if (!cur) throw new SocialError('TEAM_NOT_FOUND', `team ${teamId} not found`);
+    if (addressKey(cur.captain_wallet) !== addressKey(captainWallet)) {
+      throw new SocialError('NOT_CAPTAIN', 'only captain can verify TG group binding');
+    }
+    if (!cur.tg_group_handle && !cur.tg_chat_id) {
+      throw new SocialError('BAD_REQUEST', 'no Telegram group handle submitted for verification');
+    }
+    if (typeof telegramVerifier !== 'function') {
+      return {
+        teamId: cur.team_id,
+        name: cur.name,
+        captainWallet: cur.captain_wallet,
+        tgGroupHandle: cur.tg_group_handle || null,
+        tgChatId: cur.tg_chat_id || null,
+        bindStatus: cur.bind_status,
+        memberCount: Number(cur.member_count || 1),
+        createdAt: Number(cur.created_at),
+        updatedAt: Number(cur.updated_at),
+      };
+    }
+
+    const check = await telegramVerifier({
+      teamId,
+      tgGroupHandle: cur.tg_group_handle,
+      tgChatId: cur.tg_chat_id,
+      telegramUserId,
+    });
+
+    if (!check?.botInGroup || !check?.chatId) {
+      const nextStatus = cur.bind_status === 'bound' ? 'expired' : 'verifying';
+      await this.db
+        .prepare('UPDATE team_groups SET bind_status = ?, updated_at = ? WHERE team_id = ?')
+        .bind(nextStatus, nowSec, teamId)
+        .run();
+      throw new SocialError('BOT_NOT_IN_GROUP', '机器人尚未加入该群组或无访问权限');
+    }
+
+    const canonicalChatId = String(check.chatId);
+    const conflict = await this.db
+      .prepare("SELECT team_id FROM team_groups WHERE tg_chat_id = ? AND bind_status = 'bound' AND team_id != ? LIMIT 1")
+      .bind(canonicalChatId, teamId)
+      .first();
+    if (conflict) {
+      throw new SocialError('GROUP_ALREADY_BOUND', '该 Telegram 群组已被其他商会绑定');
+    }
+
+    if (!check.operatorIsAdmin) {
+      if (cur.bind_status === 'bound') {
+        await this.db
+          .prepare("UPDATE team_groups SET bind_status = 'expired', updated_at = ? WHERE team_id = ?")
+          .bind(nowSec, teamId)
+          .run();
+      }
+      throw new SocialError('NOT_GROUP_ADMIN', '操作者不是该 Telegram 群组的管理员');
+    }
+
+    const nextHandle = check.groupHandle ? String(check.groupHandle) : (cur.tg_group_handle || null);
+    await this.db
+      .prepare("UPDATE team_groups SET tg_chat_id = ?, tg_group_handle = ?, bind_status = 'bound', updated_at = ? WHERE team_id = ?")
+      .bind(canonicalChatId, nextHandle, nowSec, teamId)
+      .run();
+
+    return {
+      teamId: cur.team_id,
+      name: cur.name,
+      captainWallet: cur.captain_wallet,
+      tgGroupHandle: nextHandle,
+      tgChatId: canonicalChatId,
+      bindStatus: 'bound',
+      memberCount: Number(cur.member_count || 1),
+      createdAt: Number(cur.created_at),
       updatedAt: nowSec,
     };
   }
@@ -754,6 +853,265 @@ export class D1ProgressionEngine {
       expAwarded: task.exp,
       progression: await this.getUserSummary(uid, nowSec, { hasPredictionBet }),
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 2c. D1InventoryEngine (user_inventory_items, user_cosmetic_loadout, user_pack_deliveries)
+// ---------------------------------------------------------------------------
+export class D1InventoryEngine {
+  constructor({ db }) {
+    if (!db) throw new Error('Cloudflare D1 binding (env.DB) is required');
+    this.db = db;
+  }
+
+  async _getLoadoutRow(uid) {
+    const row = await this.db
+      .prepare('SELECT * FROM user_cosmetic_loadout WHERE user_id = ?')
+      .bind(uid)
+      .first();
+    if (!row) {
+      return {
+        userId: uid,
+        equippedFrame: null,
+        equippedBadge: null,
+        equippedTitle: null,
+        updatedAt: 0,
+      };
+    }
+    return {
+      userId: String(row.user_id),
+      equippedFrame: row.equipped_frame || null,
+      equippedBadge: row.equipped_badge || null,
+      equippedTitle: row.equipped_title || null,
+      updatedAt: Number(row.updated_at || 0),
+    };
+  }
+
+  async getUserInventory(userId) {
+    const uid = String(userId || '').trim();
+    if (!uid) throw new GrowthError('BAD_REQUEST', 'userId required');
+
+    const itemsRes = await this.db
+      .prepare('SELECT * FROM user_inventory_items WHERE user_id = ? ORDER BY acquired_at ASC, item_id ASC')
+      .bind(uid)
+      .all();
+    const items = (itemsRes?.results || []).map((r) => {
+      const meta = COSMETIC_ITEM_CATALOG[r.item_id] || {};
+      return {
+        ...meta,
+        userId: String(r.user_id),
+        itemId: String(r.item_id),
+        category: String(r.category),
+        rarity: String(r.rarity),
+        sourceSku: String(r.source_sku),
+        sourceRef: String(r.source_ref),
+        acquiredAt: Number(r.acquired_at),
+      };
+    });
+
+    const loadout = await this._getLoadoutRow(uid);
+
+    const delRes = await this.db
+      .prepare('SELECT * FROM user_pack_deliveries WHERE user_id = ? ORDER BY delivered_at DESC')
+      .bind(uid)
+      .all();
+    const deliveries = (delRes?.results || []).map((d) => {
+      const pack = STICKER_PACK_CATALOG[d.sku_id] || {};
+      let parsedItems = [];
+      try {
+        parsedItems = JSON.parse(d.items_json || '[]');
+      } catch {
+        parsedItems = [];
+      }
+      return {
+        deliveryId: String(d.delivery_id),
+        userId: String(d.user_id),
+        skuId: String(d.sku_id),
+        orderId: d.order_id || null,
+        mode: String(d.mode),
+        critFlair: Boolean(pack.critFlair),
+        affectsFinancialReward: false,
+        items: parsedItems,
+        expAwarded: Number(d.exp_awarded || 0),
+        deliveredAt: Number(d.delivered_at),
+      };
+    });
+
+    return {
+      userId: uid,
+      ledgerKind: 'IN_GAME_COSMETIC_DATABASE',
+      tradable: false,
+      affectsA9Rate: false,
+      items,
+      loadout: {
+        equippedFrame: loadout.equippedFrame,
+        equippedBadge: loadout.equippedBadge,
+        equippedTitle: loadout.equippedTitle,
+        updatedAt: loadout.updatedAt,
+      },
+      deliveries,
+    };
+  }
+
+  async deliverPack(
+    { userId, skuId, orderId = null, mode = 'SANDBOX', deliveryId = null, skipAnimation = false },
+    nowSec = Math.floor(Date.now() / 1000),
+  ) {
+    const uid = String(userId || '').trim();
+    const sKey = String(skuId || '').trim();
+    if (!uid || !sKey) throw new GrowthError('BAD_REQUEST', 'userId and skuId required');
+    const pack = STICKER_PACK_CATALOG[sKey];
+    if (!pack) throw new GrowthError('UNKNOWN_SKU', `unknown sticker pack SKU: ${sKey}`);
+    if (mode !== 'SANDBOX' && mode !== 'ONCHAIN_ORDER') {
+      throw new GrowthError('BAD_REQUEST', 'mode must be SANDBOX or ONCHAIN_ORDER');
+    }
+    if (mode === 'ONCHAIN_ORDER' && !orderId) {
+      throw new GrowthError('BAD_REQUEST', 'orderId is required for ONCHAIN_ORDER delivery');
+    }
+
+    const effDeliveryId = deliveryId
+      ? String(deliveryId).trim()
+      : mode === 'ONCHAIN_ORDER'
+        ? `order:${String(orderId).trim()}`
+        : `sandbox:${uid}:${sKey}`;
+
+    const existing = await this.db
+      .prepare('SELECT * FROM user_pack_deliveries WHERE delivery_id = ?')
+      .bind(effDeliveryId)
+      .first();
+    if (existing) {
+      if (String(existing.user_id) !== uid) {
+        throw new GrowthError('FORBIDDEN', 'delivery belongs to another user');
+      }
+      const inv = await this.getUserInventory(uid);
+      const found = inv.deliveries.find((d) => d.deliveryId === effDeliveryId);
+      return {
+        alreadyDelivered: true,
+        animationSkipped: Boolean(skipAnimation),
+        delivery: found,
+        inventory: inv,
+      };
+    }
+
+    const itemsJson = JSON.stringify(Array.from(pack.items));
+    const ins = await this.db
+      .prepare(
+        `INSERT OR IGNORE INTO user_pack_deliveries
+         (delivery_id, user_id, sku_id, order_id, mode, items_json, exp_awarded, delivered_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(effDeliveryId, uid, sKey, orderId ? String(orderId) : null, mode, itemsJson, pack.expBonus, nowSec)
+      .run();
+    const changed = Number(ins?.meta?.changes ?? ins?.changes ?? 0);
+    if (changed !== 1) {
+      const again = await this.db
+        .prepare('SELECT * FROM user_pack_deliveries WHERE delivery_id = ?')
+        .bind(effDeliveryId)
+        .first();
+      if (again && String(again.user_id) !== uid) {
+        throw new GrowthError('FORBIDDEN', 'delivery belongs to another user');
+      }
+      const inv = await this.getUserInventory(uid);
+      return {
+        alreadyDelivered: true,
+        animationSkipped: Boolean(skipAnimation),
+        delivery: inv.deliveries.find((d) => d.deliveryId === effDeliveryId) || null,
+        inventory: inv,
+      };
+    }
+
+    const loadout = await this._getLoadoutRow(uid);
+    let nextFrame = loadout.equippedFrame;
+    let nextBadge = loadout.equippedBadge;
+    let nextTitle = loadout.equippedTitle;
+
+    const stmts = [];
+    for (const itemId of pack.items) {
+      const meta = COSMETIC_ITEM_CATALOG[itemId];
+      if (!meta) continue;
+      stmts.push(
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO user_inventory_items
+             (user_id, item_id, category, rarity, source_sku, source_ref, acquired_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(uid, itemId, meta.category, meta.rarity, sKey, effDeliveryId, nowSec),
+      );
+      if (meta.category === 'frame' && !nextFrame) nextFrame = itemId;
+      if (meta.category === 'badge' && !nextBadge) nextBadge = itemId;
+      if (meta.category === 'title' && !nextTitle) nextTitle = itemId;
+    }
+
+    stmts.push(
+      this.db
+        .prepare(
+          `INSERT INTO user_cosmetic_loadout (user_id, equipped_frame, equipped_badge, equipped_title, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET
+             equipped_frame = COALESCE(user_cosmetic_loadout.equipped_frame, excluded.equipped_frame),
+             equipped_badge = COALESCE(user_cosmetic_loadout.equipped_badge, excluded.equipped_badge),
+             equipped_title = COALESCE(user_cosmetic_loadout.equipped_title, excluded.equipped_title),
+             updated_at = excluded.updated_at`,
+        )
+        .bind(uid, nextFrame, nextBadge, nextTitle, nowSec),
+    );
+
+    await this.db.batch(stmts);
+    const inv = await this.getUserInventory(uid);
+    return {
+      alreadyDelivered: false,
+      animationSkipped: Boolean(skipAnimation),
+      delivery: inv.deliveries.find((d) => d.deliveryId === effDeliveryId),
+      inventory: inv,
+    };
+  }
+
+  async equipItem({ userId, category, itemId = null }, nowSec = Math.floor(Date.now() / 1000)) {
+    const uid = String(userId || '').trim();
+    const cat = String(category || '').trim();
+    if (!uid || !['frame', 'badge', 'title'].includes(cat)) {
+      throw new GrowthError('BAD_REQUEST', 'valid userId and category (frame|badge|title) required');
+    }
+
+    const cleanItem = itemId === null || itemId === undefined || String(itemId).trim() === ''
+      ? null
+      : String(itemId).trim();
+
+    if (cleanItem !== null) {
+      const meta = COSMETIC_ITEM_CATALOG[cleanItem];
+      if (!meta || meta.category !== cat) {
+        throw new GrowthError('BAD_ITEM', 'item does not match category');
+      }
+      const owned = await this.db
+        .prepare('SELECT 1 AS hit FROM user_inventory_items WHERE user_id = ? AND item_id = ?')
+        .bind(uid, cleanItem)
+        .first();
+      if (!owned) {
+        throw new GrowthError('ITEM_NOT_OWNED', '尚未拥有该纸艺装扮，无法装备');
+      }
+    }
+
+    const loadout = await this._getLoadoutRow(uid);
+    const nextFrame = cat === 'frame' ? cleanItem : loadout.equippedFrame;
+    const nextBadge = cat === 'badge' ? cleanItem : loadout.equippedBadge;
+    const nextTitle = cat === 'title' ? cleanItem : loadout.equippedTitle;
+
+    await this.db
+      .prepare(
+        `INSERT INTO user_cosmetic_loadout (user_id, equipped_frame, equipped_badge, equipped_title, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET
+           equipped_frame = excluded.equipped_frame,
+           equipped_badge = excluded.equipped_badge,
+           equipped_title = excluded.equipped_title,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(uid, nextFrame, nextBadge, nextTitle, nowSec)
+      .run();
+
+    return this.getUserInventory(uid);
   }
 }
 

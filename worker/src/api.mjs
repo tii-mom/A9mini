@@ -3,7 +3,8 @@
 import { buildV15ConfigPayload, mapV15RoundDetail } from './v15-indexer.mjs';
 import { PromoError } from './promo-hotwallet.mjs';
 import { PresaleError } from './presale-hotwallet.mjs';
-import { GrowthError, renderOgCardPng, renderOgCardSvg, renderOgLandingHtml } from './growth-engine.mjs';
+import { GrowthError, renderOgCardPng, renderOgCardSvg, renderOgLandingHtml, STICKER_PACK_CATALOG, COSMETIC_ITEM_CATALOG } from './growth-engine.mjs';
+import { SocialError, parseStartAppParam, createTelegramBotGroupVerifier } from './social-store.mjs';
 import { AuthError, MemoryIdentityStore, allowedProofDomains, createRequestAuth, expectedChainId, verifyTonProof } from './auth.mjs';
 import { addressKey, normalizeTonAddress } from './ton-address.mjs';
 
@@ -77,10 +78,12 @@ export function createApiRouter({
   socialStore = null,
   predictionEngine = null,
   progressionEngine = null,
+  inventoryEngine = null,
   userReader = null,
   identityStore = new MemoryIdentityStore(),
   publicKeyResolver = null,
   walletStateResolver = null,
+  telegramGroupVerifier = null,
 }) {
   return async function handleRequest({ method, pathname, query = {}, body = null, headers = {}, nowSec = Math.floor(Date.now() / 1000) }) {
     const auth = createRequestAuth({ env, headers, identityStore, nowSec });
@@ -102,8 +105,10 @@ export function createApiRouter({
               minOrderNano: presaleEngine.minOrderNano.toString(),
               maxOrderNano: presaleEngine.maxOrderNano.toString(),
               open: presaleEngine.open,
+              stickerPacks: Object.values(STICKER_PACK_CATALOG),
             }
-          : { enabled: false, address: null, rateA9PerTon: null, rateA9PerGram: null, open: false };
+          : { enabled: false, address: null, rateA9PerTon: null, rateA9PerGram: null, open: false, stickerPacks: Object.values(STICKER_PACK_CATALOG) };
+        base.cosmeticCatalog = COSMETIC_ITEM_CATALOG;
         return ok(base);
       }
 
@@ -241,11 +246,14 @@ export function createApiRouter({
         if (!presaleEngine) return err('PRESALE_DISABLED', 'presale hot wallet not configured', 503);
         const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
         const amount = body?.tonAmount ?? body?.gramAmount;
-        if (amount === undefined || amount === null || amount === '') return err('BAD_REQUEST', 'gramAmount required', 400);
+        const skuId = body?.skuId ? String(body.skuId).trim() : null;
+        if (!skuId && (amount === undefined || amount === null || amount === '')) {
+          return err('BAD_REQUEST', 'gramAmount or skuId required', 400);
+        }
         const rawRef = String(body?.referrerId || '').trim() || null;
         if (socialStore && rawRef) await socialStore.bindReferral(walletAddress, rawRef, nowSec);
         const effectiveRef = socialStore ? await socialStore.getReferrer(walletAddress) : null;
-        return ok(await presaleEngine.createOrderIntent(walletAddress, amount, nowSec, { referrerId: effectiveRef, tgUserId: identity.telegramUserId }));
+        return ok(await presaleEngine.createOrderIntent(walletAddress, amount, nowSec, { referrerId: effectiveRef, tgUserId: identity.telegramUserId, skuId }));
       }
 
       const poMatch = method === 'GET' && pathname.match(/^\/api\/presale\/orders\/(.+)$/);
@@ -277,11 +285,55 @@ export function createApiRouter({
       if (method === 'POST' && pathname === '/api/team/bind-tg') {
         if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
         const { walletAddress } = await auth.wallet(body?.captainWallet || null);
-        // NOTE: real Telegram group/admin verification lands in phase 6 (P5-2). Until then the
-        // store records the request but must not report it as verified (see social store).
+        // 仅提交群名时始终进入 verifying 待核验状态，必须经 /api/team/verify-tg 核验机器人入群与管理员权限后才转为 bound
         return ok(await socialStore.createOrBindTeamGroup({
           teamId: body?.teamId, name: body?.name, captainWallet: walletAddress, tgGroupHandle: body?.tgGroupHandle, tgChatId: body?.tgChatId ?? null,
         }, nowSec));
+      }
+
+      if (method === 'POST' && pathname === '/api/team/verify-tg') {
+        if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
+        const { identity, binding, walletAddress } = await auth.wallet(body?.captainWallet || null);
+        const verifier = telegramGroupVerifier || createTelegramBotGroupVerifier(env.A9_BOT_TOKEN);
+        const team = await socialStore.verifyTeamGroupBinding(
+          {
+            teamId: body?.teamId,
+            captainWallet: walletAddress,
+            telegramUserId: identity.telegramUserId,
+            telegramVerifier: verifier,
+          },
+          nowSec,
+        );
+        return ok(sanitizeTeamView(team, binding.walletKey));
+      }
+
+      if (method === 'POST' && pathname === '/api/referral/attribution') {
+        if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
+        const id = await auth.telegram();
+        const binding = await identityStore.getBinding(id.telegramUserId, nowSec);
+        const aliases = [];
+        if (binding?.walletAddress) aliases.push(binding.walletAddress);
+        if (binding?.walletKey) aliases.push(binding.walletKey);
+
+        const rawStartApp = body?.startapp ?? body?.startParam ?? null;
+        const parsed = rawStartApp !== null && rawStartApp !== undefined && String(rawStartApp).trim() !== ''
+          ? parseStartAppParam(rawStartApp)
+          : null;
+        if (rawStartApp && !parsed) {
+          return err('BAD_STARTAPP', 'invalid startapp deep-link parameter', 400);
+        }
+        const candidateRef = parsed?.referrerId || (body?.referrerId ? String(body.referrerId).trim() : null);
+        const bound = candidateRef
+          ? await socialStore.bindReferral(id.telegramUserId, candidateRef, nowSec, { aliases })
+          : null;
+        const currentReferrer = await socialStore.getReferrer(id.telegramUserId)
+          || (binding?.walletAddress ? await socialStore.getReferrer(binding.walletAddress) : null);
+        return ok({
+          telegramUserId: id.telegramUserId,
+          parsed,
+          bound,
+          referrerId: currentReferrer || null,
+        });
       }
 
       if (method === 'POST' && pathname === '/api/team/join') {
@@ -386,6 +438,56 @@ export function createApiRouter({
               userId: id.telegramUserId,
               taskKey: body?.taskKey,
               hasPredictionBet,
+            },
+            nowSec,
+          ),
+        );
+      }
+
+      // Phase 4: Paper-Craft Sticker Packs, Inventory & Cosmetic Loadout (strictly tied to verified Telegram user)
+      const invUserMatch = method === 'GET' && pathname.match(/^\/api\/inventory\/(?:user\/)?(.+)$/);
+      if (invUserMatch) {
+        if (!inventoryEngine) return err('INVENTORY_DISABLED', 'inventory engine not configured', 503);
+        const id = await auth.telegram();
+        const requested = decodeURIComponent(invUserMatch[1]);
+        if (requested !== 'me' && requested !== id.telegramUserId) {
+          return err('FORBIDDEN', 'cannot read another user\'s inventory', 403);
+        }
+        return ok(await inventoryEngine.getUserInventory(id.telegramUserId));
+      }
+
+      if (method === 'POST' && pathname === '/api/inventory/sandbox-open') {
+        if (!inventoryEngine) return err('INVENTORY_DISABLED', 'inventory engine not configured', 503);
+        const id = await auth.telegram();
+        if (body?.userId && String(body.userId) !== id.telegramUserId) {
+          return err('FORBIDDEN', 'userId does not match the signed-in Telegram user', 403);
+        }
+        return ok(
+          await inventoryEngine.deliverPack(
+            {
+              userId: id.telegramUserId,
+              skuId: body?.skuId,
+              mode: 'SANDBOX',
+              deliveryId: body?.deliveryId || null,
+              skipAnimation: Boolean(body?.skipAnimation),
+            },
+            nowSec,
+          ),
+        );
+      }
+
+      if (method === 'POST' && pathname === '/api/inventory/equip') {
+        if (!inventoryEngine) return err('INVENTORY_DISABLED', 'inventory engine not configured', 503);
+        const id = await auth.telegram();
+        if (body?.userId && String(body.userId) !== id.telegramUserId) {
+          return err('FORBIDDEN', 'userId does not match the signed-in Telegram user', 403);
+        }
+        return ok(
+          await inventoryEngine.equipItem(
+            {
+              userId: id.telegramUserId,
+              category: body?.category,
+              itemId: body?.itemId ?? null,
             },
             nowSec,
           ),
@@ -513,6 +615,7 @@ export function createApiRouter({
       return err('NOT_FOUND', `route not found: ${method} ${pathname}`, 404);
     } catch (e) {
       if (e instanceof AuthError) return err(e.code, e.message, e.status || 401);
+      if (e instanceof SocialError) return err(e.code, e.message, e.code === 'NOT_CAPTAIN' ? 403 : 400);
       if (e instanceof PromoError || e instanceof PresaleError || e instanceof GrowthError) {
         return err(e.code, e.message, 400);
       }

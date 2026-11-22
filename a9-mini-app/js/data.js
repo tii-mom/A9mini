@@ -8,7 +8,19 @@
  */
 
 import { config, apiUrl } from './config.js';
-import { demoFixture, demoPredictionRound, demoPredictionUser, demoPredictionBet, demoPredictionActivate, demoProgressionUser, demoProgressionClaim } from './demo-data.js';
+import {
+  demoFixture,
+  demoPredictionRound,
+  demoPredictionUser,
+  demoPredictionBet,
+  demoPredictionActivate,
+  demoProgressionUser,
+  demoProgressionClaim,
+  demoInventoryDeliver,
+  demoInventoryEquip,
+  DEMO_STICKER_PACKS,
+  DEMO_COSMETIC_ITEMS
+} from './demo-data.js';
 import { A9TMA } from './tma.js';
 
 /** 与 A9mini/worker 后端契约保持一致的统一端点表。 */
@@ -30,12 +42,17 @@ export const ENDPOINTS = Object.freeze({
   predictionActivate: '/api/prediction/activate',
   progressionMe: (roundId) => `/api/progression/me${roundId !== undefined && roundId !== null ? `?roundId=${encodeURIComponent(roundId)}` : ''}`,
   progressionClaim: '/api/progression/claim',
+  inventoryMe: '/api/inventory/me',
+  inventorySandboxOpen: '/api/inventory/sandbox-open',
+  inventoryEquip: '/api/inventory/equip',
   userProfile: (wallet) => `/api/user/${encodeURIComponent(wallet)}`,
   presaleIntent: '/api/presale/intent',
   warmupRegister: '/api/warmup/register',
   warmupLeaderboard: '/api/warmup/leaderboard',
   teamJoin: '/api/team/join',
   teamBindTg: '/api/team/bind-tg',
+  teamVerifyTg: '/api/team/verify-tg',
+  referralAttribution: '/api/referral/attribution',
   me: '/api/me',
   tonProofPayload: '/api/auth/ton-proof/payload',
   tonProofVerify: '/api/auth/ton-proof/verify'
@@ -404,12 +421,74 @@ export async function joinTeam({ teamId, walletAddress, userId, referrerId }) {
   });
 }
 
-/** 请求生成商行支付单（live 只读阶段统一拦截，不发网络订单请求）。 */
-export async function requestPresaleIntent(walletAddress, tonAmount, referrerId = null) {
+/** 请求生成商行支付单（支持三档贴纸道具包 skuId；live 只读阶段统一拦截，不发网络订单请求）。 */
+export async function requestPresaleIntent(walletAddress, tonAmount, referrerId = null, skuId = null) {
   assertFundsAllowedInMode();
+  const payload = withReferrer({ walletAddress, tonAmount }, referrerId);
+  if (skuId) payload.skuId = String(skuId);
   return request(ENDPOINTS.presaleIntent, {
     method: 'POST',
-    body: withReferrer({ walletAddress, tonAmount }, referrerId)
+    body: payload
+  });
+}
+
+/** 阶段四：读取用户背包贴纸装扮与装备栏（非金融成长数据） */
+export async function fetchInventoryUser() {
+  if (config.isDemo) {
+    return {
+      packs: DEMO_STICKER_PACKS,
+      catalog: DEMO_COSMETIC_ITEMS
+    };
+  }
+  if (!A9TMA.getRawInitData()) return null;
+  return request(ENDPOINTS.inventoryMe);
+}
+
+/** 阶段四：沙盒拆封三档贴纸礼盒（不触发任何真实链上资金扣款） */
+export async function openStickerPackSandbox({ skuId, requestId = null, state = null }) {
+  if (config.isDemo && state) {
+    return demoInventoryDeliver(state, { skuId, orderId: requestId, mode: 'SANDBOX' });
+  }
+  if (!A9TMA.getRawInitData()) {
+    throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开以进行沙盒拆封');
+  }
+  return request(ENDPOINTS.inventorySandboxOpen, {
+    method: 'POST',
+    body: { skuId: String(skuId), requestId: requestId ? String(requestId) : null }
+  });
+}
+
+/** 阶段四：装备或卸下纸艺装扮（底座/贴纸/称号） */
+export async function equipCosmeticItem({ slot, itemId = null, state = null }) {
+  if (config.isDemo && state) {
+    return demoInventoryEquip(state, { slot, itemId });
+  }
+  if (!A9TMA.getRawInitData()) {
+    throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开以更换背包装扮');
+  }
+  return request(ENDPOINTS.inventoryEquip, {
+    method: 'POST',
+    body: { slot: String(slot), itemId: itemId ? String(itemId) : null }
+  });
+}
+
+/** 阶段五：商会会长发起 Telegram 群真实权限核验 */
+export async function verifyTeamGroupTg({ teamId }) {
+  if (!A9TMA.getRawInitData()) {
+    throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内以会长身份发起群核验');
+  }
+  return request(ENDPOINTS.teamVerifyTg, {
+    method: 'POST',
+    body: { teamId: String(teamId) }
+  });
+}
+
+/** 阶段五：提交 Telegram startapp 深链邀请归因 */
+export async function submitStartAppAttribution({ startParam, referrerId = null }) {
+  if (!A9TMA.getRawInitData()) return null;
+  return request(ENDPOINTS.referralAttribution, {
+    method: 'POST',
+    body: { startParam: startParam || '', referrerId: referrerId || null }
   });
 }
 

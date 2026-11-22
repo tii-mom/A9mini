@@ -24,6 +24,13 @@
 import { addressKey } from './ton-address.mjs';
 import { parseDecimalUnits, MoneyError } from './money.mjs';
 import { randomHex } from './auth.mjs';
+import { STICKER_PACK_CATALOG } from './growth-engine.mjs';
+
+export const STICKER_PACK_NANO_TO_SKU = Object.freeze({
+  '1990000000': 'pack_basic',
+  '5990000000': 'pack_plus',
+  '13990000000': 'pack_deluxe',
+});
 
 export const PRESALE_STATUS = Object.freeze({
   PENDING_PAYMENT: 'PENDING_PAYMENT',
@@ -127,6 +134,7 @@ export class PresaleEngine {
     open = false,
     promoEngine = null,
     socialStore = null,
+    inventoryEngine = null,
     orderTtlSec = ORDER_TTL_SEC,
     userFaultFeeNano = null, // published user-fault fee in GRAM nano; null = zero fee (full refund)
   } = {}) {
@@ -142,6 +150,7 @@ export class PresaleEngine {
     this.open = Boolean(open);
     this.promoEngine = promoEngine;
     this.socialStore = socialStore;
+    this.inventoryEngine = inventoryEngine;
     this.orderTtlSec = orderTtlSec;
     this.userFaultFeeNano = userFaultFeeNano === null || userFaultFeeNano === undefined || userFaultFeeNano === '' ? null : BigInt(userFaultFeeNano);
     this.userQuotaNano = new Map(); // walletKey -> bigint (ops override, memory only)
@@ -188,17 +197,39 @@ export class PresaleEngine {
   }
 
   /** Create an order and atomically reserve pool + wallet quota. Amount is parsed exactly. */
-  async createOrderIntent(walletAddress, tonAmount, nowSec = Math.floor(Date.now() / 1000), { referrerId = null, tgUserId = null } = {}) {
+  async createOrderIntent(walletAddress, tonAmount, nowSec = Math.floor(Date.now() / 1000), { referrerId = null, tgUserId = null, skuId = null } = {}) {
     if (!walletAddress) throw new PresaleError('BAD_WALLET', 'walletAddress required');
     if (!this.open) throw new PresaleError('PRESALE_CLOSED', 'presale is closed');
+
     let tonNano;
-    try {
-      tonNano = parseDecimalUnits(tonAmount, 9);
-    } catch (e) {
-      throw new PresaleError('BAD_AMOUNT', e.message);
-    }
-    if (tonNano < this.minOrderNano || tonNano > this.maxOrderNano) {
-      throw new PresaleError('BAD_AMOUNT', 'order must be within min/max GRAM limits');
+    const cleanSku = skuId ? String(skuId).trim() : null;
+    if (cleanSku) {
+      const pack = STICKER_PACK_CATALOG[cleanSku];
+      if (!pack) throw new PresaleError('UNKNOWN_SKU', `unknown sticker pack skuId: ${cleanSku}`);
+      tonNano = BigInt(pack.priceNano);
+      if (tonAmount !== undefined && tonAmount !== null && tonAmount !== '') {
+        let parsed;
+        try {
+          parsed = parseDecimalUnits(tonAmount, 9);
+        } catch (e) {
+          throw new PresaleError('BAD_AMOUNT', e.message);
+        }
+        if (parsed !== tonNano) {
+          throw new PresaleError('BAD_AMOUNT', 'tonAmount does not match sticker pack SKU price');
+        }
+      }
+      if (tonNano > this.maxOrderNano) {
+        throw new PresaleError('BAD_AMOUNT', 'order exceeds max GRAM limit');
+      }
+    } else {
+      try {
+        tonNano = parseDecimalUnits(tonAmount, 9);
+      } catch (e) {
+        throw new PresaleError('BAD_AMOUNT', e.message);
+      }
+      if (tonNano < this.minOrderNano || tonNano > this.maxOrderNano) {
+        throw new PresaleError('BAD_AMOUNT', 'order must be within min/max GRAM limits');
+      }
     }
     const walletKey = addressKey(walletAddress);
     const a9AmountRaw = this.quoteA9Raw(tonNano);
@@ -571,6 +602,15 @@ export class PresaleEngine {
         if (amountRaw > 0n) credit = { orderId: order.orderId, referrer: order.referrerId, amountRaw: amountRaw.toString(), status: 'PENDING', createdAt: nowSec, updatedAt: nowSec };
       }
       await this.repo.completeA9(p.payoutId, p.orderId, txHash, credit, nowSec);
+      // 阶段六：当 1.99 / 5.99 / 13.99 GRAM 贴纸礼盒订单完成链上确认（COMPLETED）后，确定性交付对应纸艺装扮入库
+      const matchedSku = STICKER_PACK_NANO_TO_SKU[String(order?.tonNano ?? '')] || null;
+      const ownerUid = order?.tgUserId || order?.walletKey || order?.walletAddress || null;
+      if (this.inventoryEngine && matchedSku && ownerUid) {
+        await this.inventoryEngine.deliverPack(
+          { userId: ownerUid, skuId: matchedSku, orderId: order.orderId, mode: 'ONCHAIN_ORDER' },
+          nowSec,
+        );
+      }
       return;
     }
     // 退款确认必须原子提交 payout 与真正关联该入账的订单状态（无关异常退款 orderId 为 null，绝不触碰任何订单）。
@@ -708,11 +748,14 @@ export class PresaleEngine {
 
   formatOrder(o) {
     const status = normalizeOrderStatus(o.status, o.payoutTxHash);
+    const tonNanoStr = BigInt(o.tonNano).toString();
+    const skuId = STICKER_PACK_NANO_TO_SKU[tonNanoStr] || null;
     return {
       orderId: o.orderId,
+      skuId,
       walletAddress: o.walletAddress,
       referrerId: o.referrerId || null,
-      tonNano: BigInt(o.tonNano).toString(),
+      tonNano: tonNanoStr,
       a9AmountRaw: BigInt(o.a9AmountRaw).toString(),
       payTo: this.hotWalletAddress,
       memo: o.memo,

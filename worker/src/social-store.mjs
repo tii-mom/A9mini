@@ -13,6 +13,100 @@ export function rewardForWarmupRank(rank) {
   return tier ? tier.rewardA9 : 0;
 }
 
+export class SocialError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+  }
+}
+
+/**
+ * 解析并规范化 Telegram Mini App startapp 归因深链参数（阶段六/阶段五要求）。
+ * 仅接受 [A-Za-z0-9_-]{1,64}，拒绝任何注入或畸形参数。
+ */
+export function parseStartAppParam(rawParam) {
+  const raw = String(rawParam || '').trim();
+  if (!raw || !/^[A-Za-z0-9_-]{1,64}$/.test(raw)) return null;
+
+  // 1) invite_<teamId>_<referrerId> or invite_<referrerId>
+  // 注意：TON base64url 友好地址或钱包标识本身可能含 '_'，因此仅当首段是明确商会 ID（G-* / T-* / TEAM-*）时才拆出 teamId，其余完整保留为 referrerId。
+  if (raw.startsWith('invite_')) {
+    const rest = raw.slice('invite_'.length);
+    if (!rest) return null;
+    const teamMatch = rest.match(/^((?:G|T|TEAM)-[A-Za-z0-9-]+)_(.+)$/i);
+    if (teamMatch) {
+      return {
+        raw,
+        kind: 'invite',
+        teamId: teamMatch[1],
+        targetId: teamMatch[1],
+        referrerId: teamMatch[2],
+      };
+    }
+    return { raw, kind: 'invite', teamId: null, targetId: null, referrerId: rest };
+  }
+
+  // 2) (round|burn|proof|bet)_<targetId>[_<referrerId>]
+  const m = raw.match(/^(round|burn|proof|bet)_([^_]+)(?:_(.+))?$/i);
+  if (m) {
+    const [, kind, targetId, referrerId] = m;
+    return {
+      raw,
+      kind: kind.toLowerCase(),
+      teamId: null,
+      targetId: targetId || null,
+      referrerId: referrerId || null,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * 默认 Telegram Bot API 群权限核验器（当配置了 A9_BOT_TOKEN 且未注入自定义测试核验器时使用）。
+ */
+export function createTelegramBotGroupVerifier(botToken, fetchImpl = globalThis.fetch) {
+  const token = String(botToken || '').trim();
+  if (!token || typeof fetchImpl !== 'function') return null;
+  const baseUrl = `https://api.telegram.org/bot${token}`;
+
+  return async function verifyWithTelegram({ tgGroupHandle, tgChatId, telegramUserId }) {
+    const chatRef = tgChatId || tgGroupHandle;
+    if (!chatRef) {
+      return { botInGroup: false, operatorIsAdmin: false, chatId: null, reason: 'MISSING_CHAT_REF' };
+    }
+    const chatRes = await fetchImpl(`${baseUrl}/getChat?chat_id=${encodeURIComponent(chatRef)}`);
+    const chatJson = await chatRes.json().catch(() => null);
+    if (!chatJson?.ok || !chatJson?.result?.id) {
+      return { botInGroup: false, operatorIsAdmin: false, chatId: null, reason: 'CHAT_NOT_ACCESSIBLE' };
+    }
+    const chat = chatJson.result;
+    if (chat.type !== 'group' && chat.type !== 'supergroup') {
+      return { botInGroup: false, operatorIsAdmin: false, chatId: null, reason: 'NOT_A_GROUP' };
+    }
+    const canonicalChatId = String(chat.id);
+    const canonicalHandle = chat.username ? `@${chat.username}` : (tgGroupHandle || null);
+
+    // 核验操作者在目标群内的管理员权限
+    const memRes = await fetchImpl(
+      `${baseUrl}/getChatMember?chat_id=${encodeURIComponent(canonicalChatId)}&user_id=${encodeURIComponent(String(telegramUserId))}`,
+    );
+    const memJson = await memRes.json().catch(() => null);
+    if (!memJson?.ok || !memJson?.result?.status) {
+      return { botInGroup: false, operatorIsAdmin: false, chatId: canonicalChatId, groupHandle: canonicalHandle, reason: 'MEMBER_CHECK_FAILED' };
+    }
+    const status = memJson.result.status;
+    const operatorIsAdmin = status === 'creator' || status === 'administrator';
+    return {
+      botInGroup: true,
+      operatorIsAdmin,
+      chatId: canonicalChatId,
+      groupHandle: canonicalHandle,
+      reason: operatorIsAdmin ? 'OK' : 'NOT_GROUP_ADMIN',
+    };
+  };
+}
+
 export class SocialStore {
   constructor() {
     // key: `${roundId}:${wallet}` -> { roundId, walletAddress, referrerWallet, validInvites, status, updatedAt }
@@ -30,26 +124,44 @@ export class SocialStore {
    * - Rejects self-referral (subjectKey === referrerId).
    * - Rejects mutual / cyclic referral chains (e.g. A -> B then B -> A).
    */
-  bindReferral(subjectKey, referrerId, nowSec = Math.floor(Date.now() / 1000)) {
+  bindReferral(subjectKey, referrerId, nowSec = Math.floor(Date.now() / 1000), { aliases = [] } = {}) {
     const subj = String(subjectKey || '').trim();
     const ref = String(referrerId || '').trim();
-    if (!subj || !ref || subj === ref || addressKey(subj) === addressKey(ref)) return null;
+    if (!subj || !ref) return null;
 
-    const existing = this.referrals.get(subj);
-    if (existing) return existing;
+    const allSubjects = [subj, ...aliases.map((a) => String(a || '').trim()).filter(Boolean)];
+    const refKey = addressKey(ref);
+    for (const s of allSubjects) {
+      if (s === ref || addressKey(s) === refKey) return null;
+    }
 
-    // Anti-cycle walk: ensure `subj` is not already an ancestor of `ref`
+    // 若本人或任一关联标识（如 TG ID 与绑定钱包）已有首次归因，保持首次归因不变
+    for (const s of allSubjects) {
+      const existing = this.referrals.get(s);
+      if (existing) {
+        if (!this.referrals.has(subj)) {
+          this.referrals.set(subj, { subjectKey: subj, referrerId: existing.referrerId, boundAt: existing.boundAt });
+        }
+        return this.referrals.get(subj);
+      }
+    }
+
+    // Anti-cycle walk: ensure `subj` (or any alias) is not already an ancestor of `ref`
+    const subjectKeys = new Set(allSubjects.map((s) => addressKey(s)));
     let cursor = ref;
-    const subjKey = addressKey(subj);
     for (let depth = 0; depth < 8 && cursor; depth += 1) {
       const parent = this.referrals.get(cursor)?.referrerId || null;
       if (!parent) break;
-      if (parent === subj || addressKey(parent) === subjKey) return null;
+      if (allSubjects.includes(parent) || subjectKeys.has(addressKey(parent))) return null;
       cursor = parent;
     }
 
     const rec = { subjectKey: subj, referrerId: ref, boundAt: nowSec };
-    this.referrals.set(subj, rec);
+    for (const s of allSubjects) {
+      if (!this.referrals.has(s)) {
+        this.referrals.set(s, { subjectKey: s, referrerId: ref, boundAt: nowSec });
+      }
+    }
     return rec;
   }
 
@@ -121,7 +233,7 @@ export class SocialStore {
   }
 
   createOrBindTeamGroup({ teamId, name, captainWallet, tgGroupHandle, tgChatId = null }, nowSec = Math.floor(Date.now() / 1000)) {
-    if (!teamId || !captainWallet) throw new Error('teamId and captainWallet required');
+    if (!teamId || !captainWallet) throw new SocialError('BAD_REQUEST', 'teamId and captainWallet required');
     const cur = this.teams.get(teamId) || {
       teamId,
       name: name || teamId,
@@ -133,17 +245,77 @@ export class SocialStore {
       createdAt: nowSec,
       updatedAt: nowSec,
     };
-    if (cur.captainWallet !== captainWallet) throw new Error('only captain can bind TG group');
+    if (addressKey(cur.captainWallet) !== addressKey(captainWallet)) {
+      throw new SocialError('NOT_CAPTAIN', 'only captain can bind TG group');
+    }
     if (name) cur.name = name;
     if (tgGroupHandle) {
       cur.tgGroupHandle = tgGroupHandle;
       cur.tgChatId = tgChatId;
-      // Not verified against Telegram yet (bot membership + admin rights land in phase 6).
+      // 仅输入 @群名 绝不标记为已绑定，必须经 verifyTeamGroupBinding 核验机器人与管理员权限后才转为 bound
       cur.bindStatus = 'verifying';
     }
     cur.updatedAt = nowSec;
     this.teams.set(teamId, cur);
     this.memberTeam.set(captainWallet, teamId);
+    return this.formatTeam(cur);
+  }
+
+  /**
+   * 阶段五：核验机器人入群状态、操作者群管理员权限及防同名群冲突。
+   * - 若原先已绑定但机器人被移出或操作者失去群管理员权限，状态自动降级为 'expired'。
+   * - 若目标群（按真实 tgChatId 唯一标识）已被其他商会绑定，拒绝绑定（GROUP_ALREADY_BOUND）。
+   */
+  async verifyTeamGroupBinding(
+    { teamId, captainWallet, telegramUserId, telegramVerifier },
+    nowSec = Math.floor(Date.now() / 1000),
+  ) {
+    if (!teamId || !captainWallet) throw new SocialError('BAD_REQUEST', 'teamId and captainWallet required');
+    const cur = this.teams.get(teamId);
+    if (!cur) throw new SocialError('TEAM_NOT_FOUND', `team ${teamId} not found`);
+    if (addressKey(cur.captainWallet) !== addressKey(captainWallet)) {
+      throw new SocialError('NOT_CAPTAIN', 'only captain can verify TG group binding');
+    }
+    if (!cur.tgGroupHandle && !cur.tgChatId) {
+      throw new SocialError('BAD_REQUEST', 'no Telegram group handle submitted for verification');
+    }
+    if (typeof telegramVerifier !== 'function') {
+      return this.formatTeam(cur);
+    }
+
+    const check = await telegramVerifier({
+      teamId,
+      tgGroupHandle: cur.tgGroupHandle,
+      tgChatId: cur.tgChatId,
+      telegramUserId,
+    });
+
+    if (!check?.botInGroup || !check?.chatId) {
+      cur.bindStatus = cur.bindStatus === 'bound' ? 'expired' : 'verifying';
+      cur.updatedAt = nowSec;
+      throw new SocialError('BOT_NOT_IN_GROUP', '机器人尚未加入该群组或无访问权限');
+    }
+
+    const canonicalChatId = String(check.chatId);
+    // 防同名群或群 ID 冒用：同一真实 tgChatId 不能被两个商会同时绑定
+    for (const other of this.teams.values()) {
+      if (other.teamId !== teamId && other.tgChatId === canonicalChatId && other.bindStatus === 'bound') {
+        throw new SocialError('GROUP_ALREADY_BOUND', '该 Telegram 群组已被其他商会绑定');
+      }
+    }
+
+    if (!check.operatorIsAdmin) {
+      if (cur.bindStatus === 'bound') {
+        cur.bindStatus = 'expired';
+        cur.updatedAt = nowSec;
+      }
+      throw new SocialError('NOT_GROUP_ADMIN', '操作者不是该 Telegram 群组的管理员');
+    }
+
+    cur.tgChatId = canonicalChatId;
+    if (check.groupHandle) cur.tgGroupHandle = String(check.groupHandle);
+    cur.bindStatus = 'bound';
+    cur.updatedAt = nowSec;
     return this.formatTeam(cur);
   }
 

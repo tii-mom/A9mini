@@ -5,9 +5,9 @@ import { TonCenterClient } from './toncenter.mjs';
 import { PromoHotWalletEngine } from './promo-hotwallet.mjs';
 import { PresaleHotWalletEngine } from './presale-hotwallet.mjs';
 import { SocialStore } from './social-store.mjs';
-import { PredictionEngine, ProgressionEngine } from './growth-engine.mjs';
+import { PredictionEngine, ProgressionEngine, InventoryEngine } from './growth-engine.mjs';
 import { D1PromoStore } from './d1-promo-store.mjs';
-import { D1SocialStore, D1PredictionEngine, D1ProgressionEngine, D1PresaleStore } from './d1-growth-store.mjs';
+import { D1SocialStore, D1PredictionEngine, D1ProgressionEngine, D1InventoryEngine, D1PresaleStore } from './d1-growth-store.mjs';
 import { D1IdentityStore, MemoryIdentityStore } from './auth.mjs';
 
 function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}) {
@@ -24,6 +24,7 @@ function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}
 const memSocialStore = new SocialStore();
 const memPredictionEngine = new PredictionEngine();
 const memProgressionEngine = new ProgressionEngine();
+const memInventoryEngine = new InventoryEngine();
 const memIdentityStore = new MemoryIdentityStore();
 
 export default {
@@ -75,6 +76,7 @@ export default {
     const socialStore = hasD1 ? new D1SocialStore({ db: env.DB }) : memSocialStore;
     const predictionEngine = hasD1 ? new D1PredictionEngine({ db: env.DB }) : memPredictionEngine;
     const progressionEngine = hasD1 ? new D1ProgressionEngine({ db: env.DB }) : memProgressionEngine;
+    const inventoryEngine = hasD1 ? new D1InventoryEngine({ db: env.DB }) : memInventoryEngine;
 
     const promoEngine = env.A9_PROMO_HOT_WALLET_ADDRESS
       ? (hasD1
@@ -102,6 +104,7 @@ export default {
       userFaultFeeNano: env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
       promoEngine,
       socialStore,
+      inventoryEngine,
     };
     const presaleEngine = presaleHotAddr
       ? (hasD1 ? new D1PresaleStore({ db: env.DB, ...presaleOpts }) : new PresaleHotWalletEngine(presaleOpts))
@@ -123,6 +126,7 @@ export default {
       socialStore,
       predictionEngine,
       progressionEngine,
+      inventoryEngine,
       userReader,
       identityStore: hasD1 ? new D1IdentityStore({ db: env.DB }) : memIdentityStore,
       publicKeyResolver: tc ? (addr) => tc.fetchWalletPublicKey(addr) : null,

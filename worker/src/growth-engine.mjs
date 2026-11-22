@@ -530,6 +530,279 @@ export class ProgressionEngine {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 4 & Phase 6: Sticker Packs, Deterministic Delivery & Cosmetic Loadout
+// ---------------------------------------------------------------------------
+export const COSMETIC_ITEM_CATALOG = Object.freeze({
+  frame_cotton: {
+    itemId: 'frame_cotton',
+    category: 'frame',
+    rarity: 'basic',
+    sourceSku: 'pack_basic',
+    zh: '素棉立牌底座',
+    en: 'Cotton Standee Base',
+  },
+  badge_seal_red: {
+    itemId: 'badge_seal_red',
+    category: 'badge',
+    rarity: 'basic',
+    sourceSku: 'pack_basic',
+    zh: '初心火漆贴纸',
+    en: 'Red Wax Seal Sticker',
+  },
+  frame_origami: {
+    itemId: 'frame_origami',
+    category: 'frame',
+    rarity: 'plus',
+    sourceSku: 'pack_plus',
+    zh: '晴空烫金底座',
+    en: 'Sky Origami Base',
+  },
+  badge_star_compass: {
+    itemId: 'badge_star_compass',
+    category: 'badge',
+    rarity: 'plus',
+    sourceSku: 'pack_plus',
+    zh: '星航折纸贴纸',
+    en: 'Star Origami Sticker',
+  },
+  frame_royal_foil: {
+    itemId: 'frame_royal_foil',
+    category: 'frame',
+    rarity: 'deluxe',
+    sourceSku: 'pack_deluxe',
+    zh: '皇家金箔底座',
+    en: 'Royal Gold-Foil Base',
+  },
+  badge_royal_crown: {
+    itemId: 'badge_royal_crown',
+    category: 'badge',
+    rarity: 'deluxe',
+    sourceSku: 'pack_deluxe',
+    zh: '传世皇冠金章',
+    en: 'Royal Crown Crest',
+  },
+  title_foil_collector: {
+    itemId: 'title_foil_collector',
+    category: 'title',
+    rarity: 'deluxe',
+    sourceSku: 'pack_deluxe',
+    zh: '金箔典藏家称号',
+    en: 'Gold-Foil Collector',
+  },
+});
+
+export const STICKER_PACK_CATALOG = Object.freeze({
+  pack_basic: {
+    skuId: 'pack_basic',
+    zh: '基础贴纸包',
+    en: 'Basic Sticker Pack',
+    asset: 'crystal-basic',
+    priceGram: '1.99',
+    priceNano: '1990000000',
+    a9Amount: '3983.98',
+    a9AmountRaw: '3983980000000',
+    expBonus: 100,
+    critFlair: false,
+    items: Object.freeze(['frame_cotton', 'badge_seal_red']),
+  },
+  pack_plus: {
+    skuId: 'pack_plus',
+    zh: '进阶贴纸盒',
+    en: 'Plus Sticker Box',
+    asset: 'crystal-starlight',
+    priceGram: '5.99',
+    priceNano: '5990000000',
+    a9Amount: '11991.98',
+    a9AmountRaw: '11991980000000',
+    expBonus: 350,
+    critFlair: false,
+    items: Object.freeze(['frame_origami', 'badge_star_compass']),
+  },
+  pack_deluxe: {
+    skuId: 'pack_deluxe',
+    zh: '豪华贴纸礼盒',
+    en: 'Deluxe Sticker Box',
+    asset: 'crystal-legendary',
+    priceGram: '13.99',
+    priceNano: '13990000000',
+    a9Amount: '28007.98',
+    a9AmountRaw: '28007980000000',
+    expBonus: 1000,
+    // 金箔闪卡暴击仅影响开盒视觉动画、主城/背包金箔装扮与称号，绝不改变 1 GRAM = 2,002 A9 兑换比例或链上收益
+    critFlair: true,
+    items: Object.freeze(['frame_royal_foil', 'badge_royal_crown', 'title_foil_collector']),
+  },
+});
+
+export class InventoryEngine {
+  constructor() {
+    // `${userId}:${itemId}` -> owned item row
+    this.items = new Map();
+    // userId -> { equippedFrame, equippedBadge, equippedTitle, updatedAt }
+    this.loadouts = new Map();
+    // deliveryId -> delivery record
+    this.deliveries = new Map();
+  }
+
+  _getOrCreateLoadout(uid) {
+    let l = this.loadouts.get(uid);
+    if (!l) {
+      l = {
+        userId: uid,
+        equippedFrame: null,
+        equippedBadge: null,
+        equippedTitle: null,
+        updatedAt: 0,
+      };
+      this.loadouts.set(uid, l);
+    }
+    return l;
+  }
+
+  getUserInventory(userId) {
+    const uid = String(userId || '').trim();
+    if (!uid) throw new GrowthError('BAD_REQUEST', 'userId required');
+    const owned = [];
+    for (const row of this.items.values()) {
+      if (row.userId !== uid) continue;
+      const meta = COSMETIC_ITEM_CATALOG[row.itemId] || {};
+      owned.push({ ...meta, ...row });
+    }
+    const loadout = this._getOrCreateLoadout(uid);
+    const deliveries = [];
+    for (const d of this.deliveries.values()) {
+      if (d.userId === uid) deliveries.push(d);
+    }
+    deliveries.sort((a, b) => b.deliveredAt - a.deliveredAt);
+    return {
+      userId: uid,
+      ledgerKind: 'IN_GAME_COSMETIC_DATABASE',
+      tradable: false,
+      affectsA9Rate: false,
+      items: owned,
+      loadout: {
+        equippedFrame: loadout.equippedFrame,
+        equippedBadge: loadout.equippedBadge,
+        equippedTitle: loadout.equippedTitle,
+        updatedAt: loadout.updatedAt,
+      },
+      deliveries,
+    };
+  }
+
+  deliverPack(
+    { userId, skuId, orderId = null, mode = 'SANDBOX', deliveryId = null, skipAnimation = false },
+    nowSec = Math.floor(Date.now() / 1000),
+  ) {
+    const uid = String(userId || '').trim();
+    const sKey = String(skuId || '').trim();
+    if (!uid || !sKey) throw new GrowthError('BAD_REQUEST', 'userId and skuId required');
+    const pack = STICKER_PACK_CATALOG[sKey];
+    if (!pack) throw new GrowthError('UNKNOWN_SKU', `unknown sticker pack SKU: ${sKey}`);
+    if (mode !== 'SANDBOX' && mode !== 'ONCHAIN_ORDER') {
+      throw new GrowthError('BAD_REQUEST', 'mode must be SANDBOX or ONCHAIN_ORDER');
+    }
+    if (mode === 'ONCHAIN_ORDER' && !orderId) {
+      throw new GrowthError('BAD_REQUEST', 'orderId is required for ONCHAIN_ORDER delivery');
+    }
+
+    const effDeliveryId = deliveryId
+      ? String(deliveryId).trim()
+      : mode === 'ONCHAIN_ORDER'
+        ? `order:${String(orderId).trim()}`
+        : `sandbox:${uid}:${sKey}`;
+
+    const existing = this.deliveries.get(effDeliveryId);
+    if (existing) {
+      if (existing.userId !== uid) {
+        throw new GrowthError('FORBIDDEN', 'delivery belongs to another user');
+      }
+      return {
+        alreadyDelivered: true,
+        animationSkipped: Boolean(skipAnimation),
+        delivery: existing,
+        inventory: this.getUserInventory(uid),
+      };
+    }
+
+    const deliveredItems = [];
+    const loadout = this._getOrCreateLoadout(uid);
+    for (const itemId of pack.items) {
+      const meta = COSMETIC_ITEM_CATALOG[itemId];
+      if (!meta) continue;
+      const key = `${uid}:${itemId}`;
+      if (!this.items.has(key)) {
+        this.items.set(key, {
+          userId: uid,
+          itemId,
+          category: meta.category,
+          rarity: meta.rarity,
+          sourceSku: sKey,
+          sourceRef: effDeliveryId,
+          acquiredAt: nowSec,
+        });
+      }
+      deliveredItems.push(meta);
+      if (meta.category === 'frame' && !loadout.equippedFrame) loadout.equippedFrame = itemId;
+      if (meta.category === 'badge' && !loadout.equippedBadge) loadout.equippedBadge = itemId;
+      if (meta.category === 'title' && !loadout.equippedTitle) loadout.equippedTitle = itemId;
+    }
+    loadout.updatedAt = nowSec;
+
+    const record = {
+      deliveryId: effDeliveryId,
+      userId: uid,
+      skuId: sKey,
+      orderId: orderId ? String(orderId) : null,
+      mode,
+      critFlair: pack.critFlair,
+      affectsFinancialReward: false,
+      items: deliveredItems.map((x) => x.itemId),
+      expAwarded: pack.expBonus,
+      deliveredAt: nowSec,
+    };
+    this.deliveries.set(effDeliveryId, record);
+
+    return {
+      alreadyDelivered: false,
+      animationSkipped: Boolean(skipAnimation),
+      delivery: record,
+      inventory: this.getUserInventory(uid),
+    };
+  }
+
+  equipItem({ userId, category, itemId = null }, nowSec = Math.floor(Date.now() / 1000)) {
+    const uid = String(userId || '').trim();
+    const cat = String(category || '').trim();
+    if (!uid || !['frame', 'badge', 'title'].includes(cat)) {
+      throw new GrowthError('BAD_REQUEST', 'valid userId and category (frame|badge|title) required');
+    }
+
+    const cleanItem = itemId === null || itemId === undefined || String(itemId).trim() === ''
+      ? null
+      : String(itemId).trim();
+
+    if (cleanItem !== null) {
+      const meta = COSMETIC_ITEM_CATALOG[cleanItem];
+      if (!meta || meta.category !== cat) {
+        throw new GrowthError('BAD_ITEM', 'item does not match category');
+      }
+      if (!this.items.has(`${uid}:${cleanItem}`)) {
+        throw new GrowthError('ITEM_NOT_OWNED', '尚未拥有该纸艺装扮，无法装备');
+      }
+    }
+
+    const loadout = this._getOrCreateLoadout(uid);
+    if (cat === 'frame') loadout.equippedFrame = cleanItem;
+    if (cat === 'badge') loadout.equippedBadge = cleanItem;
+    if (cat === 'title') loadout.equippedTitle = cleanItem;
+    loadout.updatedAt = nowSec;
+
+    return this.getUserInventory(uid);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Dynamic OG Card SVG & Landing HTML
 // ---------------------------------------------------------------------------
 function escapeXml(str) {

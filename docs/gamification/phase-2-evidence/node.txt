@@ -1,8 +1,3 @@
-# A9mini Phase 2 Node & Security Test Output
-Date: 2026-11-22T18:24:38+08:00
-Commit: 548b7d07b5fbef63d36667d1d37e3d2319a51b5c
-
-=== 1. node worker/tests/worker.test.mjs ===
 Running A9 v15 worker unit tests...
   PASS  v15 round stage derives STAKING_OPEN -> OBSERVING -> SUCCEEDED without CloseStaking/Settling
   PASS  promo hot-wallet full flow: 0.06 TON fee -> finalized verify -> TEP-74 payout with excesses back to hot wallet
@@ -24,8 +19,6 @@ Running A9 v15 worker unit tests...
   PASS  POST /api/admin/prediction/settle rejects unauthorized calls (401) and settles with valid admin token
   PASS  D1 full-stack persistence loop (real SQLite): bindReferral -> placeBet -> admin settle -> COMPLETED exchange + 12% credit -> activateToPromo
 All 19 A9 v15 worker tests passed.
-
-=== 2. MINIFLARE_MODULE=... node worker/tests/p0-security.test.mjs ===
 Running phase-1 P0 security tests...
   PASS  initData signed with a different bot token is rejected (forged Telegram identity)
   PASS  editing the user id inside correctly signed initData breaks the signature
@@ -91,15 +84,17 @@ Running phase-1 P0 security tests...
   PASS  ineligible user (payout only broadcast, not confirmed) cannot activate A9 prediction reward
   PASS  D1 social store: typed group handle stays verifying (no fake "bound")
   PASS  admin anomaly API requires the admin token and resolves with an audit trail
-All 64 phase-1 P0 security tests passed.
-
-=== 3. node --test a9-mini-app/js/batch-a-live-guard.test.mjs a9-mini-app/js/v15-tx.test.mjs ===
-✔ Production blocks arbitrary ?api= URL override while preserving deployed apiBase (41.997125ms)
-✔ Production allows ?api= only when origin is explicitly allowlisted (45.917ms)
-✔ Local dev preserves loopback ?api= override but rejects remote untrusted origin and bad protocols (133.792209ms)
-✔ Live mode blocks all wallet sends and fund order requests even with connected wallet (56.184209ms)
-✔ Demo mode NEVER triggers real wallet sendTransaction even when wallet SDK is connected (50.699583ms)
-✔ Telegram deep-link parser sanitizes untrusted start_param values (45.078917ms)
+  PASS  Phase 3: Handbook Stamp progression loop (new user, consecutive check-ins, UTC boundary, idempotency, cross-user auth & strict asset isolation)
+  PASS  Phase 4: Three-tier Sticker Packs (pack_basic / pack_plus / pack_deluxe), sandbox unfold idempotency, ownership check & loadout persistence
+  PASS  Phase 5: Guild TG group real permission verification (captain, bot-in-group, admin check, hijack prevention, expiry) & startapp attribution
+  PASS  Phase 6: Market 1.99 / 5.99 / 13.99 GRAM Sticker Pack orders (exact A9 math, atomic pack delivery only on COMPLETED, late 1.99 refund, wrong-amount anomaly)
+All 68 phase-1 P0 security tests passed.
+✔ Production blocks arbitrary ?api= URL override while preserving deployed apiBase (37.33475ms)
+✔ Production allows ?api= only when origin is explicitly allowlisted (35.384167ms)
+✔ Local dev preserves loopback ?api= override but rejects remote untrusted origin and bad protocols (111.21225ms)
+✔ Live mode blocks all wallet sends and fund order requests even with connected wallet (47.040791ms)
+✔ Demo mode NEVER triggers real wallet sendTransaction even when wallet SDK is connected (41.925959ms)
+✔ Telegram deep-link parser sanitizes untrusted start_param values (37.165958ms)
 Running A9 v15 frontend tx-builder tests...
   PASS  encodeTicketClaimBoc encodes valid BOC magic, op 0x52540303, and 64-bit queryId
   PASS  encodeTextCommentBoc encodes 0x00000000 prefix + UTF-8 claim memo
@@ -108,7 +103,7 @@ Running A9 v15 frontend tx-builder tests...
   PASS  buildV15ClaimTx and buildV15PromoFeeTx produce valid TON Connect 2.0 message payloads
   PASS  encodeSingleCellBoc rejects payloads > 127 bytes
 All 6 v15 frontend tx-builder tests passed.
-✔ a9-mini-app/js/v15-tx.test.mjs (49.897042ms)
+✔ a9-mini-app/js/v15-tx.test.mjs (39.620458ms)
 ℹ tests 7
 ℹ suites 0
 ℹ pass 7
@@ -116,9 +111,7 @@ All 6 v15 frontend tx-builder tests passed.
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 442.935375
-
-=== 4. v15/ci/artifacts.sha256 ===
+ℹ duration_ms 364.242958
 build/JettonMaster.json: OK
 build/JettonWallet.json: OK
 build/RoundController.json: OK

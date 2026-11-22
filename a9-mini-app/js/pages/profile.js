@@ -8,7 +8,7 @@ import { portfolioPanel, identityStage, bindIdentityStage } from './wealthverse.
 import { store } from '../store.js';
 import { config } from '../config.js';
 import { uiMemory } from '../app.js';
-import { demoTxHash } from '../demo-data.js';
+import { demoTxHash, DEMO_COSMETIC_ITEMS } from '../demo-data.js';
 import { A9Haptic } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { formatNum, showToast, copyText, mountSlider, renderCorridorRadar, bindCorridorRadarEvents, animateSlotCounter, openChoiceSheet, openModal, closeModal } from '../components.js';
@@ -19,6 +19,71 @@ import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
 
 const amountOrDash = (v, suffix = '') => (v === null || v === undefined ? L('未获取', 'Unavailable') : `${formatNum(v)}${suffix}`);
+
+function renderCosmeticBoxCard() {
+  const inv = store.state.inventory || { items: [], loadout: {}, filter: 'all' };
+  const items = Array.isArray(inv.items) ? inv.items : [];
+  const loadout = inv.loadout || {};
+  const curFilter = inv.filter || 'all';
+  const catLabel = {
+    frame: L('立牌底座', 'Standee Base'),
+    badge: L('纸艺贴纸', 'Sticker Badge'),
+    title: L('典藏称号', 'Collector Title'),
+  };
+  const rarityBadge = {
+    basic: ['chip-muted', L('基础', 'Basic')],
+    plus: ['chip-blue', L('进阶', 'Plus')],
+    deluxe: ['chip-gold', L('金箔典藏', 'Gold-Foil')],
+  };
+
+  return `
+    <div class="card" id="a9-cosmetic-box">
+      <div class="card-header">
+        <div class="card-title">${icon('layers', 16, 'text-gold')} ${L('贴纸与纸艺装扮匣', 'Sticker & Cosmetic Box')}</div>
+        <a class="text-link-btn" href="#/internal/market">${L('去商行获取', 'Shop Packs')} ›</a>
+      </div>
+      <nav class="ticket-tabs" id="cosmetic-filter-tabs" aria-label="${L('筛选装扮', 'Filter cosmetics')}">
+        ${[
+          ['all', L('全部', 'All')],
+          ['frame', L('底座', 'Bases')],
+          ['badge', L('贴纸', 'Stickers')],
+          ['title', L('称号', 'Titles')],
+        ].map(([val, lbl]) => `<button type="button" data-cos-filter="${val}" aria-pressed="${val === curFilter}">${lbl}</button>`).join('')}
+      </nav>
+      <div class="col-gap" style="margin-top:8px;">
+        ${items.length === 0
+          ? `<div class="empty-state" style="padding:12px;"><div class="num-xs text-muted">${L('暂未拥有纸艺装扮 · 可前往主城商行拆封贴纸包', 'No paper-craft cosmetics owned yet')}</div></div>`
+          : items.map((it) => {
+              const meta = DEMO_COSMETIC_ITEMS[it.itemId] || it;
+              const isEquipped =
+                (meta.category === 'frame' && loadout.equippedFrame === it.itemId) ||
+                (meta.category === 'badge' && loadout.equippedBadge === it.itemId) ||
+                (meta.category === 'title' && loadout.equippedTitle === it.itemId);
+              const [rCls, rTxt] = rarityBadge[meta.rarity] || rarityBadge.basic;
+              const hidden = curFilter !== 'all' && meta.category !== curFilter;
+              return `
+                <div class="list-row cosmetic-item-row" data-cos-cat="${meta.category}" data-cos-id="${it.itemId}" ${hidden ? 'hidden' : ''}>
+                  <div>
+                    <div class="row-start" style="gap:6px;">
+                      <strong class="num-sm">${L(meta.zh, meta.en)}</strong>
+                      <span class="chip ${rCls}" style="height:18px;font-size:10px;padding:0 6px;">${rTxt}</span>
+                    </div>
+                    <div class="num-xs text-muted">${catLabel[meta.category] || meta.category} · ${L('仅展示装扮，不影响 A9 收益', 'Visual only · no financial effect')}</div>
+                  </div>
+                  <button type="button" class="btn ${isEquipped ? 'btn-secondary' : 'btn-primary'} btn-sm"
+                    data-equip-item="${it.itemId}"
+                    data-equip-cat="${meta.category}"
+                    data-equipped="${isEquipped}"
+                    style="min-width:68px;min-height:32px;padding:0 10px;">
+                    ${isEquipped ? L('卸下', 'Unequip') : L('装备', 'Equip')}
+                  </button>
+                </div>
+              `;
+            }).join('')}
+      </div>
+    </div>
+  `;
+}
 
 export function renderProfileHome(root, navigate) {
   if (!config.isDemo) {
@@ -104,9 +169,11 @@ export function renderProfileHome(root, navigate) {
 
         ${todoCardHtml}
 
+        ${renderCosmeticBoxCard()}
+
         <div class="card">
           <div class="card-header"><div class="card-title">${icon('shieldCheck', 16, 'text-green')} ${L('凭证收藏册', 'Ticket Collection')}</div><span class="chip chip-muted">${certificates.length}</span></div>
-          <nav class="ticket-tabs" aria-label="${L('筛选凭证', 'Filter tickets')}">${[['all', L('全部', 'All')], ['observation', L('观察中', 'Observing')], ['settled', L('已结算', 'Settled')]].map(([value, label]) => `<button type="button" data-ticket-filter="${value}" aria-pressed="${value === activeFilter}">${label}</button>`).join('')}</nav>
+          <nav class="ticket-tabs" id="ticket-filter-tabs" aria-label="${L('筛选凭证', 'Filter tickets')}">${[['all', L('全部', 'All')], ['observation', L('观察中', 'Observing')], ['settled', L('已结算', 'Settled')]].map(([value, label]) => `<button type="button" data-ticket-filter="${value}" aria-pressed="${value === activeFilter}">${label}</button>`).join('')}</nav>
           <p class="ticket-empty" hidden>${L('该状态下暂无质押凭证', 'No tickets in this state')}</p>
           ${certificates.length === 0
             ? `<div class="empty-state" style="padding:14px;"><div class="num-xs text-muted">${L('暂无参与中的质押凭证', 'No active stake tickets')}</div><button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/round">${L('前往轮次挑战', 'Go to challenge')}</button></div>`
@@ -147,7 +214,7 @@ export function renderProfileHome(root, navigate) {
     };
     applyTicketFilter(activeFilter);
 
-    root.querySelector('.ticket-tabs')?.addEventListener('click', e => {
+    root.querySelector('#ticket-filter-tabs')?.addEventListener('click', e => {
       const button = e.target.closest('[data-ticket-filter]');
       if (!button) return;
       A9Haptic.light();
@@ -170,6 +237,34 @@ export function renderProfileHome(root, navigate) {
     }
     const connectBtn = root.querySelector('#profile-connect');
     if (connectBtn) connectBtn.onclick = () => tonConnect.openConnectModal(() => renderProfileHome(root, navigate));
+
+    root.querySelector('#cosmetic-filter-tabs')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-cos-filter]');
+      if (!btn) return;
+      A9Haptic.light();
+      A9Audio.tick();
+      const f = btn.dataset.cosFilter;
+      store.state.inventory.filter = f;
+      root.querySelectorAll('[data-cos-cat]').forEach((row) => {
+        row.hidden = f !== 'all' && row.dataset.cosCat !== f;
+      });
+      root.querySelectorAll('[data-cos-filter]').forEach((b) => {
+        b.setAttribute('aria-pressed', String(b.dataset.cosFilter === f));
+      });
+    });
+
+    root.querySelectorAll('[data-equip-item]').forEach((btn) => {
+      btn.onclick = () => {
+        A9Haptic.light();
+        A9Audio.flip();
+        const itemId = btn.dataset.equipItem;
+        const cat = btn.dataset.equipCat;
+        const already = btn.dataset.equipped === 'true';
+        store.equipCosmeticDemo(cat, already ? null : itemId);
+        showToast(already ? L('已卸下该纸艺装扮', 'Cosmetic unequipped') : L('已装备至个人身份铭牌栏', 'Cosmetic equipped'));
+        renderProfileHome(root, navigate);
+      };
+    });
   }
 
   bindIdentityStage(root, () => renderProfileHome(root, navigate));
