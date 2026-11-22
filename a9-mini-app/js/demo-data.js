@@ -383,6 +383,128 @@ function ensureDemoPredUser(userId) {
 export function resetDemoPrediction() {
   demoPredRounds.clear();
   demoPredUsers.clear();
+  demoProgUsers.clear();
+}
+
+/* ---------------- 演示模式：手账集章成长循环内存状态（DEMO ONLY） ---------------- */
+
+const demoProgUsers = new Map();
+const DEMO_DAILY_KEYS = ['daily_checkin', 'daily_prediction', 'daily_observe', 'daily_share'];
+const DEMO_TASK_EXP = {
+  daily_checkin: 30,
+  daily_prediction: 50,
+  daily_observe: 30,
+  daily_share: 40,
+  daily_full_bonus: 80,
+  ach_first_stamp: 50,
+  ach_streak_3: 120,
+  ach_pred_pioneer: 100,
+  ach_stamp_10: 200
+};
+
+function ensureDemoProgUser(userId) {
+  const key = String(userId || 'demo_user_01');
+  if (!demoProgUsers.has(key)) {
+    demoProgUsers.set(key, {
+      userId: key,
+      exp: 160,
+      checkinStreak: 2,
+      lastCheckinDay: new Date(Date.now() - 86400 * 1000).toISOString().slice(0, 10),
+      totalStamps: 5,
+      todayClaims: new Set(['daily_observe']),
+      achievementsClaimed: new Set(['ach_first_stamp'])
+    });
+  }
+  return demoProgUsers.get(key);
+}
+
+export function demoProgressionUser(userId, roundId = 3) {
+  const u = ensureDemoProgUser(userId);
+  const pred = demoPredictionUser(userId, roundId);
+  const hasPred = Boolean(pred?.currentBet);
+  const expPerLevel = 200;
+  const level = Math.floor(u.exp / expPerLevel) + 1;
+  const currentLevelExp = u.exp % expPerLevel;
+  const dailyDoneCount = DEMO_DAILY_KEYS.filter(k => u.todayClaims.has(k)).length;
+  const allDailyStampsDone = dailyDoneCount === DEMO_DAILY_KEYS.length;
+  const unlockable = [];
+  if (u.totalStamps >= 1 && !u.achievementsClaimed.has('ach_first_stamp')) unlockable.push('ach_first_stamp');
+  if (u.checkinStreak >= 3 && !u.achievementsClaimed.has('ach_streak_3')) unlockable.push('ach_streak_3');
+  if ((hasPred || u.todayClaims.has('daily_prediction')) && !u.achievementsClaimed.has('ach_pred_pioneer')) unlockable.push('ach_pred_pioneer');
+  if (u.totalStamps >= 10 && !u.achievementsClaimed.has('ach_stamp_10')) unlockable.push('ach_stamp_10');
+
+  return {
+    userId: u.userId,
+    assetNature: 'NON_FINANCIAL_GAME_PROGRESSION',
+    tradable: false,
+    convertibleToA9: false,
+    todayUtc: new Date().toISOString().slice(0, 10),
+    exp: u.exp,
+    level,
+    expPerLevel,
+    currentLevelExp,
+    nextLevelExp: expPerLevel,
+    progressPct: Math.min(100, Math.round((currentLevelExp / expPerLevel) * 100)),
+    checkinStreak: u.checkinStreak,
+    lastCheckinDay: u.lastCheckinDay,
+    totalStamps: u.totalStamps,
+    dailyDoneCount,
+    dailyTotalCount: DEMO_DAILY_KEYS.length,
+    allDailyStampsDone,
+    dailyFullBonusClaimed: u.todayClaims.has('daily_full_bonus'),
+    todayClaims: Array.from(u.todayClaims),
+    achievementsClaimed: Array.from(u.achievementsClaimed),
+    unlockableAchievements: unlockable
+  };
+}
+
+export function demoProgressionClaim({ userId, taskKey, roundId = 3 }) {
+  const u = ensureDemoProgUser(userId);
+  const tKey = String(taskKey || '').trim();
+  const expDelta = DEMO_TASK_EXP[tKey];
+  if (!expDelta) throw new Error(`未知手账印章任务: ${tKey}`);
+  const isAch = tKey.startsWith('ach_');
+  if (isAch && u.achievementsClaimed.has(tKey)) {
+    throw new Error('该成就印章已领取，不可重复领取');
+  }
+  if (!isAch && u.todayClaims.has(tKey)) {
+    throw new Error('今日该印章已盖章，不可重复领取');
+  }
+  const pred = demoPredictionUser(userId, roundId);
+  const hasPred = Boolean(pred?.currentBet);
+  if (tKey === 'daily_prediction' && !hasPred) {
+    throw new Error('请先参与本轮 0 GRAM 24H 达标竞猜后再盖章');
+  }
+  if (tKey === 'daily_full_bonus') {
+    const allDone = DEMO_DAILY_KEYS.every(k => u.todayClaims.has(k));
+    if (!allDone) throw new Error('集齐今日全部 4 枚日常印章后方可领取满章加赠');
+  }
+  if (tKey === 'ach_streak_3' && u.checkinStreak < 3) {
+    throw new Error('连续打卡满 3 天后解锁');
+  }
+  if (tKey === 'ach_pred_pioneer' && !hasPred && !u.todayClaims.has('daily_prediction')) {
+    throw new Error('需完成至少 1 次 24H 达标竞猜后解锁');
+  }
+
+  if (isAch) {
+    u.achievementsClaimed.add(tKey);
+  } else {
+    u.todayClaims.add(tKey);
+    if (DEMO_DAILY_KEYS.includes(tKey)) u.totalStamps += 1;
+    if (tKey === 'daily_checkin') {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      if (u.lastCheckinDay !== todayStr) {
+        u.checkinStreak += 1;
+        u.lastCheckinDay = todayStr;
+      }
+    }
+  }
+  u.exp += expDelta;
+  return {
+    claimedTask: tKey,
+    expAwarded: expDelta,
+    progression: demoProgressionUser(userId, roundId)
+  };
 }
 
 export function demoPredictionRound(roundId, stage = 'observation') {

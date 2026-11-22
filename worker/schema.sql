@@ -222,3 +222,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_presale_payouts_a9_order
   ON presale_payouts(order_id) WHERE kind = 'A9' AND order_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_presale_payouts_refund_inbound
   ON presale_payouts(inbound_tx_hash) WHERE kind = 'REFUND' AND inbound_tx_hash IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- Phase 3: Handbook Stamp & Non-Financial Progression System
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_progression (
+  user_id TEXT PRIMARY KEY,
+  exp INTEGER NOT NULL DEFAULT 0,
+  level INTEGER NOT NULL DEFAULT 1,
+  checkin_streak INTEGER NOT NULL DEFAULT 0,
+  last_checkin_day TEXT, -- UTC 'YYYY-MM-DD'
+  total_stamps INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_task_claims (
+  user_id TEXT NOT NULL,
+  task_key TEXT NOT NULL,
+  period_key TEXT NOT NULL, -- UTC 'YYYY-MM-DD' for daily stamps, 'ONCE' for achievements
+  exp_awarded INTEGER NOT NULL,
+  claimed_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, task_key, period_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_task_claims_user_period
+  ON user_task_claims(user_id, period_key);

@@ -5,11 +5,11 @@ import assert from 'node:assert/strict';
 import { createApiRouter } from '../src/api.mjs';
 import { MemoryIdentityStore, D1IdentityStore, signTelegramInitData, verifyTelegramInitData } from '../src/auth.mjs';
 import { PresaleHotWalletEngine, PRESALE_STATUS, STALE_BROADCAST_SEC } from '../src/presale-hotwallet.mjs';
-import { D1PresaleStore, D1SocialStore } from '../src/d1-growth-store.mjs';
+import { D1PresaleStore, D1SocialStore, D1PredictionEngine, D1ProgressionEngine } from '../src/d1-growth-store.mjs';
 import { PresalePayoutRunner } from '../src/presale-runner.mjs';
 import { PromoHotWalletEngine } from '../src/promo-hotwallet.mjs';
 import { SocialStore } from '../src/social-store.mjs';
-import { PredictionEngine } from '../src/growth-engine.mjs';
+import { PredictionEngine, ProgressionEngine } from '../src/growth-engine.mjs';
 import { parseDecimalUnits, formatUnits } from '../src/money.mjs';
 import { normalizeTonAddress, formatTonAddress, parseTonAddress } from '../src/ton-address.mjs';
 import { TEST_BOT_TOKEN, tgHeaders, createSqliteD1, FRESH_SCHEMA, MIGRATIONS, completePurchase, dumpDb, createMiniflareD1, makeV4R2Wallet, signTonProof, PROOF_FIXTURES } from './helpers/test-env.mjs';
@@ -40,8 +40,9 @@ function buildRouter(extra = {}) {
   const presaleEngine = extra.presaleEngine || new PresaleHotWalletEngine({ hotWalletAddress: HOT, open: true });
   const socialStore = extra.socialStore || new SocialStore();
   const predictionEngine = extra.predictionEngine || new PredictionEngine();
-  const route = createApiRouter({ env: ENV, stateStore, identityStore, promoEngine, presaleEngine, socialStore, predictionEngine, ...extra });
-  return { route, identityStore, promoEngine, presaleEngine, socialStore, predictionEngine };
+  const progressionEngine = extra.progressionEngine || new ProgressionEngine();
+  const route = createApiRouter({ env: ENV, stateStore, identityStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, ...extra });
+  return { route, identityStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine };
 }
 
 /** Both storage backends must behave identically (explicit open:true for order-flow suites; default closed tested separately). */
@@ -1652,6 +1653,147 @@ await test('admin anomaly API requires the admin token and resolves with an audi
   const [row] = await presale.listAnomalies(null);
   assert.equal(row.resolvedBy, 'ops-alice');
   assert.equal(row.faultParty, 'SYSTEM');
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3: Handbook Stamp & Non-Financial Progression Loop (Memory + SQLite D1 + Miniflare D1)
+// ---------------------------------------------------------------------------
+await test('Phase 3: Handbook Stamp progression loop (new user, consecutive check-ins, UTC boundary, idempotency, cross-user auth & strict asset isolation)', async () => {
+  const runSuite = async (label, makeEngines) => {
+    const { predictionEngine, progressionEngine, presaleEngine } = await makeEngines();
+    const { route, identityStore } = buildRouter({ predictionEngine, progressionEngine, presaleEngine });
+
+    // Day 1: 2026-11-20 23:59:50 UTC
+    const day1Sec = Math.floor(Date.UTC(2026, 10, 20, 23, 59, 50) / 1000);
+    // Day 2: 2026-11-21 00:00:05 UTC (15 seconds later, crosses UTC midnight!)
+    const day2Sec = Math.floor(Date.UTC(2026, 10, 21, 0, 0, 5) / 1000);
+    // Day 3: 2026-11-22 12:00:00 UTC
+    const day3Sec = Math.floor(Date.UTC(2026, 10, 22, 12, 0, 0) / 1000);
+    // Day 5 (missed Day 4!): 2026-11-24 08:00:00 UTC
+    const day5Sec = Math.floor(Date.UTC(2026, 10, 24, 8, 0, 0) / 1000);
+
+    const hAlice1 = await tgHeaders(3301, { nowSec: day1Sec });
+    const hBob1 = await tgHeaders(3302, { nowSec: day1Sec });
+
+    // 1. 新用户初始状态
+    const initRes = await route({ method: 'GET', pathname: '/api/progression/me', headers: hAlice1, nowSec: day1Sec });
+    assert.equal(initRes.status, 200, label);
+    assert.equal(initRes.body.data.exp, 0);
+    assert.equal(initRes.body.data.level, 1);
+    assert.equal(initRes.body.data.checkinStreak, 0);
+    assert.equal(initRes.body.data.assetNature, 'NON_FINANCIAL_GAME_PROGRESSION');
+    assert.equal(initRes.body.data.tradable, false);
+    assert.equal(initRes.body.data.convertibleToA9, false);
+
+    // 2. 越权防护：Bob 不能读取 Alice 的进度，也不能通过 body.userId 冒充 Alice 盖章
+    const bobPeek = await route({ method: 'GET', pathname: '/api/progression/user/3301', headers: hBob1, nowSec: day1Sec });
+    assert.equal(bobPeek.status, 403);
+    const bobSpoof = await route({ method: 'POST', pathname: '/api/progression/claim', headers: hBob1, body: { userId: '3301', taskKey: 'daily_checkin' }, nowSec: day1Sec });
+    assert.equal(bobSpoof.status, 403);
+
+    // 3. 未参与 0 GRAM 竞猜前，不可盖 daily_prediction 章，也不可领 ach_first_stamp
+    const prePredFail = await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice1, body: { taskKey: 'daily_prediction', roundId: 1 }, nowSec: day1Sec });
+    assert.equal(prePredFail.status, 400);
+    assert.equal(prePredFail.body.error.code, 'TASK_PREREQUISITE_UNMET');
+    const preAchFail = await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice1, body: { taskKey: 'ach_first_stamp' }, nowSec: day1Sec });
+    assert.equal(preAchFail.status, 400);
+    assert.equal(preAchFail.body.error.code, 'TASK_PREREQUISITE_UNMET');
+
+    // 4. Day 1 打卡盖章 (+30 EXP, streak=1)，同日重复提交必须幂等拒绝 (ALREADY_CLAIMED)
+    const c1 = await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice1, body: { taskKey: 'daily_checkin' }, nowSec: day1Sec });
+    assert.equal(c1.status, 200);
+    assert.equal(c1.body.data.expAwarded, 30);
+    assert.equal(c1.body.data.progression.exp, 30);
+    assert.equal(c1.body.data.progression.checkinStreak, 1);
+    assert.equal(c1.body.data.progression.totalStamps, 1);
+    assert.ok(c1.body.data.progression.unlockableAchievements.includes('ach_first_stamp'));
+
+    const c1Dup = await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice1, body: { taskKey: 'daily_checkin' }, nowSec: day1Sec });
+    assert.equal(c1Dup.status, 400);
+    assert.equal(c1Dup.body.error.code, 'ALREADY_CLAIMED');
+
+    // 5. 参与 0 GRAM 24H 达标竞猜后，可盖 daily_prediction (+50 EXP)，再盖 daily_observe (+30 EXP) & daily_share (+40 EXP)，集齐 4 章后领取 daily_full_bonus (+80 EXP)
+    const betRes = await route({ method: 'POST', pathname: '/api/prediction/bet', headers: hAlice1, body: { roundId: 1, side: 'PASS', guessSlots: 18 }, nowSec: day1Sec });
+    assert.equal(betRes.status, 200);
+
+    // 尚未集齐 4 章时不可领 daily_full_bonus
+    assert.equal((await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice1, body: { taskKey: 'daily_full_bonus' }, nowSec: day1Sec })).body.error.code, 'TASK_PREREQUISITE_UNMET');
+
+    assert.equal((await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice1, body: { taskKey: 'daily_prediction', roundId: 1 }, nowSec: day1Sec })).status, 200);
+    assert.equal((await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice1, body: { taskKey: 'daily_observe' }, nowSec: day1Sec })).status, 200);
+    assert.equal((await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice1, body: { taskKey: 'daily_share' }, nowSec: day1Sec })).status, 200);
+
+    const fullBonus = await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice1, body: { taskKey: 'daily_full_bonus' }, nowSec: day1Sec });
+    assert.equal(fullBonus.status, 200);
+    // 30 + 50 + 30 + 40 + 80 = 230 EXP -> Level 2!
+    assert.equal(fullBonus.body.data.progression.exp, 230);
+    assert.equal(fullBonus.body.data.progression.level, 2);
+    assert.equal(fullBonus.body.data.progression.dailyDoneCount, 4);
+    assert.equal(fullBonus.body.data.progression.dailyFullBonusClaimed, true);
+
+    // 6. 领取一次性成就 ach_first_stamp (+50 EXP) 与 ach_pred_pioneer (+100 EXP)，重复领取被拒绝
+    assert.equal((await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice1, body: { taskKey: 'ach_first_stamp' }, nowSec: day1Sec })).status, 200);
+    assert.equal((await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice1, body: { taskKey: 'ach_pred_pioneer', roundId: 1 }, nowSec: day1Sec })).status, 200);
+    assert.equal((await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice1, body: { taskKey: 'ach_first_stamp' }, nowSec: day1Sec })).body.error.code, 'ALREADY_CLAIMED');
+
+    // 7. 跨 UTC 午夜边界（Day 2）+ 连续第 3 天（Day 3）解锁 ach_streak_3 (+120 EXP)
+    const hAlice2 = await tgHeaders(3301, { nowSec: day2Sec });
+    const d2View = await route({ method: 'GET', pathname: '/api/progression/me', headers: hAlice2, nowSec: day2Sec });
+    assert.equal(d2View.body.data.dailyDoneCount, 0); // 新的一天日常印章重置
+    assert.equal(d2View.body.data.checkinStreak, 1);  // 昨日已签，连签保持 1
+    assert.ok(d2View.body.data.achievementsClaimed.includes('ach_first_stamp')); // 一次性成就跨日保留
+
+    const c2 = await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice2, body: { taskKey: 'daily_checkin' }, nowSec: day2Sec });
+    assert.equal(c2.body.data.progression.checkinStreak, 2);
+
+    const hAlice3 = await tgHeaders(3301, { nowSec: day3Sec });
+    const c3 = await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice3, body: { taskKey: 'daily_checkin' }, nowSec: day3Sec });
+    assert.equal(c3.body.data.progression.checkinStreak, 3);
+    assert.ok(c3.body.data.progression.unlockableAchievements.includes('ach_streak_3'));
+
+    const achStreak = await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice3, body: { taskKey: 'ach_streak_3' }, nowSec: day3Sec });
+    assert.equal(achStreak.status, 200);
+    assert.equal(achStreak.body.data.expAwarded, 120);
+
+    // 8. 断签测试（跳过 Day 4，在 Day 5 打卡时连签重置为 1）
+    const hAlice5 = await tgHeaders(3301, { nowSec: day5Sec });
+    const d5Before = await route({ method: 'GET', pathname: '/api/progression/me', headers: hAlice5, nowSec: day5Sec });
+    assert.equal(d5Before.body.data.checkinStreak, 0);
+    const c5 = await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice5, body: { taskKey: 'daily_checkin' }, nowSec: day5Sec });
+    assert.equal(c5.body.data.progression.checkinStreak, 1);
+
+    // 9. 严格隔离成长数据与真实资产：即便拥有高 EXP / 等级 / 满成就，未完成真实商行购买或链上质押仍不可激活 A9 竞猜奖励券
+    await identityStore.bindWallet('3301', 'EQ_ALICE_NO_CAP', day1Sec);
+    await predictionEngine.settleRoundBets(1, true, 18, '10000000000000', day1Sec * 1000);
+    const actFail = await route({ method: 'POST', pathname: '/api/prediction/activate', headers: hAlice1, body: {}, nowSec: day1Sec + 10 });
+    assert.equal(actFail.status, 400);
+    assert.equal(actFail.body.error.code, 'ACTIVATION_REQUIREMENT_UNMET');
+  };
+
+  await runSuite('memory', async () => ({
+    predictionEngine: new PredictionEngine({ defaultPoolA9Raw: '10000000000000' }),
+    progressionEngine: new ProgressionEngine(),
+    presaleEngine: new PresaleHotWalletEngine({ hotWalletAddress: HOT, open: true }),
+  }));
+
+  await runSuite('d1-sqlite', async () => {
+    const db = createSqliteD1(MIGRATIONS);
+    return {
+      predictionEngine: new D1PredictionEngine({ db, defaultPoolA9Raw: '10000000000000' }),
+      progressionEngine: new D1ProgressionEngine({ db }),
+      presaleEngine: new D1PresaleStore({ db, hotWalletAddress: HOT, open: true }),
+    };
+  });
+
+  const mf = await createMiniflareD1();
+  if (mf) {
+    MF_DISPOSE.push(mf.dispose);
+    await runSuite('d1-miniflare', async () => ({
+      predictionEngine: new D1PredictionEngine({ db: mf.db, defaultPoolA9Raw: '10000000000000' }),
+      progressionEngine: new D1ProgressionEngine({ db: mf.db }),
+      presaleEngine: new D1PresaleStore({ db: mf.db, hotWalletAddress: HOT, open: true }),
+    }));
+  }
 });
 
 for (const d of MF_DISPOSE) await d();

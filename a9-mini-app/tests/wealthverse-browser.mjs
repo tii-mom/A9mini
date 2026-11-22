@@ -68,6 +68,9 @@ async function mobile(width, height, locale, theme) {
     assert.equal(new URL(page.url()).hash, '#'+path);
   }
   await visit(page, '/challenge');
+  assert.equal(await page.locator('.handbook-stamp-cell').count(), 4);
+  await page.locator('[data-stamp-task="daily_checkin"]').click();
+  await page.locator('[data-stamp-task="daily_checkin"][aria-pressed="true"]').waitFor();
   await page.locator('.game-gates a[href="#/internal/market"]').click();
   assert.equal(new URL(page.url()).hash, '#/internal/market');
   await visit(page, '/rewards');

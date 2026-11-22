@@ -5,9 +5,9 @@ import { TonCenterClient } from './toncenter.mjs';
 import { PromoHotWalletEngine } from './promo-hotwallet.mjs';
 import { PresaleHotWalletEngine } from './presale-hotwallet.mjs';
 import { SocialStore } from './social-store.mjs';
-import { PredictionEngine } from './growth-engine.mjs';
+import { PredictionEngine, ProgressionEngine } from './growth-engine.mjs';
 import { D1PromoStore } from './d1-promo-store.mjs';
-import { D1SocialStore, D1PredictionEngine, D1PresaleStore } from './d1-growth-store.mjs';
+import { D1SocialStore, D1PredictionEngine, D1ProgressionEngine, D1PresaleStore } from './d1-growth-store.mjs';
 import { D1IdentityStore, MemoryIdentityStore } from './auth.mjs';
 
 function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}) {
@@ -23,6 +23,7 @@ function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}
 // Module-scoped fallbacks for ephemeral preview/dev environments without D1 bindings
 const memSocialStore = new SocialStore();
 const memPredictionEngine = new PredictionEngine();
+const memProgressionEngine = new ProgressionEngine();
 const memIdentityStore = new MemoryIdentityStore();
 
 export default {
@@ -73,6 +74,7 @@ export default {
     const hasD1 = Boolean(env.DB);
     const socialStore = hasD1 ? new D1SocialStore({ db: env.DB }) : memSocialStore;
     const predictionEngine = hasD1 ? new D1PredictionEngine({ db: env.DB }) : memPredictionEngine;
+    const progressionEngine = hasD1 ? new D1ProgressionEngine({ db: env.DB }) : memProgressionEngine;
 
     const promoEngine = env.A9_PROMO_HOT_WALLET_ADDRESS
       ? (hasD1
@@ -120,6 +122,7 @@ export default {
       presaleEngine,
       socialStore,
       predictionEngine,
+      progressionEngine,
       userReader,
       identityStore: hasD1 ? new D1IdentityStore({ db: env.DB }) : memIdentityStore,
       publicKeyResolver: tc ? (addr) => tc.fetchWalletPublicKey(addr) : null,

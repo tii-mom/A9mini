@@ -76,6 +76,7 @@ export function createApiRouter({
   presaleEngine = null,
   socialStore = null,
   predictionEngine = null,
+  progressionEngine = null,
   userReader = null,
   identityStore = new MemoryIdentityStore(),
   publicKeyResolver = null,
@@ -346,6 +347,48 @@ export function createApiRouter({
             qualified: hasCompletedPresale || hasStakeTicket,
             nowMs: nowSec * 1000,
           }),
+        );
+      }
+
+      // Phase 3: Handbook Stamp & Non-Financial Progression (strictly tied to verified Telegram user)
+      const progUserMatch = method === 'GET' && pathname.match(/^\/api\/progression\/(?:user\/)?(.+)$/);
+      if (progUserMatch) {
+        if (!progressionEngine) return err('PROGRESSION_DISABLED', 'progression engine not configured', 503);
+        const id = await auth.telegram();
+        const requested = decodeURIComponent(progUserMatch[1]);
+        if (requested !== 'me' && requested !== id.telegramUserId) {
+          return err('FORBIDDEN', 'cannot read another user\'s progression record', 403);
+        }
+        const roundId = query.roundId ? Number(query.roundId) : (stateStore.getProtocolState().currentRoundId || 1);
+        let hasPredictionBet = false;
+        if (predictionEngine && roundId) {
+          const predSummary = await predictionEngine.getUserSummary(id.telegramUserId, roundId);
+          hasPredictionBet = Boolean(predSummary?.currentBet);
+        }
+        return ok(await progressionEngine.getUserSummary(id.telegramUserId, nowSec, { hasPredictionBet }));
+      }
+
+      if (method === 'POST' && pathname === '/api/progression/claim') {
+        if (!progressionEngine) return err('PROGRESSION_DISABLED', 'progression engine not configured', 503);
+        const id = await auth.telegram();
+        if (body?.userId && String(body.userId) !== id.telegramUserId) {
+          return err('FORBIDDEN', 'userId does not match the signed-in Telegram user', 403);
+        }
+        const roundId = body?.roundId ? Number(body.roundId) : (stateStore.getProtocolState().currentRoundId || 1);
+        let hasPredictionBet = false;
+        if (predictionEngine && roundId) {
+          const predSummary = await predictionEngine.getUserSummary(id.telegramUserId, roundId);
+          hasPredictionBet = Boolean(predSummary?.currentBet);
+        }
+        return ok(
+          await progressionEngine.claimTask(
+            {
+              userId: id.telegramUserId,
+              taskKey: body?.taskKey,
+              hasPredictionBet,
+            },
+            nowSec,
+          ),
         );
       }
 

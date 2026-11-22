@@ -1129,3 +1129,111 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* --------------------------------------------------------------------------
+   七、阶段三：主城手账集章卡 (.handbook-stamp-card)
+   -------------------------------------------------------------------------- */
+.handbook-stamp-card {
+  position: relative;
+}
+
+.handbook-stamp-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.handbook-stamp-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border-radius: 13px;
+  border: 1.5px dashed var(--card-border-strong, var(--card-border));
+  background: var(--paper-tray);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: center;
+  transition: transform 0.14s var(--ease-spring), border-color 0.14s ease, background 0.14s ease;
+}
+
+.handbook-stamp-cell:active {
+  transform: translateY(1.5px);
+}
+
+.handbook-stamp-cell.stamped {
+  border-style: solid;
+  border-color: var(--emerald-border, rgba(45, 160, 105, 0.36));
+  background: var(--nt-green-soft, rgba(45, 160, 105, 0.09));
+}
+
+.handbook-seal {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--ink-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--ink-soft);
+  background: var(--card-bg);
+}
+
+.handbook-stamp-cell.stamped .handbook-seal {
+  border: 2px solid var(--nt-green, #2DA069);
+  background: var(--nt-green, #2DA069);
+  color: #FFFFFF;
+  transform: rotate(-6deg);
+  box-shadow: 0 2px 0 rgba(25, 110, 70, 0.28);
+}
+
+.handbook-task-name {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--ink);
+  line-height: 1.2;
+}
+
+.handbook-task-meta {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  line-height: 1.15;
+}
+
+.handbook-stamp-cell.stamped .handbook-task-meta {
+  color: var(--nt-green, #2DA069);
+}
+
+.handbook-ach-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--card-border);
+}
+
+.handbook-ach-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  border: 1px dashed var(--card-border);
+  background: var(--paper-tray);
+  color: var(--ink-muted);
+}
+
+.handbook-ach-pill.owned {
+  border-style: solid;
+  border-color: var(--nt-gold-edge, rgba(217, 138, 28, 0.45));
+  background: var(--nt-gold-soft, rgba(243, 184, 44, 0.16));
+  color: var(--nt-gold-ink, #8C5700);
+}

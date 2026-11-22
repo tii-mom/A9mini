@@ -130,6 +130,25 @@ const DEFAULT_STATE = {
     expanded: null,
     loaded: false
   },
+  progression: {
+    exp: 0,
+    level: 1,
+    expPerLevel: 200,
+    currentLevelExp: 0,
+    nextLevelExp: 200,
+    progressPct: 0,
+    checkinStreak: 0,
+    totalStamps: 0,
+    dailyDoneCount: 0,
+    dailyTotalCount: 4,
+    allDailyStampsDone: false,
+    dailyFullBonusClaimed: false,
+    todayClaims: [],
+    achievementsClaimed: [],
+    unlockableAchievements: [],
+    loaded: false,
+    error: false
+  },
   referral: {
     referrerId: null,
     pendingScrollTarget: null

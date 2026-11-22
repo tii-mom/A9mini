@@ -6,7 +6,7 @@ import { createApiRouter } from './api.mjs';
 import { PromoHotWalletEngine } from './promo-hotwallet.mjs';
 import { PresaleHotWalletEngine } from './presale-hotwallet.mjs';
 import { SocialStore } from './social-store.mjs';
-import { PredictionEngine } from './growth-engine.mjs';
+import { PredictionEngine, ProgressionEngine } from './growth-engine.mjs';
 import { TonCenterClient } from './toncenter.mjs';
 import { PromoPayoutRunner } from './promo-runner.mjs';
 import { PresalePayoutRunner } from './presale-runner.mjs';
@@ -48,6 +48,7 @@ const promoEngine = process.env.A9_PROMO_HOT_WALLET_ADDRESS
 
 const socialStore = new SocialStore();
 const predictionEngine = new PredictionEngine();
+const progressionEngine = new ProgressionEngine();
 
 // 兑换业务须独立配置 A9_PRESALE_HOT_WALLET_ADDRESS 且默认关闭（A9_PRESALE_OPEN=1 显式开启）。
 const presaleHotAddr = process.env.A9_PRESALE_HOT_WALLET_ADDRESS || null;
@@ -165,7 +166,7 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
   }
 }
 
-const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, userReader, identityStore, publicKeyResolver, walletStateResolver });
+const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, userReader, identityStore, publicKeyResolver, walletStateResolver });
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${host}:${port}`);

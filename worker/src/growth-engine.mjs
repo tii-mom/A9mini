@@ -228,6 +228,308 @@ export class PredictionEngine {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 3: Handbook Stamp & Non-Financial Progression Engine
+// ---------------------------------------------------------------------------
+export const EXP_PER_LEVEL = 200;
+
+export const DAILY_STAMP_KEYS = Object.freeze([
+  'daily_checkin',
+  'daily_prediction',
+  'daily_observe',
+  'daily_share',
+]);
+
+export const PROGRESSION_TASKS = Object.freeze({
+  daily_checkin: {
+    key: 'daily_checkin',
+    kind: 'daily',
+    exp: 30,
+    periodType: 'DAILY',
+    zh: '主城打卡章',
+    en: 'City Check-in Stamp',
+  },
+  daily_prediction: {
+    key: 'daily_prediction',
+    kind: 'daily',
+    exp: 50,
+    periodType: 'DAILY',
+    zh: '24H 竞猜章',
+    en: '24H Prediction Stamp',
+  },
+  daily_observe: {
+    key: 'daily_observe',
+    kind: 'daily',
+    exp: 30,
+    periodType: 'DAILY',
+    zh: '24H 巡视章',
+    en: '24H Logbook Stamp',
+  },
+  daily_share: {
+    key: 'daily_share',
+    kind: 'daily',
+    exp: 40,
+    periodType: 'DAILY',
+    zh: '纸艺分享章',
+    en: 'Paper Share Stamp',
+  },
+  daily_full_bonus: {
+    key: 'daily_full_bonus',
+    kind: 'bonus',
+    exp: 80,
+    periodType: 'DAILY',
+    zh: '今日满章加赠',
+    en: 'Daily Full Stamp Bonus',
+  },
+  ach_first_stamp: {
+    key: 'ach_first_stamp',
+    kind: 'achievement',
+    exp: 50,
+    periodType: 'ONCE',
+    zh: '初入手账',
+    en: 'First Stamp',
+  },
+  ach_streak_3: {
+    key: 'ach_streak_3',
+    kind: 'achievement',
+    exp: 120,
+    periodType: 'ONCE',
+    zh: '三日连签章',
+    en: '3-Day Streak',
+  },
+  ach_pred_pioneer: {
+    key: 'ach_pred_pioneer',
+    kind: 'achievement',
+    exp: 100,
+    periodType: 'ONCE',
+    zh: '竞猜观星者',
+    en: 'Prediction Pioneer',
+  },
+  ach_stamp_10: {
+    key: 'ach_stamp_10',
+    kind: 'achievement',
+    exp: 200,
+    periodType: 'ONCE',
+    zh: '十章收藏家',
+    en: '10-Stamp Collector',
+  },
+});
+
+export function utcDayFromSec(nowSec = Math.floor(Date.now() / 1000)) {
+  const sec = Number.isFinite(Number(nowSec)) ? Number(nowSec) : Math.floor(Date.now() / 1000);
+  return new Date(sec * 1000).toISOString().slice(0, 10);
+}
+
+export function prevUtcDay(dayStr) {
+  if (!dayStr || !/^\d{4}-\d{2}-\d{2}$/.test(dayStr)) return null;
+  const [y, m, d] = dayStr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d) - 86400 * 1000).toISOString().slice(0, 10);
+}
+
+export function levelFromExp(exp) {
+  const safeExp = Math.max(0, Math.floor(Number(exp) || 0));
+  return Math.floor(safeExp / EXP_PER_LEVEL) + 1;
+}
+
+export function computeEffectiveStreak(checkinStreak, lastCheckinDay, todayStr) {
+  const s = Math.max(0, Number(checkinStreak) || 0);
+  if (!lastCheckinDay || s === 0) return 0;
+  if (lastCheckinDay === todayStr || lastCheckinDay === prevUtcDay(todayStr) || lastCheckinDay > todayStr) {
+    return s;
+  }
+  return 0;
+}
+
+export function buildProgressionSummary({
+  userId,
+  exp = 0,
+  checkinStreak = 0,
+  lastCheckinDay = null,
+  totalStamps = 0,
+  todayStr,
+  todayClaims = [],
+  onceClaims = [],
+  hasPredictionBet = false,
+  hasEverPredicted = false,
+}) {
+  const safeExp = Math.max(0, Math.floor(Number(exp) || 0));
+  const level = levelFromExp(safeExp);
+  const currentLevelExp = safeExp % EXP_PER_LEVEL;
+  const effectiveStreak = computeEffectiveStreak(checkinStreak, lastCheckinDay, todayStr);
+  const todaySet = new Set(todayClaims);
+  const onceSet = new Set(onceClaims);
+  const dailyDoneCount = DAILY_STAMP_KEYS.filter((k) => todaySet.has(k)).length;
+  const allDailyStampsDone = dailyDoneCount === DAILY_STAMP_KEYS.length;
+
+  return {
+    userId: String(userId),
+    assetNature: 'NON_FINANCIAL_GAME_PROGRESSION',
+    tradable: false,
+    convertibleToA9: false,
+    todayUtc: todayStr,
+    exp: safeExp,
+    level,
+    expPerLevel: EXP_PER_LEVEL,
+    currentLevelExp,
+    nextLevelExp: EXP_PER_LEVEL,
+    progressPct: Math.min(100, Math.round((currentLevelExp / EXP_PER_LEVEL) * 100)),
+    checkinStreak: effectiveStreak,
+    lastCheckinDay: lastCheckinDay || null,
+    totalStamps: Math.max(0, Number(totalStamps) || 0),
+    dailyDoneCount,
+    dailyTotalCount: DAILY_STAMP_KEYS.length,
+    allDailyStampsDone,
+    dailyFullBonusClaimed: todaySet.has('daily_full_bonus'),
+    todayClaims: Array.from(todaySet),
+    achievementsClaimed: Array.from(onceSet),
+    unlockableAchievements: [
+      ...(totalStamps >= 1 && !onceSet.has('ach_first_stamp') ? ['ach_first_stamp'] : []),
+      ...(effectiveStreak >= 3 && !onceSet.has('ach_streak_3') ? ['ach_streak_3'] : []),
+      ...((hasPredictionBet || hasEverPredicted || todaySet.has('daily_prediction')) && !onceSet.has('ach_pred_pioneer') ? ['ach_pred_pioneer'] : []),
+      ...(totalStamps >= 10 && !onceSet.has('ach_stamp_10') ? ['ach_stamp_10'] : []),
+    ],
+  };
+}
+
+export class ProgressionEngine {
+  constructor() {
+    // userId -> { exp, level, checkinStreak, lastCheckinDay, totalStamps, updatedAt }
+    this.users = new Map();
+    // `${userId}:${taskKey}:${periodKey}` -> { userId, taskKey, periodKey, expAwarded, claimedAt }
+    this.claims = new Map();
+  }
+
+  _getOrCreateUser(uid) {
+    let u = this.users.get(uid);
+    if (!u) {
+      u = {
+        userId: uid,
+        exp: 0,
+        level: 1,
+        checkinStreak: 0,
+        lastCheckinDay: null,
+        totalStamps: 0,
+        updatedAt: 0,
+      };
+      this.users.set(uid, u);
+    }
+    return u;
+  }
+
+  getUserSummary(userId, nowSec = Math.floor(Date.now() / 1000), { hasPredictionBet = false } = {}) {
+    const uid = String(userId || '').trim();
+    if (!uid) throw new GrowthError('BAD_REQUEST', 'userId required');
+    const todayStr = utcDayFromSec(nowSec);
+    const u = this._getOrCreateUser(uid);
+    const todayClaims = [];
+    const onceClaims = [];
+    let hasEverPredicted = Boolean(hasPredictionBet);
+    for (const c of this.claims.values()) {
+      if (c.userId !== uid) continue;
+      if (c.periodKey === todayStr) todayClaims.push(c.taskKey);
+      if (c.periodKey === 'ONCE') onceClaims.push(c.taskKey);
+      if (c.taskKey === 'daily_prediction') hasEverPredicted = true;
+    }
+    return buildProgressionSummary({
+      userId: uid,
+      exp: u.exp,
+      checkinStreak: u.checkinStreak,
+      lastCheckinDay: u.lastCheckinDay,
+      totalStamps: u.totalStamps,
+      todayStr,
+      todayClaims,
+      onceClaims,
+      hasPredictionBet,
+      hasEverPredicted,
+    });
+  }
+
+  claimTask({ userId, taskKey, hasPredictionBet = false }, nowSec = Math.floor(Date.now() / 1000)) {
+    const uid = String(userId || '').trim();
+    const tKey = String(taskKey || '').trim();
+    if (!uid || !tKey) throw new GrowthError('BAD_REQUEST', 'userId and taskKey required');
+    const task = PROGRESSION_TASKS[tKey];
+    if (!task) throw new GrowthError('UNKNOWN_TASK', `unknown progression task: ${tKey}`);
+
+    const todayStr = utcDayFromSec(nowSec);
+    const periodKey = task.periodType === 'ONCE' ? 'ONCE' : todayStr;
+    const claimId = `${uid}:${tKey}:${periodKey}`;
+    if (this.claims.has(claimId)) {
+      throw new GrowthError('ALREADY_CLAIMED', '该手账印章已盖章领取，不可重复领取');
+    }
+
+    const u = this._getOrCreateUser(uid);
+    const curStreak = computeEffectiveStreak(u.checkinStreak, u.lastCheckinDay, todayStr);
+
+    // 校验任务前置条件
+    if (tKey === 'daily_prediction' && !hasPredictionBet) {
+      throw new GrowthError('TASK_PREREQUISITE_UNMET', '请先参与本轮 0 GRAM 24H 达标竞猜后再盖章');
+    }
+    if (tKey === 'daily_full_bonus') {
+      const allDone = DAILY_STAMP_KEYS.every((k) => this.claims.has(`${uid}:${k}:${todayStr}`));
+      if (!allDone) {
+        throw new GrowthError('TASK_PREREQUISITE_UNMET', '集齐今日全部 4 枚日常印章后方可领取满章加赠');
+      }
+    }
+    if (tKey === 'ach_first_stamp' && u.totalStamps < 1) {
+      throw new GrowthError('TASK_PREREQUISITE_UNMET', '需至少完成 1 次手账盖章后解锁');
+    }
+    if (tKey === 'ach_streak_3' && curStreak < 3) {
+      throw new GrowthError('TASK_PREREQUISITE_UNMET', '连续打卡满 3 天后解锁');
+    }
+    if (tKey === 'ach_pred_pioneer') {
+      let hasEverPred = Boolean(hasPredictionBet);
+      if (!hasEverPred) {
+        for (const c of this.claims.values()) {
+          if (c.userId === uid && c.taskKey === 'daily_prediction') {
+            hasEverPred = true;
+            break;
+          }
+        }
+      }
+      if (!hasEverPred) {
+        throw new GrowthError('TASK_PREREQUISITE_UNMET', '需完成至少 1 次 24H 达标竞猜后解锁');
+      }
+    }
+    if (tKey === 'ach_stamp_10' && u.totalStamps < 10) {
+      throw new GrowthError('TASK_PREREQUISITE_UNMET', '累计集齐 10 枚手账印章后解锁');
+    }
+
+    this.claims.set(claimId, {
+      userId: uid,
+      taskKey: tKey,
+      periodKey,
+      expAwarded: task.exp,
+      claimedAt: nowSec,
+    });
+
+    if (tKey === 'daily_checkin') {
+      if (u.lastCheckinDay === todayStr) {
+        u.checkinStreak = Math.max(1, u.checkinStreak);
+      } else if (u.lastCheckinDay === prevUtcDay(todayStr)) {
+        u.checkinStreak += 1;
+      } else {
+        u.checkinStreak = 1;
+      }
+      u.lastCheckinDay = todayStr;
+    }
+
+    u.exp += task.exp;
+    u.level = levelFromExp(u.exp);
+    if (task.kind === 'daily') {
+      u.totalStamps += 1;
+    }
+    u.updatedAt = nowSec;
+
+    return {
+      claimedTask: tKey,
+      periodKey,
+      expAwarded: task.exp,
+      progression: this.getUserSummary(uid, nowSec, { hasPredictionBet }),
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Dynamic OG Card SVG & Landing HTML
 // ---------------------------------------------------------------------------
 function escapeXml(str) {

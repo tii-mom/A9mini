@@ -1,7 +1,17 @@
 // A9 Protocol v15 — Cloudflare D1 Persistence Adapters for Social, Prediction & Presale.
 // Matches worker/schema.sql tables and mirrors the in-memory engine interfaces 1:1.
 import { rewardForWarmupRank } from './social-store.mjs';
-import { GrowthError, VOUCHER_TTL_MS } from './growth-engine.mjs';
+import {
+  GrowthError,
+  VOUCHER_TTL_MS,
+  DAILY_STAMP_KEYS,
+  PROGRESSION_TASKS,
+  utcDayFromSec,
+  prevUtcDay,
+  levelFromExp,
+  computeEffectiveStreak,
+  buildProgressionSummary,
+} from './growth-engine.mjs';
 import { PresaleEngine, PresaleError, RESERVING_STATUSES } from './presale-hotwallet.mjs';
 import { addressKey, addressAliases } from './ton-address.mjs';
 
@@ -546,6 +556,204 @@ export class D1PredictionEngine {
         nowSec,
       )
       .run();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 2b. D1ProgressionEngine (user_progression, user_task_claims)
+// ---------------------------------------------------------------------------
+export class D1ProgressionEngine {
+  constructor({ db }) {
+    if (!db) throw new Error('Cloudflare D1 binding (env.DB) is required');
+    this.db = db;
+  }
+
+  async _getUserRow(uid) {
+    const row = await this.db
+      .prepare('SELECT * FROM user_progression WHERE user_id = ?')
+      .bind(uid)
+      .first();
+    if (!row) {
+      return {
+        userId: uid,
+        exp: 0,
+        level: 1,
+        checkinStreak: 0,
+        lastCheckinDay: null,
+        totalStamps: 0,
+        updatedAt: 0,
+      };
+    }
+    return {
+      userId: String(row.user_id),
+      exp: Number(row.exp || 0),
+      level: Number(row.level || 1),
+      checkinStreak: Number(row.checkin_streak || 0),
+      lastCheckinDay: row.last_checkin_day || null,
+      totalStamps: Number(row.total_stamps || 0),
+      updatedAt: Number(row.updated_at || 0),
+    };
+  }
+
+  async getUserSummary(userId, nowSec = Math.floor(Date.now() / 1000), { hasPredictionBet = false } = {}) {
+    const uid = String(userId || '').trim();
+    if (!uid) throw new GrowthError('BAD_REQUEST', 'userId required');
+    const todayStr = utcDayFromSec(nowSec);
+    const u = await this._getUserRow(uid);
+
+    const claimsRes = await this.db
+      .prepare("SELECT task_key, period_key FROM user_task_claims WHERE user_id = ? AND (period_key = ? OR period_key = 'ONCE' OR task_key = 'daily_prediction')")
+      .bind(uid, todayStr)
+      .all();
+
+    const todayClaims = [];
+    const onceClaims = [];
+    let hasEverPredicted = Boolean(hasPredictionBet);
+    for (const c of claimsRes?.results || []) {
+      if (c.period_key === todayStr) todayClaims.push(String(c.task_key));
+      if (c.period_key === 'ONCE') onceClaims.push(String(c.task_key));
+      if (c.task_key === 'daily_prediction') hasEverPredicted = true;
+    }
+
+    return buildProgressionSummary({
+      userId: uid,
+      exp: u.exp,
+      checkinStreak: u.checkinStreak,
+      lastCheckinDay: u.lastCheckinDay,
+      totalStamps: u.totalStamps,
+      todayStr,
+      todayClaims,
+      onceClaims,
+      hasPredictionBet,
+      hasEverPredicted,
+    });
+  }
+
+  async claimTask({ userId, taskKey, hasPredictionBet = false }, nowSec = Math.floor(Date.now() / 1000)) {
+    const uid = String(userId || '').trim();
+    const tKey = String(taskKey || '').trim();
+    if (!uid || !tKey) throw new GrowthError('BAD_REQUEST', 'userId and taskKey required');
+    const task = PROGRESSION_TASKS[tKey];
+    if (!task) throw new GrowthError('UNKNOWN_TASK', `unknown progression task: ${tKey}`);
+
+    const todayStr = utcDayFromSec(nowSec);
+    const periodKey = task.periodType === 'ONCE' ? 'ONCE' : todayStr;
+
+    const existing = await this.db
+      .prepare('SELECT 1 AS hit FROM user_task_claims WHERE user_id = ? AND task_key = ? AND period_key = ?')
+      .bind(uid, tKey, periodKey)
+      .first();
+    if (existing) {
+      throw new GrowthError('ALREADY_CLAIMED', '该手账印章已盖章领取，不可重复领取');
+    }
+
+    const u = await this._getUserRow(uid);
+    const curStreak = computeEffectiveStreak(u.checkinStreak, u.lastCheckinDay, todayStr);
+
+    if (tKey === 'daily_prediction' && !hasPredictionBet) {
+      throw new GrowthError('TASK_PREREQUISITE_UNMET', '请先参与本轮 0 GRAM 24H 达标竞猜后再盖章');
+    }
+    if (tKey === 'daily_full_bonus') {
+      const cntRow = await this.db
+        .prepare(
+          `SELECT COUNT(DISTINCT task_key) AS cnt FROM user_task_claims
+           WHERE user_id = ? AND period_key = ? AND task_key IN ('daily_checkin', 'daily_prediction', 'daily_observe', 'daily_share')`,
+        )
+        .bind(uid, todayStr)
+        .first();
+      if (Number(cntRow?.cnt || 0) < DAILY_STAMP_KEYS.length) {
+        throw new GrowthError('TASK_PREREQUISITE_UNMET', '集齐今日全部 4 枚日常印章后方可领取满章加赠');
+      }
+    }
+    if (tKey === 'ach_first_stamp' && u.totalStamps < 1) {
+      throw new GrowthError('TASK_PREREQUISITE_UNMET', '需至少完成 1 次手账盖章后解锁');
+    }
+    if (tKey === 'ach_streak_3' && curStreak < 3) {
+      throw new GrowthError('TASK_PREREQUISITE_UNMET', '连续打卡满 3 天后解锁');
+    }
+    if (tKey === 'ach_pred_pioneer') {
+      let hasEverPred = Boolean(hasPredictionBet);
+      if (!hasEverPred) {
+        const predClaim = await this.db
+          .prepare("SELECT 1 AS hit FROM user_task_claims WHERE user_id = ? AND task_key = 'daily_prediction' LIMIT 1")
+          .bind(uid)
+          .first();
+        hasEverPred = Boolean(predClaim);
+      }
+      if (!hasEverPred) {
+        throw new GrowthError('TASK_PREREQUISITE_UNMET', '需完成至少 1 次 24H 达标竞猜后解锁');
+      }
+    }
+    if (tKey === 'ach_stamp_10' && u.totalStamps < 10) {
+      throw new GrowthError('TASK_PREREQUISITE_UNMET', '累计集齐 10 枚手账印章后解锁');
+    }
+
+    // 原子唯一插入防并发重复发奖：仅当 INSERT OR IGNORE 实际写入 1 行时才累加 EXP
+    const ins = await this.db
+      .prepare(
+        `INSERT OR IGNORE INTO user_task_claims (user_id, task_key, period_key, exp_awarded, claimed_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .bind(uid, tKey, periodKey, task.exp, nowSec)
+      .run();
+    const changed = Number(ins?.meta?.changes ?? ins?.changes ?? 0);
+    if (changed !== 1) {
+      throw new GrowthError('ALREADY_CLAIMED', '该手账印章已盖章领取，不可重复领取');
+    }
+
+    let nextStreak = u.checkinStreak;
+    let nextCheckinDay = u.lastCheckinDay;
+    if (tKey === 'daily_checkin') {
+      if (u.lastCheckinDay === todayStr) {
+        nextStreak = Math.max(1, u.checkinStreak);
+      } else if (u.lastCheckinDay === prevUtcDay(todayStr)) {
+        nextStreak = u.checkinStreak + 1;
+      } else {
+        nextStreak = 1;
+      }
+      nextCheckinDay = todayStr;
+    }
+
+    const nextExp = u.exp + task.exp;
+    const nextLevel = levelFromExp(nextExp);
+    const stampDelta = task.kind === 'daily' ? 1 : 0;
+    const nextStamps = u.totalStamps + stampDelta;
+
+    await this.db
+      .prepare(
+        `INSERT INTO user_progression (user_id, exp, level, checkin_streak, last_checkin_day, total_stamps, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET
+           exp = user_progression.exp + ?,
+           level = (user_progression.exp + ?) / 200 + 1,
+           checkin_streak = ?,
+           last_checkin_day = ?,
+           total_stamps = user_progression.total_stamps + ?,
+           updated_at = ?`,
+      )
+      .bind(
+        uid,
+        nextExp,
+        nextLevel,
+        nextStreak,
+        nextCheckinDay,
+        nextStamps,
+        nowSec,
+        task.exp,
+        task.exp,
+        nextStreak,
+        nextCheckinDay,
+        stampDelta,
+        nowSec,
+      )
+      .run();
+
+    return {
+      claimedTask: tKey,
+      periodKey,
+      expAwarded: task.exp,
+      progression: await this.getUserSummary(uid, nowSec, { hasPredictionBet }),
+    };
   }
 }
 

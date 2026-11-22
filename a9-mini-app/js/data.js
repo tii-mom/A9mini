@@ -8,7 +8,7 @@
  */
 
 import { config, apiUrl } from './config.js';
-import { demoFixture, demoPredictionRound, demoPredictionUser, demoPredictionBet, demoPredictionActivate } from './demo-data.js';
+import { demoFixture, demoPredictionRound, demoPredictionUser, demoPredictionBet, demoPredictionActivate, demoProgressionUser, demoProgressionClaim } from './demo-data.js';
 import { A9TMA } from './tma.js';
 
 /** 与 A9mini/worker 后端契约保持一致的统一端点表。 */
@@ -28,6 +28,8 @@ export const ENDPOINTS = Object.freeze({
   predictionRound: (id) => `/api/prediction/round/${encodeURIComponent(id)}`,
   predictionUser: (userId, roundId) => `/api/prediction/user/${encodeURIComponent(userId)}${roundId !== undefined && roundId !== null ? `?roundId=${encodeURIComponent(roundId)}` : ''}`,
   predictionActivate: '/api/prediction/activate',
+  progressionMe: (roundId) => `/api/progression/me${roundId !== undefined && roundId !== null ? `?roundId=${encodeURIComponent(roundId)}` : ''}`,
+  progressionClaim: '/api/progression/claim',
   userProfile: (wallet) => `/api/user/${encodeURIComponent(wallet)}`,
   presaleIntent: '/api/presale/intent',
   warmupRegister: '/api/warmup/register',
@@ -352,6 +354,31 @@ export async function activatePredictionReward(userId, walletAddress) {
   return request(ENDPOINTS.predictionActivate, {
     method: 'POST',
     body: { userId: String(userId), walletAddress: String(walletAddress) }
+  });
+}
+
+/** 阶段三：手账集章成长进度读取（非金融成长数据） */
+export async function fetchProgressionUser(userId, roundId = null) {
+  if (config.isDemo) return demoProgressionUser(userId || 'demo_user_01', roundId);
+  if (!A9TMA.getRawInitData()) return null;
+  return request(ENDPOINTS.progressionMe(roundId));
+}
+
+/** 阶段三：手账集章任务与成就领取（服务端幂等防重领） */
+export async function claimProgressionTask({ userId, taskKey, roundId = null }) {
+  if (config.isDemo) {
+    try {
+      return demoProgressionClaim({ userId: userId || 'demo_user_01', taskKey, roundId });
+    } catch (e) {
+      throw new ApiError('DEMO_CLAIM_ERR', e.message);
+    }
+  }
+  if (!A9TMA.getRawInitData()) {
+    throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开以完成手账盖章');
+  }
+  return request(ENDPOINTS.progressionClaim, {
+    method: 'POST',
+    body: { taskKey: String(taskKey), roundId: roundId ? Number(roundId) : null }
   });
 }
 

@@ -1,11 +1,11 @@
-import { fetchUserPortfolio } from '../data.js';
+import { fetchUserPortfolio, fetchProgressionUser, claimProgressionTask, getEffectiveUserId } from '../data.js';
 import { L } from '../i18n.js';
 import { config } from '../config.js';
 import { store } from '../store.js';
 import { icon } from '../icons.js';
-import { A9Haptic } from '../tma.js';
+import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
-import { burstParticles, formatNum, formatTimer, renderLiveSparkline } from '../components.js';
+import { burstParticles, formatNum, formatTimer, renderLiveSparkline, showToast } from '../components.js';
 import { DIORAMA_BACKDROP, CITY_SANDTABLE_BACKDROP } from '../paper-art.js';
 import { tiers, characterArt } from '../wealth-art.js';
 
@@ -40,6 +40,157 @@ function unlockPctByWins(n) {
   if (n <= 5) return '20%';
   if (n <= 10) return '40%';
   return '100%';
+}
+
+function handbookLevelTitle(lv) {
+  const n = Math.max(1, Number(lv) || 1);
+  const titles = [
+    ['折纸旅人', 'Paper Traveler'],
+    ['集章学徒', 'Stamp Apprentice'],
+    ['手账记录员', 'Logbook Keeper'],
+    ['沙盘绘制师', 'Sandtable Crafter'],
+    ['金箔典藏家', 'Foil Collector'],
+  ];
+  return L(...titles[Math.min(titles.length - 1, n - 1)]);
+}
+
+/**
+ * 阶段三：主城手账集章卡（Handbook Stamp Card）
+ * - 每日 4 枚手盖橡皮圆章（打卡 / 0 GRAM 竞猜 / 24H 巡视 / 纸艺分享）+ 满章加赠 + 成长等级与成就徽章
+ * - 显式标明：非链上代币资产，不可交易或直接兑换 A9 / GRAM
+ */
+export function renderHandbookStampCard() {
+  const prog = store.state.progression || {};
+  const r = store.state.round;
+  const pred = store.state.prediction;
+  const hasTgAuth = config.isDemo || Boolean(A9TMA.getRawInitData());
+
+  if (!config.isDemo && !hasTgAuth) {
+    return `
+      <section class="card handbook-stamp-card" id="a9-handbook-card">
+        <div class="row-between">
+          <div class="card-title">${icon('checkCircle', 15, 'text-green')} ${L('主城集章手账', 'City Stamp Logbook')}</div>
+          <span class="chip chip-muted">${L('游戏成长数据', 'In-Game EXP')}</span>
+        </div>
+        <p class="num-xs text-sec" style="margin:8px 0 0;line-height:1.5;">${L('请在 Telegram 小程序内打开以同步你的每日集章进度、连续打卡天数与手账等级（非代币资产，不可兑换 A9/GRAM）。', 'Open inside Telegram Mini App to sync your daily stamps, streak and handbook level (non-financial growth data).')}</p>
+      </section>
+    `;
+  }
+
+  if (!config.isDemo && prog.error) {
+    return `
+      <section class="card handbook-stamp-card" id="a9-handbook-card">
+        <div class="row-between">
+          <div class="card-title">${icon('shieldAlert', 15, 'text-red')} ${L('主城集章手账', 'City Stamp Logbook')}</div>
+          <button class="btn btn-secondary btn-sm" id="btn-prog-retry" type="button">${L('重试读取', 'Retry')}</button>
+        </div>
+        <p class="num-xs text-muted" style="margin:6px 0 0;">${L('手账集章数据暂不可读取，请点击重试。', 'Handbook progression unavailable. Tap to retry.')}</p>
+      </section>
+    `;
+  }
+
+  const todaySet = new Set(Array.isArray(prog.todayClaims) ? prog.todayClaims : []);
+  const achClaimed = new Set(Array.isArray(prog.achievementsClaimed) ? prog.achievementsClaimed : []);
+  const unlockableAch = Array.isArray(prog.unlockableAchievements) ? prog.unlockableAchievements : [];
+  const hasPredBet = Boolean(pred?.currentBet);
+
+  const dailyTasks = [
+    {
+      key: 'daily_checkin',
+      zh: '主城打卡',
+      en: 'Check-in',
+      exp: 30,
+      done: todaySet.has('daily_checkin'),
+      actionZh: '盖打卡章',
+      actionEn: 'Stamp',
+    },
+    {
+      key: 'daily_prediction',
+      zh: '达标竞猜',
+      en: '24H Guess',
+      exp: 50,
+      done: todaySet.has('daily_prediction'),
+      actionZh: hasPredBet ? '盖竞猜章' : '先去竞猜',
+      actionEn: hasPredBet ? 'Stamp' : 'Go Guess',
+    },
+    {
+      key: 'daily_observe',
+      zh: '24H 巡视',
+      en: '24H Inspect',
+      exp: 30,
+      done: todaySet.has('daily_observe'),
+      actionZh: '盖巡视章',
+      actionEn: 'Stamp',
+    },
+    {
+      key: 'daily_share',
+      zh: '纸艺分享',
+      en: 'Share Card',
+      exp: 40,
+      done: todaySet.has('daily_share'),
+      actionZh: '盖分享章',
+      actionEn: 'Stamp',
+    },
+  ];
+
+  const achLabels = {
+    ach_first_stamp: [L('初入手账', 'First Stamp'), 50],
+    ach_streak_3:    [L('三日连签', '3d Streak'), 120],
+    ach_pred_pioneer:[L('竞猜观星', 'Predictor'), 100],
+    ach_stamp_10:    [L('十章典藏', '10 Stamps'), 200],
+  };
+
+  const fullBonusReady = prog.allDailyStampsDone && !prog.dailyFullBonusClaimed;
+  const nextAchKey = unlockableAch[0] || null;
+
+  return `
+    <section class="card handbook-stamp-card" id="a9-handbook-card" data-round="${r.currentRound ?? 1}">
+      <div class="row-between" style="margin-bottom:6px;">
+        <div class="row-start" style="gap:6px;flex-wrap:wrap;">
+          <strong class="card-title">${L('主城集章手账', 'City Stamp Logbook')}</strong>
+          <span class="chip chip-gold">Lv.${prog.level || 1} · ${handbookLevelTitle(prog.level)}</span>
+        </div>
+        <span class="chip chip-muted mono">${L('连签', 'Streak')} ${prog.checkinStreak || 0}${L('天', 'd')} · ${prog.dailyDoneCount || 0}/4</span>
+      </div>
+
+      <div class="row-between num-xs text-muted" style="margin-bottom:4px;">
+        <span>${L('手账经验', 'Handbook EXP')} <b class="mono" style="color:var(--ink);">${prog.exp || 0} EXP</b>（${prog.currentLevelExp || 0}/${prog.expPerLevel || 200}）</span>
+        <span>${L('游戏内成长 · 非代币资产', 'In-game growth · non-token')}</span>
+      </div>
+      <div class="progress-track" style="height:6px;margin-bottom:10px;">
+        <div class="progress-fill" style="width:${prog.progressPct || 0}%"></div>
+      </div>
+
+      <div class="handbook-stamp-grid" role="group" aria-label="${L('每日集章任务', 'Daily stamp missions')}">
+        ${dailyTasks.map((t) => `
+          <button type="button" class="handbook-stamp-cell ${t.done ? 'stamped' : ''}"
+            data-stamp-task="${t.key}"
+            aria-pressed="${t.done}">
+            <span class="handbook-seal" aria-hidden="true">${t.done ? '✓' : '+'}</span>
+            <strong class="handbook-task-name">${L(t.zh, t.en)}</strong>
+            <small class="handbook-task-meta">${t.done ? L('已盖章', 'Stamped') : `+${t.exp} EXP`}</small>
+          </button>
+        `).join('')}
+      </div>
+
+      ${fullBonusReady ? `
+        <button type="button" class="btn btn-primary btn-sm" data-stamp-task="daily_full_bonus" style="width:100%;margin-top:10px;min-height:38px;">
+          ${icon('checkCircle', 14)} ${L('今日 4 章集齐 · 领取满章加赠 (+80 EXP)', 'All 4 Stamps Done · Claim +80 EXP Bonus')}
+        </button>
+      ` : nextAchKey && achLabels[nextAchKey] ? `
+        <button type="button" class="btn btn-secondary btn-sm" data-stamp-task="${nextAchKey}" style="width:100%;margin-top:10px;min-height:38px;border-color:var(--nt-gold-edge);background:var(--nt-gold-soft);">
+          ${icon('trophy', 14, 'text-gold')} ${L(`解锁成就印章「${achLabels[nextAchKey][0]}」(+${achLabels[nextAchKey][1]} EXP)`, `Claim Achievement "${achLabels[nextAchKey][0]}" (+${achLabels[nextAchKey][1]} EXP)`)}
+        </button>
+      ` : ''}
+
+      <div class="handbook-ach-row" aria-label="${L('成就印章图鉴', 'Achievement stamps')}">
+        ${Object.entries(achLabels).map(([key, [label]]) => {
+          const owned = achClaimed.has(key);
+          return `<span class="handbook-ach-pill ${owned ? 'owned' : ''}">${owned ? '✓ ' : ''}${label}</span>`;
+        }).join('')}
+      </div>
+    </section>
+  `;
 }
 
 /**
@@ -291,6 +442,8 @@ export function city() {
 
     <div class="section-kicker">${L('更多参与与生态进展', 'MORE ACTIVITIES & PROTOCOL')}</div>
 
+    ${renderHandbookStampCard()}
+
     <div class="card clickable city-pred-card" id="city-pred-jump" role="button" tabindex="0">
       <div class="row-between">
         <div class="row-start">
@@ -329,9 +482,113 @@ export function city() {
   </section>`;
 }
 
-/** 渲染主城并绑定 24H 预言直达交互 */
+function repaintHandbookCard(root, navigate) {
+  const cardEl = root.querySelector('#a9-handbook-card');
+  if (!cardEl) return;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = renderHandbookStampCard().trim();
+  const nextEl = wrap.firstElementChild;
+  if (nextEl) {
+    cardEl.replaceWith(nextEl);
+    bindHandbookStampEvents(root, navigate);
+  }
+}
+
+export async function syncProgressionState(root, navigate) {
+  const { round, user } = store.state;
+  const uid = getEffectiveUserId(user);
+  const roundId = round.currentRound || 1;
+  try {
+    const data = await fetchProgressionUser(uid, roundId);
+    if (!data) return;
+    store.update((s) => {
+      Object.assign(s.progression, data, { loaded: true, error: false });
+    });
+    if (root && root.isConnected) repaintHandbookCard(root, navigate);
+  } catch {
+    store.update((s) => {
+      s.progression.error = true;
+    });
+    if (root && root.isConnected) repaintHandbookCard(root, navigate);
+  }
+}
+
+function bindHandbookStampEvents(root, navigate) {
+  const card = root.querySelector('#a9-handbook-card');
+  if (!card) return;
+  const retryBtn = card.querySelector('#btn-prog-retry');
+  if (retryBtn) {
+    retryBtn.onclick = () => {
+      A9Haptic.light();
+      syncProgressionState(root, navigate);
+    };
+  }
+
+  card.querySelectorAll('[data-stamp-task]').forEach((btn) => {
+    btn.onclick = async () => {
+      const taskKey = btn.dataset.stampTask;
+      if (!taskKey) return;
+      const todaySet = new Set(store.state.progression?.todayClaims || []);
+      const achSet = new Set(store.state.progression?.achievementsClaimed || []);
+      if (todaySet.has(taskKey) || achSet.has(taskKey)) {
+        A9Haptic.light();
+        showToast(L('该印章已盖章领取', 'Stamp already claimed'));
+        return;
+      }
+
+      // 若点击 0 GRAM 竞猜章但本轮尚未提交竞猜，直接引导跳转到挑战页竞猜卡
+      if (taskKey === 'daily_prediction' && !store.state.prediction?.currentBet) {
+        A9Haptic.light();
+        A9Audio.tick();
+        store.state.referral.pendingScrollTarget = 'prediction';
+        showToast(L('请先完成本轮 0 GRAM 24H 达标竞猜后盖章', 'Complete your 0 GRAM 24H prediction first'));
+        if (navigate) navigate('/round');
+        else window.location.hash = '#/round';
+        return;
+      }
+
+      const uid = getEffectiveUserId(store.state.user);
+      const roundId = store.state.round.currentRound || 1;
+      btn.disabled = true;
+      try {
+        const res = await claimProgressionTask({ userId: uid, taskKey, roundId });
+        A9Haptic.success();
+        A9Audio.stamp();
+        burstParticles(btn);
+        if (res?.progression) {
+          store.update((s) => {
+            Object.assign(s.progression, res.progression, { loaded: true, error: false });
+          });
+        }
+        showToast(L(`已盖章 · +${res?.expAwarded || 0} EXP（手账成长数据）`, `Stamped · +${res?.expAwarded || 0} EXP`));
+        if (root.isConnected) {
+          repaintHandbookCard(root, navigate);
+          const stampedBtn = root.querySelector(`[data-stamp-task="${taskKey}"]`);
+          if (stampedBtn) {
+            stampedBtn.classList.add('anim-slot-confirmed');
+            setTimeout(() => stampedBtn.classList.remove('anim-slot-confirmed'), 260);
+          }
+        }
+      } catch (e) {
+        A9Haptic.error();
+        showToast(e?.message || L('盖章失败，请重试', 'Stamp failed, please retry'), 'amber');
+        btn.disabled = false;
+      }
+    };
+  });
+}
+
+/** 渲染主城并绑定手账集章与 24H 竞猜直达交互 */
 export function renderCity(root, navigate) {
+  if (config.isDemo && !store.state.progression.loaded) {
+    const uid = getEffectiveUserId(store.state.user);
+    const data = demoProgressionInitSnapshot(uid, store.state.round.currentRound || 3);
+    Object.assign(store.state.progression, data, { loaded: true, error: false });
+  }
   root.innerHTML = city();
+  bindHandbookStampEvents(root, navigate);
+  syncProgressionState(root, navigate);
+
   const predCard = root.querySelector('#city-pred-jump');
   if (predCard) {
     const goPred = () => {
@@ -349,6 +606,26 @@ export function renderCity(root, navigate) {
       }
     };
   }
+}
+
+function demoProgressionInitSnapshot(uid, roundId) {
+  return {
+    exp: 160,
+    level: 1,
+    expPerLevel: 200,
+    currentLevelExp: 160,
+    nextLevelExp: 200,
+    progressPct: 80,
+    checkinStreak: 2,
+    totalStamps: 5,
+    dailyDoneCount: 1,
+    dailyTotalCount: 4,
+    allDailyStampsDone: false,
+    dailyFullBonusClaimed: false,
+    todayClaims: ['daily_observe'],
+    achievementsClaimed: ['ach_first_stamp'],
+    unlockableAchievements: []
+  };
 }
 
 /** 身份图鉴（#/gallery）：精简顶部展示台高度，下方 3×3 统一缩略图一屏易选 */
