@@ -1,3 +1,4 @@
+Code commit: 74c2457450de85eb73cc4bcba0d510b6b63463a8
 Node v24.22.3; NODE_OPTIONS=--preserve-symlinks --preserve-symlinks-main (needed only inside the AWS Quick sandbox)
 
 $ node worker/tests/worker.test.mjs
@@ -9,7 +10,7 @@ Running A9 v15 worker unit tests...
   PASS  TonCenterClient parses v15 get_protocol_state, get_round, and finalized inbound txs
   PASS  PromoPayoutRunner polls 0.06 TON inbound fee, pays A9 with excesses to hot wallet, and ignores replays
   PASS  createActonPromoBroadcaster passes --net and parses PROMO_PAYOUT_TX cleanly
-  PASS  PresaleHotWalletEngine handles valid fill, passive free refund, user-fault -0.05 GRAM refund, and dust ignore
+  PASS  PresaleHotWalletEngine handles valid fill, passive free refund, no-order anomaly (no auto fee), and dust ignore
   PASS  SocialStore handles warmup registration, invite leaderboard, and captain TG-group binding
   PASS  PredictionEngine settles PASS/BURN with 1.5x exact-slot boost and activates into promoEngine
   PASS  Dynamic OG card routes /c/round/1 and /c/img/burn/2.svg render valid HTML & SVG
@@ -27,6 +28,7 @@ All 19 A9 v15 worker tests passed.
 
 $ node worker/tests/p0-security.test.mjs
 (exit 0)
+  SKIP  [d1-miniflare] backend: `miniflare` not installed (npm i -D miniflare to run against real D1/workerd)
 Running phase-1 P0 security tests...
   PASS  initData signed with a different bot token is rejected (forged Telegram identity)
   PASS  editing the user id inside correctly signed initData breaks the signature
@@ -36,7 +38,11 @@ Running phase-1 P0 security tests...
   PASS  user A cannot read, claim or order with user B's wallet (body / path wallet ignored)
   PASS  repeated referral submissions keep the first-touch referrer; self-referral ignored
   PASS  non-captain cannot bind a team group; a typed @handle is reported as verifying, never bound
-  PASS  ton_proof: server payload + wallet signature binds wallet; replay, wrong domain, wrong key, foreign payload and double-binding refused
+  PASS  ton_proof: 4 REAL wallet replies (v3r1/v4r2 mainnet, v4r2/v5beta testnet) verify: StateInit hash == address, key from StateInit == reported key
+  PASS  ton_proof negatives on real vectors: wrong network, tampered signature/payload/timestamp, swapped StateInit, wrong reported key, chain key mismatch, foreign domain
+  PASS  ton_proof API: single-use payload, bound to the requesting Telegram user, wallet bound once; payload replay / foreign payload / wrong key / double-binding refused
+  PASS  wallet switch is delayed and cancellable by the current wallet; unbind needs the current wallet; disconnect is not unbind
+  PASS  initData replay: a replayed (stolen) initData is valid until expiry but cannot redirect funds or rebind instantly
   PASS  exact decimal money: 1.99 / 5.99 / 13.99 GRAM x 2,002 = 3,983.98 / 11,991.98 / 28,007.98 A9
   PASS  [memory] min/max boundaries; 1.99 GRAM rejected under current 5 GRAM minimum; amounts stored exactly
   PASS  [memory] duplicate inbound tx is a no-op; memo alone (wrong sender / wrong amount) never confirms
@@ -45,6 +51,7 @@ Running phase-1 P0 security tests...
   PASS  [memory] dry-run runner writes nothing and never calls a broadcaster
   PASS  [memory] concurrent orders cannot oversell wallet quota or pool cap
   PASS  [memory] expired order paid late -> passive full refund; refund broadcast failure retries then confirms
+  PASS  [memory] anomaly resolution: SYSTEM/UNKNOWN fault = full refund to the payer; USER fee only with a published rule; resolves exactly once
   PASS  [memory] referral reward booked once; crash while crediting goes to review, never double-credits
   PASS  [d1-sqlite] min/max boundaries; 1.99 GRAM rejected under current 5 GRAM minimum; amounts stored exactly
   PASS  [d1-sqlite] duplicate inbound tx is a no-op; memo alone (wrong sender / wrong amount) never confirms
@@ -53,22 +60,24 @@ Running phase-1 P0 security tests...
   PASS  [d1-sqlite] dry-run runner writes nothing and never calls a broadcaster
   PASS  [d1-sqlite] concurrent orders cannot oversell wallet quota or pool cap
   PASS  [d1-sqlite] expired order paid late -> passive full refund; refund broadcast failure retries then confirms
+  PASS  [d1-sqlite] anomaly resolution: SYSTEM/UNKNOWN fault = full refund to the payer; USER fee only with a published rule; resolves exactly once
   PASS  [d1-sqlite] referral reward booked once; crash while crediting goes to review, never double-credits
   PASS  [d1-sqlite] restart after broadcast: new process resumes from DB, confirms without re-sending
   PASS  [d1-sqlite] migration from the v15 baseline keeps legacy rows; legacy PAID_A9 is not treated as confirmed
   PASS  ineligible user (payout only broadcast, not confirmed) cannot activate A9 prediction reward
   PASS  D1 social store: typed group handle stays verifying (no fake "bound")
-All 30 phase-1 P0 security tests passed.
+  PASS  admin anomaly API requires the admin token and resolves with an audit trail
+All 37 phase-1 P0 security tests passed.
 
 
 $ node a9-mini-app/js/batch-a-live-guard.test.mjs
 (exit 0)
-✔ Production blocks arbitrary ?api= URL override while preserving deployed apiBase (39.182125ms)
-✔ Production allows ?api= only when origin is explicitly allowlisted (37.341041ms)
-✔ Local dev preserves loopback ?api= override but rejects remote untrusted origin and bad protocols (112.329084ms)
-✔ Live mode blocks all wallet sends and fund order requests even with connected wallet (46.362333ms)
-✔ Demo mode NEVER triggers real wallet sendTransaction even when wallet SDK is connected (43.730167ms)
-✔ Telegram deep-link parser sanitizes untrusted start_param values (35.910542ms)
+✔ Production blocks arbitrary ?api= URL override while preserving deployed apiBase (36.479792ms)
+✔ Production allows ?api= only when origin is explicitly allowlisted (35.268625ms)
+✔ Local dev preserves loopback ?api= override but rejects remote untrusted origin and bad protocols (106.337041ms)
+✔ Live mode blocks all wallet sends and fund order requests even with connected wallet (44.430833ms)
+✔ Demo mode NEVER triggers real wallet sendTransaction even when wallet SDK is connected (42.081459ms)
+✔ Telegram deep-link parser sanitizes untrusted start_param values (34.822083ms)
 ℹ tests 6
 ℹ suites 0
 ℹ pass 6
@@ -76,7 +85,7 @@ $ node a9-mini-app/js/batch-a-live-guard.test.mjs
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 318.660084
+ℹ duration_ms 303.468375
 
 
 $ node a9-mini-app/js/v15-tx.test.mjs
