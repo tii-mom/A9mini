@@ -1,0 +1,234 @@
+# A9mini 第一阶段验收第 2 轮测试原始输出
+Date: 2026-11-22T13:53:22+08:00
+Node: v24.22.3
+Python: Python 3.9.6
+Branch: feat/gamification-v1
+Tested Commit SHA: a91b6261f1cf947589600e39bb34388741e5d525
+
+================================================================
+1. node worker/tests/worker.test.mjs
+================================================================
+Running A9 v15 worker unit tests...
+  PASS  v15 round stage derives STAKING_OPEN -> OBSERVING -> SUCCEEDED without CloseStaking/Settling
+  PASS  promo hot-wallet full flow: 0.06 TON fee -> finalized verify -> TEP-74 payout with excesses back to hot wallet
+  PASS  API router serves /api/health, /api/config, /api/rounds/:id, and authenticated /api/promo/intent
+  PASS  TonCenterClient parses v15 get_protocol_state, get_round, and finalized inbound txs
+  PASS  PromoPayoutRunner polls 0.06 TON inbound fee, pays A9 with excesses to hot wallet, and ignores replays
+  PASS  createActonPromoBroadcaster passes --net and parses PROMO_PAYOUT_TX cleanly
+  PASS  PresaleHotWalletEngine handles valid fill, passive free refund, no-order anomaly (no auto fee), and dust ignore
+  PASS  SocialStore handles warmup registration, invite leaderboard, and captain TG-group binding
+  PASS  PredictionEngine settles PASS/BURN with 1.5x exact-slot boost and activates into promoEngine
+  PASS  Dynamic OG card routes /c/round/1 and /c/img/burn/2.svg render valid HTML & SVG
+  PASS  TonCenterClient encodes/decodes TON address BOC and reads user JettonWallet + StakeTicket
+  PASS  PresalePayoutRunner polls buy:<id> finalized GRAM, broadcasts A9 payout, confirms, and ignores replays
+  PASS  First-touch referral binding blocks self/mutual invites and credits 12% presale commission only after confirmed payout
+  PASS  POST /api/prediction/activate enforces anti-sybil capital check and voucher expiry
+  PASS  PredictionEngine applies up to 2.0x invite+exact boost and returns streak, winRate, pendingExpiresAt, winningSide
+  PASS  GET /c/img/burn/2.png returns valid PNG (1200x630 & 9x16 1080x1920) and /c/burn/2 points og:image to .png
+  PASS  D1PromoStore.creditReward preserves BigInt precision across multiple credits
+  PASS  POST /api/admin/prediction/settle rejects unauthorized calls (401) and settles with valid admin token
+  PASS  D1 full-stack persistence loop (real SQLite): bindReferral -> placeBet -> admin settle -> COMPLETED exchange + 12% credit -> activateToPromo
+All 19 A9 v15 worker tests passed.
+
+================================================================
+2. node worker/tests/p0-security.test.mjs (memory + d1-sqlite)
+================================================================
+  SKIP  [d1-miniflare] backend: `miniflare` not installed (npm i -D miniflare to run against real D1/workerd)
+Running phase-1 P0 security tests...
+  PASS  initData signed with a different bot token is rejected (forged Telegram identity)
+  PASS  editing the user id inside correctly signed initData breaks the signature
+  PASS  expired / future auth_date and missing initData are rejected; missing bot token fails closed
+  PASS  client-supplied userId never selects the account (prediction bet / record / activation)
+  PASS  unverified wallet cannot read or act on private assets; public on-chain view hides private parts
+  PASS  user A cannot read, claim or order with user B's wallet (body / path wallet ignored)
+  PASS  repeated referral submissions keep the first-touch referrer; self-referral ignored
+  PASS  non-captain cannot bind a team group; a typed @handle is reported as verifying, never bound
+  PASS  ton_proof: 4 REAL wallet replies (v3r1/v4r2 mainnet, v4r2/v5beta testnet) verify: StateInit hash == address, key from StateInit == reported key
+  PASS  ton_proof negatives on real vectors: wrong network, tampered signature/payload/timestamp, swapped StateInit, wrong reported key, chain key mismatch, foreign domain
+  PASS  ton_proof API: single-use payload, bound to the requesting Telegram user, wallet bound once; payload replay / foreign payload / wrong key / double-binding refused
+  PASS  wallet switch is delayed and cancellable by the current wallet; unbind needs the current wallet; disconnect is not unbind
+  PASS  initData replay: a replayed (stolen) initData is valid until expiry but cannot redirect funds or rebind instantly
+  PASS  exact decimal money: 1.99 / 5.99 / 13.99 GRAM x 2,002 = 3,983.98 / 11,991.98 / 28,007.98 A9
+  PASS  [memory] min/max boundaries; 1.99 GRAM rejected under current 5 GRAM minimum; amounts stored exactly
+  PASS  [memory] duplicate inbound tx is a no-op; memo alone (wrong sender / wrong amount) never confirms
+  PASS  [memory] payment confirmed but broadcast fails: order stays retryable, then completes with exactly one payout
+  PASS  [memory] ambiguous broadcast failure is never blindly re-sent (verifier or manual review)
+  PASS  [memory] dry-run runner writes nothing and never calls a broadcaster
+  PASS  [memory] concurrent orders cannot oversell wallet quota or pool cap
+  PASS  [memory] expired order paid late -> passive full refund; refund broadcast failure retries then confirms
+  PASS  [memory] anomaly resolution (P0-D): zero fee when unpublished for USER/SYSTEM/UNKNOWN; fee only for USER when published; resolves once
+  PASS  [memory] referral reward booked once; crash while crediting goes to review, never double-credits
+  PASS  [memory] P0-A: PresalePayoutRunner.tick() classifies all 8 inbound types without dropping or misclassifying promo claims
+  PASS  [memory] P0-B & P0-C: B/C wrong-payer refunds never touch A's order or quota; duplicate refund never alters COMPLETED order
+  PASS  [memory] P0-I: expiry-vs-arrival race cannot oversell pool; NEEDS_REVIEW is never auto-retried; ledger balances exactly
+  PASS  [d1-sqlite] min/max boundaries; 1.99 GRAM rejected under current 5 GRAM minimum; amounts stored exactly
+  PASS  [d1-sqlite] duplicate inbound tx is a no-op; memo alone (wrong sender / wrong amount) never confirms
+  PASS  [d1-sqlite] payment confirmed but broadcast fails: order stays retryable, then completes with exactly one payout
+  PASS  [d1-sqlite] ambiguous broadcast failure is never blindly re-sent (verifier or manual review)
+  PASS  [d1-sqlite] dry-run runner writes nothing and never calls a broadcaster
+  PASS  [d1-sqlite] concurrent orders cannot oversell wallet quota or pool cap
+  PASS  [d1-sqlite] expired order paid late -> passive full refund; refund broadcast failure retries then confirms
+  PASS  [d1-sqlite] anomaly resolution (P0-D): zero fee when unpublished for USER/SYSTEM/UNKNOWN; fee only for USER when published; resolves once
+  PASS  [d1-sqlite] referral reward booked once; crash while crediting goes to review, never double-credits
+  PASS  [d1-sqlite] P0-A: PresalePayoutRunner.tick() classifies all 8 inbound types without dropping or misclassifying promo claims
+  PASS  [d1-sqlite] P0-B & P0-C: B/C wrong-payer refunds never touch A's order or quota; duplicate refund never alters COMPLETED order
+  PASS  [d1-sqlite] P0-I: expiry-vs-arrival race cannot oversell pool; NEEDS_REVIEW is never auto-retried; ledger balances exactly
+  PASS  [d1-sqlite] restart after broadcast: new process resumes from DB, confirms without re-sending
+  PASS  [d1-sqlite] P0-E: refund confirmation is atomic; crash at every write point recovers without double-send or orphaned state
+  PASS  [d1-sqlite] migration 0001->0004 (D5 & P0-C): real friendly-address legacy orders stay visible, count quota (OVER_QUOTA), and preserve payout rows
+  PASS  D6: PresaleEngine defaults to closed; cf-worker refuses orders unless A9_PRESALE_OPEN=1 and never falls back to promo hot wallet
+  PASS  P0-F: unknown non-standard contract with chain get_public_key is REJECTED; WalletTg requires active state + trampoline code + get_public_key
+  PASS  P0-G: without chain data source, cf-worker config/rounds/OG cards return unavailable/pending with zero fabricated numbers
+  PASS  P0-H: GET /api/team/:wallet blocks anonymous & cross-user; hides tgChatId from non-captain members
+  PASS  ineligible user (payout only broadcast, not confirmed) cannot activate A9 prediction reward
+  PASS  D1 social store: typed group handle stays verifying (no fake "bound")
+  PASS  admin anomaly API requires the admin token and resolves with an audit trail
+All 48 phase-1 P0 security tests passed.
+
+================================================================
+3. MINIFLARE_MODULE=... node worker/tests/p0-security.test.mjs (memory + d1-sqlite + real Cloudflare D1 workerd)
+================================================================
+Running phase-1 P0 security tests...
+  PASS  initData signed with a different bot token is rejected (forged Telegram identity)
+  PASS  editing the user id inside correctly signed initData breaks the signature
+  PASS  expired / future auth_date and missing initData are rejected; missing bot token fails closed
+  PASS  client-supplied userId never selects the account (prediction bet / record / activation)
+  PASS  unverified wallet cannot read or act on private assets; public on-chain view hides private parts
+  PASS  user A cannot read, claim or order with user B's wallet (body / path wallet ignored)
+  PASS  repeated referral submissions keep the first-touch referrer; self-referral ignored
+  PASS  non-captain cannot bind a team group; a typed @handle is reported as verifying, never bound
+  PASS  ton_proof: 4 REAL wallet replies (v3r1/v4r2 mainnet, v4r2/v5beta testnet) verify: StateInit hash == address, key from StateInit == reported key
+  PASS  ton_proof negatives on real vectors: wrong network, tampered signature/payload/timestamp, swapped StateInit, wrong reported key, chain key mismatch, foreign domain
+  PASS  ton_proof API: single-use payload, bound to the requesting Telegram user, wallet bound once; payload replay / foreign payload / wrong key / double-binding refused
+  PASS  wallet switch is delayed and cancellable by the current wallet; unbind needs the current wallet; disconnect is not unbind
+  PASS  initData replay: a replayed (stolen) initData is valid until expiry but cannot redirect funds or rebind instantly
+  PASS  exact decimal money: 1.99 / 5.99 / 13.99 GRAM x 2,002 = 3,983.98 / 11,991.98 / 28,007.98 A9
+  PASS  [memory] min/max boundaries; 1.99 GRAM rejected under current 5 GRAM minimum; amounts stored exactly
+  PASS  [memory] duplicate inbound tx is a no-op; memo alone (wrong sender / wrong amount) never confirms
+  PASS  [memory] payment confirmed but broadcast fails: order stays retryable, then completes with exactly one payout
+  PASS  [memory] ambiguous broadcast failure is never blindly re-sent (verifier or manual review)
+  PASS  [memory] dry-run runner writes nothing and never calls a broadcaster
+  PASS  [memory] concurrent orders cannot oversell wallet quota or pool cap
+  PASS  [memory] expired order paid late -> passive full refund; refund broadcast failure retries then confirms
+  PASS  [memory] anomaly resolution (P0-D): zero fee when unpublished for USER/SYSTEM/UNKNOWN; fee only for USER when published; resolves once
+  PASS  [memory] referral reward booked once; crash while crediting goes to review, never double-credits
+  PASS  [memory] P0-A: PresalePayoutRunner.tick() classifies all 8 inbound types without dropping or misclassifying promo claims
+  PASS  [memory] P0-B & P0-C: B/C wrong-payer refunds never touch A's order or quota; duplicate refund never alters COMPLETED order
+  PASS  [memory] P0-I: expiry-vs-arrival race cannot oversell pool; NEEDS_REVIEW is never auto-retried; ledger balances exactly
+  PASS  [d1-sqlite] min/max boundaries; 1.99 GRAM rejected under current 5 GRAM minimum; amounts stored exactly
+  PASS  [d1-sqlite] duplicate inbound tx is a no-op; memo alone (wrong sender / wrong amount) never confirms
+  PASS  [d1-sqlite] payment confirmed but broadcast fails: order stays retryable, then completes with exactly one payout
+  PASS  [d1-sqlite] ambiguous broadcast failure is never blindly re-sent (verifier or manual review)
+  PASS  [d1-sqlite] dry-run runner writes nothing and never calls a broadcaster
+  PASS  [d1-sqlite] concurrent orders cannot oversell wallet quota or pool cap
+  PASS  [d1-sqlite] expired order paid late -> passive full refund; refund broadcast failure retries then confirms
+  PASS  [d1-sqlite] anomaly resolution (P0-D): zero fee when unpublished for USER/SYSTEM/UNKNOWN; fee only for USER when published; resolves once
+  PASS  [d1-sqlite] referral reward booked once; crash while crediting goes to review, never double-credits
+  PASS  [d1-sqlite] P0-A: PresalePayoutRunner.tick() classifies all 8 inbound types without dropping or misclassifying promo claims
+  PASS  [d1-sqlite] P0-B & P0-C: B/C wrong-payer refunds never touch A's order or quota; duplicate refund never alters COMPLETED order
+  PASS  [d1-sqlite] P0-I: expiry-vs-arrival race cannot oversell pool; NEEDS_REVIEW is never auto-retried; ledger balances exactly
+  PASS  [d1-miniflare] min/max boundaries; 1.99 GRAM rejected under current 5 GRAM minimum; amounts stored exactly
+  PASS  [d1-miniflare] duplicate inbound tx is a no-op; memo alone (wrong sender / wrong amount) never confirms
+  PASS  [d1-miniflare] payment confirmed but broadcast fails: order stays retryable, then completes with exactly one payout
+  PASS  [d1-miniflare] ambiguous broadcast failure is never blindly re-sent (verifier or manual review)
+  PASS  [d1-miniflare] dry-run runner writes nothing and never calls a broadcaster
+  PASS  [d1-miniflare] concurrent orders cannot oversell wallet quota or pool cap
+  PASS  [d1-miniflare] expired order paid late -> passive full refund; refund broadcast failure retries then confirms
+  PASS  [d1-miniflare] anomaly resolution (P0-D): zero fee when unpublished for USER/SYSTEM/UNKNOWN; fee only for USER when published; resolves once
+  PASS  [d1-miniflare] referral reward booked once; crash while crediting goes to review, never double-credits
+  PASS  [d1-miniflare] P0-A: PresalePayoutRunner.tick() classifies all 8 inbound types without dropping or misclassifying promo claims
+  PASS  [d1-miniflare] P0-B & P0-C: B/C wrong-payer refunds never touch A's order or quota; duplicate refund never alters COMPLETED order
+  PASS  [d1-miniflare] P0-I: expiry-vs-arrival race cannot oversell pool; NEEDS_REVIEW is never auto-retried; ledger balances exactly
+  PASS  [d1-sqlite] restart after broadcast: new process resumes from DB, confirms without re-sending
+  PASS  [d1-sqlite] P0-E: refund confirmation is atomic; crash at every write point recovers without double-send or orphaned state
+  PASS  [d1-sqlite] migration 0001->0004 (D5 & P0-C): real friendly-address legacy orders stay visible, count quota (OVER_QUOTA), and preserve payout rows
+  PASS  [d1-miniflare] real Cloudflare D1: migration 0001->0004 (D5 & P0-C) + atomic completeRefund rollback (P0-E)
+  PASS  D6: PresaleEngine defaults to closed; cf-worker refuses orders unless A9_PRESALE_OPEN=1 and never falls back to promo hot wallet
+  PASS  P0-F: unknown non-standard contract with chain get_public_key is REJECTED; WalletTg requires active state + trampoline code + get_public_key
+  PASS  P0-G: without chain data source, cf-worker config/rounds/OG cards return unavailable/pending with zero fabricated numbers
+  PASS  P0-H: GET /api/team/:wallet blocks anonymous & cross-user; hides tgChatId from non-captain members
+  PASS  ineligible user (payout only broadcast, not confirmed) cannot activate A9 prediction reward
+  PASS  D1 social store: typed group handle stays verifying (no fake "bound")
+  PASS  admin anomaly API requires the admin token and resolves with an audit trail
+All 61 phase-1 P0 security tests passed.
+
+================================================================
+4. node a9-mini-app/js/batch-a-live-guard.test.mjs
+================================================================
+✔ Production blocks arbitrary ?api= URL override while preserving deployed apiBase (36.216542ms)
+✔ Production allows ?api= only when origin is explicitly allowlisted (35.730208ms)
+✔ Local dev preserves loopback ?api= override but rejects remote untrusted origin and bad protocols (106.564042ms)
+✔ Live mode blocks all wallet sends and fund order requests even with connected wallet (44.676417ms)
+✔ Demo mode NEVER triggers real wallet sendTransaction even when wallet SDK is connected (43.050333ms)
+✔ Telegram deep-link parser sanitizes untrusted start_param values (34.762666ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 304.9165
+
+================================================================
+5. node a9-mini-app/js/v15-tx.test.mjs
+================================================================
+Running A9 v15 frontend tx-builder tests...
+  PASS  encodeTicketClaimBoc encodes valid BOC magic, op 0x52540303, and 64-bit queryId
+  PASS  encodeTextCommentBoc encodes 0x00000000 prefix + UTF-8 claim memo
+  PASS  parseTonAddress decodes both friendly base64url and raw 0:hex TON addresses
+  PASS  buildV15StakeTx builds valid 2-cell TEP-74 AskToTransfer BOC with 0x5254000F child ref
+  PASS  buildV15ClaimTx and buildV15PromoFeeTx produce valid TON Connect 2.0 message payloads
+  PASS  encodeSingleCellBoc rejects payloads > 127 bytes
+All 6 v15 frontend tx-builder tests passed.
+
+================================================================
+6. Playwright browser regression: a9-mini-app/tests/wealthverse-browser.mjs
+================================================================
+52 route/viewport checks passed. Gallery export, demo preview, image fallback, offline retry and live read-only states passed.
+
+================================================================
+7. P0-G live mode 7-route Chromium audit + server.mjs HTTP + a9_bot.py
+================================================================
+LIVE_MODE_P0G_BROWSER_AUDIT: PASS (7 routes, A9TMA.getUser()=null, zero overflow/errors)
+SERVER_MJS_LIVE_AUDIT: PASS
+A9_BOT_AUDIT: PASS
+
+================================================================
+8. D1-D6 post-fix verification (equivalent scenarios to phase-1-defect-repro.mjs)
+================================================================
+NOT REPRODUCED  D1 [memory] A untouched order after B refund = PENDING_PAYMENT
+NOT REPRODUCED  D2 [memory] delivered order after duplicate refund = COMPLETED; activation eligibility = true
+NOT REPRODUCED  D4 [memory] two anomalies on one order -> REFUND_QUEUED, REFUND_QUEUED
+NOT REPRODUCED  D1 [d1-sqlite] A untouched order after B refund = PENDING_PAYMENT
+NOT REPRODUCED  D2 [d1-sqlite] delivered order after duplicate refund = COMPLETED; activation eligibility = true
+NOT REPRODUCED  D4 [d1-sqlite] two anomalies on one order -> REFUND_QUEUED, REFUND_QUEUED
+NOT REPRODUCED  D3 [runner] 7 GRAM transfer without memo -> anomalies recorded = 1
+NOT REPRODUCED  D5 [d1-sqlite] legacy order visible = 1, quota used = 195 GRAM, new over-quota order -> OVER_QUOTA
+NOT REPRODUCED  D6 [config] engine.open default = false; cf-worker sets open explicitly = true
+
+================================================================
+9. Original docs/gamification/phase-1-defect-repro.mjs direct run (expected fail-closed PRESALE_CLOSED by D6)
+================================================================
+file:///Users/yu1/Desktop/A9mini/worker/src/presale-hotwallet.mjs:193
+    if (!this.open) throw new PresaleError('PRESALE_CLOSED', 'presale is closed');
+                          ^
+
+PresaleError: presale is closed
+    at PresaleHotWalletEngine.createOrderIntent (file:///Users/yu1/Desktop/A9mini/worker/src/presale-hotwallet.mjs:193:27)
+    at file:///Users/yu1/Desktop/A9mini/docs/gamification/phase-1-defect-repro.mjs:27:23
+    at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+    at async node:internal/modules/esm/loader:647:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {
+  code: 'PRESALE_CLOSED'
+}
+
+Node.js v24.22.3
+
+================================================================
+10. v15/ci/artifacts.sha256 contract integrity check
+================================================================
+build/JettonMaster.json: OK
+build/JettonWallet.json: OK
+build/RoundController.json: OK
+build/StakeTicket.json: OK
