@@ -72,23 +72,24 @@ export const A9TMA = {
     if (!rawParam) return null;
     const sanitizeToken = (v, maxLen = 64) => String(v || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, maxLen);
 
-    if (rawParam === 'claim') return { type: 'claim', id: '', ref: '', route: '/claim', scrollTarget: null };
-    if (rawParam === 'warmup') return { type: 'warmup', id: '', ref: '', route: '/warmup', scrollTarget: null };
-    if (rawParam === 'market') return { type: 'market', id: '', ref: '', route: '/internal/market', scrollTarget: null };
+    const safeRaw = sanitizeToken(rawParam, 64);
+    if (rawParam === 'claim') return { raw: safeRaw, type: 'claim', id: '', ref: '', route: '/claim', scrollTarget: null };
+    if (rawParam === 'warmup') return { raw: safeRaw, type: 'warmup', id: '', ref: '', route: '/warmup', scrollTarget: null };
+    if (rawParam === 'market') return { raw: safeRaw, type: 'market', id: '', ref: '', route: '/internal/market', scrollTarget: null };
 
     const parts = rawParam.split('_');
     const type = sanitizeToken(parts[0], 16).toLowerCase();
     const id = sanitizeToken(parts[1], 48);
     const ref = sanitizeToken(parts.slice(2).join('_'), 64);
 
-    if (type === 'bet') return { type, id, ref, route: '/round', scrollTarget: 'prediction' };
-    if (type === 'round') return { type, id, ref, route: '/round', scrollTarget: 'prediction' };
-    if (type === 'burn') return { type, id, ref, route: '/round', scrollTarget: 'burn' };
+    if (type === 'bet') return { raw: safeRaw, type, id, ref, route: '/round', scrollTarget: 'prediction' };
+    if (type === 'round') return { raw: safeRaw, type, id, ref, route: '/round', scrollTarget: 'prediction' };
+    if (type === 'burn') return { raw: safeRaw, type, id, ref, route: '/round', scrollTarget: 'burn' };
     if (type === 'proof') {
       const certId = id ? (id.startsWith('A9-STAKE-') ? id : `A9-STAKE-${id}`) : '';
-      return { type, id: certId, ref, route: certId ? `/proof/${certId}` : '/proof', scrollTarget: null };
+      return { raw: safeRaw, type, id: certId, ref, route: certId ? `/proof/${certId}` : '/proof', scrollTarget: null };
     }
-    if (type === 'invite') return { type, id, ref: ref || id, route: '/team/invite', scrollTarget: null };
+    if (type === 'invite') return { raw: safeRaw, type, id, ref: ref || id, route: '/team/invite', scrollTarget: null };
     return null;
   },
 

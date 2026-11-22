@@ -5,7 +5,7 @@ import { portfolioPanel } from './wealthverse.js';
 
 import { store } from '../store.js';
 import { config } from '../config.js';
-import { joinTeam, getEffectiveUserId } from '../data.js';
+import { joinTeam, bindTeamGroupTg, verifyTeamGroupTg, getEffectiveUserId } from '../data.js';
 import { tonConnect } from '../tonconnect.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { escapeHtml, formatNum, showToast, copyText, animateSlotCounter, openChoiceSheet, renderProgressRing } from '../components.js';
@@ -285,7 +285,89 @@ export function renderTeamProfile(root, navigate, id) {
 export function renderBindTgGroup(root) {
   const { team } = store.state;
   if (!config.isDemo) {
-    root.innerHTML=`<div class="card">${L('群组绑定状态等待服务端核验','Group binding awaits server verification')}</div>`;
+    let liveStatus = 'unbound';
+    let lastMsg = L('填写商会编号与 Telegram 群 @用户名 后先进入核验中，再由服务端核验 Bot 入群状态、群管理员权限与群唯一性。', 'Submit Guild ID and Telegram @group handle to enter verifying state, then run server verification for bot presence, admin role, and group uniqueness.');
+    const statusChip = {
+      unbound: ['chip-muted', L('未绑定', 'Unbound')],
+      verifying: ['chip-gold', L('核验中', 'Verifying')],
+      bound: ['chip-green', L('已通过核验', 'Verified Bound')],
+      expired: ['chip-red', L('权限已失效', 'Expired')],
+    };
+    const paintLive = () => {
+      const [cls, txt] = statusChip[liveStatus] || statusChip.unbound;
+      root.innerHTML = `
+        <div class="col-gap anim-page-enter">
+          <div class="card card-hero">
+            <div class="row-between" style="margin-bottom:8px;">
+              <span class="card-title">${icon('send', 15, 'text-gold')} ${L('商会 Telegram 群真实核验', 'Guild Telegram Group Verification')}</span>
+              <span class="chip ${cls}" id="live-tg-bind-status">${txt}</span>
+            </div>
+            <div class="num-xs text-sec" id="live-tg-bind-msg" style="margin-bottom:12px;line-height:1.5;">${escapeHtml(lastMsg)}</div>
+            <form id="live-tg-bind-form" class="col-gap">
+              <label class="num-xs text-sec">${L('商会编号 (Team ID)', 'Guild ID')}
+                <input name="teamId" class="input-box" style="width:100%;margin-top:4px;padding:8px 10px;" placeholder="TM-0001" required maxlength="64" value="${escapeHtml(team.id || '')}">
+              </label>
+              <label class="num-xs text-sec">${L('Telegram 群组 @用户名', 'Telegram Group @handle')}
+                <input name="tgGroupHandle" class="input-box" style="width:100%;margin-top:4px;padding:8px 10px;" placeholder="@your_guild_group" required maxlength="64" value="${escapeHtml(team.tgGroupHandle || '')}">
+              </label>
+              <div class="grid-2" style="margin-top:4px;">
+                <button type="submit" class="btn btn-secondary" id="btn-live-submit-tg">${L('1. 提交进入核验中', '1. Submit Handle')}</button>
+                <button type="button" class="btn btn-primary" id="btn-live-verify-tg">${L('2. 发起服务端核验', '2. Verify Now')}</button>
+              </div>
+            </form>
+          </div>
+          <div class="card">
+            <div class="card-title" style="margin-bottom:6px;">${icon('shieldCheck', 15, 'text-green')} ${L('服务端四重防伪核验规则', '4-Step Server Verification Rules')}</div>
+            <div class="num-xs text-sec" style="line-height:1.6;">
+              1. ${L('仅会长本人（已验签绑定钱包）可发起提交与核验，普通成员将被拒绝（403）。', 'Captain-only (verified wallet required); members are rejected (403).')}<br>
+              2. ${L('仅提交 @群名 始终停留在「核验中」，绝不伪造已绑定状态。', 'Submitting @handle only sets verifying status; never faked as bound.')}<br>
+              3. ${L('必须先将官方 Bot 拉入群且会长具备群管理员权限，否则核验失败。', 'Official bot must be in group and captain must hold group admin role.')}<br>
+              4. ${L('同一真实群 ID（tgChatId）仅允许绑定 1 个商会；若权限丢失，巡检将自动降级为「已失效」。', 'One tgChatId binds at most one guild; lost permissions downgrade to expired.')}
+            </div>
+          </div>
+        </div>
+      `;
+      const form = root.querySelector('#live-tg-bind-form');
+      form.onsubmit = async (ev) => {
+        ev.preventDefault();
+        const tid = form.elements.teamId.value.trim();
+        const handle = form.elements.tgGroupHandle.value.trim();
+        if (!tid || !handle) return;
+        const submitBtn = root.querySelector('#btn-live-submit-tg');
+        submitBtn.disabled = true;
+        try {
+          const res = await bindTeamGroupTg({ teamId: tid, tgGroupHandle: handle });
+          liveStatus = res?.bindStatus || 'verifying';
+          lastMsg = L('已提交群组信息，当前状态为「核验中」。请确保官方 Bot 已入群后点击右侧「发起服务端核验」。', 'Submitted. Status is verifying. Add the official bot to the group and click Verify Now.');
+          showToast(L('已进入核验中（verifying）', 'Status: verifying'));
+        } catch (e) {
+          lastMsg = e?.message || L('提交失败，请确认已在 Telegram 内打开并已验证绑定会长钱包', 'Submission failed. Verify Telegram session & captain wallet.');
+          showToast(lastMsg, 'error');
+        }
+        paintLive();
+      };
+      root.querySelector('#btn-live-verify-tg').onclick = async () => {
+        const tid = form.elements.teamId.value.trim();
+        if (!tid) {
+          showToast(L('请先填写商会编号', 'Enter Guild ID first'), 'amber');
+          return;
+        }
+        const verifyBtn = root.querySelector('#btn-live-verify-tg');
+        verifyBtn.disabled = true;
+        try {
+          const res = await verifyTeamGroupTg({ teamId: tid });
+          liveStatus = res?.bindStatus || 'bound';
+          lastMsg = L('服务端核验通过：Bot 在群内且会长群管理员权限有效。', 'Server verification passed: bot in group & captain admin role confirmed.');
+          showToast(L('Telegram 群绑定核验通过', 'Group verification passed'));
+        } catch (e) {
+          if (liveStatus === 'bound') liveStatus = 'expired';
+          lastMsg = e?.message || L('服务端核验未通过，请检查机器人入群与管理员权限', 'Verification failed. Check bot presence and admin permissions.');
+          showToast(lastMsg, 'error');
+        }
+        paintLive();
+      };
+    };
+    paintLive();
     return;
   }
   let bindState = team.tgGroupBound ? 'bound' : 'unbound';

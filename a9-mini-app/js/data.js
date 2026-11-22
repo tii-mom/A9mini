@@ -472,6 +472,17 @@ export async function equipCosmeticItem({ slot, itemId = null, state = null }) {
   });
 }
 
+/** 阶段五：商会会长提交 Telegram 群名进入待核验状态（verifying，绝不直接置为 bound） */
+export async function bindTeamGroupTg({ teamId, name = null, tgGroupHandle }) {
+  if (!A9TMA.getRawInitData()) {
+    throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内以会长身份提交群组绑定');
+  }
+  return request(ENDPOINTS.teamBindTg, {
+    method: 'POST',
+    body: { teamId: String(teamId), name: name ? String(name) : undefined, tgGroupHandle: String(tgGroupHandle) }
+  });
+}
+
 /** 阶段五：商会会长发起 Telegram 群真实权限核验 */
 export async function verifyTeamGroupTg({ teamId }) {
   if (!A9TMA.getRawInitData()) {
@@ -488,7 +499,7 @@ export async function submitStartAppAttribution({ startParam, referrerId = null 
   if (!A9TMA.getRawInitData()) return null;
   return request(ENDPOINTS.referralAttribution, {
     method: 'POST',
-    body: { startParam: startParam || '', referrerId: referrerId || null }
+    body: { startapp: startParam || '', referrerId: referrerId || null }
   });
 }
 

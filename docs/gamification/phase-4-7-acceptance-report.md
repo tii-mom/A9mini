@@ -45,6 +45,10 @@
   4. **操作者群管理员校验**：通过 `getChatMember` 核验操作者的 Telegram `user_id` 在该群内为 `creator` 或 `administrator`，否则返回 `400 NOT_GROUP_ADMIN`。
 - **权限失效自动降级**：已处于 `'bound'` 的商会群，若后续巡检或重新核验发现机器人被移出群或会长失去群管理员权限，状态自动降级为 `'expired'`。
 
+- **前端联动闭环（`a9-mini-app/js/pages/team.js` & `a9-mini-app/js/app.js`）**：
+  - 真实模式 `/team/bind-tg` 上线「两步式服务端四重核验面板」（1. 提交 `@群名` 进入 `verifying`；2. 发起 `POST /api/team/verify-tg` 实时核验），并显式说明 4 条防伪规则，静态只读浏览零自动写请求。
+  - 真实模式启动时若同时存在真实 Telegram `initData` 与合法 `startapp` 参数（支持 `invite_TM-0001_<ref>`、`invite_G-*_<ref>` 等格式），自动静默调用 `POST /api/referral/attribution` 完成首次有效归因。
+
 ### 2.2 `startapp` 深链解析与首次有效归因
 - **`parseStartAppParam`（`worker/src/social-store.mjs`）**：
   - 严格白名单校验 `^[A-Za-z0-9_-]{1,64}$`，拒绝任何畸形或注入参数。

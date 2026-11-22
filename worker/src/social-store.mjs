@@ -29,11 +29,11 @@ export function parseStartAppParam(rawParam) {
   if (!raw || !/^[A-Za-z0-9_-]{1,64}$/.test(raw)) return null;
 
   // 1) invite_<teamId>_<referrerId> or invite_<referrerId>
-  // 注意：TON base64url 友好地址或钱包标识本身可能含 '_'，因此仅当首段是明确商会 ID（G-* / T-* / TEAM-*）时才拆出 teamId，其余完整保留为 referrerId。
+  // 注意：TON base64url 友好地址或钱包标识本身可能含 '_'，因此仅当首段是明确商会 ID（G-* / T-* / TM-* / TEAM-*）时才拆出 teamId，其余完整保留为 referrerId。
   if (raw.startsWith('invite_')) {
     const rest = raw.slice('invite_'.length);
     if (!rest) return null;
-    const teamMatch = rest.match(/^((?:G|T|TEAM)-[A-Za-z0-9-]+)_(.+)$/i);
+    const teamMatch = rest.match(/^((?:G|T|TM|TEAM)-[A-Za-z0-9-]+)_(.+)$/i);
     if (teamMatch) {
       return {
         raw,

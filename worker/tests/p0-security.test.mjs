@@ -1939,6 +1939,7 @@ await test('Phase 5: Guild TG group real permission verification (captain, bot-i
   // 1. startapp 深链解析单元测试
   assert.deepEqual(parseStartAppParam('invite_7101'), { raw: 'invite_7101', kind: 'invite', teamId: null, targetId: null, referrerId: '7101' });
   assert.deepEqual(parseStartAppParam('invite_G-PAPER_7101'), { raw: 'invite_G-PAPER_7101', kind: 'invite', teamId: 'G-PAPER', targetId: 'G-PAPER', referrerId: '7101' });
+  assert.deepEqual(parseStartAppParam('invite_TM-0001_489f'), { raw: 'invite_TM-0001_489f', kind: 'invite', teamId: 'TM-0001', targetId: 'TM-0001', referrerId: '489f' });
   assert.deepEqual(parseStartAppParam('round_1_7101'), { raw: 'round_1_7101', kind: 'round', teamId: null, targetId: '1', referrerId: '7101' });
   assert.equal(parseStartAppParam('bad param with spaces!'), null);
 

@@ -6,7 +6,7 @@ import { tickDemoPrice } from './demo-data.js';
 
 import { store } from './store.js';
 import { config } from './config.js';
-import { loadSnapshot, mapRoundView } from './data.js';
+import { loadSnapshot, mapRoundView, submitStartAppAttribution } from './data.js';
 import { A9TMA, A9Haptic } from './tma.js';
 import { A9Audio, bindKineticSurfaces, cleanupKineticSurfaces } from './audio.js';
 import { matchRoute } from './router.js';
@@ -549,6 +549,13 @@ if (startParsed?.ref) {
 }
 if (startParsed?.scrollTarget) {
   store.state.referral.pendingScrollTarget = startParsed.scrollTarget;
+}
+if (!config.isDemo && startParsed?.raw && A9TMA.getRawInitData()) {
+  submitStartAppAttribution({ startParam: startParsed.raw, referrerId: startParsed.ref || null })
+    .then((res) => {
+      if (res?.referrerId) store.setReferrerId(res.referrerId);
+    })
+    .catch(() => {});
 }
 
 renderCurrentRoute();
