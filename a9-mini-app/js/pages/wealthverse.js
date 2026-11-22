@@ -30,10 +30,10 @@ export function city() {
   const tier = store.state.user.previewTier || 1;
   const title = config.isDemo ? 'A' + tier + ' · ' + L(...tiers[tier - 1].slice(0, 2)) : waiting();
   const gates = [
-    ['/internal/market','gate-guild',L('商行','Market')],
-    ['/rewards','crystal-legendary',L('奖励宝库','Rewards')],
-    ['/leaderboard','gate-challenge',L('荣誉排行','Rankings')],
-    ['/rules','gate-city',L('玩法规则','Rules')]
+    ['/internal/market','guild',L('商行','Market')],
+    ['/rewards','legendary',L('奖励宝库','Rewards')],
+    ['/leaderboard','challenge',L('荣誉排行','Rankings')],
+    ['/rules','city',L('玩法规则','Rules')]
   ];
   return `<section class="wv-hero game-city">
     <div class="city-sky"></div>
@@ -42,7 +42,7 @@ export function city() {
     ${config.isDemo && tier === 1 ? '<img class="city-sticker" src="./assets/game-v2/city-sticker.webp" alt="A1">' : config.isDemo ? portrait(tier) : ''}
     <div class="city-controls"><div class="city-round"><i></i>${L('第','Round')} ${r.currentRound ?? '—'} · ${stageLabel(r.stage)}<a href="#/observation/records">${r.qualifiedCandles ?? '—'} / ${r.minQualifiedCandles ?? 16} ›</a></div>
     <a class="game-play" href="#/round">${L('进入轮次挑战','Enter challenge')} <b>›</b></a>
-    <nav class="game-gates">${gates.map(([path,asset,label])=>`<a href="#${path}"><img src="./assets/game-v2/${asset}.webp" alt=""><span>${label}</span></a>`).join('')}</nav>
+    <nav class="game-gates">${gates.map(([path,asset,label])=>`<a href="#${path}"><img src="./assets/game-v2/stickers/${asset}.webp" alt=""><span>${label}</span></a>`).join('')}</nav>
 </div></section>`;
 }
 export function gallery(root, navigate, param) {
@@ -124,7 +124,7 @@ export function rewards(root) {
     ['legendary', L('传说', 'Legendary')],
   ];
   const crystalPreview = `<section class="card"><h2 class="card-title">${L('水晶美术预览', 'Crystal art preview')}</h2>
-    <div class="crystal-preview">${crystals.map(([id, name]) => `<figure><img src="./assets/game-v2/crystal-${id}.webp" alt="" loading="lazy"><figcaption>${name}</figcaption></figure>`).join('')}</div></section>`;
+    <div class="crystal-preview">${crystals.map(([id, name]) => `<figure><img src="./assets/game-v2/stickers/${id}.webp" alt="" loading="lazy"><figcaption>${name}</figcaption></figure>`).join('')}</div></section>`;
   root.innerHTML =
     hero(
       L('奖励宝库', 'Reward Vault'),

@@ -30,7 +30,8 @@ export function paintScene(root, path) {
   root.hidden = !scene;
   if (!scene) return;
   const [art, zh, en] = scene;
-  const image = new URL(`../assets/wealthverse/game/${art}.webp`, import.meta.url);
-  root.style.setProperty('--scene-art', `url("${image.href}")`);
+  const stickers = {archive:'city', guild:'guild', observatory:'challenge', tower:'challenge', vault:'backpack', city:'city', podium:'challenge', bazaar:'guild', treasury:'backpack'};
+  const image = new URL(`../assets/game-v2/stickers/${stickers[art]}.webp`, import.meta.url);
+  root.style.setProperty('--section-sticker', `url("${image.href}")`);
   root.innerHTML = `<h1>${L(zh,en)}</h1>`;
 }

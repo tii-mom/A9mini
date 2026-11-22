@@ -161,3 +161,32 @@ body[data-game-route="/profile"],body[data-game-route="/claim"]{--section-sticke
 .observatory-stage{background:#29213e url('../assets/game-v2/gate-challenge.webp') 95% 28%/auto 68% no-repeat}
 body[data-game-route] .metric-strip,body[data-game-route] .candle-inspector{background:#272237}
 .city-sticker{top:23%;height:48%;object-fit:cover;object-position:42% 55%;mask-image:linear-gradient(transparent,#000 8%,#000 91%,transparent)}
+
+/* Printed album surfaces shared by the showroom, HUD and business screens. */
+body[data-game-route]{--paper:#f9e7c4;--ink:#2e2241;--rule:#b69a70;--cutout:drop-shadow(1px 0 #fff1d3) drop-shadow(-1px 0 #fff1d3) drop-shadow(0 2px #fff1d3) drop-shadow(0 3px #21182e)}
+.sticker-studio{background:#29213e;color:var(--paper);max-width:560px;margin:auto;padding:20px;overflow-y:auto;height:100dvh;box-sizing:border-box}
+.sticker-studio h1,.sticker-studio h2{font-family:Georgia,"Songti SC",serif}
+.studio-cover{width:100%}.studio-buildings{display:grid;grid-template-columns:1fr 1fr}.studio-buildings figure{margin:5px;text-align:center}.studio-buildings img{width:100%;height:115px;object-fit:contain}.sticker-studio section{border-top:1px solid var(--rule);margin:18px 0;padding-top:8px}
+body[data-game-route] .app-main .card,body[data-game-route] :is(.modal-sheet,.cert-pass,.sticker-studio .card,dialog){background:#372d49;border:1px solid #d0b991;border-radius:6px 15px 7px 12px;box-shadow:0 3px 0 #181023}
+body[data-game-route] :is(.app-main .card-title,.sticker-studio .card-title){background:var(--paper);color:var(--ink);padding:4px 9px;border:0;border-radius:2px 8px 3px 2px;line-height:1.35;width:fit-content;max-width:100%;font-weight:800}
+body[data-game-route] :is(.btn-primary,.game-play){background:var(--paper);color:#33223c;border:2px solid #fff4da;border-radius:6px 13px 6px 12px;box-shadow:0 3px #8e6b4d;text-shadow:none}
+body[data-game-route] :is(.btn-secondary,.cmd-tile,.sheet-option,.sub-tile,.seg-tabs,.input-box,.check-list,.quick-btn,.hero-amt-pill,.filter-pill,.share-textarea,.a9-slider,.pred-slot-input){background:#272139;color:#fff1d8;border-color:#93829a;border-radius:7px}
+body[data-game-route] :is(.quick-btn.active,.seg-tab.active,.hero-amt-pill.active,.filter-pill.active){background:#f1d9b3;color:#33253d}
+body[data-game-route] :is(.chip,.ticket-tabs button,.toast){border-radius:4px 9px 5px 7px;border-width:1px}
+body[data-game-route] :is(.wv-person,.wv-gallery img,.realm-actions img,.guild-member img,.collectible-ticket img,.counter-keeper img){filter:var(--cutout)}
+body[data-game-route] .realm-banner{background-size:auto 77%;border-bottom:2px solid var(--rule)}
+body[data-game-route] .realm-banner h1{max-width:65%;color:#fff0d0;text-shadow:0 2px #402b47}
+body[data-game-route] .observatory-stage{background-image:url('../assets/game-v2/stickers/challenge.webp')}
+body[data-game-route] .star-journal.wv-tower,body[data-game-route] #a9-radar-card{background:#30263e}
+body[data-game-route] .counter-keeper{background:#29213c}
+body[data-game-route] .crystal-preview figure{border:1px solid #ab91aa;background:#29213c;border-radius:10px 5px}
+body[data-game-route] .crystal-preview figcaption,.studio-buildings figcaption{display:inline-block;background:var(--paper);color:var(--ink);border-radius:3px;padding:2px 9px;font-weight:700}
+body[data-game-route] :is(.btn:disabled,button[disabled]){opacity:.6}
+body[data-game-route] dialog{color:var(--paper);padding:24px}
+body[data-game-route] dialog::backdrop{background:#151021aa}
+body[data-game-route] .star-reading,body[data-game-route] .guild-board,body[data-game-route] .vault-claim{background:#372d49;border-color:#c2a882}
+body[data-game-route] .guild-board:before{background-image:url('../assets/game-v2/stickers/guild.webp')}
+body[data-game-route] .wv-vault .wv-scenery{background:#28213b url('../assets/game-v2/stickers/backpack.webp') right center/auto 76% no-repeat}
+body[data-game-route] .wv-gallery-hero .wv-scenery{background:#29213c}
+body[data-game-route] .guild-member,body[data-game-route] .wv-gallery a{border:1px solid #d1b794;border-radius:8px 15px 8px 6px;background:#382e4b}
+.studio-nav{display:flex;justify-content:space-around;border:1px solid var(--rule);border-radius:8px;background:#231c34;padding:8px}.studio-nav a{color:var(--paper);padding:8px}

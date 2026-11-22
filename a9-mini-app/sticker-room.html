@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A9 贴纸样品室</title>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/game.css">
+<body data-game-route="studio">
+<main class="sticker-studio">
+<header>
+<small>A9 · 财富进化世界</small>
+<h1>贴纸样品室</h1>
+<img class="studio-cover" src="assets/game-v2/city-sticker.webp" alt="手持金币的冒险者与主城">
+</header>
+<section>
+<h2>场景入口</h2>
+<div class="studio-buildings">
+<figure>
+<img src="./assets/game-v2/stickers/city.webp" alt="">
+<figcaption>城门</figcaption>
+</figure>
+<figure>
+<img src="./assets/game-v2/stickers/challenge.webp" alt="">
+<figcaption>观测塔</figcaption>
+</figure>
+<figure>
+<img src="./assets/game-v2/stickers/guild.webp" alt="">
+<figcaption>商会</figcaption>
+</figure>
+<figure>
+<img src="./assets/game-v2/stickers/backpack.webp" alt="">
+<figcaption>背包</figcaption>
+</figure>
+</div>
+</section>
+<section>
+<h2>水晶收藏</h2>
+<div class="crystal-preview">
+<figure>
+<img src="./assets/game-v2/stickers/basic.webp" alt="">
+<figcaption>初阶</figcaption>
+</figure>
+<figure>
+<img src="./assets/game-v2/stickers/starlight.webp" alt="">
+<figcaption>星辉</figcaption>
+</figure>
+<figure>
+<img src="./assets/game-v2/stickers/legendary.webp" alt="">
+<figcaption>传说</figcaption>
+</figure>
+</div>
+</section>
+<section class="card">
+<h2 class="card-title">操作与反馈</h2>
+<label>时段编号 <input class="share-textarea" type="text" value="13">
+</label>
+<p>
+<span class="chip chip-green">已达标</span> <span class="chip chip-red">未达标</span> <span class="chip chip-muted">待确认</span>
+</p>
+<button class="btn btn-primary" id="open">查看凭证样式</button>
+<button class="btn btn-secondary" disabled>等待确认</button>
+</section>
+<dialog id="sheet">
+<h2>质押凭证</h2>
+<p>样式预览</p>
+<form method="dialog">
+<button class="btn btn-primary">关闭</button>
+</form>
+</dialog>
+<section>
+<h2>读取与异常</h2>
+<p class="chip chip-muted">正在读取</p>
+<p class="empty-state">暂无记录</p>
+<p class="risk-box">网络连接中断，请重试</p>
+</section>
+<nav class="studio-nav" aria-label="主导航预览">
+<a href="./?mode=demo#/challenge">主城</a>
+<a href="./?mode=demo#/round">挑战</a>
+<a href="./?mode=demo#/team">商会</a>
+<a href="./?mode=demo#/profile">背包</a>
+</nav>
+</main>
+<script>document.querySelector('#open').onclick=()=>document.querySelector('#sheet').showModal()</script>
+</body>
+</html>
