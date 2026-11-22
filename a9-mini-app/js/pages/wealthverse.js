@@ -30,22 +30,20 @@ export function city() {
   const tier = store.state.user.previewTier || 1;
   const title = config.isDemo ? 'A' + tier + ' · ' + L(...tiers[tier - 1].slice(0, 2)) : waiting();
   const gates = [
-    ['/challenge','city',L('主城','City')],
-    ['/round','challenge',L('挑战','Challenge')],
-    ['/team','guild',L('商会','Guild')],
-    ['/profile','backpack',L('背包','Backpack')]
+    ['/internal/market','gate-guild',L('商行','Market')],
+    ['/rewards','crystal-legendary',L('奖励宝库','Rewards')],
+    ['/leaderboard','gate-challenge',L('荣誉排行','Rankings')],
+    ['/rules','gate-city',L('玩法规则','Rules')]
   ];
   return `<section class="wv-hero game-city">
     <div class="city-sky"></div>
     <div class="city-mast"><small>A9 WEALTHVERSE</small><h1>${L('财富进化世界','Wealthverse')}</h1></div>
     <a class="city-profile" href="#/gallery"><b>${title}</b><span>${config.isDemo ? L('演示试穿','Demo preview') : L('持仓待核验','Holdings unverified')}</span></a>
-    ${config.isDemo ? portrait(tier) : ''}
+    ${config.isDemo && tier === 1 ? '<img class="city-sticker" src="./assets/game-v2/city-sticker.webp" alt="A1">' : config.isDemo ? portrait(tier) : ''}
     <div class="city-controls"><div class="city-round"><i></i>${L('第','Round')} ${r.currentRound ?? '—'} · ${stageLabel(r.stage)}<a href="#/observation/records">${r.qualifiedCandles ?? '—'} / ${r.minQualifiedCandles ?? 16} ›</a></div>
     <a class="game-play" href="#/round">${L('进入轮次挑战','Enter challenge')} <b>›</b></a>
-    <nav class="game-gates">${gates.map(([path,asset,label])=>`<a href="#${path}"><img src="./assets/game-v2/gate-${asset}.webp" alt=""><span>${label}</span></a>`).join('')}</nav>
-    <nav class="city-links" aria-label="${L('主城服务','City services')}">
-      ${[['/internal/market', L('商行','Market')], ['/rewards', L('奖励','Rewards')], ['/leaderboard', L('排行','Rankings')], ['/rules', L('规则','Rules')]].map(([path,label]) => `<a href="#${path}">${label}</a>`).join('')}
-    </nav></div></section>`;
+    <nav class="game-gates">${gates.map(([path,asset,label])=>`<a href="#${path}"><img src="./assets/game-v2/${asset}.webp" alt=""><span>${label}</span></a>`).join('')}</nav>
+</div></section>`;
 }
 export function gallery(root, navigate, param) {
   const n = Number(param) || 1;

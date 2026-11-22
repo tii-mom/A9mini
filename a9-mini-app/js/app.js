@@ -176,7 +176,7 @@ function renderTabBar(route) {
   if (!tabbarEl.querySelector('.dock-pill')) {
     tabbarEl.innerHTML = `<div class="dock-pill" id="dock-pill"></div>` + TABS.map(item => `
       <button class="tab-item" data-tab-key="${item.key}" data-nav="${item.path}">
-        <img class="realm-nav-icon" src="./assets/game-v2/gate-${{challenge:'city',round:'challenge',team:'guild',profile:'backpack'}[item.key]}.webp" alt="">
+        ${icon(item.ic, 22)}
         <span class="tab-lbl">${t(item.labelKey)}</span>
         ${item.key === 'profile' ? '<span class="tab-badge hidden" id="profile-tab-badge"></span>' : ''}
       </button>

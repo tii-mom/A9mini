@@ -136,3 +136,28 @@ body[data-game-route] .app-main .card,body[data-game-route] .modal-sheet{border-
   .game-gates a:hover img,.game-gates a:focus-visible img{transform:translateY(-3px)}
   .game-gates img{transition:transform .15s ease}
 }
+
+/* Cream-edged illustration, plum paper and brass rules throughout the book. */
+body[data-game-route],[data-theme=light] body[data-game-route]{
+ --bg-canvas:#25203c;--bg-panel:#302943;--bg-header:#251e39;--text-primary:#fff2d8;--text-secondary:#e6dacb
+}
+.city-sky{background:#29213e}
+.city-sticker{position:absolute;top:26%;left:0;width:100%;height:44%;object-fit:contain}
+.city-profile{top:17%;left:5%;background:#352c46;border-color:#ad9268}
+.city-mast h1,.realm-banner h1,.observatory-status h1,.star-journal h1{color:#fff0d0;text-shadow:0 2px #57405b;font-family:Georgia,"Songti SC",serif}
+.city-controls{background:#29213e;padding-bottom:15px}
+.game-play{border-radius:8px;background:#f1d397;box-shadow:0 3px #896941;text-shadow:none;color:#30223a}
+.game-gates{border-top:1px solid #947954;padding-top:10px}
+.game-gates img,.crystal-preview img{filter:drop-shadow(1px 0 #fff1cb) drop-shadow(-1px 0 #fff1cb) drop-shadow(0 2px #fff1cb)}
+.game-gates a span{background:#eddbb8;color:#392b3b;text-shadow:none;padding:2px 8px;border-radius:2px}
+body[data-game-route] .app-tabbar{background:#292039;border:1px solid #b29a70;border-radius:12px}
+body[data-game-route] .dock-pill{background:#514050;border-color:#d4b36f}
+body[data-game-route] .app-main .card,body[data-game-route] #a9-radar-card,body[data-game-route] .modal-sheet{background:#302943;border:1px solid #796681;box-shadow:none}
+body[data-game-route] .card-title{font-family:Georgia,"Songti SC",serif;border-inline-start:3px solid #c6a363;padding-inline-start:8px}
+body[data-game-route] .realm-banner,.observatory-stage{background-color:#29213e;border-bottom:1px solid #b79d74}
+body[data-game-route] .realm-banner{background-image:var(--section-sticker,url('../assets/game-v2/gate-city.webp'));background-position:93% center;background-size:auto 90%;background-repeat:no-repeat}
+body[data-game-route^="/team"]{--section-sticker:url('../assets/game-v2/gate-guild.webp')}
+body[data-game-route="/profile"],body[data-game-route="/claim"]{--section-sticker:url('../assets/game-v2/gate-backpack.webp')}
+.observatory-stage{background:#29213e url('../assets/game-v2/gate-challenge.webp') 95% 28%/auto 68% no-repeat}
+body[data-game-route] .metric-strip,body[data-game-route] .candle-inspector{background:#272237}
+.city-sticker{top:23%;height:48%;object-fit:cover;object-position:42% 55%;mask-image:linear-gradient(transparent,#000 8%,#000 91%,transparent)}

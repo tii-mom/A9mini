@@ -64,11 +64,11 @@ async function mobile(width, height, locale, theme) {
   assert.equal(await page.locator('.tab-item').count(), 4);
   for (const path of ['/challenge', '/round', '/team', '/profile']) {
     await visit(page, '/challenge');
-    await page.locator(`.game-gates a[href="#${path}"]`).click();
+    await page.locator(`.tab-item[data-nav="${path}"]`).click();
     assert.equal(new URL(page.url()).hash, '#'+path);
   }
   await visit(page, '/challenge');
-  await page.locator('.city-links a[href="#/internal/market"]').click();
+  await page.locator('.game-gates a[href="#/internal/market"]').click();
   assert.equal(new URL(page.url()).hash, '#/internal/market');
   await visit(page, '/rewards');
   assert.equal(await page.locator('.crystal-preview img').count(), 3);
