@@ -5,7 +5,7 @@ import { tickDemoPrice } from './demo-data.js';
  */
 
 import { store } from './store.js';
-import { config, BAM_SOURCE } from './config.js';
+import { config } from './config.js';
 import { loadSnapshot, mapRoundView } from './data.js';
 import { A9TMA, A9Haptic } from './tma.js';
 import { A9Audio, bindKineticSurfaces, cleanupKineticSurfaces } from './audio.js';
@@ -129,9 +129,9 @@ function renderHeader(route) {
       }
     </div>
     <div class="header-right">
-      <button class="icon-btn ${A9Audio.isEnabled() ? 'sound-on' : ''}" id="btn-sound-toggle" aria-label="${A9Audio.isEnabled() ? L('关闭交互音效', 'Mute Sound') : L('开启任天堂音效', 'Enable Sound')}" title="${A9Audio.isEnabled() ? L('关闭交互音效', 'Mute Sound') : L('开启任天堂音效', 'Enable Sound')}">${icon(A9Audio.isEnabled() ? 'volumeOn' : 'volumeOff', 15)}</button>
+      <button class="icon-btn ${A9Audio.isEnabled() ? 'sound-on' : ''}" id="btn-sound-toggle" aria-label="${A9Audio.isEnabled() ? L('关闭交互音效', 'Mute Sound') : L('开启交互音效', 'Enable Sound')}" title="${A9Audio.isEnabled() ? L('关闭交互音效', 'Mute Sound') : L('开启交互音效', 'Enable Sound')}">${icon(A9Audio.isEnabled() ? 'volumeOn' : 'volumeOff', 15)}</button>
       <button class="icon-btn" id="btn-theme-toggle" aria-label="${isDark ? L('切换白昼模式', 'Light Mode') : L('切换暗夜模式', 'Dark Mode')}" title="${isDark ? L('切换白昼模式', 'Light Mode') : L('切换暗夜模式', 'Dark Mode')}">${icon(isDark ? 'sun' : 'moon', 15)}</button>
-      ${config.isDemo ? `<button class="icon-btn" id="btn-open-sim" aria-label="Demo Console" title="${L('演示控制台', 'Demo')} (${BAM_SOURCE.commit})">${icon('sliders', 14)}</button>` : ''}
+      ${config.isDemo ? `<button class="icon-btn" id="btn-open-sim" aria-label="${L('演示控制台', 'Demo console')}" title="${L('演示控制台', 'Demo console')}">${icon('sliders', 14)}</button>` : ''}
       <button class="wallet-pill ${user.connected ? '' : 'disconnected'}" id="btn-wallet-pill">
         <span class="live-dot ${user.connected ? '' : 'amber'}"></span>
         <span>${user.connected ? (user.shortAddress || (user.address ? (user.address.length > 12 ? `${user.address.slice(0, 4)}...${user.address.slice(-4)}` : user.address) : t('connect_wallet'))) : t('connect_wallet')}</span>
@@ -148,7 +148,7 @@ function renderHeader(route) {
       A9Haptic.light();
       const on = A9Audio.toggle();
       renderHeader(matchRoute(window.location.hash).route);
-      showToast(on ? L('任天堂纸艺音效已开启', 'Paper craft sound on') : L('交互音效已静音', 'Sound muted'));
+      showToast(on ? L('交互音效已开启', 'Paper craft sound on') : L('交互音效已静音', 'Sound muted'));
     };
   }
 
