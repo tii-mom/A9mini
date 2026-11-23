@@ -1,0 +1,141 @@
+@font-face {
+  font-family: 'Rubik';
+  src: url('../assets/fonts/rubik-latin.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+2000-206F, U+20AC, U+2191, U+2193, U+2212;
+}
+
+/* ==========================================================================
+   A9 Official Website — Refined Dual-Theme Design Tokens
+   - Zero gradients, zero neon glows, strict flat paper-craft discipline
+   - Default Light (Option A): 90% Snow Paper #F6F6F8 / 8% Nintendo Red #E60012 / 2% Semantic
+   - Dark Toggle (Option B): Switch Deep Graphite #161619 / #1F2026 / #F02232
+   ========================================================================== */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* 90% 雪宣纸白与中性厚纸层级 */
+  --paper-bg: #F6F6F8;
+  --paper-surface: #FFFFFF;
+  --paper-soft: #F9FAFB;
+  --paper-tray: #EFEFF3;
+  --paper-tray-deep: #E5E7EE;
+  --paper-border: #E2E5ED;
+  --paper-border-strong: #CFD4E0;
+  --paper-thickness: #C9CEDB;
+  --header-bg: rgba(246, 246, 248, 0.94);
+
+  /* 文字层级 */
+  --ink: #171920;
+  --ink-soft: #525766;
+  --ink-muted: #7F8596;
+
+  /* 8% 任天堂正红（纯平色，无渐变无发光） */
+  --cover-red: #E60012;
+  --nt-red: var(--cover-red);
+  --nt-red-hover: #D40010;
+  --nt-red-edge: #A3000D;
+  --nt-red-soft: #FFF1F2;
+  --nt-red-border: #F5C2C7;
+
+  /* 2% 语义色 */
+  --nt-green: #129E5A;
+  --nt-green-edge: #0C7542;
+  --nt-green-soft: #EAF7F0;
+  --nt-green-border: #B7E4CC;
+
+  --nt-blue: #256FD6;
+  --nt-blue-edge: #1A52A3;
+  --nt-blue-soft: #EEF4FD;
+  --nt-blue-border: #C2D8FA;
+
+  --nt-gold: #D99B0E;
+  --nt-gold-soft: #FDF6E2;
+  --nt-gold-ink: #855700;
+  --nt-gold-border: #ECD28B;
+
+  --nt-rose: #BE3F5F;
+  --nt-rose-edge: #8F2B44;
+  --nt-rose-soft: #FCF0F3;
+  --nt-rose-border: #EBC3CD;
+
+  /* 克制投影：仅 L1 可点击控件保留实边厚度，L2 数据卡纯平轻边 */
+  --cut-edge: #FFFFFF;
+  --shadow-l2: 0 1px 2px rgba(23, 25, 32, 0.04);
+  --shadow-l1-sm: 0 2.5px 0 var(--paper-thickness);
+  --shadow-red-btn: 0 3px 0 var(--nt-red-edge);
+  --pool-slab-edge: #A3000D;
+
+  --stamp-pending-bg: #EFEFF3;
+  --stamp-pending-border: #D9DDE6;
+  --asset-shadow: drop-shadow(0 6px 10px rgba(23, 25, 32, 0.12));
+
+  --font-sans: 'Rubik', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ease-ui: cubic-bezier(0.22, 1, 0.36, 1);
+  --radius-xl: 20px;
+  --radius-lg: 14px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+}
+
+/* ==========================================================================
+   Dark Theme (Option B): Switch 深石墨炭终端（纯平色，零霓虹发光）
+   ========================================================================== */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --paper-bg: #161619;
+  --paper-surface: #1F2026;
+  --paper-soft: #25262E;
+  --paper-tray: #2A2C35;
+  --paper-tray-deep: #323540;
+  --paper-border: #323540;
+  --paper-border-strong: #454957;
+  --paper-thickness: #0C0D10;
+  --header-bg: rgba(22, 22, 25, 0.94);
+
+  --ink: #F4F5F8;
+  --ink-soft: #B4B8C5;
+  --ink-muted: #7F8494;
+
+  --nt-red: #EC2434;
+  --nt-red-hover: #DC1B2B;
+  --nt-red-edge: #910D18;
+  --nt-red-soft: #2E1A1E;
+  --nt-red-border: #5E262E;
+
+  --nt-green: #22C273;
+  --nt-green-edge: #137F4A;
+  --nt-green-soft: #172B23;
+  --nt-green-border: #255742;
+
+  --nt-blue: #58A2F0;
+  --nt-blue-edge: #2862A1;
+  --nt-blue-soft: #1A2636;
+  --nt-blue-border: #2A496E;
+
+  --nt-gold: #EDB634;
+  --nt-gold-soft: #2D2618;
+  --nt-gold-ink: #F6CA62;
+  --nt-gold-border: #5C4920;
+
+  --nt-rose: #D95777;
+  --nt-rose-edge: #962E48;
+  --nt-rose-soft: #2D1B22;
+  --nt-rose-border: #5C2B3B;
+
+  --cut-edge: #454957;
+  --shadow-l2: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-l1-sm: 0 2.5px 0 var(--paper-thickness);
+  --shadow-red-btn: 0 3px 0 var(--nt-red-edge);
+  --pool-slab-edge: #8C0C17;
+
+  --stamp-pending-bg: #262831;
+  --stamp-pending-border: #383B48;
+  --asset-shadow: brightness(0.94) drop-shadow(0 8px 14px rgba(0, 0, 0, 0.42));
+}
