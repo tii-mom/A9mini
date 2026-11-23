@@ -102,17 +102,21 @@ def usd_e8(raw):
     return f"${v / 1e8:.4f}" if v > 0 else PENDING
 
 
+ASCII_DIGITS_RE = re.compile(r"^[0-9]+$")
+
+
 def pick_focus_round(rounds):
-    """与前端 data.js 保持一致：优先进行中最高轮 -> 最近已开启轮 -> 首轮。"""
+    """与前端 data.js 保持一致：先校验 state 为字符串，再优先进行中最高轮 -> 最近已开启轮 -> 首轮。"""
     if not isinstance(rounds, list) or not rounds:
         return None
-    opened = [r for r in rounds if isinstance(r, dict) and r.get("state") != "UNOPENED"]
+    valid_dicts = [r for r in rounds if isinstance(r, dict) and isinstance(r.get("state"), str)]
+    opened = [r for r in valid_dicts if r.get("state") != "UNOPENED"]
     active = [r for r in opened if r.get("state") in ACTIVE_STATES]
     if active:
         return active[-1]
     if opened:
         return opened[-1]
-    return rounds[0] if isinstance(rounds[0], dict) else None
+    return valid_dicts[0] if valid_dicts else None
 
 
 def _parse_positive_round_id(value):
@@ -120,8 +124,14 @@ def _parse_positive_round_id(value):
         return None
     if isinstance(value, int):
         return value if value > 0 else None
-    if isinstance(value, str) and value.strip().isdigit():
-        parsed = int(value.strip())
+    if isinstance(value, str):
+        trimmed = value.strip()
+        if not ASCII_DIGITS_RE.match(trimmed):
+            return None
+        try:
+            parsed = int(trimmed, 10)
+        except ValueError:
+            return None
         return parsed if parsed > 0 else None
     return None
 
@@ -174,7 +184,7 @@ async def current_round_summary():
         "state": STATE_LABELS.get(raw_state, raw_state),
         "target": usd_e8(r.get("targetPriceUsdE8")),
         "twap": usd_e8(raw_twap),
-        "qualified": f"{q}/24" if isinstance(q, int) else PENDING,
+        "qualified": f"{q}/24" if isinstance(q, int) and not isinstance(q, bool) else PENDING,
     }
 
 
