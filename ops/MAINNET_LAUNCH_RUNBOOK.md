@@ -57,7 +57,7 @@ export A9_TREASURY_WALLET="<mainnet_treasury_wallet_name>"
 export A9_KEEPER_ADDRESS="<mainnet_keeper_addr>"
 export A9_ROUND_OPENER_ADDRESS="<mainnet_opener_addr>"
 export A9_TEAM_WALLET_ADDRESS="<mainnet_team_multisig_addr>"
-export A9_METADATA_URI="https://app.<domain>/meta/a9-jetton.json"
+export A9_METADATA_URI="https://app.<domain>/a9.json"
 
 # 1) 只读干跑预检（零链上消息，派生并核对合约地址与钱包余额）
 node scripts/deploy-v15.mjs --protocol v16 --profile mainnet --strict --dry-run
