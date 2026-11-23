@@ -8,9 +8,20 @@
 //   (3) multi-instance atomic claim lock (PENDING/RETRY -> BROADCASTING) -> broadcast -> SENT
 //   (4) downstream verifier check (by queryId) -> CONFIRMED + COMPLETED (never blind-resends uncertain broadcasts).
 
-const STALE_BROADCAST_SEC = 120;
+import { deriveClaimQueryId } from './promo-hotwallet.mjs';
+
+const STALE_BROADCAST_SEC = 240;
 const UNCONFIRMED_REVIEW_SEC = 3600;
 const MAX_PROMO_ATTEMPTS = 5;
+const DETERMINISTIC_PROMO_SKIP_CODES = new Set([
+  'REPLAY_TX',
+  'INVALID_STATE',
+  'UNKNOWN_MEMO',
+  'INSUFFICIENT_FEE',
+  'CLAIM_EXPIRED',
+  'INSUFFICIENT_BALANCE',
+  'WRONG_DEST',
+]);
 
 export class PromoPayoutRunner {
   constructor({
@@ -51,6 +62,7 @@ export class PromoPayoutRunner {
     try {
       let txs = [];
       let nextCursor = null;
+      let cursorComplete = true;
       const canUseCursor = typeof this.tonCenter.fetchInboundTransfersSince === 'function'
         && typeof this.engine.getScanCursor === 'function';
       if (canUseCursor) {
@@ -61,6 +73,9 @@ export class PromoPayoutRunner {
         });
         txs = Array.isArray(pageRes?.transfers) ? pageRes.transfers : [];
         nextCursor = pageRes?.nextCursor || null;
+        cursorComplete = pageRes?.canAdvanceCursor !== undefined
+          ? Boolean(pageRes.canAdvanceCursor)
+          : (pageRes?.reachedCursor !== false && !pageRes?.truncated);
       } else {
         txs = await this.tonCenter.fetchInboundTransfers(this.engine.hotWalletAddress);
       }
@@ -100,8 +115,11 @@ export class PromoPayoutRunner {
             this.logger.log?.(`[promo-runner] Paid ${claim.claimId} tx=${sent.txHash} (excesses -> ${payoutInstruction.sendExcessesTo})`);
           }
         } catch (e) {
-          if (e?.code === 'REPLAY_TX' || e?.code === 'INVALID_STATE' || e?.code === 'UNKNOWN_MEMO') {
+          if (DETERMINISTIC_PROMO_SKIP_CODES.has(e?.code)) {
             summary.ignored += 1;
+            if (e?.code !== 'REPLAY_TX' && e?.code !== 'UNKNOWN_MEMO') {
+              this.logger.log?.(`[promo-runner] Skipped deterministic business error ${e.code} tx=${tx.txHash}: ${e.message}`);
+            }
           } else {
             inboundFailed = true;
             summary.errors.push({ txHash: tx.txHash, code: e?.code || 'ERR', message: e?.message || String(e) });
@@ -110,7 +128,7 @@ export class PromoPayoutRunner {
       }
 
       if (!this.execute) return summary;
-      if (!inboundFailed && nextCursor && typeof this.engine.saveScanCursor === 'function') {
+      if (!inboundFailed && cursorComplete && nextCursor && typeof this.engine.saveScanCursor === 'function') {
         await this.engine.saveScanCursor(this.engine.hotWalletAddress, nextCursor, nowSec);
       }
 
@@ -168,12 +186,22 @@ export class PromoPayoutRunner {
                 summary.review += 1;
                 continue;
               }
+              const nextAttempt = Number(p.attempts || 0) + 1;
+              // P0-1 防双花：每次重试（attempt >= 2）重新派生唯一 64-bit queryId 并清空旧 txHash
+              const nextQueryId = nextAttempt > 1 ? deriveClaimQueryId(p.claimId, nextAttempt) : p.queryId;
               const claimed = await this.engine.claimPromoPayout(p.payoutId, ['PENDING', 'RETRY'], {
                 status: 'BROADCASTING',
-                attempts: Number(p.attempts || 0) + 1,
+                attempts: nextAttempt,
+                ...(nextAttempt > 1 ? { queryId: nextQueryId, clearTxHash: true } : {}),
                 updatedAt: nowSec,
               });
               if (!claimed) continue;
+              p.attempts = nextAttempt;
+              if (nextAttempt > 1) {
+                p.queryId = nextQueryId;
+                p.txHash = null;
+              }
+              let justBroadcast = false;
               try {
                 const instr = this.engine.buildPromoInstruction(p);
                 const sent = await this.broadcaster(instr);
@@ -182,12 +210,29 @@ export class PromoPayoutRunner {
                 p.status = 'SENT';
                 p.txHash = sent.txHash;
                 p.updatedAt = nowSec;
+                justBroadcast = true;
                 summary.broadcast += 1;
               } catch (e) {
                 const msg = String(e?.message || e).slice(0, 300);
                 await this.engine.markPromoPayoutRetry(p.payoutId, { ambiguous: e?.notSent !== true, lastError: msg }, nowSec);
                 summary.retry += 1;
                 this.logger.log?.(`[promo-runner] payout ${p.payoutId} broadcast failed: ${msg}`);
+                continue;
+              }
+              // 同 tick 刚广播：允许立即命中 CONFIRMED，但严禁同 tick 误判 FAILED 引发重发
+              if (justBroadcast) {
+                if (typeof this.payoutVerifier === 'function') {
+                  const v = await this.payoutVerifier(p);
+                  if (v?.state === 'CONFIRMED') {
+                    await this.engine.completePromoPayout(p.payoutId, p.claimId, v.txHash || p.txHash, nowSec);
+                    summary.confirmed += 1;
+                    summary.processed += 1;
+                  } else {
+                    summary.waiting += 1;
+                  }
+                } else {
+                  summary.waiting += 1;
+                }
                 continue;
               }
             }

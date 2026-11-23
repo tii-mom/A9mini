@@ -385,7 +385,7 @@ function handlePendingDeepLinkScroll(root) {
 }
 
 /** 三态交易弹层：等待签名 → 确认中 → 最终结果；允许关闭并回「我的」继续查看。 */
-function openTransactionSheet(amount, view) {
+function openTransactionSheet(amount, view, { assetSymbol = 'GRAM', gasNote = '' } = {}) {
   openModal(`
     <div class="sheet-handle"></div>
     <div class="row-between" style="padding:2px 0 8px;">
@@ -395,7 +395,7 @@ function openTransactionSheet(amount, view) {
     <div class="empty-state" style="padding:12px 8px;">
       <div class="icon-badge orange" id="tx-stage-badge" style="width:48px;height:48px;border-radius:14px;">${icon('wallet', 22)}</div>
       <div id="tx-stage-title" style="font-size:16px;font-weight:700;margin-top:6px;">${L('1/3 等待钱包签名…', '1/3 Awaiting wallet signature…')}</div>
-      <div id="tx-stage-sub" class="num-xs text-muted">${L(`正在唤起 TON Connect 确认 ${formatNum(amount)} GRAM`, `Confirm ${formatNum(amount)} GRAM in wallet`)}</div>
+      <div id="tx-stage-sub" class="num-xs text-muted">${L(`正在唤起 TON Connect 确认 ${formatNum(amount)} ${assetSymbol}${gasNote}`, `Confirm ${formatNum(amount)} ${assetSymbol}${gasNote} in wallet`)}</div>
     </div>
     <div class="col-gap">
       <button class="btn btn-secondary" id="tx-go-profile">${L('关闭并返回「我的」查看', 'Close & view in Me')}</button>
@@ -695,7 +695,7 @@ function renderLiveStakeConfirm(root, navigate) {
         <div class="card">
           <div class="card-title" style="margin-bottom:6px;">${icon('receipt', 15, 'text-green')} ${L('链上质押核对清单（A9 本位）', 'On-Chain A9 Stake Checklist')}</div>
           <div class="check-list">
-            <div class="check-row"><span class="text-sec">${L('质押资产 / 最低门槛', 'Asset / Minimum')}</span><span class="mono" style="font-weight:700;">${formatNum(amountA9)} A9 (≥ ${formatNum(minStakeA9)} A9)</span></div>
+            <div class="check-row"><span class="text-sec">${L('质押资产 / 最低门槛', 'Asset / Minimum')}</span><span id="live-stake-check-amt" class="mono" style="font-weight:700;">${formatNum(amountA9)} A9 (≥ ${formatNum(minStakeA9)} A9)</span></div>
             <div class="check-row"><span class="text-sec">${L('附带链上 Gas（多退少补）', 'Attached Gas (Excess Refunded)')}</span><span class="mono text-sec">0.30 GRAM</span></div>
             <div class="check-row"><span class="text-sec">${L('目标底价 / 奖励上限', 'Target / Cap')}</span><span class="mono num-xs">${round.targetPrice === null ? L('待定', 'TBD') : '$' + round.targetPrice.toFixed(4)} · 15x</span></div>
             <div class="check-row"><span class="text-sec">${L('合约地址', 'RoundController')}</span><span class="mono num-xs">${roundController ? escapeHtml(`${roundController.slice(0, 6)}…${roundController.slice(-6)}`) : L('未配置', 'Not configured')}</span></div>
@@ -718,6 +718,12 @@ function renderLiveStakeConfirm(root, navigate) {
     if (inputEl) {
       inputEl.oninput = (e) => {
         amountA9 = Math.max(0, Number(e.target.value) || 0);
+        const chk = root.querySelector('#live-stake-check-amt');
+        if (chk) chk.textContent = `${formatNum(amountA9)} A9 (≥ ${formatNum(minStakeA9)} A9)`;
+        const btn = root.querySelector('#btn-live-stake-submit');
+        if (btn && !submitting) {
+          btn.innerHTML = `${icon('bolt', 16)} ${L(`签名质押 ${formatNum(amountA9)} A9（+ 0.30 GRAM Gas）`, `Sign & Stake ${formatNum(amountA9)} A9 (+ 0.30 GRAM Gas)`)}`;
+        }
       };
     }
     root.querySelectorAll('[data-live-amt]').forEach((b) => {
@@ -755,7 +761,7 @@ function renderLiveStakeConfirm(root, navigate) {
         }
         submitting = true;
         paint();
-        const sheet = openTransactionSheet(amountA9, () => navigate('/profile'));
+        const sheet = openTransactionSheet(amountA9, () => navigate('/profile'), { assetSymbol: 'A9', gasNote: ' (+ 0.30 GRAM Gas)' });
         try {
           await tonConnect.sendV15StakeA9({
             userJettonWallet: jw,

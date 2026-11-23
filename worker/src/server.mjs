@@ -101,10 +101,12 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
   publicKeyResolver = (addr) => tc.fetchWalletPublicKey(addr);
   walletStateResolver = (addr) => tc.fetchWalletAccountState(addr);
 
-  userReader = (wallet) => tc.fetchUserPortfolio(wallet, {
+  userReader = (wallet, rangeOpts = null) => tc.fetchUserPortfolio(wallet, {
     jettonMasterAddress: jmAddr,
     roundControllerAddress: rcAddr,
-    roundIds: Array.from(liveState.rounds.keys()),
+    roundIds: Array.isArray(rangeOpts?.roundIds) && rangeOpts.roundIds.length
+      ? rangeOpts.roundIds
+      : Array.from(liveState.rounds.keys()),
   });
 
   const syncChain = async () => {

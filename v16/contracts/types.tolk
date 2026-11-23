@@ -7,13 +7,16 @@ const OP_OPEN_ROUND: uint32 = 0x52540001;          // roundOpener: open next rou
 const OP_SETTLE_ROUND: uint32 = 0x52540002;        // keeper / roundOpener: single-tx settle
 const OP_ABORT_ROUND: uint32 = 0x52540003;         // anyone: escape hatch after abortTimeout
 const OP_BURN_INACTIVE_LOCKED: uint32 = 0x52540004; // anyone: burn unresolved slices after 90d
+const OP_CLAIM_FAILED_REFUND: uint32 = 0x52540005;  // user: pull escrowed failed/low-gas refund
 const OP_STAKE_DEPOSIT: uint32 = 0x52540010;       // forward_payload op of TEP-74 transfer
 
 // RC <-> StakeTicket
 const OP_TICKET_ADD_STAKE: uint32 = 0x52540301;    // RC -> Ticket (deploy / top-up stake)
-const OP_TICKET_CONFIRM: uint32 = 0x52540302;      // RC -> Ticket (update claimed state)
+const OP_TICKET_CONFIRM: uint32 = 0x52540302;      // RC -> Ticket (update claimed state after Jetton transfer succeeds)
 const OP_TICKET_CLAIM: uint32 = 0x52540303;        // owner -> Ticket
-const OP_TICKET_CLAIM_REQ: uint32 = 0x52540305;    // Ticket -> RC
+const OP_TICKET_CLAIM_REQ: uint32 = 0x52540305;      // Ticket -> RC
+const OP_TICKET_CLAIM_ROLLBACK: uint32 = 0x52540306; // RC -> Ticket (rollback claimed delta on Jetton transfer bounce)
+const OP_TICKET_STAKE_ACK: uint32 = 0x52540307;      // Ticket -> RC (acknowledge stake recorded; clears transient pendingStake)
 
 // Standard TEP-74 opcodes
 const OP_JETTON_TRANSFER: uint32 = 0x0f8a7ea5;
@@ -39,13 +42,25 @@ const TIMING_BPS_SECOND: uint128 = 14000;  // 1.4x (middle 1/3)
 const TIMING_BPS_LAST: uint128 = 10000;    // 1.0x (last 1/3)
 
 const VALUE_JETTON_ACTION: coins = ton("0.1");
-const VALUE_TICKET_MSG: coins = ton("0.02");
+const VALUE_TICKET_MSG: coins = ton("0.025");
+const VALUE_TICKET_ACK: coins = ton("0.025");
 const TICKET_MIN_BALANCE: coins = ton("0.02");
-const MIN_DEPOSIT_VALUE: coins = ton("0.1");
-const MIN_REFUND_VALUE: coins = ton("0.06");
+const RC_MIN_BALANCE: coins = ton("0.1");
+const MIN_DEPOSIT_VALUE: coins = ton("0.12");
+const MIN_REFUND_VALUE: coins = ton("0.08");
+const MIN_ESCROW_GAS: coins = ton("0.015");
+const MIN_ESCROW_AMOUNT: uint128 = 1000000000;       // 1 A9: sub-1-A9 dust with <0.015 TON is ignored (anti-griefing)
+const MIN_CLAIM_REFUND_VALUE: coins = ton("0.12");
 const MIN_CLAIM_VALUE: coins = ton("0.2");
 const MIN_RC_CLAIM_VALUE: coins = ton("0.15");
 const MIN_SETTLE_VALUE: coins = ton("0.25");
+
+const PENDING_CLAIM_KIND_TICKET: uint8 = 1;
+const PENDING_CLAIM_KIND_INSTANT_REFUND: uint8 = 2;
+const PENDING_CLAIM_KIND_PULL_REFUND: uint8 = 3;
+const PENDING_GC_TTL: uint64 = 300;
+const PENDING_OP_FLAG: uint64 = 0x8000000000000000;
+const NON_PENDING_QUERY_MASK: uint64 = 0x7FFFFFFFFFFFFFFF;
 
 // ===========================================================================
 // Errors
@@ -133,9 +148,48 @@ struct RoundData {
     meta: Cell<RoundMeta>
 }
 
+struct PendingStake {
+    roundId: uint32
+    owner: address
+    refundTo: address
+    amountRaw: uint128
+    weightRaw: uint128
+    userQueryId: uint64
+    createdAt: uint64
+}
+
+struct PendingClaim {
+    kind: uint8
+    owner: address
+    roundId: uint32
+    userQueryId: uint64
+    revertPrincipal: bool
+    revertImm: bool
+    revertLockedRaw: uint128
+    amountRaw: uint128
+    createdAt: uint64
+}
+
+struct RecoveryState {
+    nextOpId: uint64
+    pendingStakes: map<uint64, Cell<PendingStake>>
+    pendingClaims: map<uint64, Cell<PendingClaim>>
+    failedRefunds: map<address, uint128>
+}
+
+fun emptyRecovery(): RecoveryState {
+    return {
+        nextOpId: 0,
+        pendingStakes: [],
+        pendingClaims: [],
+        failedRefunds: [],
+    };
+}
+
 struct Storage {
     config: Cell<ProtocolConfig>
     rounds: map<uint32, RoundData>
+    recovery: Cell<RecoveryState>
     currentRoundId: uint32
     successCount: uint32
     poolRemainingRaw: uint128      // starts at 7,000,000,000 A9
@@ -188,6 +242,10 @@ struct (0x52540003) AbortRound {
 }
 
 struct (0x52540004) BurnInactiveLocked {
+    queryId: uint64
+}
+
+struct (0x52540005) ClaimFailedRefund {
     queryId: uint64
 }
 
@@ -252,6 +310,29 @@ struct (0x52540106) EvInactiveLockedBurned {
     at: uint64
 }
 
+struct (0x52540107) EvDepositRefundEscrowed {
+    recipient: address
+    amountRaw: uint128
+}
+
+struct (0x52540108) EvStakeBounced {
+    roundId: uint32
+    owner: address
+    recipient: address
+    amountRaw: uint128
+}
+
+struct (0x52540109) EvClaimBounced {
+    owner: address
+    roundId: uint32
+    amountRaw: uint128
+}
+
+struct (0x5254010A) EvFailedRefundClaimed {
+    recipient: address
+    amountRaw: uint128
+}
+
 // ===========================================================================
 // Clean get-method views
 // ===========================================================================
@@ -293,4 +374,10 @@ struct RewardPreview {
     lockedRaw: uint128
     unlockedLockedRaw: uint128
     burnedLockedRaw: uint128
+}
+
+struct RecoveryMetaView {
+    nextOpId: uint64
+    hasPendingStakes: bool
+    hasPendingClaims: bool
 }

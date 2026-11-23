@@ -30,33 +30,37 @@ fun reqStr(name: string): string {
     return v!;
 }
 
+fun assertSingleTxOk(item: SendResult, idx: int) {
+    val rawCell = item.tx as cell;
+    println("  tx[{}] = 0x{:x}", idx, rawCell.hash());
+    val tx = item.tx.load();
+    val descr = tx.description.load();
+    if (descr is TlbTransOrd) {
+        if (descr.aborted) {
+            Assert.fail(format("tx[{}] aborted on-chain", idx));
+        }
+        val c = descr.computePh;
+        if (c is TlbTrComputeVm) {
+            val exitCode = c.data.load().exitCode;
+            if (exitCode != 0 && exitCode != 1) {
+                Assert.fail(format("tx[{}] failed compute exitCode={}", idx, exitCode));
+            }
+        }
+        val act = descr.action;
+        if (!(act is TlbNone)) {
+            val actionPh = act.value.load();
+            if (!actionPh.success) {
+                Assert.fail(format("tx[{}] failed action resultCode={}", idx, actionPh.resultCode));
+            }
+        }
+    }
+}
+
 fun assertTraceOk(trace: SendResultList) {
     if (trace.size() == 0) { Assert.fail("round op trace is empty"); }
     var i = 0;
     while (i < trace.size()) {
-        val rawCell = trace.at(i).tx as cell;
-        println("  tx[{}] = 0x{:x}", i, rawCell.hash());
-        val tx = trace.at(i).tx.load();
-        val descr = tx.description.load();
-        if (descr is TlbTransOrd) {
-            if (descr.aborted) {
-                Assert.fail(format("tx[{}] aborted on-chain", i));
-            }
-            val c = descr.computePh;
-            if (c is TlbTrComputeVm) {
-                val exitCode = c.data.load().exitCode;
-                if (exitCode != 0 && exitCode != 1) {
-                    Assert.fail(format("tx[{}] failed compute exitCode={}", i, exitCode));
-                }
-            }
-            val act = descr.action;
-            if (!(act is TlbNone)) {
-                val actionPh = act.value.load();
-                if (!actionPh.success) {
-                    Assert.fail(format("tx[{}] failed action resultCode={}", i, actionPh.resultCode));
-                }
-            }
-        }
+        assertSingleTxOk(trace.at(i), i);
         i += 1;
     }
 }
@@ -146,7 +150,7 @@ fun main() {
     } else {
         val first = sent.waitForFirstTransaction(false, 15, 2500);
         if (first == null) { Assert.fail("round op transaction unavailable"); }
-        println("  tx[0] = 0x{:x}", (first!.tx as cell).hash());
+        assertSingleTxOk(first!, 0);
     }
     val st = net.runGetMethod<ProtocolStateView>(rc, "get_protocol_state");
     println("State after op: round={} wins={} poolRemaining={} carry={} endAt={}",

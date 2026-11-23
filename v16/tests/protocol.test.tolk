@@ -3,6 +3,8 @@ import "@acton/emulation/network"
 import "@acton/emulation/testing"
 import "@acton/testing/expect"
 import "@acton/types/message"
+import "@acton/types/transaction"
+import "@contracts/jetton/storage"
 import "@contracts/types"
 import "@contracts/ticket"
 import "helpers"
@@ -344,4 +346,445 @@ get fun `test round 255 to 256 preserves tickets and locked rewards`() {
     expect(claim(env, alice, 255)).toHaveSuccessfulTx<TicketClaimReq>({ to: env.rc });
     expect(claim(env, alice, 256)).toHaveSuccessfulTx<TicketClaimReq>({ to: env.rc });
     expect(balanceOf(env, alice)).toEqual(110000 * A9);
+}
+
+// 11. W3: steady-state GC, forged ReturnExcesses immunity (P0-1), and anti-anycast/dust defenses (P1-1/P1-2)
+get fun `test w3 steady state clears pending maps and blocks forged callbacks`() {
+    val env = setup();
+    expect(openRound(env, 0, P0 * 2)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    val alice = user(env, "w3-steady-alice", 10000 * A9);
+    val attacker = user(env, "w3-attacker", 100 * A9);
+
+    stake(env, alice, 1, 5000 * A9);
+    // TicketStakeAck immediately clears pendingStakes
+    expect(recoveryMeta(env).hasPendingStakes).toEqual(false);
+
+    expect(settleRound(env, 1, 20)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
+    expect(claim(env, alice, 1)).toHaveSuccessfulTx<TicketClaimReq>({ to: env.rc });
+    expect(balanceOf(env, alice)).toEqual(25000 * A9); // 5k unused + 5k principal + 15k (20% of 75k)
+    expect(ticketData(env, alice, 1).pending).toEqual(false);
+    expect(ticketData(env, alice, 1).principalDone).toEqual(true);
+    expect(ticketData(env, alice, 1).immediateClaimed).toEqual(true);
+
+    // P0-1 regression: attacker drives alice's own JettonWallet to send ReturnExcessesBack(opId) -> RC ignores harmlessly
+    val predictedOpId = PENDING_OP_FLAG | recoveryMeta(env).nextOpId;
+    net.send(attacker, createMessage({
+        bounce: true,
+        value: ton("0.1"),
+        dest: walletOf(env.master, attacker),
+        body: AskToTransferMsg {
+            queryId: predictedOpId,
+            jettonAmount: 1,
+            transferRecipient: alice,
+            sendExcessesTo: env.rc,
+            customPayload: null,
+            forwardTonAmount: 0,
+            forwardPayload: emptyPayload(),
+        },
+    }));
+    expect(ticketData(env, alice, 1).pending).toEqual(false);
+
+    // O(1) lazy GC: after PENDING_GC_TTL (300s), next op prunes stale pendingClaims
+    testing.setNow((round(env, 1).settledAt + PENDING_GC_TTL + 1) as uint32);
+    expect(openRound(env, 232000, 464000)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    stake(env, alice, 2, 1000 * A9);
+    expect(recoveryMeta(env).hasPendingClaims).toEqual(false);
+    expect(recoveryMeta(env).hasPendingStakes).toEqual(false);
+
+    // P1-2 regression: malformed anycast=1 (0b101) beneficiary address does NOT throw/swallow A9; refunds cleanly
+    val badAnycastBody = beginCell()
+        .storeUint(OP_STAKE_DEPOSIT, 32)
+        .storeUint(2, 32)
+        .storeUint(0b101, 3)
+        .storeUint(0, 200)
+        .storeUint(0, 64)
+        .endCell();
+    val badAnycastPayload = beginCell().storeUint(1, 1).storeRef(badAnycastBody).toSlice();
+    val balBeforeBad = balanceOf(env, alice);
+    transfer(alice, walletOf(env.master, alice), env.rc, 1000 * A9, ton("0.15"), badAnycastPayload, ton("0.3"));
+    expect(balanceOf(env, alice)).toEqual(balBeforeBad);
+
+    // P1-1 regression: sub-1-A9 dust with <0.015 TON is ignored without bloating failedRefunds or draining RC GRAM
+    val rcTonBeforeDust = testing.getAccountBalance(env.rc);
+    transfer(attacker, walletOf(env.master, attacker), env.rc, 1, ton("0.001"), emptyPayload(), ton("0.1"));
+    expect(failedRefundOf(env, attacker)).toEqual(0 as uint128);
+    expect(testing.getAccountBalance(env.rc) >= rcTonBeforeDust - ton("0.02")).toEqual(true);
+}
+
+// 12. W3-3: low-gas invalid deposits escrow refunds instead of swallowing tokens or draining RC GRAM
+get fun `test w3 low gas invalid deposit escrows refund and pull claim succeeds`() {
+    val env = setup();
+    expect(openRound(env, 0, P0 * 2)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    val alice = user(env, "w3-lowgas-alice", 10000 * A9);
+    val stranger = testing.treasury("w3-lowgas-stranger").address;
+    val rcTonBefore = testing.getAccountBalance(env.rc);
+
+    // 1) Invalid payload with low forwardTon (0.01 GRAM < MIN_REFUND_VALUE 0.08 GRAM) -> escrowed, NOT swallowed
+    transfer(alice, walletOf(env.master, alice), env.rc, 2000 * A9, ton("0.01"), emptyPayload(), ton("0.15"));
+    expect(balanceOf(env, alice)).toEqual(8000 * A9);
+    expect(failedRefundOf(env, alice)).toEqual((2000 * A9) as uint128);
+    // RC GRAM balance must NOT be drained by low-gas spam
+    expect(testing.getAccountBalance(env.rc) >= rcTonBefore).toEqual(true);
+
+    // 2) Second low-gas invalid deposit (below minStake 500 A9) accumulates cleanly into failedRefunds[alice]
+    transfer(alice, walletOf(env.master, alice), env.rc, 500 * A9, ton("0.01"), stakePayload(1), ton("0.15"));
+    expect(balanceOf(env, alice)).toEqual(7500 * A9);
+    expect(failedRefundOf(env, alice)).toEqual((2500 * A9) as uint128);
+
+    // 3) Pull claim with insufficient gas rejected and balance preserved
+    expect(claimFailedRefund(env, alice, ton("0.05"))).toHaveFailedTx<ClaimFailedRefund>({ to: env.rc, exitCode: Errors.NotEnoughValue });
+    expect(failedRefundOf(env, alice)).toEqual((2500 * A9) as uint128);
+
+    // 4) Stranger with 0 escrowed refund rejected
+    expect(claimFailedRefund(env, stranger, ton("0.15"))).toHaveFailedTx<ClaimFailedRefund>({ to: env.rc, exitCode: Errors.NothingToClaim });
+
+    // 5) Alice pays own gas -> recovers full 2,500 A9
+    expect(claimFailedRefund(env, alice, ton("0.15"))).toHaveSuccessfulTx<ClaimFailedRefund>({ to: env.rc });
+    expect(balanceOf(env, alice)).toEqual(10000 * A9);
+    expect(failedRefundOf(env, alice)).toEqual(0 as uint128);
+}
+
+// 13. W3-1: StakeTicket bounce rolls back round stake/weight/count and refunds user A9
+get fun `test w3 stake ticket bounce rolls back round ledger and refunds user`() {
+    val env = setup();
+    expect(openRound(env, 0, P0 * 2)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    val alice = user(env, "w3-sb-alice", 10000 * A9);
+    val ticketAddr = ticketOf(env, alice, 1);
+
+    // Step 1: deploy StakeTicket normally with 2,000 A9 so ticketAddr is active
+    stake(env, alice, 1, 2000 * A9);
+    expect(round(env, 1).totalStakeRaw).toEqual((2000 * A9) as uint128);
+    expect(round(env, 1).stakeCount).toEqual(1 as uint32);
+
+    // Step 2: simulate corrupted/incompatible state at ticketAddr so next TicketAddStake bounces natively in TVM!
+    val origShard = testing.getShardAccount(ticketAddr)!;
+    var brokenAcc = origShard.account.load();
+    if (brokenAcc is TlbAccountInfo) {
+        var st = brokenAcc.storage;
+        if (st.state is TlbAccountStateActive) {
+            var init = st.state.stateInit;
+            init.data = beginCell().endCell(); // empty data causes TicketStorage.load() to throw cell underflow & bounce!
+            st.state = TlbAccountStateActive { stateInit: init };
+        }
+        brokenAcc.storage = st;
+    }
+    testing.setShardAccount(ticketAddr, {
+        account: brokenAcc.toCell(),
+        lastTransHash: origShard.lastTransHash,
+        lastTransLt: origShard.lastTransLt,
+    });
+
+    // Step 3: Alice stakes another 3,000 A9 -> RC optimistically adds then StakeTicket throws & bounces -> RC rolls back & refunds 3,000 A9!
+    val balBefore = balanceOf(env, alice); // 8,000 A9
+    stake(env, alice, 1, 3000 * A9);
+
+    // Round ledger MUST be rolled back cleanly to 2,000 A9 / weight 4,000 A9 / stakeCount 1
+    val rdAfter = round(env, 1);
+    expect(rdAfter.totalStakeRaw).toEqual((2000 * A9) as uint128);
+    expect(rdAfter.totalWeightRaw).toEqual((4000 * A9) as uint128);
+    expect(rdAfter.stakeCount).toEqual(1 as uint32);
+    // User MUST receive full 3,000 A9 back and pendingStakes MUST be cleared!
+    expect(balanceOf(env, alice)).toEqual(balBefore);
+    expect(recoveryMeta(env).hasPendingStakes).toEqual(false);
+}
+
+// 14. W3-2: Claim Jetton transfer bounce rolls back StakeTicket exact delta, and retry succeeds
+get fun `test w3 claim and failed refund jetton bounce rollback preserves funds`() {
+    // Deploy RC with 0 initial reward pool funding so claim payout (8,000 A9) exceeds rcWallet's 2,000 A9 balance
+    val env = setupWithFunding(0);
+    expect(openRound(env, 0, P0 * 2)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    val alice = user(env, "w3-cb-alice", 5000 * A9);
+    stake(env, alice, 1, 2000 * A9);
+
+    // Settle Round 1 as win (distributable = 30,000 A9)
+    expect(settleRound(env, 1, 20)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
+
+    // Alice tries to claim 8,000 A9 (2,000 principal + 6,000 imm): rcWallet has only 2,000 A9 -> JettonWallet throws BalanceError & bounces!
+    val balBeforeClaim = balanceOf(env, alice); // 3,000 A9
+    claim(env, alice, 1);
+
+    // CRITICAL W3-2 INVARIANT: TicketClaimRollback restores principalDone=false, immediateClaimed=false, pending=false!
+    val tdAfterBounce = ticketData(env, alice, 1);
+    expect(tdAfterBounce.pending).toEqual(false);
+    expect(tdAfterBounce.principalDone).toEqual(false);
+    expect(tdAfterBounce.immediateClaimed).toEqual(false);
+    expect(tdAfterBounce.lockedClaimedRaw).toEqual(0 as uint128);
+    expect(balanceOf(env, alice)).toEqual(balBeforeClaim);
+    expect(recoveryMeta(env).hasPendingClaims).toEqual(false);
+
+    // Also verify ClaimFailedRefund Jetton bounce preserves failedRefunds[alice]:
+    val balBeforeLowGas = balanceOf(env, alice);
+    transfer(alice, walletOf(env.master, alice), env.rc, 1000 * A9, ton("0.01"), emptyPayload(), ton("0.15"));
+    expect(failedRefundOf(env, alice)).toEqual((1000 * A9) as uint128);
+    val origRcW = testing.getShardAccount(env.rcWallet)!;
+    var drainedRcW = origRcW.account.load();
+    if (drainedRcW is TlbAccountInfo) {
+        var st = drainedRcW.storage;
+        if (st.state is TlbAccountStateActive) {
+            var init = st.state.stateInit;
+            var wData = WalletStorage.fromCell(init.data!);
+            wData.jettonBalance = 0;
+            init.data = wData.toCell();
+            st.state = TlbAccountStateActive { stateInit: init };
+        }
+        drainedRcW.storage = st;
+    }
+    testing.setShardAccount(env.rcWallet, {
+        account: drainedRcW.toCell(),
+        lastTransHash: origRcW.lastTransHash,
+        lastTransLt: origRcW.lastTransLt,
+    });
+    claimFailedRefund(env, alice, ton("0.15"));
+    expect(failedRefundOf(env, alice)).toEqual((1000 * A9) as uint128);
+    expect(recoveryMeta(env).hasPendingClaims).toEqual(false);
+
+    // Top up RC reward pool from treasury -> BOTH claim retry (8,000 A9) & failed refund retry (1,000 A9) succeed!
+    transfer(env.treasury, env.treasuryWallet, env.rc, RC_FUNDING, 0, emptyPayload(), ton("0.2"));
+    expect(claim(env, alice, 1)).toHaveSuccessfulTx<TicketClaimReq>({ to: env.rc });
+    expect(claimFailedRefund(env, alice, ton("0.15"))).toHaveSuccessfulTx<ClaimFailedRefund>({ to: env.rc });
+    expect(balanceOf(env, alice)).toEqual(balBeforeLowGas + 8000 * A9);
+    expect(failedRefundOf(env, alice)).toEqual(0 as uint128);
+    val tdAfterRetry = ticketData(env, alice, 1);
+    expect(tdAfterRetry.pending).toEqual(false);
+    expect(tdAfterRetry.principalDone).toEqual(true);
+    expect(tdAfterRetry.immediateClaimed).toEqual(true);
+}
+
+// 15. W3 P0-1/W3-2 delta rollback on locked slice claim bounce (preserves already-claimed principal & immediate)
+get fun `test w3 partial locked slice bounce rolls back only locked delta`() {
+    val env = setup();
+    expect(openRound(env, 0, P0 * 2)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    val alice = user(env, "w3-delta-alice", 2000 * A9);
+    stake(env, alice, 1, 2000 * A9);
+    expect(settleRound(env, 1, 20)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
+
+    // Claim principal (2,000) + immediate (6,000) normally -> succeeds
+    expect(claim(env, alice, 1)).toHaveSuccessfulTx<TicketClaimReq>({ to: env.rc });
+    expect(balanceOf(env, alice)).toEqual(8000 * A9);
+
+    // Round 2 wins -> unlocks 1st locked slice (6,000 A9) of Round 1
+    expect(openRound(env, 232000, 464000)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    expect(settleRound(env, 2, 20)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
+
+    // Drain rcWallet to 0 so claiming the 6,000 A9 locked slice bounces natively!
+    val origRcW = testing.getShardAccount(env.rcWallet)!;
+    var drainedRcW = origRcW.account.load();
+    if (drainedRcW is TlbAccountInfo) {
+        var st = drainedRcW.storage;
+        if (st.state is TlbAccountStateActive) {
+            var init = st.state.stateInit;
+            var wData = WalletStorage.fromCell(init.data!);
+            wData.jettonBalance = 0;
+            init.data = wData.toCell();
+            st.state = TlbAccountStateActive { stateInit: init };
+        }
+        drainedRcW.storage = st;
+    }
+    testing.setShardAccount(env.rcWallet, {
+        account: drainedRcW.toCell(),
+        lastTransHash: origRcW.lastTransHash,
+        lastTransLt: origRcW.lastTransLt,
+    });
+
+    var rcTonBefore: coins = 0;
+    val accBefore = testing.getShardAccount(env.rc)!.account.load();
+    if (accBefore is TlbAccountInfo) { rcTonBefore = accBefore.storage.balance.grams; }
+    expect(rcTonBefore >= ton("0.5")).toEqual(true);
+    claim(env, alice, 1);
+    // Principal & immediate MUST remain true (no double-claim), while lockedClaimedRaw rolls back to 0!
+    val td = ticketData(env, alice, 1);
+    expect(td.pending).toEqual(false);
+    expect(td.principalDone).toEqual(true);
+    expect(td.immediateClaimed).toEqual(true);
+    expect(td.lockedClaimedRaw).toEqual(0 as uint128);
+    // RC reserve TON (originally 1+ TON from deploy) MUST NOT leak to user on ownWallet bounce!
+    var rcTonAfter: coins = 0;
+    val accAfter = testing.getShardAccount(env.rc)!.account.load();
+    if (accAfter is TlbAccountInfo) { rcTonAfter = accAfter.storage.balance.grams; }
+    expect(rcTonAfter + ton("0.05") >= rcTonBefore).toEqual(true);
+
+    // Restore rcWallet -> retry claims exact 6,000 A9 locked slice (NOT re-paying principal/immediate)
+    testing.setShardAccount(env.rcWallet, origRcW);
+    expect(claim(env, alice, 1)).toHaveSuccessfulTx<TicketClaimReq>({ to: env.rc });
+    expect(balanceOf(env, alice)).toEqual(14000 * A9);
+    expect(ticketData(env, alice, 1).lockedClaimedRaw).toEqual((6000 * A9) as uint128);
+}
+
+// 16. W3 P1-4: SettleRound never deadlocks on >=4 stale zombies AND never bypasses an active current-round stake behind an older-round zombie
+get fun `test w3 settle guards active pending stake without zombie deadlock`() {
+    val env = setup();
+    expect(openRound(env, 0, P0 * 2)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    val alice = user(env, "w3-settle-guard", 2000 * A9);
+    stake(env, alice, 1, 2000 * A9);
+
+    val rd1 = round(env, 1);
+    val settleAt1 = (rd1.stakeCloseAt + (OBS_WINDOW as uint64)) as uint64;
+
+    // Inject 5 stale (>300s) zombie pendingStakes for round 1 -> SettleRound MUST NOT deadlock (was broken with findFirst + 3-item GC)
+    val rcAcc = testing.getShardAccount(env.rc)!;
+    var acc = rcAcc.account.load();
+    if (acc is TlbAccountInfo) {
+        var st = acc.storage;
+        if (st.state is TlbAccountStateActive) {
+            var init = st.state.stateInit;
+            var rcSt = Storage.fromCell(init.data!);
+            var rec = rcSt.recovery.load();
+            var k: uint64 = 1;
+            while (k <= 5) {
+                rec.pendingStakes.set(PENDING_OP_FLAG | k, PendingStake {
+                    roundId: 1,
+                    owner: alice,
+                    refundTo: alice,
+                    amountRaw: (100 * A9) as uint128,
+                    weightRaw: (100 * A9) as uint128,
+                    userQueryId: k,
+                    createdAt: settleAt1 - 400,
+                }.toCell());
+                k += 1;
+            }
+            rec.nextOpId = 10;
+            rcSt.recovery = rec.toCell();
+            init.data = rcSt.toCell();
+            st.state = TlbAccountStateActive { stateInit: init };
+        }
+        acc.storage = st;
+    }
+    testing.setShardAccount(env.rc, { account: acc.toCell(), lastTransHash: rcAcc.lastTransHash, lastTransLt: rcAcc.lastTransLt });
+
+    // Round 1 settles cleanly despite 5 stale zombies
+    expect(settleRound(env, 1, 20)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
+
+    // Open Round 2 and prepare settlement time
+    expect(openRound(env, 232000, 464000)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    val rd2 = round(env, 2);
+    val r2Now = (rd2.stakeCloseAt + (OBS_WINDOW as uint64)) as uint64;
+    testing.setNow(r2Now as uint32);
+
+    // Inject an older-round (round 1) zombie at lower key AND an active (<300s) round-2 pendingStake at highest key
+    val rcAcc2 = testing.getShardAccount(env.rc)!;
+    var acc2 = rcAcc2.account.load();
+    if (acc2 is TlbAccountInfo) {
+        var st2 = acc2.storage;
+        if (st2.state is TlbAccountStateActive) {
+            var init2 = st2.state.stateInit;
+            var rcSt2 = Storage.fromCell(init2.data!);
+            var rec2 = rcSt2.recovery.load();
+            rec2.pendingStakes.set(PENDING_OP_FLAG | 20, PendingStake {
+                roundId: 1,
+                owner: alice,
+                refundTo: alice,
+                amountRaw: (100 * A9) as uint128,
+                weightRaw: (100 * A9) as uint128,
+                userQueryId: 20,
+                createdAt: r2Now - 50,
+            }.toCell());
+            rec2.pendingStakes.set(PENDING_OP_FLAG | 21, PendingStake {
+                roundId: 2,
+                owner: alice,
+                refundTo: alice,
+                amountRaw: (200 * A9) as uint128,
+                weightRaw: (200 * A9) as uint128,
+                userQueryId: 21,
+                createdAt: r2Now - 10,
+            }.toCell());
+            rec2.nextOpId = 22;
+            rcSt2.recovery = rec2.toCell();
+            init2.data = rcSt2.toCell();
+            st2.state = TlbAccountStateActive { stateInit: init2 };
+        }
+        acc2.storage = st2;
+    }
+    testing.setShardAccount(env.rc, { account: acc2.toCell(), lastTransHash: rcAcc2.lastTransHash, lastTransLt: rcAcc2.lastTransLt });
+
+    // Must REJECT SettleRound with TooEarly (cannot be bypassed by older-round entry at lower key)
+    val earlyRes = net.send(env.keeper, createMessage({
+        bounce: true,
+        value: ton("0.3"),
+        dest: env.rc,
+        body: SettleRound {
+            queryId: 902,
+            roundId: 2,
+            qualifiedCandles: 20,
+            candleHash: 0xabc2 as uint256,
+        },
+    }));
+    expect(earlyRes).toHaveFailedTx<SettleRound>({ to: env.rc, exitCode: Errors.TooEarly });
+
+    // Once active pendingStake ages past 300s TTL, SettleRound succeeds cleanly
+    testing.setNow((r2Now + 310) as uint32);
+    expect(net.send(env.keeper, createMessage({
+        bounce: true,
+        value: ton("0.3"),
+        dest: env.rc,
+        body: SettleRound {
+            queryId: 903,
+            roundId: 2,
+            qualifiedCandles: 20,
+            candleHash: 0xabc2 as uint256,
+        },
+    }))).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
+}
+
+// 17. W3 P1-2 & P1-3: TicketClaimRollback preserves concurrent pending lock and commutes with additive TicketConfirm
+get fun `test w3 rollback commutes with concurrent claim and preserves pending lock`() {
+    val env = setup();
+    expect(openRound(env, 0, P0 * 2)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    val alice = user(env, "w3-commute-alice", 2000 * A9);
+    stake(env, alice, 1, 2000 * A9);
+    expect(settleRound(env, 1, 20)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
+    expect(claim(env, alice, 1)).toHaveSuccessfulTx<TicketClaimReq>({ to: env.rc });
+
+    val ticketAddr = ticketOf(env, alice, 1);
+    // Simulate Claim #1 already added 3,000 A9 locked, and Claim #2 is now in-flight (pending == true)
+    val tAcc = testing.getShardAccount(ticketAddr)!;
+    var ta = tAcc.account.load();
+    if (ta is TlbAccountInfo) {
+        var ts = ta.storage;
+        if (ts.state is TlbAccountStateActive) {
+            var init = ts.state.stateInit;
+            var td0 = TicketStorage.fromCell(init.data!);
+            td0.lockedClaimedRaw = (3000 * A9) as uint128;
+            td0.pending = true;
+            init.data = td0.toCell();
+            ts.state = TlbAccountStateActive { stateInit: init };
+        }
+        ta.storage = ts;
+    }
+    testing.setShardAccount(ticketAddr, { account: ta.toCell(), lastTransHash: tAcc.lastTransHash, lastTransLt: tAcc.lastTransLt });
+
+    // Delayed TicketClaimRollback #1 arrives while Claim #2 is in-flight -> MUST NOT clear pending!
+    val rbRes = net.send(env.rc, createMessage({
+        bounce: false,
+        value: ton("0.015"),
+        dest: ticketAddr,
+        body: TicketClaimRollback {
+            queryId: 1,
+            revertPrincipal: false,
+            revertImm: false,
+            revertLockedRaw: (3000 * A9) as uint128,
+        },
+    }));
+    expect(rbRes).toHaveSuccessfulTx<TicketClaimRollback>({ to: ticketAddr });
+    val tdMid = ticketData(env, alice, 1);
+    expect(tdMid.pending).toEqual(true);
+    expect(tdMid.lockedClaimedRaw).toEqual(0 as uint128);
+
+    // Then additive TicketConfirm #2 (+4,000 A9 locked) arrives -> clears pending and preserves exact +4,000 A9 (no clobber!)
+    val cfRes = net.send(env.rc, createMessage({
+        bounce: false,
+        value: ton("0.025"),
+        dest: ticketAddr,
+        body: TicketConfirm {
+            queryId: 2,
+            addPrincipal: false,
+            addImm: false,
+            addLockedRaw: (4000 * A9) as uint128,
+        },
+    }));
+    expect(cfRes).toHaveSuccessfulTx<TicketConfirm>({ to: ticketAddr });
+    val tdFinal = ticketData(env, alice, 1);
+    expect(tdFinal.pending).toEqual(false);
+    expect(tdFinal.principalDone).toEqual(true);
+    expect(tdFinal.immediateClaimed).toEqual(true);
+    expect(tdFinal.lockedClaimedRaw).toEqual((4000 * A9) as uint128);
 }

@@ -7,6 +7,9 @@ import {
   requestChestPurchaseIntent,
   fetchPresaleQuota,
   fetchPresaleOrders,
+  registerWarmup,
+  cancelWarmup,
+  getEffectiveUserId,
   rawToA9,
 } from '../data.js';
 /**
@@ -19,20 +22,21 @@ import {
 
 import { store } from '../store.js';
 import { config } from '../config.js';
-import { registerWarmup, getEffectiveUserId } from '../data.js';
 import { tonConnect } from '../tonconnect.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { escapeHtml, formatNum, formatTimer, showToast, copyText, burstParticles, openModal, closeModal } from '../components.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { SHOP_SCALLOP_AWNING } from '../paper-art.js';
-import { openXShareSheet, buildOgShareUrl } from '../share.js';
+import { openXShareSheet, buildOgShareUrl, buildTmaDeepLink, getShareRef } from '../share.js';
 
 export function renderWarmupHome(root, navigate) {
   const { user, round } = store.state;
   const reg = user.warmupRegistered;
   const safeAddr = (user.shortAddress || 'A9USER').replace(/[^a-zA-Z0-9]/g, '');
-  const inviteUrl = `${window.location.origin}${window.location.pathname}?startapp=invite_${safeAddr}`;
+  const inviteUrl = config.isDemo
+    ? `${window.location.origin}${window.location.pathname}?startapp=invite_${safeAddr}`
+    : buildTmaDeepLink(`invite_${getShareRef()}`);
 
   const distSteps = [
     { key: 'pending_freeze', label: L('待冻结 (T)', 'Freeze (T)') },
@@ -148,7 +152,27 @@ export function renderWarmupHome(root, navigate) {
   }
   const cancelBtn = root.querySelector('#btn-cancel-warmup');
   if (cancelBtn) {
-    cancelBtn.onclick = () => {
+    cancelBtn.onclick = async () => {
+      if (!config.isDemo) {
+        const uid = getEffectiveUserId(user);
+        if (!uid) {
+          showToast(L('请在 Telegram 内打开或先连接 TON 钱包', 'Open in Telegram or connect TON wallet first'), 'amber');
+          tonConnect.openConnectModal(() => renderWarmupHome(root, navigate));
+          return;
+        }
+        cancelBtn.disabled = true;
+        try {
+          await cancelWarmup({ roundId: round.currentRound || 1, walletAddress: user.address, userId: uid });
+          A9Haptic.warning();
+          store.update(s => { s.user.warmupRegistered = false; });
+          showToast(L('已取消本轮预热报名', 'Registration cancelled'), 'amber');
+          renderWarmupHome(root, navigate);
+        } catch (e) {
+          showToast(e?.message || L('取消预热报名失败，请重试', 'Cancellation failed'), 'error');
+          cancelBtn.disabled = false;
+        }
+        return;
+      }
       A9Haptic.warning();
       store.update(s => { s.user.warmupRegistered = false; });
       showToast(L('已取消本轮预热报名', 'Registration cancelled'), 'amber');
@@ -252,6 +276,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
   };
 
   const pollOrderAfterTx = async (walletAddress, orderId) => {
+    const TERMINAL_STATUSES = new Set(['COMPLETED', 'REFUNDED', 'NEEDS_REVIEW', 'PAYMENT_EXCEPTION']);
     for (let attempt = 0; attempt < 10; attempt += 1) {
       await new Promise((r) => setTimeout(r, 2500));
       if (!root.isConnected) return null;
@@ -260,7 +285,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
         if (Array.isArray(orders)) {
           liveOrdersCount = orders.length;
           const found = orders.find((o) => o.orderId === orderId);
-          if (found && (found.status === 'COMPLETED' || found.status === 'PAID_BROADCASTING' || found.status === 'REFUNDED')) {
+          if (found && TERMINAL_STATUSES.has(found.status)) {
             return found;
           }
         }
@@ -381,7 +406,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                 <div class="sub-tile" style="margin-bottom:10px;">
                   <div class="row-between num-xs">
                     <span class="text-sec">${L('当前钱包剩余购箱额度', 'Wallet Remaining Quota')}</span>
-                    <b class="mono text-green">${formatGramFromNano(liveQuota.remainingNano)}</b>
+                    <b class="mono text-green">${formatGramFromNano(liveQuota.availQuotaNano ?? liveQuota.remainingNano)}</b>
                   </div>
                 </div>
               ` : ''}
@@ -617,6 +642,10 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
           if (settled?.status === 'COMPLETED') {
             burstParticles(root);
             showToast(L(`订单 ${order.orderId} 已完成，基础 A9 已发放！`, `Order ${order.orderId} completed! Base A9 credited.`));
+          } else if (settled?.status === 'REFUNDED') {
+            showToast(L(`订单 ${order.orderId} 已触发原路退款，请在购箱小票查看明细`, `Order ${order.orderId} refunded; check receipts for details`), 'amber');
+          } else if (settled?.status === 'PAYMENT_EXCEPTION' || settled?.status === 'NEEDS_REVIEW') {
+            showToast(L(`订单 ${order.orderId} 已进入人工复核，请在购箱小票关注处理进度`, `Order ${order.orderId} queued for review; check receipts`), 'amber');
           }
           await loadChests();
         } catch (e) {
@@ -695,11 +724,19 @@ export function renderInternalRecords(root) {
     const paintLiveOrders = (orders, note = '') => {
       const statusMap = {
         PENDING: ['chip-gold', L('待付款', 'Pending')],
-        PAID_BROADCASTING: ['chip-gold', L('出账中', 'Sending')],
+        PENDING_PAYMENT: ['chip-gold', L('待付款', 'Pending')],
+        PAYMENT_CONFIRMED: ['chip-gold', L('已收款 · 待发币', 'Paid · Queued')],
+        PAYOUT_PENDING: ['chip-gold', L('待发币', 'Payout Queued')],
+        PAYOUT_SENT: ['chip-gold', L('发币核验中', 'Verifying Payout')],
+        PAYOUT_RETRY: ['chip-gold', L('发币重试中', 'Retrying Payout')],
         COMPLETED: ['chip-green', L('已完成', 'Completed')],
-        EXPIRED: ['chip-muted', L('已过期', 'Expired')],
+        REFUND_PENDING: ['chip-gold', L('退款排队中', 'Refund Queued')],
+        REFUND_SENT: ['chip-gold', L('退款核验中', 'Verifying Refund')],
         REFUNDED: ['chip-muted', L('已退款', 'Refunded')],
+        PAYMENT_EXCEPTION: ['chip-red', L('入账异常 · 待复核', 'Payment Exception')],
         NEEDS_REVIEW: ['chip-red', L('人工复核', 'Review')],
+        EXPIRED: ['chip-muted', L('已过期', 'Expired')],
+        CANCELLED: ['chip-muted', L('已取消', 'Cancelled')],
       };
       root.innerHTML = `
         <div class="col-gap anim-page-enter">

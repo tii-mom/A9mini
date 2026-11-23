@@ -29,9 +29,10 @@ export class PromoError extends Error {
   }
 }
 
-export function deriveClaimQueryId(claimId) {
+export function deriveClaimQueryId(claimId, attempt = 1) {
+  const seed = Number(attempt) > 1 ? `${String(claimId || '')}:try:${Number(attempt)}` : String(claimId || '');
   let h = 14695981039346656037n;
-  for (const ch of String(claimId || '')) {
+  for (const ch of seed) {
     h ^= BigInt(ch.charCodeAt(0));
     h = (h * 1099511628211n) & 0xFFFFFFFFFFFFFFFFn;
   }
@@ -130,7 +131,8 @@ export class PromoHotWalletEngine {
     if (claim.status !== CLAIM_STATUS.PENDING_FEE) {
       throw new PromoError('INVALID_STATE', `claim ${claimId} is ${claim.status}`);
     }
-    if (nowSec > claim.expiresAt) {
+    const paidAt = Number(tx.utime) > 0 ? Number(tx.utime) : nowSec;
+    if (paidAt > claim.expiresAt) {
       throw new PromoError('CLAIM_EXPIRED', `claim ${claimId} expired`);
     }
     const receivedNano = BigInt(tx.valueNano || 0);
@@ -174,7 +176,8 @@ export class PromoHotWalletEngine {
     if (claim.status !== CLAIM_STATUS.PENDING_FEE) {
       throw new PromoError('INVALID_STATE', `claim ${claimId} is ${claim.status}`);
     }
-    if (nowSec > claim.expiresAt) {
+    const paidAt = Number(tx.utime) > 0 ? Number(tx.utime) : nowSec;
+    if (paidAt > claim.expiresAt) {
       claim.status = CLAIM_STATUS.EXPIRED;
       claim.updatedAt = nowSec;
       throw new PromoError('CLAIM_EXPIRED', `claim ${claimId} expired`);

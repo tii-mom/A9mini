@@ -113,6 +113,10 @@ fun deployMaster(admin: address): address {
 }
 
 fun setup(): Env {
+    return setupWithFunding(RC_FUNDING);
+}
+
+fun setupWithFunding(rcFunding: coins): Env {
     testing.setNow(T0);
     val treasury = testing.treasury("v15-treasury");
     val keeper = testing.treasury("v15-keeper");
@@ -162,6 +166,7 @@ fun setup(): Env {
     val st = Storage {
         config: cfg.toCell(),
         rounds: [],
+        recovery: emptyRecovery().toCell(),
         currentRoundId: 0,
         successCount: 0,
         poolRemainingRaw: REWARD_POOL,
@@ -191,8 +196,10 @@ fun setup(): Env {
     };
     expect(net.runGetMethod<address>(rc, "get_jetton_wallet_address")).toEqual(env.rcWallet);
 
-    transfer(treasury.address, env.treasuryWallet, rc, RC_FUNDING, 0, emptyPayload(), ton("0.2"));
-    expect(balanceOf(env, rc)).toEqual(RC_FUNDING);
+    if (rcFunding > 0) {
+        transfer(treasury.address, env.treasuryWallet, rc, rcFunding, 0, emptyPayload(), ton("0.2"));
+        expect(balanceOf(env, rc)).toEqual(rcFunding);
+    }
     return env;
 }
 
@@ -273,4 +280,21 @@ fun round(env: Env, roundId: uint32): RoundView {
 
 fun preview(env: Env, roundId: uint32, weight: uint128): RewardPreview {
     return net.runGetMethod<RewardPreview>(env.rc, "get_reward_preview", [roundId, weight]);
+}
+
+fun failedRefundOf(env: Env, owner: address): uint128 {
+    return net.runGetMethod<uint128>(env.rc, "get_failed_refund", [owner]);
+}
+
+fun recoveryMeta(env: Env): RecoveryMetaView {
+    return net.runGetMethod<RecoveryMetaView>(env.rc, "get_recovery_meta");
+}
+
+fun claimFailedRefund(env: Env, owner: address, value: coins): SendResultList {
+    return net.send(owner, createMessage({
+        bounce: true,
+        value,
+        dest: env.rc,
+        body: ClaimFailedRefund { queryId: 99 },
+    }));
 }

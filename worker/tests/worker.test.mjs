@@ -1988,4 +1988,457 @@ await test('W2-7: TonCenter v3 start_lt+mc_block_seqno scan, v2 500->v3 fallback
   assert.ok(meta.lastError.includes('boom presale'));
 });
 
+await test('W2-8: Security audit regressions (queryId rotation, cursor freeze, v3 paging/hash/ms-ts, promo non-blocking errors, heartbeat gate, wallet isolation, CAS expiry)', async () => {
+  const { PresaleHotWalletEngine, PAYOUT_STATUS } = await import('../src/presale-hotwallet.mjs');
+  const { PresalePayoutRunner } = await import('../src/presale-runner.mjs');
+  const { PromoPayoutRunner } = await import('../src/promo-runner.mjs');
+  const { D1PredictionEngine } = await import('../src/d1-growth-store.mjs');
+  const { createPayoutDaemon } = await import('../src/payout-daemon.mjs');
+  const { validateDeployEnv } = await import('../src/cf-worker.mjs');
+  const { addressKey } = await import('../src/ton-address.mjs');
+
+  const HOT = '0:' + '12'.repeat(32);
+  const PROMO = '0:' + '34'.repeat(32);
+  const BUYER = '0:' + '56'.repeat(32);
+  const MASTER = '0:' + '78'.repeat(32);
+
+  // 1) P0-1: Presale & Promo retry rotates queryId, clears old txHash, and NEVER re-broadcasts in the same tick on FAILED
+  const db1 = createSqliteD1(MIGRATIONS);
+  const presale1 = new D1PresaleStore({ db: db1, hotWalletAddress: HOT, open: true });
+  const ord = await presale1.createOrderIntent(BUYER, '5', 2000);
+  await presale1.ingestInbound(
+    { txHash: 'in_rot_1', finality: 'finalized', to: HOT, from: BUYER, valueNano: ord.tonNano, memo: ord.memo },
+    2005,
+  );
+  await presale1.queueConfirmedPayouts(2006);
+  const seenPresaleQids = [];
+  // Tick 1: broadcast -> SENT; same-tick FAILED after fresh broadcast MUST NOT re-broadcast
+  await presale1.processPayouts(2010, {
+    a9Broadcaster: async (inst) => {
+      seenPresaleQids.push(inst.queryId);
+      return { txHash: `0xtx_${seenPresaleQids.length}` };
+    },
+    verifier: async () => ({ state: 'FAILED', reason: 'NOT_INDEXED_YET' }),
+  });
+  assert.equal(seenPresaleQids.length, 1);
+  // Tick 2: SENT + verifier FAILED -> transitions to RETRY
+  await presale1.processPayouts(2020, {
+    a9Broadcaster: async (inst) => {
+      seenPresaleQids.push(inst.queryId);
+      return { txHash: `0xtx_${seenPresaleQids.length}` };
+    },
+    verifier: async () => ({ state: 'FAILED', reason: 'BOUNCED' }),
+  });
+  assert.equal(seenPresaleQids.length, 1);
+  // Tick 3: RETRY -> rotates to a brand-new queryId, clears old txHash, and re-broadcasts
+  await presale1.processPayouts(2030, {
+    a9Broadcaster: async (inst) => {
+      seenPresaleQids.push(inst.queryId);
+      return { txHash: `0xtx_${seenPresaleQids.length}` };
+    },
+    verifier: async () => ({ state: 'PENDING' }),
+  });
+  assert.equal(seenPresaleQids.length, 2);
+  assert.notEqual(seenPresaleQids[0], seenPresaleQids[1], 'presale retry MUST rotate queryId');
+
+  // Same for PromoPayoutRunner + D1PromoStore
+  const promo1 = new D1PromoStore({ db: db1, hotWalletAddress: PROMO });
+  await promo1.creditReward(BUYER, 12_000n * 1_000_000_000n, 2000);
+  const cl = await promo1.createClaimIntent(BUYER, 2001);
+  await promo1.verifyInboundFeeTx({ txHash: 'fee_rot_1', finality: 'finalized', to: PROMO, from: BUYER, valueNano: '60000000', memo: cl.memo, utime: 2005 }, 2006);
+  const seenPromoQids = [];
+  let promoVerifyMode = 'FAILED';
+  const promoRotRunner = new PromoPayoutRunner({
+    engine: promo1,
+    tonCenter: { fetchInboundTransfersSince: async () => ({ transfers: [], nextCursor: null, reachedCursor: true, truncated: false }) },
+    broadcaster: async (inst) => {
+      seenPromoQids.push(inst.queryId);
+      return { txHash: `0xptx_${seenPromoQids.length}` };
+    },
+    payoutVerifier: async () => ({ state: promoVerifyMode, reason: promoVerifyMode }),
+    execute: true,
+    logger: { log() {}, error() {} },
+  });
+  // Tick 1: broadcast -> SENT; same-tick FAILED MUST NOT re-broadcast
+  await promoRotRunner.tick(2010);
+  assert.equal(seenPromoQids.length, 1);
+  // Tick 2: SENT + FAILED -> RETRY
+  await promoRotRunner.tick(2020);
+  assert.equal(seenPromoQids.length, 1);
+  // Tick 3: RETRY -> rotates queryId and re-broadcasts
+  promoVerifyMode = 'PENDING';
+  await promoRotRunner.tick(2030);
+  assert.equal(seenPromoQids.length, 2);
+  assert.notEqual(seenPromoQids[0], seenPromoQids[1], 'promo retry MUST rotate queryId');
+
+  // 2) P0-2: v2 cursor stops strictly before unconfirmed tx & returns nextCursor: null when truncated; presale-runner freezes cursor on not_finalized
+  const tcV2 = new TonCenterClient({
+    apiBase: 'https://custom-v2.example/api/v2',
+    apiKey: 'k',
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        result: [
+          { transaction_id: { lt: '303', hash: 'h303' }, utime: 3003, finality: 'unconfirmed', in_msg: { source: BUYER, value: '990000000', message: 'buy:u3' } },
+          { transaction_id: { lt: '302', hash: 'h302' }, utime: 3002, finality: 'finalized', in_msg: { source: BUYER, value: '990000000', message: 'buy:f2' } },
+          { transaction_id: { lt: '301', hash: 'h301' }, utime: 3001, finality: 'finalized', in_msg: { source: BUYER, value: '990000000', message: 'buy:f1' } },
+        ],
+      }),
+    }),
+  });
+  const v2Scan = await tcV2.fetchInboundTransfersSince(HOT, { cursorLt: '300', cursorHash: 'h300', maxPages: 1 });
+  assert.equal(v2Scan.reachedCursor, true);
+  assert.deepEqual(v2Scan.nextCursor, { lt: '302', hash: 'h302' });
+
+  const dbCur = createSqliteD1(MIGRATIONS);
+  const prEngine = new D1PresaleStore({ db: dbCur, hotWalletAddress: HOT, open: true });
+  const prRunner = new PresalePayoutRunner({
+    engine: prEngine,
+    tonCenter: {
+      fetchInboundTransfersSince: async () => ({
+        transfers: [{ txHash: 'nf_1', lt: '401', finality: 'unconfirmed', to: HOT, from: BUYER, valueNano: '990000000', memo: 'buy:pending' }],
+        nextCursor: { lt: '401', hash: 'nf_1' },
+        reachedCursor: true,
+        truncated: false,
+      }),
+    },
+    a9Broadcaster: async () => ({ txHash: '0xunused' }),
+    execute: true,
+    logger: { log() {}, error() {} },
+  });
+  await prRunner.tick(4000);
+  assert.equal(await prEngine.repo.getScanCursor(HOT), null, 'presale-runner must NOT advance cursor when any inbound tx is not_finalized');
+
+  // 3) P0-3: verifyOutboundPayout normalizes ms createdAt, paginates A9 (>50 rows), prefers CONFIRMED over FAILED, and normalizes 0xhex/base64 txHash
+  let a9PageCalls = 0;
+  const seenUrls = [];
+  const rawHashHex = 'aa'.repeat(32);
+  const rawHashB64 = Buffer.from(rawHashHex, 'hex').toString('base64');
+  const tcP03 = new TonCenterClient({
+    apiBase: 'https://testnet.toncenter.com/api/v2',
+    apiKey: 'k',
+    fetchImpl: async (url) => {
+      const u = String(url);
+      seenUrls.push(u);
+      if (u.includes('/api/v3/jetton/transfers')) {
+        a9PageCalls += 1;
+        if (a9PageCalls === 1) {
+          const filler = Array.from({ length: 50 }, (_, i) => ({
+            query_id: String(1000 + i),
+            destination: BUYER,
+            amount: '1',
+            transaction_hash: `fill_${i}`,
+            transaction_aborted: false,
+          }));
+          return { ok: true, json: async () => ({ jetton_transfers: filler }) };
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            jetton_transfers: [
+              { query_id: '5555', destination: BUYER, amount: '5000', transaction_hash: rawHashB64, transaction_aborted: false },
+            ],
+          }),
+        };
+      }
+      if (u.includes('/api/v3/messages')) {
+        return {
+          ok: true,
+          json: async () => ({
+            messages: [
+              { destination: BUYER, value: '990000000', bounced: true, in_msg_tx_hash: 'bad_1', out_msg_tx_hash: 'bad_out', message_content: { decoded: { comment: 'refund:777' } } },
+              { destination: BUYER, value: '990000000', bounced: false, in_msg_tx_hash: 'ok_in', out_msg_tx_hash: rawHashB64, message_content: { decoded: { comment: 'refund:777' } } },
+            ],
+          }),
+        };
+      }
+      throw new Error(`unexpected ${u}`);
+    },
+  });
+  const a9Paged = await tcP03.verifyOutboundPayout(HOT, {
+    kind: 'A9',
+    recipient: BUYER,
+    amount: '5000',
+    queryId: '5555',
+    createdAt: 1795432000000, // ms timestamp must normalize to seconds!
+    jettonMasterAddress: MASTER,
+  });
+  assert.equal(a9Paged.state, 'CONFIRMED');
+  assert.equal(a9PageCalls, 2);
+  assert.ok(seenUrls[0].includes('start_utime=1795431700'), 'ms createdAt must normalize to seconds');
+  assert.ok(seenUrls[0].includes('sort=asc'), 'A9 verification must paginate sort=asc');
+
+  const refundConfirmed = await tcP03.verifyOutboundPayout(HOT, {
+    kind: 'REFUND',
+    recipient: BUYER,
+    amount: '990000000',
+    queryId: '777',
+    txHash: `0x${rawHashHex}`, // 0xhex must match base64 out_msg_tx_hash
+    createdAt: 1795432000,
+  });
+  assert.equal(refundConfirmed.state, 'CONFIRMED');
+
+  // 4) P1-1: promo-runner advances cursor past deterministic INSUFFICIENT_FEE and evaluates expiry using tx.utime
+  const dbP11 = createSqliteD1(MIGRATIONS);
+  const promoP11 = new D1PromoStore({ db: dbP11, hotWalletAddress: PROMO });
+  await promoP11.creditReward(BUYER, 12_000n * 1_000_000_000n, 5000);
+  const clP11 = await promoP11.createClaimIntent(BUYER, 5001);
+  // Paid on-chain at utime=5050 (well within expiry), scanned later at nowSec=clP11.expiresAt + 120 -> MUST STILL SUCCEED!
+  const promoRunner = new PromoPayoutRunner({
+    engine: promoP11,
+    tonCenter: {
+      fetchInboundTransfersSince: async () => ({
+        transfers: [
+          { txHash: 'bad_dust', lt: '601', utime: 5040, finality: 'finalized', to: PROMO, from: BUYER, valueNano: '1000', memo: clP11.memo },
+          { txHash: 'good_fee', lt: '602', utime: 5050, finality: 'finalized', to: PROMO, from: BUYER, valueNano: '60000000', memo: clP11.memo },
+        ],
+        nextCursor: { lt: '602', hash: 'good_fee' },
+        reachedCursor: true,
+        truncated: false,
+      }),
+    },
+    broadcaster: async () => ({ txHash: '0xpromo_p11_tx' }),
+    payoutVerifier: async () => ({ state: 'PENDING' }),
+    execute: true,
+    logger: { log() {}, error() {} },
+  });
+  await promoRunner.tick(clP11.expiresAt + 120);
+  const savedPromoCur = await promoP11.getScanCursor(PROMO);
+  assert.equal(savedPromoCur?.lt, '602', 'deterministic INSUFFICIENT_FEE must not wedge promo cursor');
+  assert.equal(savedPromoCur?.hash, 'good_fee');
+  const paidClaim = await promoP11.getClaim(clP11.claimId);
+  assert.equal(paidClaim.status, 'PAYOUT_SENT', 'tx.utime within claim window must pass expiry and broadcast even if scanned late');
+
+  // 5) P1-2: Heartbeat gate rejects degraded, dry-run (executeLive:false), and wrong-network heartbeats; daemon skips heartbeat when all runners skipped
+  const dbHb = createSqliteD1(MIGRATIONS);
+  const nowHb = Math.floor(Date.now() / 1000);
+  const idsHb = new MemoryIdentityStore();
+  idsHb.bindVerifiedWallet('20002', BUYER, nowHb);
+  const routerHb = createApiRouter({
+    env: {
+      A9_NETWORK: 'mainnet',
+      A9_BOT_TOKEN: TEST_BOT_TOKEN,
+      A9_PRESALE_OPEN: '1',
+      A9_REQUIRE_RUNNER_HEARTBEAT: '1',
+      A9_RUNNER_HEARTBEAT_MAX_STALE_SEC: '120',
+    },
+    stateStore: { getTiming: () => ({}), getProtocolState: () => ({ dataAvailable: true, currentRoundId: 1 }), listRounds: () => [], getRound: () => null },
+    presaleEngine: new D1PresaleStore({ db: dbHb, hotWalletAddress: HOT, open: true }),
+    identityStore: idsHb,
+    runnerHeartbeatReader: async () => (await dbHb.prepare('SELECT runner_id, role, network, last_seen_at, meta_json FROM runner_heartbeats').all()).results || [],
+  });
+  const hdrsHb = await tgHeaders('20002', { authDate: nowHb });
+  // Insert 3 invalid heartbeats: degraded, dry-run, wrong-network
+  await dbHb.prepare('INSERT INTO runner_heartbeats (runner_id, role, network, last_seen_at, meta_json) VALUES (?, ?, ?, ?, ?)')
+    .bind('bad_deg', 'payout_daemon', 'mainnet', nowHb - 5, JSON.stringify({ status: 'degraded', executeLive: true })).run();
+  await dbHb.prepare('INSERT INTO runner_heartbeats (runner_id, role, network, last_seen_at, meta_json) VALUES (?, ?, ?, ?, ?)')
+    .bind('bad_dry', 'payout_daemon', 'mainnet', nowHb - 5, JSON.stringify({ status: 'ok', executeLive: false })).run();
+  await dbHb.prepare('INSERT INTO runner_heartbeats (runner_id, role, network, last_seen_at, meta_json) VALUES (?, ?, ?, ?, ?)')
+    .bind('bad_net', 'payout_daemon', 'testnet', nowHb - 5, JSON.stringify({ status: 'ok', executeLive: true })).run();
+
+  const rejHb = await routerHb({ method: 'POST', pathname: '/api/presale/intent', headers: hdrsHb, body: { skuId: 'chest_bronze', openMode: 'BOOST' }, nowSec: nowHb });
+  assert.equal(rejHb.status, 503);
+  assert.equal(rejHb.body.error.code, 'PAYOUT_RUNNER_OFFLINE');
+
+  // Insert one healthy mainnet live heartbeat -> passes
+  await dbHb.prepare('INSERT INTO runner_heartbeats (runner_id, role, network, last_seen_at, meta_json) VALUES (?, ?, ?, ?, ?)')
+    .bind('good_live', 'payout_daemon', 'mainnet', nowHb - 5, JSON.stringify({ status: 'ok', executeLive: true })).run();
+  const okHb = await routerHb({ method: 'POST', pathname: '/api/presale/intent', headers: hdrsHb, body: { skuId: 'chest_bronze', openMode: 'BOOST' }, nowSec: nowHb });
+  assert.equal(okHb.status, 200);
+
+  // Daemon allSkipped must NOT write heartbeat
+  const dbSkip = createSqliteD1(MIGRATIONS);
+  const dSkip = createPayoutDaemon({
+    db: dbSkip,
+    env: {
+      A9_NETWORK: 'testnet',
+      A9_SQLITE_PATH: ':memory:',
+      TONCENTER_API_BASE: 'https://testnet.toncenter.com/api/v2',
+      A9_PROMO_HOT_WALLET_ADDRESS: PROMO,
+      A9_PRESALE_HOT_WALLET_ADDRESS: HOT,
+      A9_RUNNER_ID: 'skip-daemon',
+    },
+    executeFlag: false,
+    logger: { log() {}, error() {} },
+  });
+  dSkip.presaleRunner.tick = async () => ({ skipped: true, reason: 'disabled' });
+  dSkip.promoRunner.tick = async () => ({ skipped: true, reason: 'disabled' });
+  await dSkip.runOnce(9000);
+  const skipHb = await dbSkip.prepare('SELECT * FROM runner_heartbeats WHERE runner_id = ?').bind('skip-daemon').first();
+  assert.equal(skipHb, null, 'daemon MUST NOT record heartbeat when all runners are skipped');
+
+  // 6) P1-3: cf-worker validateDeployEnv rejects identical promo/presale hot wallets across raw & friendly formats
+  const isoRes = validateDeployEnv({
+    A9_PROMO_HOT_WALLET_ADDRESS: 'kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18',
+    A9_PRESALE_HOT_WALLET_ADDRESS: addressKey('kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18'),
+  });
+  assert.equal(isoRes.ok, false);
+  assert.equal(isoRes.code, 'HOT_WALLET_ISOLATION_VIOLATION');
+
+  // 7) P1-4: D1PredictionEngine.activateToPromo CAS expiry cleanup never wipes concurrently credited new rewards
+  const dbExp = createSqliteD1(MIGRATIONS);
+  const promoExp = new D1PromoStore({ db: dbExp, hotWalletAddress: PROMO });
+  const predExp = new D1PredictionEngine({ db: dbExp });
+  await predExp.creditPendingBonus('u_exp', 500n * 1_000_000_000n, 1_000_000);
+  // Set pending_expires_at in the past so activateToPromo enters expiry branch
+  await dbExp.prepare('UPDATE prediction_rewards SET pending_expires_at = ? WHERE user_id = ?').bind(1_100_000, 'u_exp').run();
+  // Intercept the expiry UPDATE to simulate concurrent settleRoundBets adding 2,000 A9 and extending pending_expires_at right before expiry cleanup runs
+  const origPrep = dbExp.prepare.bind(dbExp);
+  let injectedNew = false;
+  dbExp.prepare = (sql) => {
+    if (!injectedNew && sql.includes("SET pending_activation_raw = '0', pending_expires_at = NULL") && sql.includes('AND pending_activation_raw = ?')) {
+      injectedNew = true;
+      // Synchronously bump row before this CAS statement runs
+      origPrep('UPDATE prediction_rewards SET pending_activation_raw = ?, pending_expires_at = ? WHERE user_id = ?')
+        .bind((2_000n * 1_000_000_000n).toString(), 9_999_999, 'u_exp')
+        .run();
+    }
+    return origPrep(sql);
+  };
+  await assert.rejects(
+    () => predExp.activateToPromo('u_exp', BUYER, promoExp, { qualified: true, nowMs: 1_200_000, activationId: 'exp_race_1' }),
+    /VOUCHER_EXPIRED|已过期/,
+  );
+  assert.equal(injectedNew, true);
+  const afterRace = await predExp.getUserSummary('u_exp');
+  assert.equal(afterRace.pendingActivationRaw, (2_000n * 1_000_000_000n).toString(), 'CAS expiry cleanup MUST NOT wipe newly credited reward');
+});
+
+await test('W2-9: Final audit fixes (v3 cold/asc cursor advancement without deadlock, mainnet v16 production gate, corrupt heartbeat fail-closed, retry updatedAt anchor)', async () => {
+  const { PresalePayoutRunner } = await import('../src/presale-runner.mjs');
+  const { PromoPayoutRunner } = await import('../src/promo-runner.mjs');
+  const { default: cfWorker, validateDeployEnv } = await import('../src/cf-worker.mjs');
+
+  const HOT = '0:' + '21'.repeat(32);
+  const PROMO = '0:' + '43'.repeat(32);
+  const BUYER = '0:' + '65'.repeat(32);
+  const MASTER = '0:' + '87'.repeat(32);
+  const RC = '0:' + '98'.repeat(32);
+
+  // 1) P0: v3 cold-start with >=30 historical txs sets canAdvanceCursor=true so runners persist initial cursor
+  const coldRows = Array.from({ length: 30 }, (_, i) => ({
+    lt: String(1000 - i),
+    hash: `cold_${1000 - i}`,
+    mc_block_seqno: 5000,
+    utime: 1795432000 - i,
+    in_msg: { source: BUYER, value: '1000000', message_content: { decoded: { comment: '' } } },
+  }));
+  const tcCold = new TonCenterClient({
+    apiBase: 'https://testnet.toncenter.com/api/v2',
+    apiKey: 'k',
+    fetchImpl: async () => ({ ok: true, json: async () => ({ transactions: coldRows }) }),
+  });
+  const coldRes = await tcCold.fetchInboundTransfersSince(HOT, {});
+  assert.equal(coldRes.truncated, true);
+  assert.equal(coldRes.canAdvanceCursor, true);
+  assert.deepEqual(coldRes.nextCursor, { lt: '1000', hash: 'cold_1000' });
+
+  const dbCold = createSqliteD1(MIGRATIONS);
+  const prCold = new D1PresaleStore({ db: dbCold, hotWalletAddress: HOT, open: true });
+  const prColdRunner = new PresalePayoutRunner({
+    engine: prCold,
+    tonCenter: tcCold,
+    a9Broadcaster: async () => ({ txHash: '0xunused' }),
+    execute: true,
+    logger: { log() {}, error() {} },
+  });
+  await prColdRunner.tick(1795432500);
+  assert.equal((await prCold.repo.getScanCursor(HOT))?.lt, '1000', 'cold-start >=30 txs must persist initial cursor');
+
+  // 2) P0: v3 incremental sort=asc hitting maxPages (truncated=true) MUST STILL advance cursor to catch up in batches
+  let ascPages = 0;
+  const tcAscTrunc = new TonCenterClient({
+    apiBase: 'https://testnet.toncenter.com/api/v2',
+    apiKey: 'k',
+    fetchImpl: async (url) => {
+      ascPages += 1;
+      const u = new URL(String(url));
+      const baseLt = Number(u.searchParams.get('start_lt') || 1000);
+      const batch = Array.from({ length: 2 }, (_, i) => ({
+        lt: String(baseLt + i + 1),
+        hash: `asc_${baseLt + i + 1}`,
+        mc_block_seqno: 5100,
+        utime: 1795432600 + i,
+        in_msg: { source: BUYER, value: '1000000', message_content: { decoded: { comment: '' } } },
+      }));
+      return { ok: true, json: async () => ({ transactions: batch }) };
+    },
+  });
+  const ascRes = await tcAscTrunc.fetchInboundTransfersSince(HOT, {
+    cursorLt: '1000',
+    cursorHash: 'cold_1000',
+    pageSize: 2,
+    maxPages: 2,
+  });
+  assert.equal(ascPages, 2);
+  assert.equal(ascRes.truncated, true);
+  assert.equal(ascRes.canAdvanceCursor, true, 'v3 ascending scan has no gaps and must advance cursor even when truncated');
+  assert.deepEqual(ascRes.nextCursor, { lt: '1005', hash: 'asc_1005' });
+
+  // PromoPayoutRunner advances cursor on v3 truncated asc batch (no deadlock)
+  const promoAsc = new D1PromoStore({ db: dbCold, hotWalletAddress: PROMO });
+  await promoAsc.saveScanCursor(PROMO, { lt: '1000', hash: 'cold_1000' }, 1795432500);
+  const promoAscRunner = new PromoPayoutRunner({
+    engine: promoAsc,
+    tonCenter: { fetchInboundTransfersSince: async () => ascRes },
+    broadcaster: async () => ({ txHash: '0xunused' }),
+    execute: true,
+    logger: { log() {}, error() {} },
+  });
+  await promoAscRunner.tick(1795432700);
+  assert.equal((await promoAsc.getScanCursor(PROMO))?.lt, '1005', 'promo-runner must advance cursor on gapless v3 asc batch');
+
+  // 3) P1-5: mainnet + v16 + A9_PRESALE_OPEN=1 MUST hit production validation and enforce A9_BOT_TOKEN
+  const prodV16Check = validateDeployEnv({
+    DB: dbCold,
+    A9_NETWORK: 'mainnet',
+    A9_ENVIRONMENT: 'production',
+    A9_PROTOCOL_VERSION: 'v16',
+    A9_PRESALE_OPEN: '1',
+    A9_JETTON_MASTER_ADDRESS: MASTER,
+    A9_ROUND_CONTROLLER_ADDRESS: RC,
+    A9_PROMO_HOT_WALLET_ADDRESS: PROMO,
+    A9_PRESALE_HOT_WALLET_ADDRESS: HOT,
+    A9_PUBLIC_ORIGIN: 'https://app.a9.lat',
+    A9_TON_PROOF_DOMAINS: 'app.a9.lat',
+    A9_ALLOWED_ORIGINS: 'https://app.a9.lat',
+    // A9_BOT_TOKEN intentionally omitted
+  });
+  assert.equal(prodV16Check.ok, false);
+  assert.equal(prodV16Check.code, 'PRODUCTION_CONFIG_INCOMPLETE');
+  assert.ok(prodV16Check.missing.includes('A9_BOT_TOKEN'), 'mainnet v16 with presale open must require A9_BOT_TOKEN');
+
+  // 4) P2-2: corrupt runner_heartbeats.meta_json parses as { status: 'invalid' } (fail-closed in cf-worker /api/health & gate)
+  const dbCorrupt = createSqliteD1(MIGRATIONS);
+  const nowS = Math.floor(Date.now() / 1000);
+  await dbCorrupt.prepare('INSERT INTO runner_heartbeats (runner_id, role, network, last_seen_at, meta_json) VALUES (?, ?, ?, ?, ?)')
+    .bind('corrupt_1', 'payout_daemon', 'testnet', nowS - 5, '{corrupt_json').run();
+  const hRes = await cfWorker.fetch(new Request('https://api.a9.lat/api/health'), { DB: dbCorrupt, A9_NETWORK: 'testnet' });
+  const hBody = await hRes.json();
+  assert.equal(hBody.data.checks.runnerHeartbeats[0].meta?.status, 'invalid');
+
+  // 5) P2-1: verifyOutboundPayout uses updatedAt anchor for retry attempts > 1
+  let retryUrl = '';
+  const tcRetry = new TonCenterClient({
+    apiBase: 'https://testnet.toncenter.com/api/v2',
+    apiKey: 'k',
+    fetchImpl: async (url) => {
+      retryUrl = String(url);
+      return { ok: true, json: async () => ({ jetton_transfers: [] }) };
+    },
+  });
+  await tcRetry.verifyOutboundPayout(HOT, {
+    kind: 'A9',
+    recipient: BUYER,
+    amount: '1000',
+    queryId: '9999',
+    attempts: 2,
+    createdAt: 1795400000,
+    updatedAt: 1795450000,
+    jettonMasterAddress: MASTER,
+  });
+  assert.ok(retryUrl.includes('start_utime=1795449700'), 'retry attempt > 1 should anchor start_utime to updatedAt - 300');
+});
+
 console.log(`All ${passed} A9 v15 worker tests passed.`);

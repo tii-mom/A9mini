@@ -11,6 +11,7 @@ import "@acton/io"
 import "@acton/fmt"
 import "@acton/emulation/scripts"
 import "@contracts/types"
+import "@contracts/jetton/storage"
 
 fun reqInt(name: string): int {
     val v = env<int>(name);
@@ -95,6 +96,13 @@ fun main() {
     }
 
     val hotJettonWallet = net.runGetMethod<address>(master, "get_wallet_address", [hotWallet.address]);
+    if (!scripts.isContractDeployed(hotJettonWallet)) {
+        Assert.fail("hot jetton wallet is not deployed yet");
+    }
+    val hotA9Bal = net.runGetMethod<JettonWalletDataReply>(hotJettonWallet, "get_wallet_data").jettonBalance;
+    if (hotA9Bal < amountRaw) {
+        Assert.fail(format("insufficient hot wallet A9 inventory ({} < {})", hotA9Bal, amountRaw));
+    }
     val body = beginCell()
         .storeUint(OP_JETTON_TRANSFER, 32)
         .storeUint(qid, 64)

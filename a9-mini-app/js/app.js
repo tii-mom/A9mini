@@ -599,8 +599,9 @@ if (!config.isDemo && A9TMA.getRawInitData()) {
     .then((me) => {
       if (!me) return;
       store.update((s) => {
-        s.user.tgBound = Boolean(me.telegram?.id);
-        if (me.telegram?.username) s.user.username = `@${me.telegram.username}`;
+        s.user.tgBound = Boolean(me.telegramUserId || me.user?.id || me.telegram?.id);
+        const uname = me.user?.username || me.telegram?.username || '';
+        if (uname) s.user.username = uname.startsWith('@') ? uname : `@${uname}`;
         s.user.pendingSwitch = me.wallet?.pendingSwitch || null;
         s.user.serverBoundWallet = me.wallet?.address || null;
       });

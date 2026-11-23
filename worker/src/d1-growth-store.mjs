@@ -879,7 +879,15 @@ export class D1PredictionEngine {
       }
 
       if (st.pendingExpiresAt !== null && nowMs > st.pendingExpiresAt) {
-        await this._upsertUserStats(uid, { ...st, pendingActivationRaw: 0n, pendingExpiresAt: null }, nowSec);
+        // P1-4 CAS 过期清零：仅在 pending 值与过期时间仍匹配旧快照时置 0，绝不覆盖并发刚结算的新奖金
+        await this.db
+          .prepare(
+            `UPDATE prediction_rewards
+             SET pending_activation_raw = '0', pending_expires_at = NULL, updated_at = ?
+             WHERE user_id = ? AND pending_activation_raw = ? AND pending_expires_at = ?`,
+          )
+          .bind(nowSec, uid, st.pendingActivationRaw.toString(), st.pendingExpiresAt)
+          .run();
         throw new GrowthError('VOUCHER_EXPIRED', '待激活预言奖励已过期');
       }
 
@@ -1256,6 +1264,7 @@ const ORDER_COLS = {
 };
 const PAYOUT_COLS = {
   status: 'status',
+  queryId: 'query_id',
   txHash: 'tx_hash',
   attempts: 'attempts',
   ambiguous: 'ambiguous',
@@ -1358,7 +1367,8 @@ function rowToCredit(r) {
   };
 }
 
-const isUnique = (e) => /UNIQUE|constraint/i.test(String(e?.message || e));
+const isUnique = (e) => /UNIQUE constraint failed|SQLITE_CONSTRAINT_UNIQUE|SQLITE_CONSTRAINT_PRIMARYKEY/i.test(String(e?.message || e));
+const isMissingTableErr = (e) => /no such table/i.test(String(e?.message || e));
 const changes = (r) => Number(r?.meta?.changes ?? r?.changes ?? 0);
 
 export class D1PresaleRepo {
@@ -1516,8 +1526,9 @@ export class D1PresaleRepo {
         .bind(key)
         .first();
       return row ? { lt: String(row.last_lt), hash: String(row.last_hash), updatedAt: Number(row.updated_at || 0) } : null;
-    } catch {
-      return null;
+    } catch (e) {
+      if (isMissingTableErr(e)) return null;
+      throw e;
     }
   }
 
@@ -1536,8 +1547,8 @@ export class D1PresaleRepo {
         )
         .bind(key, String(lt), String(hash), nowSec)
         .run();
-    } catch {
-      // 兼容尚未执行 0010 迁移的旧库
+    } catch (e) {
+      if (!isMissingTableErr(e)) throw e;
     }
   }
 

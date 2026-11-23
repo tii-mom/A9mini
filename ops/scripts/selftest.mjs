@@ -224,6 +224,13 @@ test('W2: round-ops enforces explicit --round on open-round, blocks mainnet cand
   assert.notEqual(rMainnetBypass.status, 0);
   assert.match(rMainnetBypass.stderr, /mainnet settle-round requires --candles-file/);
 
+  // 2b) mainnet settle-round with --candles-file but missing --stake-close-at must fail
+  const rMainnetNoCloseAt = spawnSync(process.execPath, [
+    roundOpsPath, '--action', 'settle-round', '--profile', 'mainnet', '--round', '1', '--target', '232000', '--candles-file', '/tmp/unused.json',
+  ], { encoding: 'utf8' });
+  assert.notEqual(rMainnetNoCloseAt.status, 0);
+  assert.match(rMainnetNoCloseAt.stderr, /mainnet settle-round requires --stake-close-at/);
+
   // 3) testnet settle-round with out-of-range --qualified=25 must fail
   const rBadQual = spawnSync(process.execPath, [
     roundOpsPath, '--action', 'settle-round', '--profile', 'testnet', '--round', '1', '--qualified', '25', '--candle-hash', '0x1234',

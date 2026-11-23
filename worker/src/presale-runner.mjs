@@ -46,6 +46,7 @@ export class PresalePayoutRunner {
       }
       let txs = [];
       let nextCursor = null;
+      let cursorComplete = true;
       const canUseCursor = typeof this.tonCenter.fetchInboundTransfersSince === 'function'
         && typeof this.engine.repo?.getScanCursor === 'function';
       if (canUseCursor) {
@@ -56,12 +57,16 @@ export class PresalePayoutRunner {
         });
         txs = Array.isArray(pageRes?.transfers) ? pageRes.transfers : [];
         nextCursor = pageRes?.nextCursor || null;
+        cursorComplete = pageRes?.canAdvanceCursor !== undefined
+          ? Boolean(pageRes.canAdvanceCursor)
+          : (pageRes?.reachedCursor !== false && !pageRes?.truncated);
       } else {
         txs = await this.tonCenter.fetchInboundTransfers(this.engine.hotWalletAddress);
       }
       // 所有到达热钱包的入账均交由引擎统一分类与持久化（不再提前按 buy: 前缀静默丢弃），
       // 以确保无备注、错备注、错金额、错地址、推广流程与粉尘入账均按规则留痕防重放。
       let inboundFailed = false;
+      let hasUnfinalized = false;
       for (const tx of txs) {
         try {
           if (!this.execute) {
@@ -77,7 +82,10 @@ export class PresalePayoutRunner {
           if (res.action === 'REPLAY') summary.ignored += 1;
           else if (res.action === 'IGNORE_DUST') { summary.dust += 1; summary.ignored += 1; }
           else if (res.action === 'OTHER_FLOW') { summary.otherFlow += 1; summary.ignored += 1; }
-          else if (res.action === 'REJECT') summary.rejected += 1;
+          else if (res.action === 'REJECT') {
+            summary.rejected += 1;
+            if (res.reason === 'not_finalized') hasUnfinalized = true;
+          }
           else if (res.action === 'ANOMALY') summary.anomalies += 1;
           else if (res.action === 'CONFIRM') summary.confirmed += 1;
           else if (res.action === 'REFUND') summary.refundQueued += 1;
@@ -87,8 +95,8 @@ export class PresalePayoutRunner {
         }
       }
       if (!this.execute) return summary;
-      // 仅在全部入账均已无错持久化分类后才推进扫描游标，防止中途异常导致永久漏扫
-      if (!inboundFailed && nextCursor && typeof this.engine.repo?.saveScanCursor === 'function') {
+      // 仅在扫描未截断、无未终局交易且全部入账均已无错持久化分类后才推进扫描游标，严防漏单
+      if (!inboundFailed && !hasUnfinalized && cursorComplete && nextCursor && typeof this.engine.repo?.saveScanCursor === 'function') {
         await this.engine.repo.saveScanCursor(this.engine.hotWalletAddress, nextCursor, nowSec);
       }
 

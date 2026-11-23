@@ -30,42 +30,46 @@ fun reqStr(name: string): string {
     return v!;
 }
 
+fun assertSingleTxOk(item: SendResult, idx: int) {
+    val rawCell = item.tx as cell;
+    println("  tx[{}] = 0x{:x}", idx, rawCell.hash());
+    val tx = item.tx.load();
+    val descr = tx.description.load();
+    if (descr is TlbTransOrd) {
+        val c = descr.computePh;
+        if (c is TlbTrComputeVm) {
+            if (descr.aborted) {
+                Assert.fail(format("tx[{}] aborted on-chain", idx));
+            }
+            val exitCode = c.data.load().exitCode;
+            if (exitCode != 0 && exitCode != 1) {
+                Assert.fail(format("tx[{}] failed with compute exitCode={}", idx, exitCode));
+            }
+            val act = descr.action;
+            if (!(act is TlbNone)) {
+                val actionPh = act.value.load();
+                if (!actionPh.success) {
+                    Assert.fail(format("tx[{}] action phase failed resultCode={}", idx, actionPh.resultCode));
+                }
+            }
+        } else {
+            // 对未部署/未初始化接收方地址的 non-bounceable 普通 GRAM 转账，TON 允许跳过 compute（NoState）并完成入账
+            val skip = c.reason;
+            if (!(skip is TlbCSkipNoState)) {
+                Assert.fail(format("tx[{}] compute phase skipped unexpectedly", idx));
+            }
+            if (!(descr.bounce is TlbNone)) {
+                Assert.fail(format("tx[{}] bounced unexpectedly", idx));
+            }
+        }
+    }
+}
+
 fun assertTraceOk(trace: SendResultList) {
     if (trace.size() == 0) { Assert.fail("refund trace is empty"); }
     var i = 0;
     while (i < trace.size()) {
-        val rawCell = trace.at(i).tx as cell;
-        println("  tx[{}] = 0x{:x}", i, rawCell.hash());
-        val tx = trace.at(i).tx.load();
-        val descr = tx.description.load();
-        if (descr is TlbTransOrd) {
-            val c = descr.computePh;
-            if (c is TlbTrComputeVm) {
-                if (descr.aborted) {
-                    Assert.fail(format("tx[{}] aborted on-chain", i));
-                }
-                val exitCode = c.data.load().exitCode;
-                if (exitCode != 0 && exitCode != 1) {
-                    Assert.fail(format("tx[{}] failed with compute exitCode={}", i, exitCode));
-                }
-                val act = descr.action;
-                if (!(act is TlbNone)) {
-                    val actionPh = act.value.load();
-                    if (!actionPh.success) {
-                        Assert.fail(format("tx[{}] action phase failed resultCode={}", i, actionPh.resultCode));
-                    }
-                }
-            } else {
-                // 对未部署/未初始化接收方地址的 non-bounceable 普通 GRAM 转账，TON 允许跳过 compute（NoState）并完成入账
-                val skip = c.reason;
-                if (!(skip is TlbCSkipNoState)) {
-                    Assert.fail(format("tx[{}] compute phase skipped unexpectedly", i));
-                }
-                if (!(descr.bounce is TlbNone)) {
-                    Assert.fail(format("tx[{}] bounced unexpectedly", i));
-                }
-            }
-        }
+        assertSingleTxOk(trace.at(i), i);
         i += 1;
     }
 }
@@ -73,7 +77,10 @@ fun assertTraceOk(trace: SendResultList) {
 fun buildCommentCell(comment: string): cell {
     var b = beginCell().storeUint(0, 32);
     var s = comment.beginParse();
-    if (s.remainingBitsCount() > 0 && s.remainingBitsCount() <= 991) {
+    if (s.remainingRefsCount() > 0 || s.remainingBitsCount() > 991) {
+        Assert.fail("A9_REFUND_MEMO exceeds single-cell 123-byte limit");
+    }
+    if (s.remainingBitsCount() > 0) {
         b = b.storeSlice(s);
     }
     return b.endCell();
@@ -130,7 +137,7 @@ fun main() {
     }
     val first = sent.waitForFirstTransaction(false, 10, 2500);
     if (first == null) { Assert.fail("gram refund transaction unavailable"); }
+    assertSingleTxOk(first!, 0);
     val firstTx = first!.tx as cell;
-    println("  tx[0] = 0x{:x}", firstTx.hash());
     println("GRAM_REFUND_TX=0x{:x}", firstTx.hash());
 }

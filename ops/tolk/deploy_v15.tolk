@@ -1,5 +1,5 @@
-// A9 Protocol v15/v16 — Minimalist 4-contract deployment script with 4-step idempotent resume (Acton 1.1.0).
-// Run from A9mini/v15 or A9mini/v16 via ops/scripts/deploy-v15.mjs (default dry-run).
+// A9 Protocol v15 — Minimalist 4-contract deployment script with 4-step idempotent resume (Acton 1.1.0).
+// Run from A9mini/v15 via ops/scripts/deploy-v15.mjs --protocol v15 (for v16 use ops/tolk/deploy_v16.tolk).
 import "@stdlib/strings"
 import "@acton/env"
 import "@acton/testing/assert"

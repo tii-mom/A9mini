@@ -21,7 +21,7 @@ import { escapeHtml, formatNum, showToast, copyText, animateSlotCounter, openCho
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { renderReferralPoster, renderProofFlexPoster, renderStoryPoster, downloadPosterPng } from '../poster.js';
-import { triggerStoryShare } from '../share.js';
+import { triggerStoryShare, buildTmaDeepLink, getShareRef } from '../share.js';
 
 export function renderTeamHome(root, navigate) {
   if (!config.isDemo) {
@@ -430,8 +430,10 @@ export function renderBindTgGroup(root) {
 
 export function renderInviteShare(root) {
   const { user, team } = store.state;
-  const addrTail = (user.shortAddress || 'A9USER').slice(-4);
-  const inviteLink = `${window.location.origin}${window.location.pathname}?mode=${config.mode}&startapp=invite_${team.id || 'A9'}_${addrTail}`;
+  const shareRef = getShareRef();
+  const inviteLink = config.isDemo
+    ? `${window.location.origin}${window.location.pathname}?mode=${config.mode}&startapp=invite_${encodeURIComponent(shareRef)}`
+    : buildTmaDeepLink(`invite_${shareRef}`);
   let template = 'invite';
   let livePromo = null;
   let livePromoErr = null;

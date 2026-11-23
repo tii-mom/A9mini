@@ -189,6 +189,9 @@ def build_bot():
         logger.warning("bot handler error: %s", context.error)
 
     async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        msg = update.effective_message
+        if msg is None:
+            return
         # 保留 /start <payload> 归因参数（如 invite_* / chest_* / round_*），防止邀请归因丢失
         start_payload = context.args[0].strip() if context.args else None
         primary_url = build_mini_app_url(start_payload)
@@ -196,23 +199,32 @@ def build_bot():
             [InlineKeyboardButton("打开 A9 · 财富大冒险", web_app=WebAppInfo(url=primary_url))],
             [InlineKeyboardButton("查看我的领取状态", web_app=WebAppInfo(url=build_mini_app_url("claim")))],
         ])
-        await update.message.reply_text(await render_start(), parse_mode="HTML", reply_markup=kb)
+        await msg.reply_text(await render_start(), parse_mode="HTML", reply_markup=kb)
 
     async def cmd_round(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        msg = update.effective_message
+        if msg is None:
+            return
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("查看实时轮次", web_app=WebAppInfo(url=build_mini_app_url()))]])
-        await update.message.reply_text(await render_round(), parse_mode="HTML", reply_markup=kb)
+        await msg.reply_text(await render_round(), parse_mode="HTML", reply_markup=kb)
 
     async def cmd_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        msg = update.effective_message
+        if msg is None:
+            return
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("打开领取页", web_app=WebAppInfo(url=build_mini_app_url("claim")))]])
-        await update.message.reply_text(CLAIM_TEXT, parse_mode="HTML", reply_markup=kb)
+        await msg.reply_text(CLAIM_TEXT, parse_mode="HTML", reply_markup=kb)
 
     async def cmd_simple(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        raw_token = (update.message.text or "").split()[0].lstrip("/")
+        msg = update.effective_message
+        if msg is None:
+            return
+        raw_token = (msg.text or "").split()[0].lstrip("/")
         cmd = raw_token.split("@")[0].lower()
         param = ROUTE_MAP.get(cmd, "")
         url = build_mini_app_url(param or None)
         kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"打开 A9 /{cmd}", web_app=WebAppInfo(url=url))]])
-        await update.message.reply_text(
+        await msg.reply_text(
             f"指令 <code>/{_esc(cmd)}</code>：请在小程序内查看你的实时数据。",
             parse_mode="HTML",
             reply_markup=kb,

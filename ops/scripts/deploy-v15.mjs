@@ -75,7 +75,8 @@ const env = {
   OPS_EXECUTE: 'true',
 };
 
-const res = spawnSync('acton', ['script', '--net', p.network, '../ops/tolk/deploy_v15.tolk'], {
+const deployScript = args.protocol === 'v16' ? '../ops/tolk/deploy_v16.tolk' : '../ops/tolk/deploy_v15.tolk';
+const res = spawnSync('acton', ['script', '--net', p.network, deployScript], {
   cwd: protocolRoot,
   env,
   stdio: 'inherit',

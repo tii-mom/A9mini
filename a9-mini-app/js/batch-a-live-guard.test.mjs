@@ -4,7 +4,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { dirname } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const JS_DIR = dirname(fileURLToPath(import.meta.url));
@@ -442,23 +443,23 @@ test('W2: URL parameter cannot enable liveFundsEnabled; only explicit injected c
       tonConnect.ui.sendTransaction = async (tx) => { txs.push(tx); return origSend(tx); };
 
       const rPresale = await tonConnect.sendV15PresaleTx({
-        payTo: 'EQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCc8-',
+        payTo: 'kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18',
         tonNano: '990000000',
         memo: 'buy:ord_live_1',
       });
       const rPromo = await tonConnect.sendV15PromoFee({
-        payTo: 'EQCzAIXCKhfHughvMdreCWrkRpxNtHSVoXjm5V0eKbLWG3kB',
+        payTo: 'kQAZFnSDKMIwiflOo8YWiNweqnxTRuwejtg7qmic4pjf1rIP',
         feeRequiredNano: '60000000',
         memo: 'claim:cl_live_1',
       });
       const rStake = await tonConnect.sendV15StakeA9({
-        userJettonWallet: 'EQCzAIXCKhfHughvMdreCWrkRpxNtHSVoXjm5V0eKbLWG3kB',
-        roundController: 'EQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCc8-',
+        userJettonWallet: 'kQAZFnSDKMIwiflOo8YWiNweqnxTRuwejtg7qmic4pjf1rIP',
+        roundController: 'kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18',
         userAddress: '0:' + '11'.repeat(32),
         amountA9Raw: '1000000000000',
         roundId: 256,
       });
-      const rClaim = await tonConnect.sendV15TicketClaim('EQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCc8-');
+      const rClaim = await tonConnect.sendV15TicketClaim('kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18');
 
       await requestChestPurchaseIntent({ walletAddress: '0:' + '11'.repeat(32), skuId: 'chest_bronze', openMode: 'BOOST' });
       await openChestById('ch_live_1', null, '0:' + '11'.repeat(32));
@@ -481,4 +482,35 @@ test('W2: URL parameter cannot enable liveFundsEnabled; only explicit injected c
   assert.deepEqual(enabled.amounts, ['990000000', '60000000', '300000000', '220000000']);
   assert.ok(enabled.fetchUrls.some((u) => u.endsWith('/api/presale/intent')));
   assert.ok(enabled.fetchUrls.some((u) => u.endsWith('/api/chests/ch_live_1/open')));
+});
+
+test('P1-5: /market alias route exists, share.js uses protocolConfig.botHandle, and cancelWarmup posts /api/warmup/cancel', () => {
+  const routerSrc = readFileSync(join(JS_DIR, 'router.js'), 'utf8');
+  assert.match(routerSrc, /path:\s*'\/market'[^}]*render:\s*renderInternalMarket/);
+
+  const out = runScenario(
+    {
+      href: 'https://a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat' },
+    },
+    `
+      const { store } = await import(JS_URL + '/store.js');
+      const { buildTmaDeepLink } = await import(JS_URL + '/share.js');
+      const { cancelWarmup } = await import(JS_URL + '/data.js');
+
+      store.update((s) => {
+        s.round.protocolConfig = { botHandle: 'A9OfficialTestBot' };
+      });
+      const deepLink = buildTmaDeepLink('invite_999');
+      await cancelWarmup({ roundId: 4, walletAddress: '0:' + '11'.repeat(32), userId: 'tg_999' });
+
+      console.log(JSON.stringify({
+        deepLink,
+        lastFetch: fetchCalls[fetchCalls.length - 1],
+      }));
+    `,
+  );
+  assert.equal(out.deepLink, 'https://t.me/A9OfficialTestBot?startapp=invite_999');
+  assert.ok(out.lastFetch.url.endsWith('/api/warmup/cancel'));
+  assert.equal(out.lastFetch.method, 'POST');
 });

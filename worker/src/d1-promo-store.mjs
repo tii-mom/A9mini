@@ -12,6 +12,7 @@ import {
 import { addressKey, addressAliases } from './ton-address.mjs';
 
 const changes = (r) => Number(r?.meta?.changes ?? r?.changes ?? 0);
+const isMissingTableErr = (e) => /no such table/i.test(String(e?.message || e));
 
 export class D1PromoStore {
   constructor({
@@ -187,7 +188,8 @@ export class D1PromoStore {
     if (claimRow.status !== CLAIM_STATUS.PENDING_FEE) {
       throw new PromoError('INVALID_STATE', `claim ${claimRow.claim_id} is ${claimRow.status}`);
     }
-    if (nowSec > Number(claimRow.expires_at)) {
+    const paidAt = Number(tx.utime) > 0 ? Number(tx.utime) : nowSec;
+    if (paidAt > Number(claimRow.expires_at)) {
       throw new PromoError('CLAIM_EXPIRED', `claim ${claimRow.claim_id} expired`);
     }
     const receivedNano = BigInt(tx.valueNano || 0);
@@ -245,7 +247,8 @@ export class D1PromoStore {
     if (claimRow.status !== CLAIM_STATUS.PENDING_FEE) {
       throw new PromoError('INVALID_STATE', `claim ${claimRow.claim_id} is ${claimRow.status}`);
     }
-    if (nowSec > Number(claimRow.expires_at)) {
+    const paidAt = Number(tx.utime) > 0 ? Number(tx.utime) : nowSec;
+    if (paidAt > Number(claimRow.expires_at)) {
       await this.db
         .prepare('UPDATE promo_claims SET status = ?, updated_at = ? WHERE claim_id = ? AND status = ?')
         .bind(CLAIM_STATUS.EXPIRED, nowSec, claimRow.claim_id, CLAIM_STATUS.PENDING_FEE)
@@ -364,7 +367,8 @@ export class D1PromoStore {
           nowSec,
         )
         .run();
-    } catch {
+    } catch (e) {
+      if (!isMissingTableErr(e)) throw e;
       // 旧库无 promo_payouts 表时退化兼容
     }
     return {
@@ -407,8 +411,9 @@ export class D1PromoStore {
           .run();
         if (changes(ins) === 1) queued += 1;
       }
-    } catch {
-      return 0;
+    } catch (e) {
+      if (isMissingTableErr(e)) return 0;
+      throw e;
     }
     return queued;
   }
@@ -434,16 +439,26 @@ export class D1PromoStore {
         createdAt: Number(r.created_at),
         updatedAt: Number(r.updated_at),
       }));
-    } catch {
-      return [];
+    } catch (e) {
+      if (isMissingTableErr(e)) return [];
+      throw e;
     }
   }
 
-  async claimPromoPayout(payoutId, fromStatuses, { status = 'BROADCASTING', attempts, updatedAt }) {
+  async claimPromoPayout(payoutId, fromStatuses, { status = 'BROADCASTING', attempts, queryId = null, clearTxHash = false, updatedAt }) {
     const ph = fromStatuses.map(() => '?').join(', ');
+    const sets = ['status = ?', 'attempts = ?', 'updated_at = ?'];
+    const vals = [status, attempts, updatedAt];
+    if (queryId !== null && queryId !== undefined) {
+      sets.push('query_id = ?');
+      vals.push(String(queryId));
+    }
+    if (clearTxHash) {
+      sets.push('tx_hash = NULL');
+    }
     const res = await this.db
-      .prepare(`UPDATE promo_payouts SET status = ?, attempts = ?, updated_at = ? WHERE payout_id = ? AND status IN (${ph})`)
-      .bind(status, attempts, updatedAt, payoutId, ...fromStatuses)
+      .prepare(`UPDATE promo_payouts SET ${sets.join(', ')} WHERE payout_id = ? AND status IN (${ph})`)
+      .bind(...vals, payoutId, ...fromStatuses)
       .run();
     return changes(res) === 1;
   }
@@ -493,8 +508,9 @@ export class D1PromoStore {
         .bind(key)
         .first();
       return row ? { lt: String(row.last_lt), hash: String(row.last_hash), updatedAt: Number(row.updated_at || 0) } : null;
-    } catch {
-      return null;
+    } catch (e) {
+      if (isMissingTableErr(e)) return null;
+      throw e;
     }
   }
 
@@ -513,8 +529,8 @@ export class D1PromoStore {
         )
         .bind(key, String(lt), String(hash), nowSec)
         .run();
-    } catch {
-      // 旧库兼容
+    } catch (e) {
+      if (!isMissingTableErr(e)) throw e;
     }
   }
 

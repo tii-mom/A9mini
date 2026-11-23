@@ -25,6 +25,7 @@ export const ROUTES = [
   { path: '/warmup',              title: () => t('rt_warmup'),                     shell: 'stack', tab: 'challenge',   ticker: false, render: renderWarmupHome },
   { path: '/warmup/rank',         title: () => t('rt_warmup_rank'),                shell: 'stack', tab: 'challenge',   ticker: false, render: renderWarmupRank },
   { path: '/internal/market',     title: () => L('宝箱商城', 'Chest Mall'),        shell: 'stack', tab: 'challenge',   ticker: false, render: renderInternalMarket },
+  { path: '/market',              title: () => L('宝箱商城', 'Chest Mall'),        shell: 'stack', tab: 'challenge',   ticker: false, render: renderInternalMarket },
   { path: '/internal/records',    title: () => t('rt_market_rec'),                 shell: 'stack', tab: 'challenge',   ticker: false, render: renderInternalRecords },
   { path: '/team',                title: () => L('A9 战队', 'A9 Squad'),           shell: 'tab',   tab: 'team',        ticker: false, render: renderTeamHome },
   { path: '/team/profile',        title: () => t('rt_team_profile'),               shell: 'stack', tab: 'team',        ticker: false, render: renderTeamProfile },

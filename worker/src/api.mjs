@@ -132,14 +132,23 @@ async function checkRunnerHeartbeatGate(roles, env, runnerHeartbeatReader, nowSe
   } catch (e) {
     return { ok: false, reason: e?.message || 'failed to query runner heartbeats' };
   }
+  const expectedNetwork = String(env?.A9_NETWORK || '').trim().toLowerCase();
   const matched = rows.filter((r) => roles.includes(String(r.role || '').toLowerCase()));
   if (!matched.length) {
     return { ok: false, reason: `no heartbeat recorded for roles: ${roles.join('/')}` };
   }
   let newestOkAt = 0;
   for (const r of matched) {
-    const status = String(r.status ?? r.meta?.status ?? 'ok').toLowerCase();
-    if (status === 'error' || status === 'failed' || status === 'unhealthy') continue;
+    const rowNet = String(r.network || '').trim().toLowerCase();
+    if (expectedNetwork && rowNet !== expectedNetwork) continue;
+    let meta = r.meta && typeof r.meta === 'object' ? r.meta : null;
+    if (!meta && typeof r.meta_json === 'string' && r.meta_json.trim()) {
+      try { meta = JSON.parse(r.meta_json); } catch { continue; }
+    }
+    const status = String(r.status ?? meta?.status ?? 'ok').toLowerCase();
+    // P1-2: 仅认可 status === 'ok' 且非 DRY-RUN（executeLive !== false）的同网心跳
+    if (status !== 'ok') continue;
+    if (meta && meta.executeLive === false) continue;
     const ts = Number(r.lastSeenAt ?? r.last_seen_at ?? r.lastOkAt ?? r.last_ok_at ?? r.lastTickAt ?? 0);
     if (Number.isFinite(ts) && ts > newestOkAt) newestOkAt = ts;
   }

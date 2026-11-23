@@ -450,9 +450,9 @@ export function discoverActonWallets(protocolRoot, env = process.env, explicitWa
 }
 
 /**
- * Invoke the exact deployment script (`ops/tolk/deploy_v15.tolk`) with OPS_EXECUTE=false
- * so Acton itself resolves A9_DEPLOY_WALLET and A9_TREASURY_WALLET via `scripts.wallet(...)`
- * in read-only mode without broadcasting any on-chain message.
+ * Invoke the exact deployment script (`ops/tolk/deploy_v15.tolk` or `ops/tolk/deploy_v16.tolk`)
+ * with OPS_EXECUTE=false so Acton itself resolves A9_DEPLOY_WALLET and A9_TREASURY_WALLET via
+ * `scripts.wallet(...)` in read-only mode without broadcasting any on-chain message.
  */
 export function verifyActonWalletsReadOnly({
   protocol,
@@ -487,8 +487,10 @@ export function verifyActonWalletsReadOnly({
     A9_TON_FUNDING: params.deployTon.fundingTransfer,
     OPS_EXECUTE: 'false',
     OPS_CONFIRM: '',
+    OPS_CONFIRM_MAINNET: '',
   };
-  const res = spawnImpl('acton', ['script', '--net', params.network, '../ops/tolk/deploy_v15.tolk'], {
+  const deployScript = protocol === 'v16' ? '../ops/tolk/deploy_v16.tolk' : '../ops/tolk/deploy_v15.tolk';
+  const res = spawnImpl('acton', ['script', '--net', params.network, deployScript], {
     cwd: protocolRoot,
     env: dryEnv,
     encoding: 'utf8',

@@ -65,6 +65,9 @@ if (args.action === 'open-round') {
   let candleHashDec = null;
   if (args.candlesFile) {
     if (!args.target) throw new Error('--target <usd_e8> is required with --candles-file');
+    if (p.network === 'mainnet' && (!Number.isInteger(args.stakeCloseAt) || args.stakeCloseAt <= 0)) {
+      throw new Error('mainnet settle-round requires --stake-close-at <unix_sec> to verify 24h observation window alignment');
+    }
     const candles = JSON.parse(readFileSync(args.candlesFile, 'utf8'));
     const canEnforceObs = p.timing.observationSeconds % p.timing.candleCount === 0;
     const agg = aggregateCandles(args.round, args.target, candles, p.timing.candleCount, {

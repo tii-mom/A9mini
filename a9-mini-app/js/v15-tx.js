@@ -11,14 +11,17 @@
 export const V15_OPCODES = Object.freeze({
   JETTON_TRANSFER: 0x0f8a7ea5,
   STAKE_DEPOSIT: 0x5254000f,
+  STAKE_DEPOSIT_V16: 0x52540010,
+  CLAIM_FAILED_REFUND_V16: 0x52540005,
   TICKET_CLAIM: 0x52540303,
 });
 
 export const V15_GAS = Object.freeze({
-  STAKE_FORWARD_NANO: '150000000', // 0.15 TON forward to RoundController
-  STAKE_TOTAL_NANO: '300000000',   // 0.30 TON attached to user's JettonWallet
-  CLAIM_NANO: '220000000',         // 0.22 TON attached to StakeTicket
-  PROMO_FEE_NANO: '60000000',      // 0.06 TON user-covered gas to promo hot wallet
+  STAKE_FORWARD_NANO: '150000000',       // 0.15 TON forward to RoundController
+  STAKE_TOTAL_NANO: '300000000',         // 0.30 TON attached to user's JettonWallet
+  CLAIM_NANO: '220000000',               // 0.22 TON attached to StakeTicket
+  CLAIM_FAILED_REFUND_NANO: '150000000', // 0.15 TON user-paid gas to pull v16 escrowed refund
+  PROMO_FEE_NANO: '60000000',            // 0.06 TON user-covered gas to promo hot wallet
 });
 
 function bytesToBase64(bytes) {
@@ -37,19 +40,39 @@ function base64UrlToBytes(str) {
   return out;
 }
 
+function crc16Ccitt(bytes) {
+  let crc = 0;
+  for (let i = 0; i < bytes.length; i += 1) {
+    crc ^= bytes[i] << 8;
+    for (let b = 0; b < 8; b += 1) {
+      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+    }
+  }
+  return crc;
+}
+
 /** Parse friendly (EQ/UQ/kQ/0Q...) or raw (0:64hex) TON address into { workchain, hash }. */
 export function parseTonAddress(addr) {
   const s = String(addr || '').trim();
   if (s.includes(':')) {
-    const [wcStr, hex] = s.split(':');
-    if (!/^[0-9a-fA-F]{64}$/.test(hex || '')) throw new Error(`invalid raw TON address: ${s}`);
+    const parts = s.split(':');
+    if (parts.length !== 2) throw new Error(`invalid raw TON address: ${s}`);
+    const [wcStr, hex] = parts;
+    if (!/^-?\d+$/.test(wcStr) || !/^[0-9a-fA-F]{64}$/.test(hex || '')) throw new Error(`invalid raw TON address: ${s}`);
+    const wc = Number(wcStr);
+    if (wc !== 0 && wc !== -1) throw new Error(`invalid TON workchain: ${wcStr}`);
     const hash = new Uint8Array(32);
     for (let i = 0; i < 32; i += 1) hash[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-    return { workchain: Number(wcStr), hash };
+    return { workchain: wc, hash };
   }
   const bytes = base64UrlToBytes(s);
   if (bytes.length !== 36) throw new Error(`invalid friendly TON address length: ${bytes.length}`);
+  const expectedCrc = (bytes[34] << 8) | bytes[35];
+  if (crc16Ccitt(bytes.subarray(0, 34)) !== expectedCrc) {
+    throw new Error('invalid friendly TON address CRC16 checksum');
+  }
   const workchain = bytes[1] === 0xff ? -1 : bytes[1];
+  if (workchain !== 0 && workchain !== -1) throw new Error(`invalid TON workchain: ${workchain}`);
   return { workchain, hash: bytes.subarray(2, 34) };
 }
 
@@ -288,6 +311,29 @@ export function buildV15PresaleTx({ payTo, tonNano, memo }) {
         address: payTo,
         amount: String(tonNano),
         payload: encodeTextCommentBoc(memo),
+      },
+    ],
+  };
+}
+
+/** Build v16 RoundController ClaimFailedRefund BOC: op(0x52540005, 32b) + queryId(64b) */
+export function encodeClaimFailedRefundBoc(queryId = BigInt(Date.now())) {
+  const b = new BitBuilder()
+    .storeUint(V15_OPCODES.CLAIM_FAILED_REFUND_V16, 32)
+    .storeUint(BigInt(queryId), 64);
+  return encodeCellsBoc(b);
+}
+
+/** Ready-to-sign TON Connect 2.0 tx for pulling v16 W3 escrowed low-gas/bounced refunds */
+export function buildV16ClaimFailedRefundTx(roundController, queryId = BigInt(Date.now())) {
+  if (!roundController) throw new Error('roundController is required');
+  return {
+    validUntil: Math.floor(Date.now() / 1000) + 300,
+    messages: [
+      {
+        address: roundController,
+        amount: V15_GAS.CLAIM_FAILED_REFUND_NANO,
+        payload: encodeClaimFailedRefundBoc(queryId),
       },
     ],
   };

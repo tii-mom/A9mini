@@ -10,6 +10,8 @@ import {
   buildV15ClaimTx,
   buildV15PromoFeeTx,
   buildV15PresaleTx,
+  encodeClaimFailedRefundBoc,
+  buildV16ClaimFailedRefundTx,
   V15_GAS,
 } from './v15-tx.js';
 
@@ -39,7 +41,7 @@ test('encodeTextCommentBoc encodes 0x00000000 prefix + UTF-8 claim memo', () => 
   assert.equal(raw.subarray(17).toString('utf8'), memo);
 });
 
-test('parseTonAddress decodes both friendly base64url and raw 0:hex TON addresses', () => {
+test('parseTonAddress decodes both friendly base64url and raw 0:hex TON addresses and rejects bad CRC16', () => {
   const friendly = parseTonAddress('kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18');
   assert.equal(friendly.workchain, 0);
   assert.equal(friendly.hash.length, 32);
@@ -47,6 +49,12 @@ test('parseTonAddress decodes both friendly base64url and raw 0:hex TON addresse
   const rawAddr = parseTonAddress(`0:${'ab'.repeat(32)}`);
   assert.equal(rawAddr.workchain, 0);
   assert.equal(rawAddr.hash[0], 0xab);
+
+  // Tampering last character breaks CRC16-CCITT and must throw
+  assert.throws(() => parseTonAddress('kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT19'), /CRC16/);
+  // Invalid workchain or empty workchain prefix in raw format must throw
+  assert.throws(() => parseTonAddress(`2:${'ab'.repeat(32)}`), /workchain/);
+  assert.throws(() => parseTonAddress(`:${'ab'.repeat(32)}`), /invalid raw TON address/);
 });
 
 test('buildV15StakeTx builds valid 2-cell TEP-74 AskToTransfer BOC with 0x5254000F child ref', () => {
@@ -119,6 +127,17 @@ test('buildV15PresaleTx builds valid buy:<orderId> TON Connect 2.0 payload and r
   assert.equal(raw.subarray(0, 4).toString('hex'), 'b5ee9c72');
   assert.throws(() => buildV15PresaleTx({ payTo: 'EQ_X', tonNano: '990000000', memo: 'claim:123' }));
   assert.throws(() => buildV15PresaleTx({ payTo: 'EQ_X', tonNano: '0', memo: 'buy:123' }));
+});
+
+test('buildV16ClaimFailedRefundTx encodes 0x52540005 + queryId with 0.15 GRAM gas', () => {
+  const boc = encodeClaimFailedRefundBoc(42n);
+  const raw = Buffer.from(boc, 'base64');
+  assert.equal(raw.subarray(0, 4).toString('hex'), 'b5ee9c72');
+  assert.ok(raw.toString('hex').includes('52540005000000000000002a'));
+  const tx = buildV16ClaimFailedRefundTx('EQ_V16_RC_DEMO', 42n);
+  assert.equal(tx.messages[0].address, 'EQ_V16_RC_DEMO');
+  assert.equal(tx.messages[0].amount, '150000000');
+  assert.throws(() => buildV16ClaimFailedRefundTx(''));
 });
 
 console.log(`All ${passed} v15 frontend tx-builder tests passed.`);

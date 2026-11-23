@@ -386,7 +386,8 @@ function renderLiveTicketClaimPage(root) {
               : `<div class="col-gap">
                   ${tickets.map((t) => {
                     const amtA9 = rawToA9(t.amountRaw) ?? 0;
-                    const claimedA9 = rawToA9(t.rewardClaimedRaw) ?? 0;
+                    const lockedClaimedA9 = rawToA9(t.lockedClaimedRaw ?? t.rewardClaimedRaw) ?? 0;
+                    const immLabel = t.immediateClaimed ? L('已领', 'Claimed') : L('待领', 'Unclaimed');
                     const isPending = Boolean(t.pending);
                     const isBusy = claimingAddr === t.ticketAddress;
                     const statusChip = isPending
@@ -405,8 +406,8 @@ function renderLiveTicketClaimPage(root) {
                           <b class="mono">${formatNum(amtA9, 2)} A9</b>
                         </div>
                         <div class="row-between num-xs text-sec" style="margin-top:4px;">
-                          <span>${L('已领奖励', 'Reward Claimed')}</span>
-                          <b class="mono text-green">${formatNum(claimedA9, 2)} A9</b>
+                          <span>${L('即时奖励 / 已领锁仓', 'Immediate / Locked Claimed')}</span>
+                          <b class="mono text-green">${immLabel} · ${formatNum(lockedClaimedA9, 2)} A9</b>
                         </div>
                         <div class="num-xs text-muted mono" style="margin:6px 0 10px;word-break:break-all;">${escapeHtml(t.ticketAddress)}</div>
                         <button class="btn ${isPending ? 'btn-secondary' : 'btn-primary'} btn-sm" data-claim-ticket="${escapeHtml(t.ticketAddress)}" type="button" style="width:100%;" ${isPending || isBusy ? 'disabled' : ''}>

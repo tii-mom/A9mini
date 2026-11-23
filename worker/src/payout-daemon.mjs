@@ -111,8 +111,8 @@ export async function recordRunnerHeartbeat(db, { runnerId, role = 'payout_daemo
       )
       .bind(runnerId, role, network, nowSec, JSON.stringify(meta))
       .run();
-  } catch {
-    // 兼容未跑 0010 的旧库
+  } catch (e) {
+    if (!/no such table/i.test(String(e?.message || e))) throw e;
   }
 }
 
@@ -268,23 +268,37 @@ export function createPayoutDaemon({
         logger.error('[payout-daemon] promo tick error:', msg);
       }
     }
+    const presaleErrors = (out.presale?.errors?.length || 0) + (out.presale ? 0 : (presaleRunner ? 1 : 0));
+    const promoErrors = (out.promo?.errors?.length || 0) + (out.promo ? 0 : (promoRunner ? 1 : 0));
+    const allSkipped = Boolean(
+      (!presaleRunner || out.presale?.skipped === true)
+      && (!promoRunner || out.promo?.skipped === true)
+      && (presaleRunner || promoRunner),
+    );
+    const totalErrors = out.errors.length + presaleErrors + promoErrors;
     state.lastTickAt = nowSec;
     state.ticks += 1;
     state.lastSummary = out;
-    state.lastError = out.errors.length ? out.errors.join(' | ') : null;
-    await recordRunnerHeartbeat(ledger, {
-      runnerId: cfg.runnerId,
-      role: 'payout_daemon',
-      network: cfg.network,
-      nowSec,
-      meta: {
-        status: out.errors.length === 0 ? 'ok' : 'degraded',
-        executeLive: cfg.executeLive,
-        presaleErrors: (out.presale?.errors?.length || 0) + (out.presale ? 0 : (presaleRunner ? 1 : 0)),
-        promoErrors: (out.promo?.errors?.length || 0) + (out.promo ? 0 : (promoRunner ? 1 : 0)),
-        lastError: state.lastError,
-      },
-    });
+    state.lastError = out.errors.length
+      ? out.errors.join(' | ')
+      : (totalErrors > 0 ? `runner errors (presale=${presaleErrors}, promo=${promoErrors})` : null);
+
+    // P1-2 防伪造健康心跳：若所有 runner 均处于 skipped（上轮卡死重入），绝不刷新心跳时间戳
+    if (!allSkipped) {
+      await recordRunnerHeartbeat(ledger, {
+        runnerId: cfg.runnerId,
+        role: 'payout_daemon',
+        network: cfg.network,
+        nowSec,
+        meta: {
+          status: totalErrors === 0 ? 'ok' : 'degraded',
+          executeLive: cfg.executeLive,
+          presaleErrors,
+          promoErrors,
+          lastError: state.lastError,
+        },
+      });
+    }
     return out;
   }
 
@@ -341,9 +355,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         await daemon.runOnce();
       } catch (e) {
         console.error('[payout-daemon] tick error:', e?.message || e);
+      } finally {
+        setTimeout(loop, daemon.config.intervalMs);
       }
     };
     await loop();
-    setInterval(loop, daemon.config.intervalMs);
   }
 }

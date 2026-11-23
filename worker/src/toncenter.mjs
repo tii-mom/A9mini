@@ -50,7 +50,18 @@ export class TonCenterClient {
         }
         throw new Error(`TonCenter network/timeout error on ${pathLabel}: ${e?.message || e}`);
       }
-      if (res.ok) return await res.json();
+      if (res.ok) {
+        try {
+          return await res.json();
+        } catch (e) {
+          if (attempt < this.maxRetries) {
+            await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+            continue;
+          }
+          throw new Error(`TonCenter JSON parse error on ${pathLabel}: ${e?.message || e}`);
+        }
+      }
+      try { res.body?.cancel?.(); } catch {}
       if ((res.status === 429 || res.status === 503) && attempt < this.maxRetries) {
         await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
         continue;
@@ -349,6 +360,9 @@ export class TonCenterClient {
         nextCursor: newestCursor,
         reachedCursor,
         truncated,
+        // v3 start_lt + sort=asc 按 lt 严格升序连续消费、中间绝无空洞：
+        // 即使达到单次 maxPages 上限触发 truncated=true，也必须推进游标以逐批追平，杜绝死锁。
+        canAdvanceCursor: Boolean(newestCursor),
       };
     }
 
@@ -383,11 +397,15 @@ export class TonCenterClient {
       return (a.utime || 0) - (b.utime || 0);
     });
 
+    const coldTruncated = rows.length >= coldLimit;
     return {
       transfers: collected,
       nextCursor: newestCursor,
-      reachedCursor: true,
-      truncated: false,
+      reachedCursor: !coldTruncated,
+      truncated: coldTruncated,
+      // 冷启动阶段即使历史总交易 >= coldLimit，只要拿到了已终局的 newestCursor 就必须允许首次落库，
+      // 否则游标永远无法初始化并陷入永久 30 笔窗口。
+      canAdvanceCursor: Boolean(newestCursor),
     };
   }
 
@@ -414,7 +432,7 @@ export class TonCenterClient {
     const stopLt = cursorLt ? BigInt(cursorLt) : null;
     const seenHashes = new Set();
     const collected = [];
-    let newestCursor = null;
+    const seenAll = [];
     let pageLt = null;
     let pageHash = null;
     let reachedCursor = stopLt === null;
@@ -440,7 +458,6 @@ export class TonCenterClient {
           const hash = tx?.transaction_id?.hash;
           const ltStr = tx?.transaction_id?.lt ? String(tx.transaction_id.lt) : null;
           if (!hash || !ltStr) continue;
-          if (!newestCursor) newestCursor = { lt: ltStr, hash };
 
           if (stopLt !== null && (BigInt(ltStr) < stopLt || (BigInt(ltStr) === stopLt && (!cursorHash || hash === cursorHash)))) {
             hitBoundary = true;
@@ -449,6 +466,11 @@ export class TonCenterClient {
           }
           if (seenHashes.has(hash)) continue;
           seenHashes.add(hash);
+
+          const mcConfirmed = tx.finality === 'finalized'
+            || Number(tx.mc_block_seqno || 0) > 0
+            || (tx.finality === undefined && !requireMasterchainFinality);
+          seenAll.push({ lt: ltStr, hash, finalized: mcConfirmed });
 
           const norm = this._normalizeInboundTx(tx, hotWalletAddress, { requireMasterchainFinality });
           if (norm) collected.push(norm);
@@ -481,7 +503,7 @@ export class TonCenterClient {
       throw e;
     }
 
-    // 按逻辑时间 lt 升序返回（老交易先入账）
+    // 按逻辑时间 lt 升序返回（老交易先入账），并严格计算不越过任何未终局交易的安全游标
     collected.sort((a, b) => {
       const la = a.lt ? BigInt(a.lt) : 0n;
       const lb = b.lt ? BigInt(b.lt) : 0n;
@@ -489,66 +511,123 @@ export class TonCenterClient {
       if (la > lb) return 1;
       return (a.utime || 0) - (b.utime || 0);
     });
+    seenAll.sort((a, b) => {
+      const la = BigInt(a.lt);
+      const lb = BigInt(b.lt);
+      return la < lb ? -1 : (la > lb ? 1 : 0);
+    });
+    let safeCursor = null;
+    if (reachedCursor && !truncated) {
+      for (const item of seenAll) {
+        if (!item.finalized) break; // 绝不越过未终局交易推进游标
+        safeCursor = { lt: item.lt, hash: item.hash };
+      }
+    }
 
     return {
       transfers: collected,
-      nextCursor: newestCursor,
+      nextCursor: safeCursor,
       reachedCursor,
       truncated,
+      // v2 倒序回溯只有在完整接上旧游标且未截断时才无空洞，允许推进游标
+      canAdvanceCursor: Boolean(safeCursor && reachedCursor && !truncated),
     };
+  }
+
+  /** 将 0x<hex64> / <hex64> / base64(32B) 交易哈希统一规范为 64 位小写 hex，消除 hex 与 base64 编码错配。 */
+  static normalizeTxHashHex(input) {
+    const raw = String(input || '').trim();
+    if (!raw) return null;
+    const stripped = raw.replace(/^0x/i, '');
+    if (/^[0-9a-fA-F]{64}$/.test(stripped)) return stripped.toLowerCase();
+    try {
+      const b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+      let bytes;
+      if (typeof Buffer !== 'undefined') {
+        bytes = Buffer.from(b64, 'base64');
+      } else {
+        const bin = atob(b64);
+        bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+      }
+      if (bytes.length === 32) {
+        return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+      }
+    } catch {}
+    return stripped.toLowerCase();
   }
 
   /**
    * 基于 TonCenter v3 下游真实链上执行结果的出账终局核验器（彻底消除外层 out_msgs 假确认）：
-   * - kind === 'A9'：查询 v3 /jetton/transfers，按 (query_id, destination, amount, !aborted, !trace_incomplete)
-   *   核验下游 TEP-74 Jetton 转账真实落地（即使崩溃导致 payout.txHash === null 也可凭 queryId 精准反查）。
-   * - kind === 'REFUND'：查询 v3 /messages，按 (destination, value >= amount, memo/txHash, !bounced, !aborted)
-   *   核验 GRAM 原路退款真实落地。
+   * - kind === 'A9'：使用 start_utime + sort=asc 受限分页查询 v3 /jetton/transfers，避免高并发挤出窗口；
+   *   先扫描全部结果匹配 CONFIRMED，再判定 FAILED，杜绝旧失败记录误覆盖新成功交易。
+   * - kind === 'REFUND'：查询 v3 /messages，统一 hex/base64 哈希与 memo 比对，并强制校验 in_msg_tx_hash 落地。
    */
-  async verifyOutboundPayout(hotWalletAddress, payout, { jettonMasterAddress = null, limit = 50, startUtime = null } = {}) {
+  async verifyOutboundPayout(hotWalletAddress, payout, { jettonMasterAddress = null, limit = 50, maxPages = 10, startUtime = null } = {}) {
     if (!hotWalletAddress || !payout) return { state: 'PENDING' };
     const kind = String(payout.kind || 'A9').toUpperCase();
     const targetRecipientKey = addressKey(payout.recipient);
     const targetAmount = BigInt(payout.amount || payout.jettonAmountRaw || payout.tonNano || 0);
     const targetQueryId = payout.queryId !== undefined && payout.queryId !== null ? String(payout.queryId) : null;
-    const createdAtNum = Number(payout.createdAt ?? payout.created_at ?? 0);
+    const rawCreated = Number(payout.createdAt ?? payout.created_at ?? 0);
+    const rawUpdated = Number(payout.updatedAt ?? payout.updated_at ?? 0);
+    const normSec = (v) => (v > 1e12 ? Math.floor(v / 1000) : Math.floor(v));
+    const createdSec = normSec(rawCreated);
+    const updatedSec = normSec(rawUpdated);
+    // 重试（attempts > 1）时新 queryId 在 updatedAt 附近发出，优先锚定 updatedAt 避免被历史 500 笔窗口挤出
+    const anchorSec = (Number(payout.attempts || 0) > 1 && updatedSec > 1_000_000_000)
+      ? updatedSec
+      : createdSec;
     const effectiveStartUtime = startUtime !== null
       ? Math.max(0, Math.floor(Number(startUtime)))
-      : (createdAtNum > 1_000_000_000
-          ? Math.max(0, Math.floor(createdAtNum) - 300)
-          : Math.max(0, Math.floor(Date.now() / 1000) - 3600));
+      : (anchorSec > 1_000_000_000
+          ? Math.max(0, anchorSec - 300)
+          : Math.max(0, Math.floor(Date.now() / 1000) - 86400));
 
     if (kind === 'A9') {
       if (!targetQueryId) return { state: 'PENDING', reason: 'MISSING_QUERY_ID' };
-      const params = new URLSearchParams({
-        owner_address: hotWalletAddress,
-        direction: 'out',
-        start_utime: String(effectiveStartUtime),
-        sort: 'desc',
-        limit: String(limit),
-      });
-      if (jettonMasterAddress) params.set('jetton_master', jettonMasterAddress);
-      let body;
-      try {
-        body = await this._requestV3(`/jetton/transfers?${params.toString()}`, { method: 'GET' });
-      } catch (e) {
-        return { state: 'PENDING', reason: `V3_UNAVAILABLE: ${e?.message || e}` };
-      }
-      const transfers = Array.isArray(body?.jetton_transfers) ? body.jetton_transfers : (Array.isArray(body?.result) ? body.result : []);
-      for (const tr of transfers) {
-        if (String(tr.query_id ?? '') !== targetQueryId) continue;
-        const destKey = addressKey(tr.destination || '');
-        const amt = BigInt(tr.amount || 0);
-        const aborted = Boolean(tr.transaction_aborted || tr.aborted || tr.bounced);
-        const incomplete = Boolean(tr.trace_incomplete);
-        const txHash = tr.transaction_hash || tr.trace_id || payout.txHash || null;
-        if (aborted) return { state: 'FAILED', txHash, reason: 'JETTON_TRANSFER_ABORTED' };
-        if (incomplete) return { state: 'PENDING', txHash, reason: 'TRACE_INCOMPLETE' };
-        if (destKey === targetRecipientKey && amt === targetAmount) {
-          return { state: 'CONFIRMED', txHash };
+      const pageSize = Math.min(Math.max(1, Number(limit) || 50), 100);
+      let pendingHit = null;
+      let failedHit = null;
+      for (let page = 0; page < maxPages; page += 1) {
+        const params = new URLSearchParams({
+          owner_address: hotWalletAddress,
+          direction: 'out',
+          start_utime: String(effectiveStartUtime),
+          sort: 'asc',
+          limit: String(pageSize),
+        });
+        if (page > 0) params.set('offset', String(page * pageSize));
+        if (jettonMasterAddress) params.set('jetton_master', jettonMasterAddress);
+        let body;
+        try {
+          body = await this._requestV3(`/jetton/transfers?${params.toString()}`, { method: 'GET' });
+        } catch (e) {
+          return { state: 'PENDING', reason: `V3_UNAVAILABLE: ${e?.message || e}` };
         }
-        return { state: 'FAILED', txHash, reason: 'JETTON_TRANSFER_MISMATCH' };
+        const transfers = Array.isArray(body?.jetton_transfers) ? body.jetton_transfers : (Array.isArray(body?.result) ? body.result : []);
+        for (const tr of transfers) {
+          if (String(tr.query_id ?? '') !== targetQueryId) continue;
+          const destKey = addressKey(tr.destination || '');
+          const amt = BigInt(tr.amount || 0);
+          const aborted = Boolean(tr.transaction_aborted || tr.aborted || tr.bounced);
+          const incomplete = Boolean(tr.trace_incomplete);
+          const txHash = tr.transaction_hash || tr.trace_id || payout.txHash || null;
+          if (!aborted && !incomplete && destKey === targetRecipientKey && amt === targetAmount) {
+            return { state: 'CONFIRMED', txHash };
+          }
+          if (incomplete && !pendingHit) {
+            pendingHit = { state: 'PENDING', txHash, reason: 'TRACE_INCOMPLETE' };
+          } else if (aborted) {
+            failedHit = { state: 'FAILED', txHash, reason: 'JETTON_TRANSFER_ABORTED' };
+          } else if (destKey !== targetRecipientKey || amt !== targetAmount) {
+            failedHit = { state: 'FAILED', txHash, reason: 'JETTON_TRANSFER_MISMATCH' };
+          }
+        }
+        if (transfers.length < pageSize) break;
       }
+      if (pendingHit) return pendingHit;
+      if (failedHit) return failedHit;
       return { state: 'PENDING' };
     }
 
@@ -569,31 +648,39 @@ export class TonCenterClient {
       }
       const msgs = Array.isArray(body?.messages) ? body.messages : (Array.isArray(body?.result) ? body.result : []);
       const expectedMemo = targetQueryId ? `refund:${targetQueryId}` : null;
-      const targetHash = payout.txHash ? String(payout.txHash).replace(/^0x/i, '').toLowerCase() : null;
+      const targetHashHex = TonCenterClient.normalizeTxHashHex(payout.txHash);
+      let pendingHit = null;
+      let failedHit = null;
       for (const m of msgs) {
         const destKey = addressKey(m.destination || '');
         if (destKey !== targetRecipientKey) continue;
         const val = BigInt(m.value || 0);
         const comment = String(m.message_content?.decoded?.comment ?? m.comment ?? '').trim();
         const txHash = m.in_msg_tx_hash || m.out_msg_tx_hash || m.tx_hash || m.hash || null;
-        const normHash = txHash ? String(txHash).replace(/^0x/i, '').toLowerCase() : null;
+        const candidateHashes = [m.in_msg_tx_hash, m.out_msg_tx_hash, m.tx_hash, m.hash]
+          .map((h) => TonCenterClient.normalizeTxHashHex(h))
+          .filter(Boolean);
         const memoHit = Boolean(expectedMemo && comment === expectedMemo);
-        const hashHit = Boolean(targetHash && normHash && (normHash === targetHash));
+        const hashHit = Boolean(targetHashHex && candidateHashes.includes(targetHashHex));
         if (!memoHit && !hashHit) continue;
         if (m.bounced === true || m.aborted === true) {
-          return { state: 'FAILED', txHash: txHash || payout.txHash || null, reason: 'REFUND_BOUNCED_OR_ABORTED' };
+          failedHit = { state: 'FAILED', txHash: txHash || payout.txHash || null, reason: 'REFUND_BOUNCED_OR_ABORTED' };
+          continue;
         }
         if (m.trace_incomplete === true) {
-          return { state: 'PENDING', txHash: txHash || payout.txHash || null, reason: 'TRACE_INCOMPLETE' };
+          if (!pendingHit) pendingHit = { state: 'PENDING', txHash: txHash || payout.txHash || null, reason: 'TRACE_INCOMPLETE' };
+          continue;
         }
-        // TonCenter v3 真实消息对象显式给出 in_msg_tx_hash: null 表示尚未在收款方账户落地
         if (Object.prototype.hasOwnProperty.call(m, 'in_msg_tx_hash') && m.in_msg_tx_hash === null) {
-          return { state: 'PENDING', txHash: txHash || payout.txHash || null, reason: 'IN_MSG_NOT_DELIVERED' };
+          if (!pendingHit) pendingHit = { state: 'PENDING', txHash: txHash || payout.txHash || null, reason: 'IN_MSG_NOT_DELIVERED' };
+          continue;
         }
         if (val >= targetAmount) {
           return { state: 'CONFIRMED', txHash: txHash || payout.txHash || null };
         }
       }
+      if (pendingHit) return pendingHit;
+      if (failedHit) return failedHit;
       return { state: 'PENDING' };
     }
 

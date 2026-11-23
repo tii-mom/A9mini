@@ -12,6 +12,7 @@ import { D1PromoStore } from './d1-promo-store.mjs';
 import { D1SocialStore, D1PredictionEngine, D1ProgressionEngine, D1PresaleStore } from './d1-growth-store.mjs';
 import { D1IdentityStore, MemoryIdentityStore } from './auth.mjs';
 import { TelegramBroadcaster, D1BroadcastLog, MemoryBroadcastLog } from './tg-broadcaster.mjs';
+import { addressKey } from './ton-address.mjs';
 
 function isStrictDeployEnv(env = {}) {
   const e = String(env.A9_ENVIRONMENT || '').trim().toLowerCase();
@@ -217,25 +218,35 @@ const CANDIDATE_REQUIRED_VARS = [
 ];
 
 export function validateCandidateEnv(env = {}) {
-  const envName = String(env.A9_ENVIRONMENT || '').trim().toLowerCase();
-  const isCandidate = envName === 'candidate'
-    || String(env.A9_PROTOCOL_VERSION || '').trim().toLowerCase() === 'v16';
-  if (isCandidate) {
-    const missing = [];
-    if (!env.DB) missing.push('DB');
-    for (const key of CANDIDATE_REQUIRED_VARS) {
-      if (!String(env[key] || '').trim()) missing.push(key);
-    }
-    return { ok: missing.length === 0, missing, code: 'CANDIDATE_CONFIG_INCOMPLETE' };
+  // P1-3 双热钱包强制隔离校验：只要两项同时配置，严禁归一化后指向同一钱包地址
+  const promoHot = String(env.A9_PROMO_HOT_WALLET_ADDRESS || '').trim();
+  const presaleHot = String(env.A9_PRESALE_HOT_WALLET_ADDRESS || '').trim();
+  if (promoHot && presaleHot && addressKey(promoHot) === addressKey(presaleHot)) {
+    return {
+      ok: false,
+      missing: ['A9_PRESALE_HOT_WALLET_ADDRESS!=A9_PROMO_HOT_WALLET_ADDRESS'],
+      code: 'HOT_WALLET_ISOLATION_VIOLATION',
+    };
   }
-  const isProduction = envName === 'production' || String(env.A9_NETWORK || '').trim().toLowerCase() === 'mainnet';
+  const envName = String(env.A9_ENVIRONMENT || '').trim().toLowerCase();
+  const netName = String(env.A9_NETWORK || '').trim().toLowerCase();
+  const protoVer = String(env.A9_PROTOCOL_VERSION || '').trim().toLowerCase();
+  const isProduction = envName === 'production' || netName === 'mainnet';
   if (isProduction) {
     const missing = [];
     // 生产环境严禁无 D1 绑定时静默退回内存 Store
     if (!env.DB) missing.push('DB');
+    // 主网运行 v16 时合并全部关键合约与域名白名单门禁，绝不绕过生产分支
+    if (protoVer === 'v16') {
+      for (const key of CANDIDATE_REQUIRED_VARS) {
+        if (!String(env[key] || '').trim()) missing.push(key);
+      }
+    }
     // 若开启兑换/购箱写入口，必须具备独立预售热钱包、Bot Token 与域名白名单
     if (env.A9_PRESALE_OPEN === '1') {
-      if (!String(env.A9_PRESALE_HOT_WALLET_ADDRESS || '').trim()) missing.push('A9_PRESALE_HOT_WALLET_ADDRESS');
+      if (!String(env.A9_PRESALE_HOT_WALLET_ADDRESS || '').trim() && !missing.includes('A9_PRESALE_HOT_WALLET_ADDRESS')) {
+        missing.push('A9_PRESALE_HOT_WALLET_ADDRESS');
+      }
       if (!String(env.A9_BOT_TOKEN || '').trim()) missing.push('A9_BOT_TOKEN');
       if (!String(env.A9_PUBLIC_ORIGIN || '').trim() && !String(env.A9_TON_PROOF_DOMAINS || '').trim()) {
         missing.push('A9_PUBLIC_ORIGIN|A9_TON_PROOF_DOMAINS');
@@ -244,6 +255,16 @@ export function validateCandidateEnv(env = {}) {
     if (missing.length) {
       return { ok: false, missing, code: 'PRODUCTION_CONFIG_INCOMPLETE' };
     }
+    return { ok: true, missing: [], code: null };
+  }
+  const isCandidate = envName === 'candidate' || protoVer === 'v16';
+  if (isCandidate) {
+    const missing = [];
+    if (!env.DB) missing.push('DB');
+    for (const key of CANDIDATE_REQUIRED_VARS) {
+      if (!String(env[key] || '').trim()) missing.push(key);
+    }
+    return { ok: missing.length === 0, missing, code: 'CANDIDATE_CONFIG_INCOMPLETE' };
   }
   return { ok: true, missing: [], code: null };
 }
@@ -279,7 +300,12 @@ export default {
     }
 
     const tc = env.TONCENTER_API_BASE
-      ? new TonCenterClient({ apiBase: env.TONCENTER_API_BASE, apiKey: env.TONCENTER_API_KEY || '' })
+      ? new TonCenterClient({
+          apiBase: env.TONCENTER_API_BASE,
+          v3ApiBase: env.TONCENTER_V3_API_BASE || null,
+          apiKey: env.TONCENTER_API_KEY || '',
+          testnet: String(env.A9_NETWORK || '').trim().toLowerCase() === 'testnet',
+        })
       : null;
 
     const rcAddr = env.A9_ROUND_CONTROLLER_ADDRESS || null;
@@ -390,7 +416,7 @@ export default {
             return (res?.results || []).map((r) => {
               let meta = null;
               if (r.meta_json) {
-                try { meta = JSON.parse(String(r.meta_json)); } catch { meta = null; }
+                try { meta = JSON.parse(String(r.meta_json)); } catch { meta = { status: 'invalid' }; }
               }
               return {
                 runnerId: String(r.runner_id),
@@ -488,7 +514,12 @@ export default {
       throw new Error(`Candidate scheduled job aborted: missing ${candCheck.missing.join(', ')}`);
     }
     if (!env.TONCENTER_API_BASE || !env.A9_ROUND_CONTROLLER_ADDRESS) return;
-    const tc = new TonCenterClient({ apiBase: env.TONCENTER_API_BASE, apiKey: env.TONCENTER_API_KEY || '' });
+    const tc = new TonCenterClient({
+      apiBase: env.TONCENTER_API_BASE,
+      v3ApiBase: env.TONCENTER_V3_API_BASE || null,
+      apiKey: env.TONCENTER_API_KEY || '',
+      testnet: String(env.A9_NETWORK || '').trim().toLowerCase() === 'testnet',
+    });
     const hasD1 = Boolean(env.DB);
     const identityStore = hasD1 ? new D1IdentityStore({ db: env.DB }) : memIdentityStore;
     const socialStore = hasD1 ? new D1SocialStore({ db: env.DB }) : memSocialStore;

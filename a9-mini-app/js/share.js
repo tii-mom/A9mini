@@ -13,8 +13,8 @@ import { icon } from './icons.js';
 import { L } from './i18n.js';
 
 export function getBotHandle() {
-  const fromServer = store.state.round?.protocolConfig?.tgBotHandle;
-  const fromGlobal = typeof window !== 'undefined' ? window.__A9_CONFIG__?.tgBotHandle : '';
+  const fromServer = store.state.round?.protocolConfig?.botHandle || store.state.round?.protocolConfig?.tgBotHandle;
+  const fromGlobal = typeof window !== 'undefined' ? (window.__A9_CONFIG__?.botHandle || window.__A9_CONFIG__?.tgBotHandle) : '';
   return String(fromServer || fromGlobal || 'A9ProtocolBot').replace(/^@+/, '');
 }
 

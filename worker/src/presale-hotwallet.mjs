@@ -80,7 +80,7 @@ export const USER_FAULT_FEE_NANO = 50_000_000n;     // 0.05 GRAM
 export const REFERRAL_BPS = 12n;                     // 12% referral reward (percent)
 export const ORDER_TTL_SEC = 30 * 60;               // unpaid order holds its reservation for 30 min
 export const MAX_PAYOUT_ATTEMPTS = 5;
-export const STALE_BROADCAST_SEC = 120;
+export const STALE_BROADCAST_SEC = 240;
 export const UNCONFIRMED_REVIEW_SEC = 3600;
 export const JETTON_TRANSFER_GAS_NANO = '50000000';
 
@@ -765,12 +765,23 @@ export class PresaleEngine {
             s.review += 1;
             continue;
           }
-          const claimed = await this.repo.claimPayout(p.payoutId, [PAYOUT_STATUS.PENDING, PAYOUT_STATUS.RETRY], {
+          const nextAttempt = Number(p.attempts || 0) + 1;
+          // P0-1 防双花：每次重试（attempt >= 2）生成全新的 64-bit queryId 并清空旧 txHash，彻底与历史失败交易解耦
+          const nextQueryId = nextAttempt > 1 ? newQueryId() : p.queryId;
+          const claimPatch = {
             status: PAYOUT_STATUS.BROADCASTING,
-            attempts: Number(p.attempts || 0) + 1,
+            attempts: nextAttempt,
             updatedAt: nowSec,
-          });
+            ...(nextAttempt > 1 ? { queryId: nextQueryId, txHash: null } : {}),
+          };
+          const claimed = await this.repo.claimPayout(p.payoutId, [PAYOUT_STATUS.PENDING, PAYOUT_STATUS.RETRY], claimPatch);
           if (!claimed) continue;
+          p.attempts = nextAttempt;
+          if (nextAttempt > 1) {
+            p.queryId = nextQueryId;
+            p.txHash = null;
+          }
+          let justBroadcast = false;
           try {
             const sent = await broadcaster(this.buildInstruction(p));
             if (!sent?.txHash) throw Object.assign(new Error('broadcaster returned no txHash'), { notSent: false });
@@ -778,12 +789,24 @@ export class PresaleEngine {
             p.status = PAYOUT_STATUS.SENT;
             p.txHash = sent.txHash;
             p.updatedAt = nowSec;
+            justBroadcast = true;
             s.broadcast += 1;
           } catch (e) {
             const msg = String(e?.message || e).slice(0, 300);
             await this.repo.markPayoutRetry(p.payoutId, p.kind, p.orderId, p.inboundTxHash, { ambiguous: e?.notSent !== true, lastError: msg }, nowSec);
             s.retry += 1;
             logger?.log?.(`[presale] payout ${p.payoutId} broadcast failed: ${msg}`);
+            continue;
+          }
+          // 刚广播完成时若立即核验：允许命中 CONFIRMED，但严禁在同一 tick 内因索引延迟被判 FAILED 触发重发
+          if (justBroadcast && typeof verifier === 'function') {
+            const v = await verifier(p);
+            if (v?.state === 'CONFIRMED') {
+              await this._markConfirmed(p, v.txHash || p.txHash, nowSec);
+              s.confirmed += 1;
+            } else {
+              s.waiting += 1;
+            }
             continue;
           }
         }

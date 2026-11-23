@@ -54,6 +54,7 @@ export const ENDPOINTS = Object.freeze({
   presaleQuota: (addr) => `/api/presale/quota/${encodeURIComponent(addr)}`,
   presaleOrders: (addr) => `/api/presale/orders/${encodeURIComponent(addr)}`,
   warmupRegister: '/api/warmup/register',
+  warmupCancel: '/api/warmup/cancel',
   warmupLeaderboard: '/api/warmup/leaderboard',
   teamJoin: '/api/team/join',
   teamBindTg: '/api/team/bind-tg',
@@ -295,8 +296,7 @@ export function mapRoundView(snapshot) {
     sourceLabel: snapshot.label,
     fetchedAt: snapshot.fetchedAt,
     stale: Boolean(snapshot.stale),
-    stakingEnabled: Boolean(c.contracts?.stakingEnabled),
-    protocolConfig: c
+    stakingEnabled: Boolean(c.contracts?.stakingEnabled)
   };
   currentView = view;
   return view;
@@ -459,11 +459,19 @@ function withReferrer(body, referrerId) {
   return clean ? { ...body, referrerId: clean } : body;
 }
 
-/** 预热报名（透传 referrerId） */
-export async function registerWarmup({ walletAddress, userId, referrerId }) {
+/** 预热报名（透传 roundId 与 referrerId） */
+export async function registerWarmup({ roundId = null, walletAddress, userId, referrerId }) {
   return request(ENDPOINTS.warmupRegister, {
     method: 'POST',
-    body: withReferrer({ walletAddress: walletAddress || null, userId: userId || null }, referrerId)
+    body: withReferrer({ roundId: roundId ? Number(roundId) : undefined, walletAddress: walletAddress || null, userId: userId || null }, referrerId)
+  });
+}
+
+/** 取消本轮开局预热报名 */
+export async function cancelWarmup({ roundId = null, walletAddress, userId }) {
+  return request(ENDPOINTS.warmupCancel, {
+    method: 'POST',
+    body: { roundId: roundId ? Number(roundId) : undefined, walletAddress: walletAddress || null, userId: userId || null }
   });
 }
 
