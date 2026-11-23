@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS captain_founding_bonuses (
   captain_wallet_key TEXT NOT NULL,
   tg_member_count INTEGER NOT NULL,
   amount_raw TEXT NOT NULL,
+  grant_token TEXT NOT NULL UNIQUE,
   status TEXT NOT NULL DEFAULT 'CREDITED_PENDING', -- 'CREDITED_PENDING'
   created_at INTEGER NOT NULL
 );

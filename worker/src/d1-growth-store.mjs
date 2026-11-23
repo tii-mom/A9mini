@@ -1144,8 +1144,9 @@ export class D1PresaleRepo {
         .run();
       return changes(res) === 1;
     } catch (e) {
-      // 兼容尚未执行 0009 迁移的旧库（如 0001..0004 滚动升级测试）
-      if (!o.skuId && (o.openMode || 'INSTANT') === 'INSTANT' && /no such column:\s*(sku_id|open_mode)/i.test(String(e?.message || e))) {
+      // 兼容尚未执行 0009 迁移的旧库（SQLite INSERT 报 "has no column named sku_id"，D1/SELECT 报 "no such column: sku_id"）
+      const errText = `${e?.message || ''} ${e?.cause?.message || ''}`;
+      if (!o.skuId && (o.openMode || 'INSTANT') === 'INSTANT' && /(no such column|has no column named)[\s:]+["'`]?(sku_id|open_mode)["'`]?/i.test(errText)) {
         const res = await this.db
           .prepare(
             `INSERT INTO presale_orders

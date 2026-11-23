@@ -409,18 +409,37 @@ export class D1ChestEngine {
           .prepare(
             `INSERT INTO chest_open_credits (chest_id, recipient_key, destination, amount_raw, open_token, created_at)
              SELECT ?, ?, ?, ?, ?, ?
-             WHERE EXISTS (SELECT 1 FROM user_chests WHERE chest_id = ? AND status IN ('ACTIVE', 'READY'))
+             WHERE EXISTS (
+               SELECT 1 FROM user_chests
+               WHERE chest_id = ?
+                 AND status IN ('ACTIVE', 'READY')
+                 AND current_assists = ?
+                 AND boost_a9_raw = ?
+                 AND base_a9_raw = ?
+             )
                AND NOT EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ?)${balGuardSql}`,
           )
-          .bind(cId, recipientKey, destination, rewardStr, openToken, nowSec, cId, cId, ...balGuardArgs),
+          .bind(
+            cId, recipientKey, destination, rewardStr, openToken, nowSec,
+            cId, chest.currentAssists, String(chest.boostA9Raw || '0'), String(chest.baseA9Raw || '0'),
+            cId, ...balGuardArgs,
+          ),
         this.db
           .prepare(
             `UPDATE user_chests
              SET status = 'OPENED', opened_at = ?, updated_at = ?
-             WHERE chest_id = ? AND status IN ('ACTIVE', 'READY')
+             WHERE chest_id = ?
+               AND status IN ('ACTIVE', 'READY')
+               AND current_assists = ?
+               AND boost_a9_raw = ?
+               AND base_a9_raw = ?
                AND EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)`,
           )
-          .bind(nowSec, nowSec, cId, cId, openToken),
+          .bind(
+            nowSec, nowSec,
+            cId, chest.currentAssists, String(chest.boostA9Raw || '0'), String(chest.baseA9Raw || '0'),
+            cId, openToken,
+          ),
       ];
 
       if (nextSpec) {
@@ -468,9 +487,14 @@ export class D1ChestEngine {
       }
     }
 
-    throw new ChestError('CONCURRENT_OPEN', '账户余额刚发生并发变动，请重试开箱');
+    throw new ChestError('CONCURRENT_OPEN', '宝箱助力进度或账户余额刚发生并发变动，请重试开箱');
   }
 
+  /**
+   * 原子发放队长创世金库（5,000 A9 待激活）：
+   * 在同一 db.batch() 事务内以唯一 grant_token 写入 captain_founding_bonuses 并以 BigInt CAS 累加 prediction_rewards；
+   * 若待激活金库写入失败，整批回滚，不会留下孤立的 CREDITED_PENDING 记录，后续可安全重试且全局只发一次。
+   */
   async grantCaptainFoundingBonus(
     { teamId, captainUserId, captainWallet, tgMemberCount, predictionEngine = null },
     nowSec = Math.floor(Date.now() / 1000),
@@ -481,30 +505,95 @@ export class D1ChestEngine {
     if (!tId || !cUid || count < CAPTAIN_MIN_TG_MEMBERS) {
       return { granted: false, reason: 'BELOW_MIN_MEMBERS', amountRaw: '0' };
     }
-    const res = await this.db
-      .prepare(
-        `INSERT OR IGNORE INTO captain_founding_bonuses
-         (team_id, captain_user_id, captain_wallet_key, tg_member_count, amount_raw, status, created_at)
-         VALUES (?, ?, ?, ?, ?, 'CREDITED_PENDING', ?)`,
-      )
-      .bind(tId, cUid, addressKey(captainWallet || cUid), count, CAPTAIN_FOUNDING_BONUS_RAW.toString(), nowSec)
-      .run();
-    if (changes(res) !== 1) {
-      return { granted: false, reason: 'ALREADY_GRANTED', amountRaw: '0' };
+
+    const amountStr = CAPTAIN_FOUNDING_BONUS_RAW.toString();
+    const walletKey = addressKey(captainWallet || cUid);
+    const MAX_CAS_RETRIES = 6;
+
+    for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt += 1) {
+      const existing = await this.db
+        .prepare('SELECT team_id FROM captain_founding_bonuses WHERE team_id = ? LIMIT 1')
+        .bind(tId)
+        .first();
+      if (existing) {
+        return { granted: false, reason: 'ALREADY_GRANTED', amountRaw: '0' };
+      }
+
+      const grantToken = `cg_${randomHex(8)}`;
+      const expMs = nowSec * 1000 + VOUCHER_TTL_MS;
+      const curRow = await this.db
+        .prepare('SELECT pending_activation_raw FROM prediction_rewards WHERE user_id = ? LIMIT 1')
+        .bind(cUid)
+        .first();
+
+      let balGuardSql = '';
+      let balGuardArgs = [];
+      let creditStmt = null;
+
+      if (curRow) {
+        const curStr = String(curRow.pending_activation_raw || '0');
+        const nextStr = (BigInt(curStr) + CAPTAIN_FOUNDING_BONUS_RAW).toString();
+        balGuardSql = ' AND EXISTS (SELECT 1 FROM prediction_rewards WHERE user_id = ? AND pending_activation_raw = ?)';
+        balGuardArgs = [cUid, curStr];
+        creditStmt = this.db
+          .prepare(
+            `UPDATE prediction_rewards
+             SET pending_activation_raw = ?, pending_expires_at = ?, updated_at = ?
+             WHERE user_id = ? AND pending_activation_raw = ?
+               AND EXISTS (SELECT 1 FROM captain_founding_bonuses WHERE team_id = ? AND grant_token = ?)`,
+          )
+          .bind(nextStr, expMs, nowSec, cUid, curStr, tId, grantToken);
+      } else {
+        balGuardSql = ' AND NOT EXISTS (SELECT 1 FROM prediction_rewards WHERE user_id = ?)';
+        balGuardArgs = [cUid];
+        creditStmt = this.db
+          .prepare(
+            `INSERT INTO prediction_rewards (user_id, pending_activation_raw, activated_raw, pending_expires_at, total_settled, total_won, streak, updated_at)
+             SELECT ?, ?, '0', ?, 0, 0, 0, ?
+             WHERE EXISTS (SELECT 1 FROM captain_founding_bonuses WHERE team_id = ? AND grant_token = ?)
+               AND NOT EXISTS (SELECT 1 FROM prediction_rewards WHERE user_id = ?)`,
+          )
+          .bind(cUid, amountStr, expMs, nowSec, tId, grantToken, cUid);
+      }
+
+      const out = await this.db.batch([
+        this.db
+          .prepare(
+            `INSERT INTO captain_founding_bonuses
+               (team_id, captain_user_id, captain_wallet_key, tg_member_count, amount_raw, grant_token, status, created_at)
+             SELECT ?, ?, ?, ?, ?, ?, 'CREDITED_PENDING', ?
+             WHERE NOT EXISTS (SELECT 1 FROM captain_founding_bonuses WHERE team_id = ?)${balGuardSql}`,
+          )
+          .bind(tId, cUid, walletKey, count, amountStr, grantToken, nowSec, tId, ...balGuardArgs),
+        creditStmt,
+      ]);
+
+      if (changes(out?.[0]) === 1) {
+        if (predictionEngine && !predictionEngine.db && typeof predictionEngine.creditPendingBonus === 'function') {
+          await predictionEngine.creditPendingBonus(cUid, CAPTAIN_FOUNDING_BONUS_RAW, nowSec * 1000);
+        }
+        return {
+          granted: true,
+          amountRaw: amountStr,
+          bonus: {
+            teamId: tId,
+            captainUserId: cUid,
+            tgMemberCount: count,
+            amountRaw: amountStr,
+            createdAt: nowSec,
+          },
+        };
+      }
+
+      const after = await this.db
+        .prepare('SELECT team_id FROM captain_founding_bonuses WHERE team_id = ? LIMIT 1')
+        .bind(tId)
+        .first();
+      if (after) {
+        return { granted: false, reason: 'ALREADY_GRANTED', amountRaw: '0' };
+      }
     }
-    if (predictionEngine && typeof predictionEngine.creditPendingBonus === 'function') {
-      await predictionEngine.creditPendingBonus(cUid, CAPTAIN_FOUNDING_BONUS_RAW, nowSec * 1000);
-    }
-    return {
-      granted: true,
-      amountRaw: CAPTAIN_FOUNDING_BONUS_RAW.toString(),
-      bonus: {
-        teamId: tId,
-        captainUserId: cUid,
-        tgMemberCount: count,
-        amountRaw: CAPTAIN_FOUNDING_BONUS_RAW.toString(),
-        createdAt: nowSec,
-      },
-    };
+
+    throw new ChestError('CONCURRENT_GRANT', '待激活金库余额刚发生并发变动，请重试发放队长创世金库');
   }
 }

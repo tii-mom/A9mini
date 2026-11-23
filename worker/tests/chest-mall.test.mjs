@@ -377,12 +377,71 @@ await test('Migrated SQLite D1 (0001..0009): orders, bound group, atomic open-wi
   const dayCnt = await db.prepare('SELECT COUNT(*) AS cnt FROM chest_assists WHERE helper_wallet_key = ?').bind(helperWallet).first();
   assert.equal(Number(dayCnt.cnt), 3);
 
-  // 5) Captain founding bonus idempotent in D1
-  const g1 = await d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-MIG', captainUserId: '3001', captainWallet: W_OWNER, tgMemberCount: 120 }, 3020);
-  const g2 = await d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-MIG', captainUserId: '3001', captainWallet: W_OWNER, tgMemberCount: 120 }, 3025);
+  // 5) Open-vs-assist race: if an assist lands after openChest reads the chest but before db.batch() commits,
+  //    openChest MUST NOT settle at stale 19.8198 A9 — it must re-read and credit the updated 69.3693 A9!
+  const raceOwnerWallet = '0:9999999999999999999999999999999999999999999999999999999999999999';
+  const raceHelperWallet = '0:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const shopRace = await d1Chest.createShopBoostChest(
+    { userId: '6002', walletAddress: raceOwnerWallet, skuId: 'chest_bronze', orderId: 'ord_assist_open_race' },
+    3015,
+  );
+  assert.equal(shopRace.boostA9Raw, '19819800000');
+  let injectedAssistOnce = false;
+  const raceDb = {
+    prepare: (sql) => db.prepare(sql),
+    exec: (sql) => db.exec(sql),
+    async batch(stmts) {
+      if (!injectedAssistOnce) {
+        injectedAssistOnce = true;
+        await d1Chest.assistChest(
+          { chestId: shopRace.chestId, helperUserId: '6003', helperWalletAddress: raceHelperWallet, walletActive: true },
+          3016,
+        );
+      }
+      return db.batch(stmts);
+    },
+  };
+  const d1ChestRace = new D1ChestEngine({ db: raceDb });
+  const raceOpened = await d1ChestRace.openChest(
+    { chestId: shopRace.chestId, userId: '6002', walletAddress: raceOwnerWallet, promoEngine: d1Promo },
+    3017,
+  );
+  assert.equal(injectedAssistOnce, true);
+  assert.equal(raceOpened.chest.status, 'OPENED');
+  assert.equal(raceOpened.chest.currentAssists, 1);
+  assert.equal(raceOpened.chest.boostA9Raw, '69369300000');
+  assert.equal(raceOpened.rewardA9Raw, '69369300000');
+  assert.equal((await d1Promo.getBalance(raceOwnerWallet)).claimableRaw, '69369300000');
+
+  // 6) Captain founding bonus atomic rollback on prediction_rewards write failure -> retry succeeds once with 5,000 A9
+  db.exec(`CREATE TRIGGER fail_captain_vault BEFORE INSERT ON prediction_rewards BEGIN SELECT RAISE(ABORT, 'injected_captain_vault_fail'); END;`);
+  await assert.rejects(
+    () => d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-ATOMIC', captainUserId: '6001', captainWallet: W_H4, tgMemberCount: 120, predictionEngine: d1Pred }, 3020),
+    /injected_captain_vault_fail/,
+  );
+  const failedGrantRow = await db.prepare('SELECT * FROM captain_founding_bonuses WHERE team_id = ?').bind('TM-ATOMIC').first();
+  assert.equal(failedGrantRow, null);
+  assert.equal((await d1Pred.getUserSummary('6001')).pendingActivationRaw, '0');
+
+  db.exec('DROP TRIGGER fail_captain_vault;');
+  const g1 = await d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-ATOMIC', captainUserId: '6001', captainWallet: W_H4, tgMemberCount: 120, predictionEngine: d1Pred }, 3022);
   assert.equal(g1.granted, true);
+  assert.equal(g1.amountRaw, CAPTAIN_FOUNDING_BONUS_RAW.toString());
+  assert.equal((await d1Pred.getUserSummary('6001')).pendingActivationRaw, '5000000000000');
+
+  const g2 = await d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-ATOMIC', captainUserId: '6001', captainWallet: W_H4, tgMemberCount: 120, predictionEngine: d1Pred }, 3025);
   assert.equal(g2.granted, false);
   assert.equal(g2.reason, 'ALREADY_GRANTED');
+  assert.equal((await d1Pred.getUserSummary('6001')).pendingActivationRaw, '5000000000000');
+});
+
+await test('Legacy 0001..0004 SQLite DB (without 0009 sku_id/open_mode): plain order succeeds and OVER_QUOTA still triggers', async () => {
+  const oldDb = createSqliteD1(MIGRATIONS.slice(0, 4));
+  const legacyPresale = new D1PresaleStore({ db: oldDb, hotWalletAddress: HOT_WALLET, defaultQuotaTon: 20n, open: true });
+  const okOrd = await legacyPresale.createOrderIntent(W_OWNER, '15', 4000);
+  assert.equal(okOrd.tonNano, '15000000000');
+  assert.equal('skuId' in okOrd, false);
+  await assert.rejects(legacyPresale.createOrderIntent(W_OWNER, '10', 4001), { code: 'OVER_QUOTA' });
 });
 
 console.log(`All ${passed} A9 v15 Chest Mall & Viral Assist tests passed.`);
