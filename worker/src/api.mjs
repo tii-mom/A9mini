@@ -444,6 +444,17 @@ export function createApiRouter({
       if (method === 'GET' && pathname === '/api/chests/me') {
         if (!chestEngine) return err('CHEST_DISABLED', 'chest engine not configured', 503);
         const id = await auth.telegram();
+        // 幂等补建该用户已确认（COMPLETED）但因瞬态故障尚未生成的商城膨胀箱
+        if (presaleEngine && typeof presaleEngine.ensureShopBoostChests === 'function') {
+          const binding = await identityStore.getBinding(id.telegramUserId, nowSec);
+          if (binding?.walletAddress) {
+            try {
+              await presaleEngine.ensureShopBoostChests(binding.walletAddress, nowSec);
+            } catch (_) {
+              // 补建失败不阻断列表读取，下次查询继续幂等重试
+            }
+          }
+        }
         const lists = await chestEngine.listUserChests(id.telegramUserId);
         return ok({
           catalog: Object.values(CHEST_MALL_CATALOG),
@@ -469,15 +480,17 @@ export function createApiRouter({
         if (!chestEngine) return err('CHEST_DISABLED', 'chest engine not configured', 503);
         const chestId = decodeURIComponent(chestAssistMatch[1]);
         const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
-        let walletActive = false;
-        if (walletStateResolver) {
-          try {
-            const st = await walletStateResolver(walletAddress);
-            walletActive = st?.status === 'active';
-          } catch (_) {
-            walletActive = false;
-          }
+        if (!walletStateResolver) {
+          return err('WALLET_STATE_UNAVAILABLE', '链上钱包状态核验服务未配置', 503);
         }
+        let walletState;
+        try {
+          walletState = await walletStateResolver(walletAddress);
+        } catch (e) {
+          return err('WALLET_STATE_UNAVAILABLE', `无法核验钱包链上状态：${e?.message || 'RPC error'}`, 503);
+        }
+        // TonCenterClient.fetchWalletAccountState 返回 { state: 'active' | 'uninitialized' | 'frozen', codeBoc }
+        const walletActive = walletState?.state === 'active';
         return ok(
           await chestEngine.assistChest(
             {
@@ -494,6 +507,11 @@ export function createApiRouter({
       const chestOpenMatch = method === 'POST' && pathname.match(/^\/api\/chests\/([^/]+)\/open$/);
       if (chestOpenMatch) {
         if (!chestEngine) return err('CHEST_DISABLED', 'chest engine not configured', 503);
+        // Live 资金只读隔离：除非显式开启 A9_CHEST_OPEN_ENABLED=1 或 presaleEngine.open=true，否则拦截开箱入账写账本
+        const chestOpenAllowed = env.A9_CHEST_OPEN_ENABLED === '1' || Boolean(presaleEngine?.open);
+        if (!chestOpenAllowed) {
+          return err('CHEST_OPEN_DISABLED', '当前真实模式处于只读验收阶段，宝箱开箱入账暂未开放', 403);
+        }
         const chestId = decodeURIComponent(chestOpenMatch[1]);
         const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
         let teamVolumeNano = 0n;

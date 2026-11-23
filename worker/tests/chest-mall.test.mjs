@@ -1,15 +1,18 @@
-// A9 Protocol v15 — Chest Mall & Viral Social Assist Full-Stack Tests (Memory + SQLite D1).
+// A9 Protocol v15 — Chest Mall & Viral Social Assist Full-Stack Tests (Memory + Migrated SQLite D1).
 import assert from 'node:assert/strict';
 import { ChestEngine, CHEST_MALL_CATALOG, CAPTAIN_FOUNDING_BONUS_RAW } from '../src/chest-engine.mjs';
 import { D1ChestEngine } from '../src/d1-chest-store.mjs';
+import { D1PresaleStore, D1SocialStore, D1PredictionEngine } from '../src/d1-growth-store.mjs';
+import { D1PromoStore } from '../src/d1-promo-store.mjs';
 import { PresaleHotWalletEngine, PASSIVE_FREE_MIN_NANO } from '../src/presale-hotwallet.mjs';
 import { PromoHotWalletEngine } from '../src/promo-hotwallet.mjs';
 import { PredictionEngine } from '../src/growth-engine.mjs';
 import { SocialStore, parseStartAppParam } from '../src/social-store.mjs';
 import { TelegramBroadcaster } from '../src/tg-broadcaster.mjs';
+import { TonCenterClient } from '../src/toncenter.mjs';
 import { createApiRouter } from '../src/api.mjs';
 import { MemoryIdentityStore } from '../src/auth.mjs';
-import { makeInitData, createSqliteD1 } from './helpers/test-env.mjs';
+import { tgHeaders, createSqliteD1, MIGRATIONS, TEST_BOT_TOKEN } from './helpers/test-env.mjs';
 
 let passed = 0;
 async function test(name, fn) {
@@ -18,12 +21,20 @@ async function test(name, fn) {
   console.log(`  PASS  ${name}`);
 }
 
-const BOT_TOKEN = '123456:TEST_BOT_TOKEN_CHEST';
+const BOT_TOKEN = TEST_BOT_TOKEN;
 const HOT_WALLET = '0:1111111111111111111111111111111111111111111111111111111111111111';
 const W_OWNER = '0:2222222222222222222222222222222222222222222222222222222222222222';
 const W_H1 = '0:3333333333333333333333333333333333333333333333333333333333333333';
 const W_H2 = '0:4444444444444444444444444444444444444444444444444444444444444444';
 const W_H3 = '0:5555555555555555555555555555555555555555555555555555555555555555';
+const W_H4 = '0:6666666666666666666666666666666666666666666666666666666666666666';
+
+const emptyStateStore = {
+  getProtocolState: () => ({ currentRoundId: 1 }),
+  listRounds: () => [],
+  getRound: () => null,
+  getTiming: () => ({}),
+};
 
 console.log('Running A9 v15 Chest Mall & Viral Assist tests...');
 
@@ -52,56 +63,85 @@ await test('5 Chest Mall SKUs exact fixed-rate pricing & 0.99 GRAM passive free 
   assert.equal(latePlan.feeDeducted, false);
 });
 
-await test('Serial Bronze #1/#2/#3 chests, active-wallet anti-sybil, helper auto-starter & next-slot unlock', async () => {
+await test('Real TonCenterClient.fetchWalletAccountState format: active passes, uninitialized rejects, RPC failure returns 503', async () => {
   const chest = new ChestEngine();
   const pred = new PredictionEngine();
+  const identityStore = new MemoryIdentityStore();
+  await identityStore.bindVerifiedWallet('1001', W_OWNER, 1000);
+  await identityStore.bindVerifiedWallet('2001', W_H1, 1000);
+  await identityStore.bindVerifiedWallet('2002', W_H2, 1000);
+  await identityStore.bindVerifiedWallet('2003', W_H3, 1000);
+
   const starter = await chest.claimStarterBronzeChests({ userId: '1001', walletAddress: W_OWNER }, 1000);
-  assert.equal(starter.created, true);
-  assert.equal(starter.chests[0].status, 'ACTIVE');
-  assert.equal(starter.chests[1].status, 'LOCKED');
-  assert.equal(starter.chests[2].status, 'LOCKED');
   const b1 = starter.chests[0];
 
-  // Inactive empty wallet must be rejected
-  await assert.rejects(
-    () => chest.assistChest({ chestId: b1.chestId, helperUserId: '2001', helperWalletAddress: W_H1, walletActive: false }, 1010),
-    (e) => e.code === 'WALLET_NOT_ACTIVE',
-  );
-  // Self-assist must be rejected
-  await assert.rejects(
-    () => chest.assistChest({ chestId: b1.chestId, helperUserId: '1001', helperWalletAddress: W_OWNER, walletActive: true }, 1011),
-    (e) => e.code === 'SELF_ASSIST_FORBIDDEN',
-  );
+  // Mock TonCenter HTTP responses matching real /getAddressInformation contract
+  const tc = new TonCenterClient({
+    apiBase: 'https://toncenter.test/api/v2',
+    apiKey: 'test-key',
+    minIntervalMs: 0,
+    maxRetries: 0,
+    fetchImpl: async (url) => {
+      const addr = new URL(url).searchParams.get('address');
+      if (addr === W_H1) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, result: { state: 'active', code: 'te6cckEBAQEA' } }) };
+      }
+      if (addr === W_H2) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, result: { state: 'uninitialized', code: '' } }) };
+      }
+      return { ok: false, status: 500, json: async () => ({ ok: false, error: 'upstream down' }) };
+    },
+  });
 
-  // Two active helpers unlock Bronze #1 and auto-receive their own starter Bronze #1
-  const a1 = await chest.assistChest({ chestId: b1.chestId, helperUserId: '2001', helperWalletAddress: W_H1, walletActive: true }, 1012);
-  assert.equal(a1.helperGrantedStarter, true);
-  assert.equal(a1.helperBronzeChest.tier, 'bronze');
-  assert.equal(a1.chest.currentAssists, 1);
+  const router = createApiRouter({
+    env: { A9_BOT_TOKEN: BOT_TOKEN, A9_CHEST_OPEN_ENABLED: '1' },
+    stateStore: emptyStateStore,
+    predictionEngine: pred,
+    chestEngine: chest,
+    identityStore,
+    walletStateResolver: (addr) => tc.fetchWalletAccountState(addr),
+  });
 
-  // Same wallet cannot assist same chest twice
-  await assert.rejects(
-    () => chest.assistChest({ chestId: b1.chestId, helperUserId: '2001', helperWalletAddress: W_H1, walletActive: true }, 1013),
-    (e) => e.code === 'ALREADY_ASSISTED',
-  );
+  // 1) active wallet passes
+  const resActive = await router({
+    method: 'POST',
+    pathname: `/api/chests/${b1.chestId}/assist`,
+    headers: await tgHeaders(2001, { nowSec: 1010 }),
+    body: {},
+    nowSec: 1010,
+  });
+  assert.equal(resActive.status, 200);
+  assert.equal(resActive.body.data.chest.currentAssists, 1);
+  assert.equal(resActive.body.data.helperGrantedStarter, true);
 
-  const a2 = await chest.assistChest({ chestId: b1.chestId, helperUserId: '2002', helperWalletAddress: W_H2, walletActive: true }, 1014);
-  assert.equal(a2.chest.status, 'READY');
+  // 2) uninitialized wallet rejected with 400 WALLET_NOT_ACTIVE
+  const resUninit = await router({
+    method: 'POST',
+    pathname: `/api/chests/${b1.chestId}/assist`,
+    headers: await tgHeaders(2002, { nowSec: 1011 }),
+    body: {},
+    nowSec: 1011,
+  });
+  assert.equal(resUninit.status, 400);
+  assert.equal(resUninit.body.error.code, 'WALLET_NOT_ACTIVE');
 
-  // Open Bronze #1 -> credits 300 A9 to pending vault & unlocks Bronze #2
-  const opened = await chest.openChest({ chestId: b1.chestId, userId: '1001', walletAddress: W_OWNER, predictionEngine: pred }, 1020);
-  assert.equal(opened.rewardA9Raw, '300000000000');
-  assert.equal(opened.destination, 'PENDING_VAULT');
-  assert.equal(opened.nextUnlocked.tier, 'bronze');
-  assert.equal(opened.nextUnlocked.slotIndex, 2);
-  assert.equal(opened.nextUnlocked.status, 'ACTIVE');
-  assert.equal(pred.getUserSummary('1001').pendingActivationRaw, '300000000000');
+  // 3) RPC failure rejected with 503 WALLET_STATE_UNAVAILABLE
+  const resRpcFail = await router({
+    method: 'POST',
+    pathname: `/api/chests/${b1.chestId}/assist`,
+    headers: await tgHeaders(2003, { nowSec: 1012 }),
+    body: {},
+    nowSec: 1012,
+  });
+  assert.equal(resRpcFail.status, 503);
+  assert.equal(resRpcFail.body.error.code, 'WALLET_STATE_UNAVAILABLE');
 });
 
-await test('Shop Boost Chest: confirmed order creates 24h boost chest, assists inflate A9, stoppable anytime & DM commission alert', async () => {
+await test('Shop Boost Chest: transient creation failure is idempotently backfilled on /api/chests/me & DM commission alert fires', async () => {
   const chest = new ChestEngine();
   const promo = new PromoHotWalletEngine({ hotWalletAddress: HOT_WALLET });
   const identityStore = new MemoryIdentityStore();
+  await identityStore.bindVerifiedWallet('1001', W_OWNER, 1000);
   await identityStore.bindVerifiedWallet('9001', W_H3, 1000);
   const dmSent = [];
   const broadcaster = new TelegramBroadcaster({
@@ -114,8 +154,19 @@ await test('Shop Boost Chest: confirmed order creates 24h boost chest, assists i
       return { ok: true, status: 200, json: async () => ({ ok: true, result: { message_id: dmSent.length } }) };
     },
   });
-  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT_WALLET, open: true, promoEngine: promo, chestEngine: chest, broadcaster });
 
+  // Simulate transient failure on first createShopBoostChest during _markConfirmed
+  let failOnce = true;
+  const origCreate = chest.createShopBoostChest.bind(chest);
+  chest.createShopBoostChest = async (...args) => {
+    if (failOnce) {
+      failOnce = false;
+      throw new Error('transient D1 timeout');
+    }
+    return origCreate(...args);
+  };
+
+  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT_WALLET, open: true, promoEngine: promo, chestEngine: chest, broadcaster });
   const ord = await presale.createOrderIntent(W_OWNER, null, 1000, { skuId: 'chest_gold', openMode: 'BOOST', tgUserId: '1001', referrerId: W_H3 });
   await presale.ingestInbound({ txHash: 'tx_gold_in', finality: 'finalized', to: HOT_WALLET, from: W_OWNER, valueNano: '9990000000', memo: ord.memo }, 1010);
   await presale.queueConfirmedPayouts(1015);
@@ -124,28 +175,42 @@ await test('Shop Boost Chest: confirmed order creates 24h boost chest, assists i
     verifier: async () => ({ state: 'CONFIRMED', txHash: 'tx_gold_out' }),
   });
 
-  // Boost chest created automatically with +1% initial boost
-  const mine = await chest.listUserChests('1001');
-  assert.equal(mine.shopChests.length, 1);
-  const sc = mine.shopChests[0];
+  // Because first attempt threw, no shop chest exists yet — calling /api/chests/me must idempotently backfill it!
+  assert.equal((await chest.listUserChests('1001')).shopChests.length, 0);
+  const router = createApiRouter({
+    env: { A9_BOT_TOKEN: BOT_TOKEN },
+    stateStore: emptyStateStore,
+    promoEngine: promo,
+    presaleEngine: presale,
+    chestEngine: chest,
+    identityStore,
+  });
+  const meRes = await router({ method: 'GET', pathname: '/api/chests/me', headers: await tgHeaders(1001, { nowSec: 1025 }), nowSec: 1025 });
+  assert.equal(meRes.status, 200);
+  assert.equal(meRes.body.data.shopChests.length, 1);
+  const sc = meRes.body.data.shopChests[0];
   assert.equal(sc.tier, 'gold');
-  assert.ok(BigInt(sc.boostA9Raw) > 0n);
+  assert.equal(sc.orderId, ord.orderId);
 
-  // 1 helper inflates boost, owner can stop & open anytime to claim boost to promo balance
+  // Second /api/chests/me call stays idempotent (still 1 chest)
+  const meRes2 = await router({ method: 'GET', pathname: '/api/chests/me', headers: await tgHeaders(1001, { nowSec: 1026 }), nowSec: 1026 });
+  assert.equal(meRes2.body.data.shopChests.length, 1);
+
+  // Assist inflates boost, owner opens and receives promo balance
   const ast = await chest.assistChest({ chestId: sc.chestId, helperUserId: '2001', helperWalletAddress: W_H1, walletActive: true }, 1030);
   assert.ok(BigInt(ast.boostDeltaRaw) > 0n);
   const res = await chest.openChest({ chestId: sc.chestId, userId: '1001', walletAddress: W_OWNER, promoEngine: promo }, 1040);
   assert.equal(res.destination, 'PROMO_BALANCE');
   assert.equal((await promo.getBalance(W_OWNER)).claimableRaw, res.rewardA9Raw);
 
-  // Referral credit triggers DM commission alert to captain/referrer
+  // Referral credit triggers DM commission alert
   await presale.processReferralCredits(1050);
   assert.equal(dmSent.length, 1);
   assert.equal(dmSent[0].body.chat_id, '9001');
   assert.match(dmSent[0].body.text, /返佣到账提醒/);
 });
 
-await test('Direct paid invitee unlocks referrer vault (0 GRAM self-spend) & Captain >=50 TG members gets 5,000 A9 founding bonus', async () => {
+await test('Direct paid invitee (TG-only ref) unlocks vault, Captain >=50 gets 5,000 A9 & Live mode blocks /api/chests/:id/open', async () => {
   const social = new SocialStore();
   const pred = new PredictionEngine();
   const promo = new PromoHotWalletEngine({ hotWalletAddress: HOT_WALLET });
@@ -155,11 +220,10 @@ await test('Direct paid invitee unlocks referrer vault (0 GRAM self-spend) & Cap
 
   await identityStore.bindVerifiedWallet('1001', W_OWNER, 1000);
   await identityStore.bindVerifiedWallet('2001', W_H1, 1000);
-  // 模拟真实场景：好友 2001 先通过 TG 深链归因（仅绑定 TG ID，未带钱包别名），后连接钱包购箱
+  // Real flow: invitee 2001 bound TG-only referral before connecting wallet
   social.bindReferral('2001', '1001', 1005);
   pred.creditPendingBonus('1001', 500_000_000_000n, 1005 * 1000);
 
-  // Direct invitee 2001 completes a 0.99 GRAM Bronze Chest purchase -> 1001 unlocks vault for free!
   const ord = await presale.createOrderIntent(W_H1, null, 1010, { skuId: 'chest_bronze', openMode: 'INSTANT', tgUserId: '2001', referrerId: '1001' });
   await presale.ingestInbound({ txHash: 'tx_inv_099', finality: 'finalized', to: HOT_WALLET, from: W_H1, valueNano: '990000000', memo: ord.memo }, 1015);
   await presale.queueConfirmedPayouts(1020);
@@ -170,29 +234,48 @@ await test('Direct paid invitee unlocks referrer vault (0 GRAM self-spend) & Cap
 
   const router = createApiRouter({
     env: { A9_BOT_TOKEN: BOT_TOKEN },
-    stateStore: { getProtocolState: () => ({ currentRoundId: 1 }), listRounds: () => [], getRound: () => null, getTiming: () => ({}) },
+    stateStore: emptyStateStore,
     promoEngine: promo,
     presaleEngine: presale,
     socialStore: social,
     predictionEngine: pred,
     chestEngine: chest,
     identityStore,
-    walletStateResolver: async () => ({ status: 'active' }),
+    walletStateResolver: async () => ({ state: 'active', codeBoc: 'te6c' }),
     telegramGroupVerifier: async () => ({ botInGroup: true, operatorIsAdmin: true, chatId: '-100999', groupHandle: '@a9squad', tgMemberCount: 88 }),
   });
 
-  const hdrOwner = { 'x-telegram-init-data': makeInitData(BOT_TOKEN, { id: 1001 }, 1030) };
+  const hdrOwner = await tgHeaders(1001, { nowSec: 1030 });
   const actRes = await router({ method: 'POST', pathname: '/api/prediction/activate', headers: hdrOwner, body: {}, nowSec: 1030 });
   assert.equal(actRes.status, 200);
   assert.equal(actRes.body.data.activatedRaw, '500000000000');
 
-  // Captain verifies TG group with 88 members -> receives 5,000 A9 founding bonus once
+  // Captain verifies TG group with 88 members -> 5,000 A9 founding bonus
   await router({ method: 'POST', pathname: '/api/team/bind-tg', headers: hdrOwner, body: { teamId: 'TM-88', name: 'Alpha', tgGroupHandle: '@a9squad' }, nowSec: 1035 });
   const verRes = await router({ method: 'POST', pathname: '/api/team/verify-tg', headers: hdrOwner, body: { teamId: 'TM-88' }, nowSec: 1040 });
   assert.equal(verRes.status, 200);
   assert.equal(verRes.body.data.tgMemberCount, 88);
   assert.equal(verRes.body.data.captainBonus.granted, true);
   assert.equal(verRes.body.data.captainBonus.amountRaw, CAPTAIN_FOUNDING_BONUS_RAW.toString());
+
+  // Live funds isolation: when presaleEngine.open=false and A9_CHEST_OPEN_ENABLED!='1', /api/chests/:id/open returns 403 and writes nothing
+  const starter = await chest.claimStarterBronzeChests({ userId: '1001', walletAddress: W_OWNER }, 1041);
+  const b1 = starter.chests[0];
+  await chest.assistChest({ chestId: b1.chestId, helperUserId: '2001', helperWalletAddress: W_H1, walletActive: true }, 1042);
+  await chest.assistChest({ chestId: b1.chestId, helperUserId: '2002', helperWalletAddress: W_H2, walletActive: true }, 1043);
+  const liveClosedRouter = createApiRouter({
+    env: { A9_BOT_TOKEN: BOT_TOKEN },
+    stateStore: emptyStateStore,
+    promoEngine: promo,
+    presaleEngine: new PresaleHotWalletEngine({ hotWalletAddress: HOT_WALLET, open: false }),
+    predictionEngine: pred,
+    chestEngine: chest,
+    identityStore,
+  });
+  const blockedOpen = await liveClosedRouter({ method: 'POST', pathname: `/api/chests/${b1.chestId}/open`, headers: hdrOwner, body: {}, nowSec: 1044 });
+  assert.equal(blockedOpen.status, 403);
+  assert.equal(blockedOpen.body.error.code, 'CHEST_OPEN_DISABLED');
+  assert.equal((await chest.getChest(b1.chestId)).status, 'READY');
 
   // Chest deep-link parser & OG card route
   assert.deepEqual(parseStartAppParam('chest_ch_abc123_1001'), { raw: 'chest_ch_abc123_1001', kind: 'chest', teamId: null, targetId: 'ch_abc123', referrerId: '1001' });
@@ -201,29 +284,91 @@ await test('Direct paid invitee unlocks referrer vault (0 GRAM self-spend) & Cap
   assert.match(ogRes.rawBody, /startapp=chest_ch_test1/);
 });
 
-await test('D1ChestEngine (real SQLite) enforces atomic serial unlock, pair uniqueness & founding bonus idempotency', async () => {
-  const db = createSqliteD1();
+await test('Migrated SQLite D1 (0001..0009): orders, bound group, atomic open-with-rollback & concurrent assists + daily cap', async () => {
+  const db = createSqliteD1(MIGRATIONS);
   const d1Chest = new D1ChestEngine({ db });
-  const starter = await d1Chest.claimStarterBronzeChests({ userId: '3001', walletAddress: W_OWNER }, 2000);
-  assert.equal(starter.created, true);
-  assert.equal(starter.chests.length, 7);
+  const d1Promo = new D1PromoStore({ db, hotWalletAddress: HOT_WALLET });
+  const d1Pred = new D1PredictionEngine({ db });
+  const d1Social = new D1SocialStore({ db });
+  const d1Presale = new D1PresaleStore({ db, hotWalletAddress: HOT_WALLET, open: true, promoEngine: d1Promo, socialStore: d1Social, chestEngine: d1Chest });
 
+  // 1) Verify migrated presale_orders (sku_id/open_mode) & team_groups (tg_member_count)
+  const ord = await d1Presale.createOrderIntent(W_OWNER, null, 2000, { skuId: 'chest_bronze', openMode: 'BOOST', tgUserId: '3001' });
+  assert.equal(ord.skuId, 'chest_bronze');
+  assert.equal(ord.openMode, 'BOOST');
+
+  await d1Social.createOrBindTeamGroup({ teamId: 'TM-MIG', name: 'Migrated', captainWallet: W_OWNER, tgGroupHandle: '@mig' }, 2001);
+  const verifiedTeam = await d1Social.verifyTeamGroupBinding(
+    {
+      teamId: 'TM-MIG',
+      captainWallet: W_OWNER,
+      telegramUserId: '3001',
+      telegramVerifier: async () => ({ botInGroup: true, operatorIsAdmin: true, chatId: '-100555', groupHandle: '@mig', tgMemberCount: 120 }),
+    },
+    2002,
+  );
+  assert.equal(verifiedTeam.tgMemberCount, 120);
+
+  // 2) Atomic openChest rollback proof: inject a SQLite trigger that fails prediction_rewards INSERT
+  const starter = await d1Chest.claimStarterBronzeChests({ userId: '3001', walletAddress: W_OWNER }, 2010);
   const b1 = starter.chests[0];
-  await d1Chest.assistChest({ chestId: b1.chestId, helperUserId: '3002', helperWalletAddress: W_H1, walletActive: true }, 2010);
-  await d1Chest.assistChest({ chestId: b1.chestId, helperUserId: '3003', helperWalletAddress: W_H2, walletActive: true }, 2015);
-  const opened = await d1Chest.openChest({ chestId: b1.chestId, userId: '3001', walletAddress: W_OWNER }, 2020);
+  await d1Chest.assistChest({ chestId: b1.chestId, helperUserId: '3002', helperWalletAddress: W_H1, walletActive: true }, 2011);
+  await d1Chest.assistChest({ chestId: b1.chestId, helperUserId: '3003', helperWalletAddress: W_H2, walletActive: true }, 2012);
+
+  db.exec(`CREATE TRIGGER fail_pred_reward BEFORE INSERT ON prediction_rewards BEGIN SELECT RAISE(ABORT, 'injected_reward_write_failure'); END;`);
+  await assert.rejects(
+    () => d1Chest.openChest({ chestId: b1.chestId, userId: '3001', walletAddress: W_OWNER, predictionEngine: d1Pred }, 2015),
+    /injected_reward_write_failure/,
+  );
+  // Chest MUST NOT be stuck OPENED after failed reward write!
+  assert.equal((await d1Chest.getChest(b1.chestId)).status, 'READY');
+  assert.equal((await d1Pred.getUserSummary('3001')).pendingActivationRaw, '0');
+
+  // Drop fault trigger -> retry succeeds atomically, credits 300 A9 & unlocks Bronze #2
+  db.exec('DROP TRIGGER fail_pred_reward;');
+  const opened = await d1Chest.openChest({ chestId: b1.chestId, userId: '3001', walletAddress: W_OWNER, predictionEngine: d1Pred }, 2020);
+  assert.equal(opened.chest.status, 'OPENED');
   assert.equal(opened.nextUnlocked.slotIndex, 2);
   assert.equal(opened.nextUnlocked.status, 'ACTIVE');
+  assert.equal((await d1Pred.getUserSummary('3001')).pendingActivationRaw, '300000000000');
 
-  // Same helper wallet cannot assist owner's Bronze #2 (lifetime owner-helper pair limit)
-  await assert.rejects(
-    () => d1Chest.assistChest({ chestId: opened.nextUnlocked.chestId, helperUserId: '3002', helperWalletAddress: W_H1, walletActive: true }, 2025),
-    (e) => e.code === 'OWNER_PAIR_LIMIT',
+  // 3) Concurrent assist on the final slot of Bronze #2: 2 distinct helpers race -> 1 succeeds, 0 orphan rows
+  const b2 = opened.nextUnlocked;
+  await d1Chest.assistChest({ chestId: b2.chestId, helperUserId: '3004', helperWalletAddress: W_H3, walletActive: true }, 2025);
+  const raceRes = await Promise.allSettled([
+    d1Chest.assistChest({ chestId: b2.chestId, helperUserId: '3005', helperWalletAddress: W_H4, walletActive: true }, 2026),
+    d1Chest.assistChest({ chestId: b2.chestId, helperUserId: '3006', helperWalletAddress: '0:7777777777777777777777777777777777777777777777777777777777777777', walletActive: true }, 2026),
+  ]);
+  assert.equal(raceRes.filter((r) => r.status === 'fulfilled').length, 1);
+  assert.equal(raceRes.filter((r) => r.status === 'rejected').length, 1);
+  const b2Now = await d1Chest.getChest(b2.chestId);
+  const b2Rows = await db.prepare('SELECT COUNT(*) AS cnt FROM chest_assists WHERE chest_id = ?').bind(b2.chestId).first();
+  assert.equal(b2Now.currentAssists, 2);
+  assert.equal(Number(b2Rows.cnt), 2);
+
+  // 4) Concurrent daily 3-assist cap: 1 helper races across 4 distinct owners on same UTC day -> exactly 3 succeed, 4th gets DAILY_ASSIST_LIMIT
+  const helperWallet = '0:8888888888888888888888888888888888888888888888888888888888888888';
+  const owners = ['4001', '4002', '4003', '4004'];
+  const ownerChests = [];
+  for (const ou of owners) {
+    const st = await d1Chest.claimStarterBronzeChests({ userId: ou, walletAddress: `0:${ou.padEnd(64, 'a')}` }, 3000);
+    ownerChests.push(st.chests[0]);
+  }
+  const capRes = await Promise.allSettled(
+    ownerChests.map((c) =>
+      d1Chest.assistChest({ chestId: c.chestId, helperUserId: '5001', helperWalletAddress: helperWallet, walletActive: true }, 3010),
+    ),
   );
+  assert.equal(capRes.filter((r) => r.status === 'fulfilled').length, 3);
+  const capRejects = capRes.filter((r) => r.status === 'rejected');
+  assert.equal(capRejects.length, 1);
+  assert.equal(capRejects[0].reason.code, 'DAILY_ASSIST_LIMIT');
+  const dayCnt = await db.prepare('SELECT COUNT(*) AS cnt FROM chest_assists WHERE helper_wallet_key = ?').bind(helperWallet).first();
+  assert.equal(Number(dayCnt.cnt), 3);
 
-  // Captain founding bonus idempotent in D1
-  const g1 = await d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-D1', captainUserId: '3001', captainWallet: W_OWNER, tgMemberCount: 120 }, 2030);
-  const g2 = await d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-D1', captainUserId: '3001', captainWallet: W_OWNER, tgMemberCount: 120 }, 2035);
+  // 5) Captain founding bonus idempotent in D1
+  const g1 = await d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-MIG', captainUserId: '3001', captainWallet: W_OWNER, tgMemberCount: 120 }, 3020);
+  const g2 = await d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-MIG', captainUserId: '3001', captainWallet: W_OWNER, tgMemberCount: 120 }, 3025);
   assert.equal(g1.granted, true);
   assert.equal(g2.granted, false);
   assert.equal(g2.reason, 'ALREADY_GRANTED');

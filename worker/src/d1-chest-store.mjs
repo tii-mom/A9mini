@@ -2,7 +2,7 @@
 // Mirrors ChestEngine (chest-engine.mjs) 1:1 with atomic D1 db.batch() transitions.
 import { addressKey } from './ton-address.mjs';
 import { randomHex } from './auth.mjs';
-import { utcDayFromSec } from './growth-engine.mjs';
+import { utcDayFromSec, VOUCHER_TTL_MS } from './growth-engine.mjs';
 import {
   ChestError,
   CHEST_MALL_CATALOG,
@@ -215,6 +215,8 @@ export class D1ChestEngine {
     const nextStatus = nextAssists >= chest.requiredAssists ? 'READY' : chest.status;
 
     try {
+      // 单事务原子提交：在同一个 db.batch() 内同时校验宝箱状态、每日 3 次上限并推进 current_assists。
+      // 若条件不满足，INSERT 与 UPDATE 均命中 0 行，绝不会留下孤儿助力流水或突破每日上限。
       const out = await this.db.batch([
         this.db
           .prepare(
@@ -223,18 +225,35 @@ export class D1ChestEngine {
              WHERE EXISTS (
                SELECT 1 FROM user_chests
                WHERE chest_id = ? AND current_assists = ? AND current_assists < required_assists AND status IN ('ACTIVE', 'READY')
-             )`,
+             )
+             AND (SELECT COUNT(*) FROM chest_assists WHERE helper_wallet_key = ? AND assist_day = ?) < ?`,
           )
-          .bind(cId, chest.ownerUserId, hUid, hKey, today, boostDelta.toString(), nowSec, cId, chest.currentAssists),
+          .bind(
+            cId, chest.ownerUserId, hUid, hKey, today, boostDelta.toString(), nowSec,
+            cId, chest.currentAssists,
+            hKey, today, MAX_DAILY_ASSISTS_PER_WALLET,
+          ),
         this.db
           .prepare(
             `UPDATE user_chests
              SET current_assists = ?, boost_a9_raw = ?, status = ?, updated_at = ?
-             WHERE chest_id = ? AND current_assists = ? AND current_assists < required_assists AND status IN ('ACTIVE', 'READY')`,
+             WHERE chest_id = ? AND current_assists = ? AND current_assists < required_assists AND status IN ('ACTIVE', 'READY')
+               AND EXISTS (SELECT 1 FROM chest_assists WHERE chest_id = ? AND helper_wallet_key = ?)`,
           )
-          .bind(nextAssists, nextBoostStr, nextStatus, nowSec, cId, chest.currentAssists),
+          .bind(nextAssists, nextBoostStr, nextStatus, nowSec, cId, chest.currentAssists, cId, hKey),
       ]);
       if (changes(out?.[0]) !== 1 || changes(out?.[1]) !== 1) {
+        const latestDay = await this.db
+          .prepare('SELECT COUNT(*) AS cnt FROM chest_assists WHERE helper_wallet_key = ? AND assist_day = ?')
+          .bind(hKey, today)
+          .first();
+        if (Number(latestDay?.cnt || 0) >= MAX_DAILY_ASSISTS_PER_WALLET) {
+          throw new ChestError('DAILY_ASSIST_LIMIT', `同一钱包每日最多助力 ${MAX_DAILY_ASSISTS_PER_WALLET} 次`);
+        }
+        const latestChest = await this.getChest(cId);
+        if (latestChest && latestChest.currentAssists >= latestChest.requiredAssists) {
+          throw new ChestError('ASSIST_FULL', '该宝箱助力人数已满');
+        }
         throw new ChestError('CONCURRENT_ASSIST', '宝箱助力状态刚更新，请重试');
       }
     } catch (e) {
@@ -254,6 +273,36 @@ export class D1ChestEngine {
       helperGrantedStarter: starter.created,
       helperBronzeChest: starter.chests[0] || null,
     };
+  }
+
+  _atomicCreditPromoStmt(walletAddress, rewardRaw, chestId, nowSec) {
+    const amtStr = BigInt(rewardRaw).toString();
+    return this.db
+      .prepare(
+        `INSERT INTO promo_balances (wallet_address, claimable_raw, total_claimed_raw, updated_at)
+         SELECT ?, ?, '0', ?
+         WHERE EXISTS (SELECT 1 FROM user_chests WHERE chest_id = ? AND status = 'OPENED' AND opened_at = ?)
+         ON CONFLICT(wallet_address) DO UPDATE SET
+           claimable_raw = CAST(CAST(promo_balances.claimable_raw AS INTEGER) + CAST(excluded.claimable_raw AS INTEGER) AS TEXT),
+           updated_at = excluded.updated_at`,
+      )
+      .bind(String(walletAddress), amtStr, nowSec, chestId, nowSec);
+  }
+
+  _atomicCreditPendingStmt(userId, rewardRaw, chestId, nowSec) {
+    const amtStr = BigInt(rewardRaw).toString();
+    const expMs = nowSec * 1000 + VOUCHER_TTL_MS;
+    return this.db
+      .prepare(
+        `INSERT INTO prediction_rewards (user_id, pending_activation_raw, activated_raw, pending_expires_at, total_settled, total_won, streak, updated_at)
+         SELECT ?, ?, '0', ?, 0, 0, 0, ?
+         WHERE EXISTS (SELECT 1 FROM user_chests WHERE chest_id = ? AND status = 'OPENED' AND opened_at = ?)
+         ON CONFLICT(user_id) DO UPDATE SET
+           pending_activation_raw = CAST(CAST(prediction_rewards.pending_activation_raw AS INTEGER) + CAST(excluded.pending_activation_raw AS INTEGER) AS TEXT),
+           pending_expires_at = excluded.pending_expires_at,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(String(userId), amtStr, expMs, nowSec, chestId, nowSec);
   }
 
   async openChest(
@@ -282,12 +331,20 @@ export class D1ChestEngine {
 
     if (chest.source === 'SHOP_BOOST') {
       rewardRaw = BigInt(chest.boostA9Raw || '0');
-      const res = await this.db
-        .prepare("UPDATE user_chests SET status = 'OPENED', opened_at = ?, updated_at = ? WHERE chest_id = ? AND status IN ('ACTIVE', 'READY')")
-        .bind(nowSec, nowSec, cId)
-        .run();
-      if (changes(res) !== 1) throw new ChestError('ALREADY_OPENED', '该宝箱已开启');
-      if (rewardRaw > 0n && promoEngine && walletAddress && typeof promoEngine.creditReward === 'function') {
+      if (rewardRaw > 0n && !walletAddress) {
+        throw new ChestError('WALLET_REQUIRED', '领取膨胀奖励需绑定钱包地址');
+      }
+      const stmts = [
+        this.db
+          .prepare("UPDATE user_chests SET status = 'OPENED', opened_at = ?, updated_at = ? WHERE chest_id = ? AND status IN ('ACTIVE', 'READY')")
+          .bind(nowSec, nowSec, cId),
+      ];
+      if (rewardRaw > 0n && walletAddress) {
+        stmts.push(this._atomicCreditPromoStmt(walletAddress, rewardRaw, cId, nowSec));
+      }
+      const out = await this.db.batch(stmts);
+      if (changes(out?.[0]) !== 1) throw new ChestError('ALREADY_OPENED', '该宝箱已开启');
+      if (rewardRaw > 0n && promoEngine && !promoEngine.db && walletAddress && typeof promoEngine.creditReward === 'function') {
         await promoEngine.creditReward(walletAddress, rewardRaw, nowSec);
       }
     } else {
@@ -304,6 +361,10 @@ export class D1ChestEngine {
       }
 
       rewardRaw = BigInt(chest.baseA9Raw || '0');
+      destination = spec.goesToPendingVault ? 'PENDING_VAULT' : 'PROMO_BALANCE';
+      if (!spec.goesToPendingVault && rewardRaw > 0n && !walletAddress) {
+        throw new ChestError('WALLET_REQUIRED', '领取该档位宝箱奖励需绑定钱包地址');
+      }
       const stmts = [
         this.db
           .prepare("UPDATE user_chests SET status = 'OPENED', opened_at = ?, updated_at = ? WHERE chest_id = ? AND status IN ('ACTIVE', 'READY')")
@@ -321,15 +382,21 @@ export class D1ChestEngine {
             .bind(nowSec, uid, nextSpec.tier, nextSpec.slotIndex),
         );
       }
+      if (rewardRaw > 0n) {
+        if (spec.goesToPendingVault) {
+          stmts.push(this._atomicCreditPendingStmt(uid, rewardRaw, cId, nowSec));
+        } else if (walletAddress) {
+          stmts.push(this._atomicCreditPromoStmt(walletAddress, rewardRaw, cId, nowSec));
+        }
+      }
       const out = await this.db.batch(stmts);
       if (changes(out?.[0]) !== 1) throw new ChestError('ALREADY_OPENED', '该宝箱已开启');
-
-      if (spec.goesToPendingVault && predictionEngine && typeof predictionEngine.creditPendingBonus === 'function') {
-        destination = 'PENDING_VAULT';
-        await predictionEngine.creditPendingBonus(uid, rewardRaw, nowSec * 1000);
-      } else if (rewardRaw > 0n && promoEngine && walletAddress && typeof promoEngine.creditReward === 'function') {
-        destination = 'PROMO_BALANCE';
-        await promoEngine.creditReward(walletAddress, rewardRaw, nowSec);
+      if (rewardRaw > 0n) {
+        if (spec.goesToPendingVault && predictionEngine && !predictionEngine.db && typeof predictionEngine.creditPendingBonus === 'function') {
+          await predictionEngine.creditPendingBonus(uid, rewardRaw, nowSec * 1000);
+        } else if (!spec.goesToPendingVault && promoEngine && !promoEngine.db && walletAddress && typeof promoEngine.creditReward === 'function') {
+          await promoEngine.creditReward(walletAddress, rewardRaw, nowSec);
+        }
       }
 
       if (nextSpec) {

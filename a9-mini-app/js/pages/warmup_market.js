@@ -379,7 +379,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                       <div class="grid-3" style="gap:6px;">
                         <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;">${icon('send', 12)} ${L('群里拉助力', 'Share TG')}</button>
                         <button class="btn btn-secondary btn-sm" data-share-x="${c.chestId}" type="button" style="width:100%;">${icon('xBrand', 12)} ${L('发 X 助力', 'Share X')}</button>
-                        <button class="btn btn-secondary btn-sm" data-open-chest="${c.chestId}" type="button" style="width:100%;">${icon('unlock', 12)} ${L('立即开箱', 'Open Now')}</button>
+                        <button class="btn btn-secondary btn-sm" data-open-chest="${c.chestId}" type="button" style="width:100%;" ${!config.isDemo ? 'disabled' : ''}>${icon(config.isDemo ? 'unlock' : 'lock', 12)} ${config.isDemo ? L('立即开箱', 'Open Now') : L('只读暂未开放', 'Read-Only')}</button>
                       </div>
                     </div>
                   `;
@@ -450,7 +450,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                     <div class="grid-3" style="gap:6px;">
                       <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;">${icon('send', 12)} ${L('TG 拉助力', 'TG Share')}</button>
                       <button class="btn btn-secondary btn-sm" data-share-x="${c.chestId}" type="button" style="width:100%;">${icon('xBrand', 12)} ${L('X 发卡片', 'X Share')}</button>
-                      <button class="btn ${isReady ? 'btn-primary' : 'btn-secondary'} btn-sm" data-open-chest="${c.chestId}" type="button" style="width:100%;">${icon('unlock', 12)} ${L('开箱', 'Open')}</button>
+                      <button class="btn ${isReady && config.isDemo ? 'btn-primary' : 'btn-secondary'} btn-sm" data-open-chest="${c.chestId}" type="button" style="width:100%;" ${!config.isDemo ? 'disabled' : ''}>${icon(config.isDemo ? 'unlock' : 'lock', 12)} ${config.isDemo ? L('开箱', 'Open') : L('只读', 'Read-Only')}</button>
                     </div>
                   ` : ''}
                 </section>
@@ -540,6 +540,11 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     });
     root.querySelectorAll('[data-open-chest]').forEach((b) => {
       b.onclick = async () => {
+        if (!config.isDemo || !store.fundsEnabled) {
+          A9Haptic.warning();
+          showToast(L('当前真实模式处于只读验收阶段，宝箱开箱入账暂未开放', 'Live mode is read-only; chest opening is disabled'), 'amber');
+          return;
+        }
         const cid = b.dataset.openChest;
         b.disabled = true;
         try {

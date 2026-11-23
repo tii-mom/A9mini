@@ -326,6 +326,30 @@ export class PresaleEngine {
     return total;
   }
 
+  /**
+   * 幂等补建已付款确认（COMPLETED）且选择 BOOST 模式的商城膨胀宝箱。
+   * 当付款确认回调中创建膨胀箱发生瞬态故障时，可由查询入口或定时任务安全重跑补齐。
+   */
+  async ensureShopBoostChests(walletAddress = null, nowSec = Math.floor(Date.now() / 1000)) {
+    if (!this.chestEngine || typeof this.chestEngine.createShopBoostChest !== 'function') return [];
+    const orders = walletAddress
+      ? (await this.repo.listOrdersByWallet(addressKey(walletAddress))).filter((o) => o.status === PRESALE_STATUS.COMPLETED)
+      : await this.repo.listOrdersByStatus(PRESALE_STATUS.COMPLETED);
+    const createdOrExisting = [];
+    for (const order of orders) {
+      if (order.openMode !== 'BOOST') continue;
+      const matchedSku = order.skuId || CHEST_MALL_NANO_TO_SKU[String(order.tonNano ?? '')] || null;
+      if (!matchedSku) continue;
+      const ownerUid = order.tgUserId || order.walletKey || order.walletAddress;
+      const chest = await this.chestEngine.createShopBoostChest(
+        { userId: ownerUid, walletAddress: order.walletAddress, skuId: matchedSku, orderId: order.orderId },
+        nowSec,
+      );
+      if (chest) createdOrExisting.push(chest);
+    }
+    return createdOrExisting;
+  }
+
   async backfillLegacyWalletKeys() {
     if (typeof this.repo.backfillLegacyWalletKeys === 'function') {
       return this.repo.backfillLegacyWalletKeys();

@@ -526,11 +526,12 @@ export async function assistChestById(chestId, walletAddress = null) {
   return request(ENDPOINTS.chestAssist(chestId), { method: 'POST', body: { walletAddress: walletAddress || null } });
 }
 
-/** 宝箱开箱：领取免费宝箱奖励或商城膨胀增量 A9 */
+/** 宝箱开箱：领取免费宝箱奖励或商城膨胀增量 A9（live 只读阶段统一拦截，不发写请求） */
 export async function openChestById(chestId, stateForDemo = null, walletAddress = null) {
   if (config.isDemo) {
     try { return demoOpenChest(stateForDemo, chestId); } catch (e) { throw new ApiError('DEMO_OPEN_ERR', e.message); }
   }
+  assertFundsAllowedInMode();
   if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开后开箱');
   return request(ENDPOINTS.chestOpen(chestId), { method: 'POST', body: { walletAddress: walletAddress || null } });
 }

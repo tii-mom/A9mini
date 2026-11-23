@@ -185,7 +185,7 @@ test('Live mode blocks all wallet sends and fund order requests even with connec
     `
       const { store } = await import(JS_URL + '/store.js');
       const { tonConnect } = await import(JS_URL + '/tonconnect.js');
-      const { requestPromoClaimIntent, requestPresaleIntent, activatePredictionReward } = await import(JS_URL + '/data.js');
+      const { requestPromoClaimIntent, requestPresaleIntent, activatePredictionReward, requestChestPurchaseIntent, openChestById } = await import(JS_URL + '/data.js');
 
       store.update((s) => {
         s.round.stakingEnabled = true;
@@ -212,6 +212,8 @@ test('Live mode blocks all wallet sends and fund order requests even with connec
       await tryCall('sendV15PromoFee', () => tonConnect.sendV15PromoFee({ payTo: 'EQ_PROMO', feeRequiredNano: '60000000', memo: 'claim:abc123' }));
       await tryCall('requestPromoClaimIntent', () => requestPromoClaimIntent('0:' + '11'.repeat(32)));
       await tryCall('requestPresaleIntent', () => requestPresaleIntent('0:' + '11'.repeat(32), 10));
+      await tryCall('requestChestPurchaseIntent', () => requestChestPurchaseIntent({ walletAddress: '0:' + '11'.repeat(32), skuId: 'chest_bronze', openMode: 'BOOST' }));
+      await tryCall('openChestById', () => openChestById('ch_live_test', null, '0:' + '11'.repeat(32)));
       await tryCall('activatePredictionReward', () => activatePredictionReward('123', '0:' + '11'.repeat(32)));
 
       console.log(JSON.stringify({
