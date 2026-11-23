@@ -2,8 +2,8 @@
 // Run from A9mini/v15 via ops/scripts/deploy-v15.mjs (default dry-run).
 import "@stdlib/strings"
 import "@acton/env"
+import "@stdlib/strings"
 import "@acton/testing/assert"
-import "@acton/types/transaction"
 import "@acton/types/big_array"
 import "@acton/build"
 import "@acton/emulation/network"
@@ -67,8 +67,12 @@ fun main() {
     val teamPool = reqInt("A9_TEAM_POOL_RAW") as uint128;
     val rcFunding = reqInt("A9_RC_FUNDING_RAW") as coins;
 
+    val metadataUri = reqStr("A9_METADATA_URI");
+    if (metadataUri.calculateLength() == 0) {
+        Assert.fail("A9_METADATA_URI must not be empty");
+    }
     var metadata: OnchainMetadataReply = { contentDict: [] };
-    metadata.contentDict.set("uri".sha256(), reqStr("A9_METADATA_URI").prefixWith00());
+    metadata.contentDict.set("uri".sha256(), metadataUri.prefixWith00());
     val masterInit = ContractState {
         code: masterCode,
         data: MasterStorage {
@@ -121,7 +125,7 @@ fun main() {
     };
     val controller = AutoDeployAddress { stateInit: controllerInit }.calculateAddress();
 
-    println("=== A9 v15 Deployment Plan ({}) ===", network);
+    println("=== A9 {} Deployment Plan ({}) ===", env<string>("A9_PROTOCOL_VERSION") ?? "v15", network);
     println("JettonMaster    = {}", master);
     println("RoundController = {}", controller);
     println("Deployer        = {}", deployer.address);
@@ -206,7 +210,7 @@ fun main() {
     val rcBal = net.runGetMethod<JettonWalletDataReply>(rcWallet, "get_wallet_data").jettonBalance;
     if (rcBal != rcFunding) { Assert.fail("RC funding balance mismatch"); }
 
-    println("=== A9 v15 Deployed & Verified ===");
+    println("=== A9 {} Deployed & Verified ===", env<string>("A9_PROTOCOL_VERSION") ?? "v15");
     println("A9_JETTON_MASTER_ADDRESS={}", master);
     println("A9_ROUND_CONTROLLER_ADDRESS={}", controller);
     println("RC_JETTON_WALLET={}", rcWallet);

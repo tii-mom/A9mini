@@ -16,6 +16,7 @@ import {
 } from './growth-engine.mjs';
 import { PresaleEngine, PresaleError, RESERVING_STATUSES } from './presale-hotwallet.mjs';
 import { addressKey, addressAliases } from './ton-address.mjs';
+import { randomHex } from './auth.mjs';
 
 // ---------------------------------------------------------------------------
 // 1. D1SocialStore (referrals, warmup_registrations, team_groups, team_members)
@@ -335,9 +336,12 @@ export class D1SocialStore {
   }
 
   async getTeamByWallet(walletAddress) {
+    const aliases = addressAliases(walletAddress);
+    if (!aliases.length) return null;
+    const ph = aliases.map(() => '?').join(', ');
     const mem = await this.db
-      .prepare('SELECT team_id FROM team_members WHERE wallet_address = ?')
-      .bind(walletAddress)
+      .prepare(`SELECT team_id FROM team_members WHERE wallet_address IN (${ph}) LIMIT 1`)
+      .bind(...aliases)
       .first();
     if (!mem) return null;
     const t = await this.db.prepare('SELECT * FROM team_groups WHERE team_id = ?').bind(mem.team_id).first();
@@ -597,42 +601,150 @@ export class D1PredictionEngine {
     };
   }
 
-  async activateToPromo(userId, walletAddress, promoEngine, { qualified = false, nowMs = Date.now() } = {}) {
+  async _getActivationById(activationId) {
+    if (!activationId) return null;
+    const row = await this.db
+      .prepare('SELECT * FROM prediction_activations WHERE activation_id = ? LIMIT 1')
+      .bind(String(activationId))
+      .first();
+    if (!row) return null;
+    return {
+      activationId: String(row.activation_id),
+      userId: String(row.user_id),
+      walletKey: String(row.wallet_key),
+      walletAddress: String(row.wallet_address),
+      activatedRaw: String(row.amount_raw),
+      createdAt: Number(row.created_at),
+    };
+  }
+
+  async _findPromoBalanceRow(walletAddress) {
+    const key = addressKey(walletAddress);
+    const row = await this.db
+      .prepare('SELECT wallet_address, claimable_raw, total_claimed_raw FROM promo_balances WHERE wallet_address = ?')
+      .bind(key)
+      .first();
+    if (row) return row;
+    const aliases = addressAliases(walletAddress).filter((a) => a !== key);
+    if (!aliases.length) return null;
+    const ph = aliases.map(() => '?').join(', ');
+    return this.db
+      .prepare(`SELECT wallet_address, claimable_raw, total_claimed_raw FROM promo_balances WHERE wallet_address IN (${ph}) LIMIT 1`)
+      .bind(...aliases)
+      .first();
+  }
+
+  /**
+   * Atomically deduct prediction_rewards.pending_activation_raw, credit promo_balances.claimable_raw,
+   * and record a unique prediction_activations ledger row in a SINGLE D1 batch transaction.
+   * - Requires promoEngine bound to the SAME D1 database; fails closed BEFORE any write if missing
+   *   or pointing to a different ledger so pending_activation_raw can NEVER be deducted without credit.
+   * - If either snapshot is stale (0-row conditional match) or any statement fails mid-batch, the
+   *   entire D1 batch rolls back so pending_activation_raw is NEVER lost.
+   * - Retrying with the same activationId after a lost response returns the original ledger record.
+   */
+  async activateToPromo(userId, walletAddress, promoEngine, { qualified = false, nowMs = Date.now(), activationId = null } = {}) {
     const uid = String(userId || '').trim();
+    const wallet = String(walletAddress || '').trim();
+    if (!uid || !wallet) throw new GrowthError('BAD_REQUEST', 'userId and walletAddress required');
     if (qualified !== true) {
       throw new GrowthError(
         'ACTIVATION_REQUIREMENT_UNMET',
         '请先完成至少 1 笔 A9 兑换屋兑换或链上质押后再激活',
       );
     }
-
-    const st = await this._getUserStatsRow(uid);
-    if (st.pendingActivationRaw <= 0n) {
-      return { userId: uid, walletAddress, activatedRaw: '0' };
+    if (!promoEngine || promoEngine.db !== this.db) {
+      throw new GrowthError(
+        'PROMO_LEDGER_UNAVAILABLE',
+        '推广账本未绑定到同一数据库，拒绝扣减待激活奖励',
+      );
     }
 
+    const actId = activationId ? String(activationId).trim().slice(0, 80) : `act:${uid}:${randomHex(8)}`;
     const nowSec = Math.floor(nowMs / 1000);
-    if (st.pendingExpiresAt !== null && nowMs > st.pendingExpiresAt) {
-      await this._upsertUserStats(uid, { ...st, pendingActivationRaw: 0n, pendingExpiresAt: null }, nowSec);
-      throw new GrowthError('VOUCHER_EXPIRED', '待激活预言奖励已过期');
-    }
+    const walletKey = addressKey(wallet);
 
-    const amt = st.pendingActivationRaw;
-    await this._upsertUserStats(
-      uid,
-      {
-        ...st,
-        pendingActivationRaw: 0n,
-        activatedRaw: st.activatedRaw + amt,
-        pendingExpiresAt: null,
-      },
-      nowSec,
-    );
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      // 1) Idempotent retry check: if this activationId already committed, return the original ledger row.
+      const existing = await this._getActivationById(actId);
+      if (existing) {
+        if (existing.userId !== uid) {
+          throw new GrowthError('ACTIVATION_ID_CONFLICT', 'activationId belongs to another user');
+        }
+        return { ...existing, idempotent: true };
+      }
 
-    if (promoEngine && typeof promoEngine.creditReward === 'function') {
-      await promoEngine.creditReward(walletAddress, amt, nowSec);
+      const st = await this._getUserStatsRow(uid);
+      if (st.pendingActivationRaw <= 0n) {
+        return { userId: uid, walletAddress: wallet, activatedRaw: '0', activationId: null, idempotent: false };
+      }
+
+      if (st.pendingExpiresAt !== null && nowMs > st.pendingExpiresAt) {
+        await this._upsertUserStats(uid, { ...st, pendingActivationRaw: 0n, pendingExpiresAt: null }, nowSec);
+        throw new GrowthError('VOUCHER_EXPIRED', '待激活预言奖励已过期');
+      }
+
+      const amt = st.pendingActivationRaw;
+      const nextActivated = st.activatedRaw + amt;
+
+      let balRow = await this._findPromoBalanceRow(wallet);
+      if (!balRow) {
+        await this.db
+          .prepare(
+            `INSERT OR IGNORE INTO promo_balances (wallet_address, claimable_raw, total_claimed_raw, updated_at)
+             VALUES (?, '0', '0', ?)`,
+          )
+          .bind(walletKey, nowSec)
+          .run();
+        balRow = await this._findPromoBalanceRow(wallet);
+      }
+      if (!balRow) continue;
+      const targetBalKey = String(balRow.wallet_address);
+      const curClaimable = String(balRow.claimable_raw || '0');
+      const nextClaimable = (BigInt(curClaimable) + amt).toString();
+
+      const stmts = [
+        this.db
+          .prepare(
+            `INSERT INTO prediction_activations (activation_id, user_id, wallet_key, wallet_address, amount_raw, created_at)
+             VALUES (
+               ?, ?, ?, ?,
+               (SELECT pending_activation_raw FROM prediction_rewards
+                 WHERE user_id = ? AND pending_activation_raw = ?
+                   AND EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ? AND claimable_raw = ?)),
+               ?
+             )`,
+          )
+          .bind(actId, uid, walletKey, wallet, uid, amt.toString(), targetBalKey, curClaimable, nowSec),
+        this.db
+          .prepare(
+            `UPDATE prediction_rewards
+             SET pending_activation_raw = '0', activated_raw = ?, pending_expires_at = NULL, updated_at = ?
+             WHERE user_id = ? AND pending_activation_raw = ?`,
+          )
+          .bind(nextActivated.toString(), nowSec, uid, amt.toString()),
+        this.db
+          .prepare(
+            `UPDATE promo_balances
+             SET claimable_raw = ?, updated_at = ?
+             WHERE wallet_address = ? AND claimable_raw = ?`,
+          )
+          .bind(nextClaimable, nowSec, targetBalKey, curClaimable),
+      ];
+
+      try {
+        await this.db.batch(stmts);
+        return { userId: uid, walletAddress: wallet, activatedRaw: amt.toString(), activationId: actId, idempotent: false };
+      } catch (e) {
+        const msg = String(e?.message || e);
+        if (/NOT NULL|UNIQUE|constraint/i.test(msg)) {
+          // Snapshot conflict or duplicate activationId: loop will return existing ledger or re-read fresh balance.
+          continue;
+        }
+        throw e;
+      }
     }
-    return { userId: uid, walletAddress, activatedRaw: amt.toString() };
+    throw new GrowthError('ACTIVATION_CONFLICT', 'concurrent activation conflict, please retry');
   }
 
   async getUserSummary(userId, roundId = null) {
@@ -1499,4 +1611,156 @@ export class D1PresaleStore extends PresaleEngine {
   constructor({ db, ...opts }) {
     super({ ...opts, repo: new D1PresaleRepo({ db }) });
   }
+}
+
+async function queryAllRows(db, sql) {
+  const res = await db.prepare(sql).all();
+  return Array.isArray(res) ? res : (res?.results || []);
+}
+
+/**
+ * Read-only BigInt historical ledger reconciliation for prediction activations -> promo_balances.
+ * - Accepts either a Cloudflare D1 binding (`createSqliteD1` / Miniflare) or a read-only `node:sqlite` DatabaseSync.
+ * - For ledger-backed activations (`prediction_activations`), verifies credit against the ORIGINAL `wallet_key`
+ *   recorded on each activation row so subsequent wallet rebinding NEVER triggers a false positive.
+ * - For legacy pre-0008 activations lacking `prediction_activations` rows, marks records as
+ *   `MANUAL_REVIEW_INSUFFICIENT_EVIDENCE` (distinguishing missing bindings, rebound/shortfall, and mixed promo balances).
+ * - Uses pure `BigInt` decimal strings throughout (safe well beyond 64-bit SQLite INTEGER limits).
+ */
+export async function reconcilePredictionLedger(db) {
+  const rewards = await queryAllRows(
+    db,
+    'SELECT user_id, pending_activation_raw, activated_raw, updated_at FROM prediction_rewards',
+  );
+  const bindings = new Map(
+    (await queryAllRows(db, 'SELECT tg_user_id, wallet_address, wallet_key FROM wallet_bindings')).map((r) => [
+      String(r.tg_user_id),
+      r,
+    ]),
+  );
+
+  let activationRows = [];
+  try {
+    activationRows = await queryAllRows(
+      db,
+      'SELECT activation_id, user_id, wallet_key, wallet_address, amount_raw, created_at FROM prediction_activations',
+    );
+  } catch {
+    activationRows = [];
+  }
+
+  const promoTotalByWallet = new Map();
+  for (const r of await queryAllRows(db, 'SELECT wallet_address, claimable_raw, total_claimed_raw FROM promo_balances')) {
+    const key = addressKey(r.wallet_address);
+    const total = BigInt(r.claimable_raw || '0') + BigInt(r.total_claimed_raw || '0');
+    promoTotalByWallet.set(key, (promoTotalByWallet.get(key) || 0n) + total);
+  }
+
+  const ledgerByUserWallet = new Map();
+  const globalLedgerByWallet = new Map();
+  for (const r of activationRows) {
+    const uid = String(r.user_id);
+    const origKey = addressKey(r.wallet_key || r.wallet_address);
+    const amt = BigInt(r.amount_raw || '0');
+    if (!ledgerByUserWallet.has(uid)) ledgerByUserWallet.set(uid, new Map());
+    const uMap = ledgerByUserWallet.get(uid);
+    uMap.set(origKey, (uMap.get(origKey) || 0n) + amt);
+    globalLedgerByWallet.set(origKey, (globalLedgerByWallet.get(origKey) || 0n) + amt);
+  }
+
+  const rewardsByUser = new Map(rewards.map((r) => [String(r.user_id), r]));
+  const allUserIds = new Set([...rewardsByUser.keys(), ...ledgerByUserWallet.keys()]);
+
+  const findings = [];
+  let okUsers = 0;
+
+  for (const uid of allUserIds) {
+    const pr = rewardsByUser.get(uid) || null;
+    const activated = BigInt(pr?.activated_raw || '0');
+    const uWallets = ledgerByUserWallet.get(uid) || new Map();
+
+    let ledgerSum = 0n;
+    const missingOriginalWallets = [];
+    for (const [origKey, wAmt] of uWallets.entries()) {
+      ledgerSum += wAmt;
+      const promoTotal = promoTotalByWallet.get(origKey) || 0n;
+      const globalExpected = globalLedgerByWallet.get(origKey) || wAmt;
+      if (promoTotal < wAmt || promoTotal < globalExpected) {
+        missingOriginalWallets.push({
+          walletKeyTail: origKey.slice(-6),
+          ledgerExpectedRaw: wAmt.toString(),
+          globalWalletLedgerRaw: globalExpected.toString(),
+          promoTotalRaw: promoTotal.toString(),
+        });
+      }
+    }
+
+    if (activated === 0n && ledgerSum === 0n) continue;
+
+    if (ledgerSum > activated) {
+      findings.push({
+        userIdTail: uid.slice(-4),
+        status: 'DISCREPANCY_LEDGER_EXCEEDS_ACTIVATED',
+        reason: activated === 0n ? 'ledger_exists_with_zero_activated' : 'ledger_sum_exceeds_activated_raw',
+        activatedRaw: activated.toString(),
+        ledgerSumRaw: ledgerSum.toString(),
+        excessRaw: (ledgerSum - activated).toString(),
+        ...(missingOriginalWallets.length > 0 ? { shortfalls: missingOriginalWallets } : {}),
+      });
+      continue;
+    }
+
+    if (missingOriginalWallets.length > 0) {
+      findings.push({
+        userIdTail: uid.slice(-4),
+        status: 'DISCREPANCY_MISSING_PROMO_CREDIT',
+        reason: 'original_wallet_promo_shortfall',
+        activatedRaw: activated.toString(),
+        ledgerSumRaw: ledgerSum.toString(),
+        shortfalls: missingOriginalWallets,
+      });
+      continue;
+    }
+
+    const legacyRemainder = activated - ledgerSum;
+    if (legacyRemainder > 0n) {
+      const bind = bindings.get(uid);
+      if (!bind) {
+        findings.push({
+          userIdTail: uid.slice(-4),
+          status: 'MANUAL_REVIEW_INSUFFICIENT_EVIDENCE',
+          reason: 'legacy_pre_0008_missing_wallet_binding',
+          activatedRaw: activated.toString(),
+          ledgerSumRaw: ledgerSum.toString(),
+          legacyUnbackedRaw: legacyRemainder.toString(),
+          promoTotalCurrentWalletRaw: null,
+        });
+        continue;
+      }
+      const curKey = addressKey(bind.wallet_key || bind.wallet_address);
+      const curPromoTotal = promoTotalByWallet.get(curKey) || 0n;
+      const curLedgerOnSameWallet = uWallets.get(curKey) || 0n;
+      const remainingPromoOnCur = curPromoTotal > curLedgerOnSameWallet ? curPromoTotal - curLedgerOnSameWallet : 0n;
+      findings.push({
+        userIdTail: uid.slice(-4),
+        status: 'MANUAL_REVIEW_INSUFFICIENT_EVIDENCE',
+        reason: remainingPromoOnCur < legacyRemainder
+          ? 'legacy_pre_0008_shortfall_or_wallet_rebound'
+          : 'legacy_pre_0008_unbacked_or_mixed_promo',
+        activatedRaw: activated.toString(),
+        ledgerSumRaw: ledgerSum.toString(),
+        legacyUnbackedRaw: legacyRemainder.toString(),
+        promoTotalCurrentWalletRaw: curPromoTotal.toString(),
+      });
+      continue;
+    }
+
+    okUsers += 1;
+  }
+
+  return {
+    checkedUsers: allUserIds.size,
+    okUsers,
+    findings,
+  };
 }

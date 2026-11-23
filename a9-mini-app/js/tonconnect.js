@@ -297,7 +297,10 @@ class A9TonConnect {
       err.code = 'STAKE_PARAMS_MISSING';
       throw err;
     }
-    return await this._dispatch(buildV15StakeTx({ userJettonWallet, roundController, userAddress, amountA9Raw, roundId, queryId }), 'demo_v15_stake');
+    return await this._dispatch(buildV15StakeTx({
+      userJettonWallet, roundController, userAddress, amountA9Raw, roundId, queryId,
+      protocolVersion: config.stakeProtocolVersion,
+    }), 'demo_v15_stake');
   }
 
   /** v15 领取本金 + 已解锁奖励（live 模式强制禁用；demo 模式仅返回模拟回执）。 */

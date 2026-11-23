@@ -119,8 +119,9 @@ export const config = Object.freeze({
   apiOverrideError: resolvedApi.apiOverrideError,
   isDemo: resolvedMode === 'demo',
   liveFundsEnabled: false,
+  stakeProtocolVersion: injected.stakeProtocolVersion === 'v16' ? 'v16' : 'v15',
   timeoutMs: Number(params.get('timeout')) > 0 ? Number(params.get('timeout')) : 15000,
-  pollMs: Number(params.get('poll')) > 0 ? Number(params.get('poll')) : 5000
+  pollMs: Number(params.get('poll')) > 0 ? Number(params.get('poll')) : 15000
 });
 
 export function apiUrl(path) {

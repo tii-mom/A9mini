@@ -38,6 +38,8 @@ export class PredictionEngine {
     this.userStats = new Map();
     // roundId -> 'PASS' | 'BURN'
     this.settledRounds = new Map();
+    // activationId -> { activationId, userId, walletAddress, activatedRaw }
+    this.activations = new Map();
   }
 
   _getOrCreateStats(uid) {
@@ -205,7 +207,7 @@ export class PredictionEngine {
    * Anti-sybil activation: requires qualified === true (at least 1 PAID_A9 presale order OR
    * 1 real on-chain StakeTicket) and non-expired voucher. Moves pending rewards into promoEngine.
    */
-  activateToPromo(userId, walletAddress, promoEngine, { qualified = false, nowMs = Date.now() } = {}) {
+  activateToPromo(userId, walletAddress, promoEngine, { qualified = false, nowMs = Date.now(), activationId = null } = {}) {
     const uid = String(userId || '').trim();
     if (qualified !== true) {
       throw new GrowthError(
@@ -214,9 +216,15 @@ export class PredictionEngine {
       );
     }
 
+    if (activationId && this.activations.has(String(activationId))) {
+      const prev = this.activations.get(String(activationId));
+      if (prev.userId !== uid) throw new GrowthError('ACTIVATION_ID_CONFLICT', 'activationId belongs to another user');
+      return { ...prev, idempotent: true };
+    }
+
     const st = this.userStats.get(uid);
     if (!st || st.pendingActivationRaw <= 0n) {
-      return { userId: uid, walletAddress, activatedRaw: '0' };
+      return { userId: uid, walletAddress, activatedRaw: '0', activationId: null, idempotent: false };
     }
 
     if (st.pendingExpiresAt !== null && nowMs > st.pendingExpiresAt) {
@@ -229,7 +237,9 @@ export class PredictionEngine {
     st.pendingActivationRaw = 0n;
     st.pendingExpiresAt = null;
     st.activatedRaw += amt;
-    const result = { userId: uid, walletAddress, activatedRaw: amt.toString() };
+    const actId = activationId ? String(activationId) : `act:${uid}:${nowMs}`;
+    const result = { userId: uid, walletAddress, activatedRaw: amt.toString(), activationId: actId, idempotent: false };
+    this.activations.set(actId, result);
     if (promoEngine && typeof promoEngine.creditReward === 'function') {
       const maybePromise = promoEngine.creditReward(walletAddress, amt);
       if (maybePromise && typeof maybePromise.then === 'function') {

@@ -23,8 +23,8 @@ function publicBinding(b) {
 }
 
 /**
- * 商会视图权限裁剪（P0-H）：
- * 仅对商会会长本人返回内部 tgChatId；普通成员仅可见商会公开/成员信息，绝不泄露内部群 ID。
+ * 战队视图权限裁剪（P0-H）：
+ * 仅对战队队长本人返回内部 tgChatId；普通成员仅可见战队公开/成员信息，绝不泄露内部群 ID。
  */
 function sanitizeTeamView(team, viewerWalletKey) {
   if (!team) return null;
@@ -68,6 +68,15 @@ function extractAdminToken(headers = {}) {
     }
   }
   return '';
+}
+
+function timingSafeEqualStr(a, b) {
+  const x = String(a || '');
+  const y = String(b || '');
+  if (!x || !y || x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i += 1) diff |= x.charCodeAt(i) ^ y.charCodeAt(i);
+  return diff === 0;
 }
 
 export function createApiRouter({
@@ -339,7 +348,7 @@ export function createApiRouter({
         return ok(sanitizeTeamView(team, binding.walletKey));
       }
 
-      // 商会查询访问边界（P0-H）：必须为已验签且绑定该钱包的本人，严禁向匿名或跨用户泄露内部 tgChatId、私人关联与后台绑定状态。
+      // 战队查询访问边界（P0-H）：必须为已验签且绑定该钱包的本人，严禁向匿名或跨用户泄露内部 tgChatId、私人关联与后台绑定状态。
       const teamMatch = method === 'GET' && pathname.match(/^\/api\/team\/(.+)$/);
       if (teamMatch) {
         if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
@@ -390,10 +399,12 @@ export function createApiRouter({
           const portfolio = await userReader(walletAddress);
           hasStakeTicket = Array.isArray(portfolio?.tickets) && portfolio.tickets.length > 0;
         }
+        const idemKey = String(body?.activationId || headers['x-idempotency-key'] || headers['X-Idempotency-Key'] || '').trim() || null;
         return ok(
           await predictionEngine.activateToPromo(identity.telegramUserId, walletAddress, promoEngine, {
             qualified: hasCompletedPresale || hasStakeTicket,
             nowMs: nowSec * 1000,
+            activationId: idemKey,
           }),
         );
       }
@@ -444,7 +455,7 @@ export function createApiRouter({
       if (pathname === '/api/admin/presale/anomalies' || pathname.startsWith('/api/admin/presale/anomalies/')) {
         const expectedToken = String(env.A9_ADMIN_TOKEN || '').trim();
         const providedToken = extractAdminToken(headers);
-        if (!expectedToken || !providedToken || providedToken !== expectedToken) {
+        if (!timingSafeEqualStr(providedToken, expectedToken)) {
           return err('UNAUTHORIZED', 'invalid or missing admin token', 401);
         }
         if (!presaleEngine) return err('PRESALE_DISABLED', 'presale hot wallet not configured', 503);
@@ -465,7 +476,7 @@ export function createApiRouter({
       if (method === 'POST' && pathname === '/api/admin/prediction/settle') {
         const expectedToken = String(env.A9_ADMIN_TOKEN || '').trim();
         const providedToken = extractAdminToken(headers);
-        if (!expectedToken || !providedToken || providedToken !== expectedToken) {
+        if (!timingSafeEqualStr(providedToken, expectedToken)) {
           return err('UNAUTHORIZED', 'invalid or missing admin token', 401);
         }
         if (!predictionEngine) return err('PREDICTION_DISABLED', 'prediction engine not configured', 503);

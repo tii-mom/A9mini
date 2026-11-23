@@ -11,14 +11,162 @@ import { D1SocialStore, D1PredictionEngine, D1ProgressionEngine, D1PresaleStore 
 import { D1IdentityStore, MemoryIdentityStore } from './auth.mjs';
 import { TelegramBroadcaster, D1BroadcastLog, MemoryBroadcastLog } from './tg-broadcaster.mjs';
 
-function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}) {
+function resolveCorsOrigin(request, env = {}) {
+  const rawList = [
+    env.A9_PUBLIC_ORIGIN || '',
+    ...String(env.A9_ALLOWED_ORIGINS || '').split(','),
+  ]
+    .map((s) => s.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+  if (!rawList.length) return '*';
+  const reqOrigin = String(request?.headers?.get?.('origin') || '').trim().replace(/\/+$/, '');
+  if (reqOrigin && rawList.includes(reqOrigin)) return reqOrigin;
+  return rawList[0];
+}
+
+function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}, origin = '*') {
   return {
     'content-type': contentType,
-    'access-control-allow-origin': '*',
+    'access-control-allow-origin': origin,
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     'access-control-allow-headers': 'content-type, authorization, x-a9-admin-token, x-telegram-init-data',
+    ...(origin !== '*' ? { vary: 'Origin' } : {}),
     ...extra,
   };
+}
+
+const CHAIN_CACHE_TTL_SEC = 15;
+
+function routeNeedsChainState(pathname) {
+  return (
+    pathname === '/api/config' ||
+    pathname === '/api/rounds' ||
+    pathname.startsWith('/api/rounds/') ||
+    pathname.startsWith('/api/user/') ||
+    pathname.startsWith('/api/prediction/user/') ||
+    pathname.startsWith('/api/prediction/activate') ||
+    pathname.startsWith('/api/progression/') ||
+    pathname === '/api/warmup/leaderboard' ||
+    pathname.startsWith('/c/')
+  );
+}
+
+const STATUS_NAME_TO_CODE = { UNOPENED: 0, ACTIVE: 1, SUCCEEDED: 2, FAILED: 3, ABORTED: 4 };
+const STATUS_CODE_TO_NAME = ['UNOPENED', 'ACTIVE', 'SUCCEEDED', 'FAILED', 'ABORTED'];
+
+async function readCachedRoundsFromD1(db, nowSec) {
+  try {
+    const rRes = await db
+      .prepare('SELECT * FROM rounds_cache ORDER BY round_id ASC')
+      .all();
+    const rows = rRes?.results || [];
+    if (!rows.length) return null;
+    const latestUpdated = Math.max(...rows.map((r) => Number(r.updated_at || 0)));
+    if (nowSec - latestUpdated > CHAIN_CACHE_TTL_SEC) return null;
+
+    const cRes = await db
+      .prepare('SELECT * FROM round_candles ORDER BY round_id ASC, candle_index ASC')
+      .all();
+    const candlesByRound = new Map();
+    for (const c of cRes?.results || []) {
+      const rId = Number(c.round_id);
+      if (!candlesByRound.has(rId)) candlesByRound.set(rId, []);
+      candlesByRound.get(rId).push({
+        candleIndex: Number(c.candle_index),
+        periodStart: Number(c.period_start),
+        periodEnd: Number(c.period_end),
+        twapPriceUsdE8: String(c.twap_price_usd_e8),
+        qualified: Number(c.qualified) === 1,
+      });
+    }
+
+    const rounds = rows.map((r) => ({
+      roundId: Number(r.round_id),
+      round: {
+        status: STATUS_NAME_TO_CODE[String(r.status)] ?? Number(r.status || 0),
+        targetPriceUsdE8: String(r.target_price_usd_e8 || '0'),
+        twap24hUsdE8: String(r.twap_24h_usd_e8 || '0'),
+        stakeOpenAt: Number(r.stake_open_at || 0),
+        stakeCloseAt: Number(r.stake_close_at || 0),
+        settledAt: Number(r.settled_at || 0),
+        totalStakeRaw: String(r.total_stake_raw || '0'),
+        totalWeightRaw: String(r.total_weight_raw || '0'),
+        rewardBudgetRaw: String(r.reward_budget_raw || '0'),
+        qualifiedCandles: Number(r.qualified_candles || 0),
+        candleHash: String(r.candle_hash || '0x0'),
+        immediateBps: Number(r.immediate_bps || 0),
+        lockedSlices: Number(r.locked_slices || 0),
+        unlockedSlices: Number(r.unlocked_slices || 0),
+        burnedSlices: Number(r.burned_slices || 0),
+        lockedTotalRaw: String(r.locked_total_raw || '0'),
+        stakeCount: Number(r.stake_count || 0),
+      },
+      candles: candlesByRound.get(Number(r.round_id)) || [],
+    }));
+    return rounds;
+  } catch {
+    return null;
+  }
+}
+
+async function writeRoundsCacheToD1(db, rounds, nowSec) {
+  if (!db || !rounds.length) return;
+  try {
+    const stmts = rounds.map(({ roundId, round }) =>
+      db
+        .prepare(
+          `INSERT INTO rounds_cache (
+             round_id, status, target_price_usd_e8, twap_24h_usd_e8, stake_open_at, stake_close_at,
+             settled_at, total_stake_raw, total_weight_raw, reward_budget_raw, qualified_candles,
+             candle_hash, immediate_bps, locked_slices, unlocked_slices, burned_slices, locked_total_raw,
+             stake_count, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(round_id) DO UPDATE SET
+             status = excluded.status,
+             target_price_usd_e8 = excluded.target_price_usd_e8,
+             twap_24h_usd_e8 = excluded.twap_24h_usd_e8,
+             stake_open_at = excluded.stake_open_at,
+             stake_close_at = excluded.stake_close_at,
+             settled_at = excluded.settled_at,
+             total_stake_raw = excluded.total_stake_raw,
+             total_weight_raw = excluded.total_weight_raw,
+             reward_budget_raw = excluded.reward_budget_raw,
+             qualified_candles = excluded.qualified_candles,
+             candle_hash = excluded.candle_hash,
+             immediate_bps = excluded.immediate_bps,
+             locked_slices = excluded.locked_slices,
+             unlocked_slices = excluded.unlocked_slices,
+             burned_slices = excluded.burned_slices,
+             locked_total_raw = excluded.locked_total_raw,
+             stake_count = excluded.stake_count,
+             updated_at = excluded.updated_at`,
+        )
+        .bind(
+          Number(roundId),
+          STATUS_CODE_TO_NAME[Number(round.status)] || String(round.status),
+          String(round.targetPriceUsdE8 || '0'),
+          String(round.twap24hUsdE8 || '0'),
+          Number(round.stakeOpenAt || 0),
+          Number(round.stakeCloseAt || 0),
+          Number(round.settledAt || 0),
+          String(round.totalStakeRaw || '0'),
+          String(round.totalWeightRaw || '0'),
+          String(round.rewardBudgetRaw || '0'),
+          Number(round.qualifiedCandles || 0),
+          String(round.candleHash || '0x0'),
+          Number(round.immediateBps || 0),
+          Number(round.lockedSlices || 0),
+          Number(round.unlockedSlices || 0),
+          Number(round.burnedSlices || 0),
+          String(round.lockedTotalRaw || '0'),
+          Number(round.stakeCount || 0),
+          nowSec,
+        ),
+    );
+    await db.batch(stmts);
+  } catch (e) {
+    console.error('[a9mini-v15-worker] writeRoundsCacheToD1 error:', e?.message || e);
+  }
 }
 
 // Module-scoped fallbacks for ephemeral preview/dev environments without D1 bindings
@@ -27,6 +175,7 @@ const memPredictionEngine = new PredictionEngine();
 const memProgressionEngine = new ProgressionEngine();
 const memIdentityStore = new MemoryIdentityStore();
 const memBroadcastLog = new MemoryBroadcastLog();
+let memChainCache = { fetchedAt: 0, ps: null, rounds: [] };
 
 function buildBroadcaster(env, { socialStore, identityStore, hasD1 }) {
   return new TelegramBroadcaster({
@@ -42,10 +191,47 @@ function buildBroadcaster(env, { socialStore, identityStore, hasD1 }) {
   });
 }
 
+const CANDIDATE_REQUIRED_VARS = [
+  'A9_JETTON_MASTER_ADDRESS',
+  'A9_ROUND_CONTROLLER_ADDRESS',
+  'A9_PROMO_HOT_WALLET_ADDRESS',
+  'A9_PRESALE_HOT_WALLET_ADDRESS',
+  'A9_PUBLIC_ORIGIN',
+  'A9_TON_PROOF_DOMAINS',
+  'A9_ALLOWED_ORIGINS',
+];
+
+export function validateCandidateEnv(env = {}) {
+  const isCandidate = String(env.A9_ENVIRONMENT || '').trim().toLowerCase() === 'candidate'
+    || String(env.A9_PROTOCOL_VERSION || '').trim().toLowerCase() === 'v16';
+  if (!isCandidate) return { ok: true, missing: [] };
+  const missing = [];
+  if (!env.DB) missing.push('DB');
+  for (const key of CANDIDATE_REQUIRED_VARS) {
+    if (!String(env[key] || '').trim()) missing.push(key);
+  }
+  return { ok: missing.length === 0, missing };
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env = {}) {
+    const corsOrigin = resolveCorsOrigin(request, env);
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders() });
+      return new Response(null, { status: 204, headers: corsHeaders('application/json; charset=utf-8', {}, corsOrigin) });
+    }
+    const candCheck = validateCandidateEnv(env);
+    if (!candCheck.ok) {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: {
+            code: 'CANDIDATE_CONFIG_INCOMPLETE',
+            message: `Candidate environment missing required bindings/config: ${candCheck.missing.join(', ')}`,
+            missing: candCheck.missing,
+          },
+        }),
+        { status: 503, headers: corsHeaders('application/json; charset=utf-8', {}, corsOrigin) },
+      );
     }
     const url = new URL(request.url);
     const query = Object.fromEntries(url.searchParams.entries());
@@ -61,22 +247,44 @@ export default {
 
     const rcAddr = env.A9_ROUND_CONTROLLER_ADDRESS || null;
     const jmAddr = env.A9_JETTON_MASTER_ADDRESS || null;
+    const hasD1 = Boolean(env.DB);
+    const nowSec = Math.floor(Date.now() / 1000);
+
     // 无链上数据源时不伪造剩余奖池或轮次（P0-G）。
     let ps = { dataAvailable: false, currentRoundId: null, successCount: null, poolRemainingRaw: null, carryRaw: null, teamPoolRemainingRaw: null, teamCarryRaw: null };
-    const rounds = [];
+    let rounds = [];
 
-    if (tc && rcAddr) {
-      try {
-        ps = { dataAvailable: true, ...(await tc.fetchProtocolState(rcAddr)) };
-        if (ps.currentRoundId > 0) {
-          const startId = Math.max(1, ps.currentRoundId - 5);
-          for (let rId = startId; rId <= ps.currentRoundId; rId += 1) {
-            const rd = await tc.fetchRound(rcAddr, rId);
-            rounds.push({ roundId: rId, round: rd, candles: [] });
+    if (tc && rcAddr && routeNeedsChainState(url.pathname)) {
+      const memFresh = memChainCache.ps && (nowSec - memChainCache.fetchedAt) <= CHAIN_CACHE_TTL_SEC;
+      if (memFresh) {
+        ps = memChainCache.ps;
+        rounds = memChainCache.rounds;
+      } else {
+        const d1Rounds = hasD1 ? await readCachedRoundsFromD1(env.DB, nowSec) : null;
+        try {
+          ps = { dataAvailable: true, ...(await tc.fetchProtocolState(rcAddr)) };
+          if (d1Rounds && d1Rounds.length && d1Rounds[d1Rounds.length - 1].roundId === ps.currentRoundId) {
+            rounds = d1Rounds;
+          } else if (ps.currentRoundId > 0) {
+            const startId = Math.max(1, ps.currentRoundId - 5);
+            const fetched = [];
+            for (let rId = startId; rId <= ps.currentRoundId; rId += 1) {
+              const rd = await tc.fetchRound(rcAddr, rId);
+              const existingCandles = d1Rounds?.find((x) => x.roundId === rId)?.candles || [];
+              fetched.push({ roundId: rId, round: rd, candles: existingCandles });
+            }
+            rounds = fetched;
+            if (hasD1) await writeRoundsCacheToD1(env.DB, rounds, nowSec);
+          }
+          memChainCache = { fetchedAt: nowSec, ps, rounds };
+        } catch {
+          if (memChainCache.ps) {
+            ps = memChainCache.ps;
+            rounds = memChainCache.rounds;
+          } else {
+            ps = { dataAvailable: false, currentRoundId: null, successCount: null, poolRemainingRaw: null, carryRaw: null, teamPoolRemainingRaw: null, teamCarryRaw: null };
           }
         }
-      } catch {
-        ps = { dataAvailable: false, currentRoundId: null, successCount: null, poolRemainingRaw: null, carryRaw: null, teamPoolRemainingRaw: null, teamCarryRaw: null };
       }
     }
 
@@ -87,7 +295,6 @@ export default {
       getRound: (id) => rounds.find((r) => r.roundId === Number(id)) || null,
     };
 
-    const hasD1 = Boolean(env.DB);
     const identityStore = hasD1 ? new D1IdentityStore({ db: env.DB }) : memIdentityStore;
     const socialStore = hasD1 ? new D1SocialStore({ db: env.DB }) : memSocialStore;
     const predOpts = {
@@ -104,6 +311,7 @@ export default {
               db: env.DB,
               hotWalletAddress: env.A9_PROMO_HOT_WALLET_ADDRESS,
               userFeeNano: env.A9_PROMO_USER_FEE_NANO || '60000000',
+              transferGasNano: env.A9_PROMO_TRANSFER_GAS_NANO || '50000000',
             })
           : new PromoHotWalletEngine({
               hotWalletAddress: env.A9_PROMO_HOT_WALLET_ADDRESS,
@@ -124,6 +332,7 @@ export default {
       userFaultFeeNano: env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
       promoEngine,
       socialStore,
+      identityStore,
       broadcaster,
     };
     const presaleEngine = presaleHotAddr
@@ -157,14 +366,18 @@ export default {
       const extra = out.contentType?.startsWith('image/') ? { 'cache-control': 'public, max-age=60' } : {};
       return new Response(out.rawBody, {
         status: out.status,
-        headers: corsHeaders(out.contentType || 'text/plain; charset=utf-8', extra),
+        headers: corsHeaders(out.contentType || 'text/plain; charset=utf-8', extra, corsOrigin),
       });
     }
-    return new Response(JSON.stringify(out.body), { status: out.status, headers: corsHeaders() });
+    return new Response(JSON.stringify(out.body), { status: out.status, headers: corsHeaders('application/json; charset=utf-8', {}, corsOrigin) });
   },
 
-  /** Cloudflare Cron 定时巡检：同步链上最新轮次、自动结算预言池并幂等推送战队 TG 群战报。 */
-  async scheduled(_controller, env) {
+  /** Cloudflare Cron 定时巡检：同步链上最新轮次写入 D1 缓存、自动结算预言池并幂等推送战队 TG 群战报。 */
+  async scheduled(_controller, env = {}) {
+    const candCheck = validateCandidateEnv(env);
+    if (!candCheck.ok) {
+      throw new Error(`Candidate scheduled job aborted: missing ${candCheck.missing.join(', ')}`);
+    }
     if (!env.TONCENTER_API_BASE || !env.A9_ROUND_CONTROLLER_ADDRESS) return;
     const tc = new TonCenterClient({ apiBase: env.TONCENTER_API_BASE, apiKey: env.TONCENTER_API_KEY || '' });
     const hasD1 = Boolean(env.DB);
@@ -184,17 +397,23 @@ export default {
     try {
       const ps = await tc.fetchProtocolState(env.A9_ROUND_CONTROLLER_ADDRESS);
       if (!ps?.currentRoundId || ps.currentRoundId <= 0) return;
-      const startId = Math.max(1, ps.currentRoundId - 1);
+      const startId = Math.max(1, ps.currentRoundId - 5);
+      const synced = [];
       for (let rId = startId; rId <= ps.currentRoundId; rId += 1) {
         const rd = await tc.fetchRound(env.A9_ROUND_CONTROLLER_ADDRESS, rId);
-        if (rd.status === 2 || rd.status === 3) {
-          const stats = await predictionEngine.getRoundStats(rId);
-          if (!stats.settled) {
-            await predictionEngine.settleRoundBets(rId, rd.status === 2, Number(rd.qualifiedCandles || 0));
+        synced.push({ roundId: rId, round: rd, candles: [] });
+        if (rId >= Math.max(1, ps.currentRoundId - 1)) {
+          if (rd.status === 2 || rd.status === 3) {
+            const stats = await predictionEngine.getRoundStats(rId);
+            if (!stats.settled) {
+              await predictionEngine.settleRoundBets(rId, rd.status === 2, Number(rd.qualifiedCandles || 0));
+            }
           }
+          await broadcaster.processRoundSnapshot({ roundId: rId, round: rd, candles: [], nowSec, observationSeconds: obsSec });
         }
-        await broadcaster.processRoundSnapshot({ roundId: rId, round: rd, candles: [], nowSec, observationSeconds: obsSec });
       }
+      if (hasD1) await writeRoundsCacheToD1(env.DB, synced, nowSec);
+      memChainCache = { fetchedAt: nowSec, ps: { dataAvailable: true, ...ps }, rounds: synced };
     } catch (e) {
       console.error('[a9mini-v15-worker] scheduled sync error:', e?.message || e);
     }

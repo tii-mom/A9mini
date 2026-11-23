@@ -23,7 +23,7 @@ import os
 import urllib.request
 
 BOT_TOKEN = os.getenv("A9_BOT_TOKEN", "")
-MINI_APP_URL = os.getenv("A9_MINI_APP_URL", "https://t.me/A9Terminal_bot/app")
+MINI_APP_URL = os.getenv("A9_MINI_APP_URL", "https://a9.lat")
 API_BASE = os.getenv("A9_API_BASE", "").rstrip("/")
 
 PENDING = "待核验"
@@ -35,7 +35,7 @@ STATE_LABELS = {
     "SUCCEEDED": "已达标",
     "FAILED": "未达标",
     "FAILED_PERMANENT": "未达标",
-    "TECHNICAL_ABORTED": "技术中止",
+    "TECHNICAL_ABORTED": "异常中止 · 退回本金",
     "UNOPENED": "未开启",
 }
 

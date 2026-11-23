@@ -7,9 +7,10 @@
 //      -> net hot-wallet gas cost <= 0 (self-funded by user's 0.06 TON).
 
 import { randomBytes } from 'node:crypto';
+import { addressKey } from './ton-address.mjs';
 
-export const DEFAULT_USER_FEE_NANO = 60_000_000n;     // 0.06 TON
-export const DEFAULT_TRANSFER_GAS_NANO = 50_000_000n; // 0.05 TON attached to TEP-74 transfer
+export const DEFAULT_USER_FEE_NANO = 60_000_000n;     // 0.06 GRAM
+export const DEFAULT_TRANSFER_GAS_NANO = 50_000_000n; // 0.05 GRAM attached to TEP-74 transfer
 export const DEFAULT_CLAIM_TTL_SEC = 900;             // 15 min invoice validity
 
 export const CLAIM_STATUS = Object.freeze({
@@ -41,24 +42,25 @@ export class PromoHotWalletEngine {
     this.transferGasNano = BigInt(transferGasNano);
     this.claimTtlSec = Number(claimTtlSec);
 
-    // In-memory store (can be backed by D1 via schema.sql in production)
-    this.balances = new Map();       // wallet -> { claimableRaw: bigint, totalClaimedRaw: bigint }
+    // In-memory store keyed by canonical addressKey(walletAddress)
+    this.balances = new Map();       // walletKey -> { claimableRaw: bigint, totalClaimedRaw: bigint }
     this.claims = new Map();         // claimId -> claim record
     this.memoIndex = new Map();      // memo -> claimId
-    this.usedFeeTxHashes = new Set(); // strict anti-replay for inbound TON fee txs
+    this.usedFeeTxHashes = new Set(); // strict anti-replay for inbound GRAM fee txs
   }
 
   creditReward(walletAddress, addRaw) {
     const delta = BigInt(addRaw);
     if (delta <= 0n) throw new PromoError('BAD_AMOUNT', 'credit amount must be positive');
-    const cur = this.balances.get(walletAddress) || { claimableRaw: 0n, totalClaimedRaw: 0n };
+    const key = addressKey(walletAddress);
+    const cur = this.balances.get(key) || { claimableRaw: 0n, totalClaimedRaw: 0n };
     cur.claimableRaw += delta;
-    this.balances.set(walletAddress, cur);
+    this.balances.set(key, cur);
     return { walletAddress, claimableRaw: cur.claimableRaw.toString() };
   }
 
   getBalance(walletAddress) {
-    const cur = this.balances.get(walletAddress) || { claimableRaw: 0n, totalClaimedRaw: 0n };
+    const cur = this.balances.get(addressKey(walletAddress)) || { claimableRaw: 0n, totalClaimedRaw: 0n };
     return {
       walletAddress,
       claimableRaw: cur.claimableRaw.toString(),
@@ -67,13 +69,14 @@ export class PromoHotWalletEngine {
   }
 
   createClaimIntent(walletAddress, nowSec = Math.floor(Date.now() / 1000)) {
-    const bal = this.balances.get(walletAddress);
+    const key = addressKey(walletAddress);
+    const bal = this.balances.get(key);
     if (!bal || bal.claimableRaw <= 0n) {
       throw new PromoError('NOTHING_TO_CLAIM', 'no claimable promotion reward');
     }
     // Reuse an existing non-expired PENDING_FEE claim for this wallet to prevent duplicate invoices
     for (const c of this.claims.values()) {
-      if (c.walletAddress === walletAddress && c.status === CLAIM_STATUS.PENDING_FEE) {
+      if (addressKey(c.walletAddress) === key && c.status === CLAIM_STATUS.PENDING_FEE) {
         if (nowSec < c.expiresAt) return this.formatClaim(c);
         c.status = CLAIM_STATUS.EXPIRED;
         c.updatedAt = nowSec;
@@ -101,14 +104,14 @@ export class PromoHotWalletEngine {
   }
 
   /**
-   * Process a finalized inbound TON transfer to the promo hot wallet.
+   * Process a finalized inbound GRAM transfer to the promo hot wallet.
    * Returns a ready-to-broadcast TEP-74 payout instruction when valid.
    */
   verifyInboundFeeTx(tx, nowSec = Math.floor(Date.now() / 1000)) {
     if (!tx || !tx.txHash) throw new PromoError('BAD_TX', 'missing txHash');
     if (tx.finality !== 'finalized') throw new PromoError('NOT_FINALIZED', 'fee tx must be finalized');
     if (this.usedFeeTxHashes.has(tx.txHash)) throw new PromoError('REPLAY_TX', 'fee tx already processed');
-    if (tx.to !== this.hotWalletAddress) throw new PromoError('WRONG_DEST', 'destination is not promo hot wallet');
+    if (addressKey(tx.to) !== addressKey(this.hotWalletAddress)) throw new PromoError('WRONG_DEST', 'destination is not promo hot wallet');
 
     const memo = String(tx.memo || '').trim();
     const claimId = this.memoIndex.get(memo);
@@ -129,7 +132,7 @@ export class PromoHotWalletEngine {
     }
 
     // Lock balance atomically before dispatching A9 transfer
-    const bal = this.balances.get(claim.walletAddress);
+    const bal = this.balances.get(addressKey(claim.walletAddress));
     if (!bal || bal.claimableRaw < claim.amountRaw) {
       claim.status = CLAIM_STATUS.FAILED;
       claim.updatedAt = nowSec;

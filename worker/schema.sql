@@ -260,3 +260,20 @@ CREATE TABLE IF NOT EXISTS tg_broadcast_events (
 
 CREATE INDEX IF NOT EXISTS idx_tg_broadcast_events_created
   ON tg_broadcast_events(created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Batch 1: Atomic prediction activation ledger (idempotent retries + rollback)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS prediction_activations (
+  activation_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  wallet_key TEXT NOT NULL,
+  wallet_address TEXT NOT NULL,
+  amount_raw TEXT NOT NULL CHECK (amount_raw != '0'),
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_prediction_activations_user
+  ON prediction_activations(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_prediction_activations_wallet
+  ON prediction_activations(wallet_key, created_at DESC);

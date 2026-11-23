@@ -4,15 +4,20 @@ import { randomBytes } from 'node:crypto';
 import {
   CLAIM_STATUS,
   DEFAULT_USER_FEE_NANO,
+  DEFAULT_TRANSFER_GAS_NANO,
   DEFAULT_CLAIM_TTL_SEC,
   PromoError,
 } from './promo-hotwallet.mjs';
+import { addressKey, addressAliases } from './ton-address.mjs';
+
+const changes = (r) => Number(r?.meta?.changes ?? r?.changes ?? 0);
 
 export class D1PromoStore {
   constructor({
     db,
     hotWalletAddress,
     userFeeNano = DEFAULT_USER_FEE_NANO,
+    transferGasNano = DEFAULT_TRANSFER_GAS_NANO,
     claimTtlSec = DEFAULT_CLAIM_TTL_SEC,
   }) {
     if (!db) throw new PromoError('DB_MISSING', 'Cloudflare D1 binding (env.DB) is required');
@@ -20,14 +25,28 @@ export class D1PromoStore {
     this.db = db;
     this.hotWalletAddress = hotWalletAddress;
     this.userFeeNano = BigInt(userFeeNano);
+    this.transferGasNano = BigInt(transferGasNano);
     this.claimTtlSec = Number(claimTtlSec);
   }
 
-  async getBalance(walletAddress) {
+  async _findBalanceRow(walletAddress) {
+    const key = addressKey(walletAddress);
     const row = await this.db
-      .prepare('SELECT claimable_raw, total_claimed_raw FROM promo_balances WHERE wallet_address = ?')
-      .bind(walletAddress)
+      .prepare('SELECT wallet_address, claimable_raw, total_claimed_raw FROM promo_balances WHERE wallet_address = ?')
+      .bind(key)
       .first();
+    if (row) return row;
+    const aliases = addressAliases(walletAddress).filter((a) => a !== key);
+    if (!aliases.length) return null;
+    const ph = aliases.map(() => '?').join(', ');
+    return this.db
+      .prepare(`SELECT wallet_address, claimable_raw, total_claimed_raw FROM promo_balances WHERE wallet_address IN (${ph}) LIMIT 1`)
+      .bind(...aliases)
+      .first();
+  }
+
+  async getBalance(walletAddress) {
+    const row = await this._findBalanceRow(walletAddress);
     return {
       walletAddress,
       claimableRaw: row ? String(row.claimable_raw) : '0',
@@ -37,7 +56,7 @@ export class D1PromoStore {
 
   /**
    * Credit promotion / referral / activated-prediction A9 rewards to D1 promo_balances.
-   * Uses JS BigInt addition (stored as TEXT) to preserve full precision beyond 2^53.
+   * Uses optimistic CAS loop on canonical addressKey to prevent concurrent lost updates.
    */
   async creditReward(walletAddress, amountRaw, nowSec = Math.floor(Date.now() / 1000)) {
     const wallet = String(walletAddress || '').trim();
@@ -45,25 +64,41 @@ export class D1PromoStore {
     if (!wallet) throw new PromoError('BAD_WALLET', 'walletAddress is required');
     if (add <= 0n) throw new PromoError('BAD_AMOUNT', 'credit amount must be positive');
 
-    const cur = await this.getBalance(wallet);
-    const nextClaimable = BigInt(cur.claimableRaw) + add;
-
-    await this.db
-      .prepare(
-        `INSERT INTO promo_balances (wallet_address, claimable_raw, total_claimed_raw, updated_at)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(wallet_address) DO UPDATE SET
-           claimable_raw = excluded.claimable_raw,
-           updated_at = excluded.updated_at`,
-      )
-      .bind(wallet, nextClaimable.toString(), cur.totalClaimedRaw, nowSec)
-      .run();
-
-    return {
-      walletAddress: wallet,
-      claimableRaw: nextClaimable.toString(),
-      totalClaimedRaw: cur.totalClaimedRaw,
-    };
+    const key = addressKey(wallet);
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const existing = await this._findBalanceRow(wallet);
+      if (!existing) {
+        const ins = await this.db
+          .prepare(
+            `INSERT OR IGNORE INTO promo_balances (wallet_address, claimable_raw, total_claimed_raw, updated_at)
+             VALUES (?, ?, '0', ?)`,
+          )
+          .bind(key, add.toString(), nowSec)
+          .run();
+        if (changes(ins) === 1) {
+          return { walletAddress: wallet, claimableRaw: add.toString(), totalClaimedRaw: '0' };
+        }
+        continue;
+      }
+      const curRaw = String(existing.claimable_raw || '0');
+      const nextClaimable = BigInt(curRaw) + add;
+      const upd = await this.db
+        .prepare(
+          `UPDATE promo_balances
+           SET claimable_raw = ?, updated_at = ?
+           WHERE wallet_address = ? AND claimable_raw = ?`,
+        )
+        .bind(nextClaimable.toString(), nowSec, existing.wallet_address, curRaw)
+        .run();
+      if (changes(upd) === 1) {
+        return {
+          walletAddress: wallet,
+          claimableRaw: nextClaimable.toString(),
+          totalClaimedRaw: String(existing.total_claimed_raw || '0'),
+        };
+      }
+    }
+    throw new PromoError('CONFLICT', 'concurrent promo balance update conflict, please retry');
   }
 
   async getClaim(claimId) {
@@ -80,9 +115,11 @@ export class D1PromoStore {
       throw new PromoError('NOTHING_TO_CLAIM', 'no claimable promotion reward');
     }
 
+    const aliases = addressAliases(walletAddress);
+    const ph = aliases.map(() => '?').join(', ');
     const existing = await this.db
-      .prepare('SELECT * FROM promo_claims WHERE wallet_address = ? AND status = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1')
-      .bind(walletAddress, CLAIM_STATUS.PENDING_FEE, nowSec)
+      .prepare(`SELECT * FROM promo_claims WHERE wallet_address IN (${ph}) AND status = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1`)
+      .bind(...aliases, CLAIM_STATUS.PENDING_FEE, nowSec)
       .first();
     if (existing) return this._formatRow(existing);
 
@@ -122,6 +159,110 @@ export class D1PromoStore {
       expiresAt,
       updatedAt: nowSec,
     };
+  }
+
+  /**
+   * Atomically verify finalized 0.06 GRAM fee inbound tx and deduct claimable balance in D1.
+   * Safe against replay (fee_tx_hash UNIQUE) and concurrent deductions (CAS on claimable_raw).
+   */
+  async verifyInboundFeeTx(tx, nowSec = Math.floor(Date.now() / 1000)) {
+    if (!tx || !tx.txHash) throw new PromoError('BAD_TX', 'missing txHash');
+    if (tx.finality !== 'finalized') throw new PromoError('NOT_FINALIZED', 'fee tx must be finalized');
+    if (addressKey(tx.to) !== addressKey(this.hotWalletAddress)) {
+      throw new PromoError('WRONG_DEST', 'destination is not promo hot wallet');
+    }
+
+    const replay = await this.db
+      .prepare('SELECT claim_id FROM promo_claims WHERE fee_tx_hash = ? LIMIT 1')
+      .bind(tx.txHash)
+      .first();
+    if (replay) throw new PromoError('REPLAY_TX', 'fee tx already processed');
+
+    const memo = String(tx.memo || '').trim();
+    const claimRow = await this.db
+      .prepare('SELECT * FROM promo_claims WHERE memo = ? LIMIT 1')
+      .bind(memo)
+      .first();
+    if (!claimRow) throw new PromoError('UNKNOWN_MEMO', `no claim matches memo: ${memo}`);
+    if (claimRow.status !== CLAIM_STATUS.PENDING_FEE) {
+      throw new PromoError('INVALID_STATE', `claim ${claimRow.claim_id} is ${claimRow.status}`);
+    }
+    if (nowSec > Number(claimRow.expires_at)) {
+      await this.db
+        .prepare('UPDATE promo_claims SET status = ?, updated_at = ? WHERE claim_id = ? AND status = ?')
+        .bind(CLAIM_STATUS.EXPIRED, nowSec, claimRow.claim_id, CLAIM_STATUS.PENDING_FEE)
+        .run();
+      throw new PromoError('CLAIM_EXPIRED', `claim ${claimRow.claim_id} expired`);
+    }
+    const receivedNano = BigInt(tx.valueNano || 0);
+    const feeRequired = BigInt(claimRow.fee_required_nano || '0');
+    if (receivedNano < feeRequired) {
+      throw new PromoError('INSUFFICIENT_FEE', `received ${receivedNano} < required ${feeRequired}`);
+    }
+
+    const balRow = await this._findBalanceRow(claimRow.wallet_address);
+    const amountRaw = BigInt(claimRow.amount_raw || '0');
+    const curClaimable = BigInt(balRow?.claimable_raw || '0');
+    if (!balRow || curClaimable < amountRaw) {
+      await this.db
+        .prepare('UPDATE promo_claims SET status = ?, updated_at = ? WHERE claim_id = ? AND status = ?')
+        .bind(CLAIM_STATUS.FAILED, nowSec, claimRow.claim_id, CLAIM_STATUS.PENDING_FEE)
+        .run();
+      throw new PromoError('INSUFFICIENT_BALANCE', 'claimable balance changed');
+    }
+
+    const nextClaimable = curClaimable - amountRaw;
+    const nextClaimed = BigInt(balRow.total_claimed_raw || '0') + amountRaw;
+    const out = await this.db.batch([
+      this.db
+        .prepare(
+          `UPDATE promo_balances
+           SET claimable_raw = ?, total_claimed_raw = ?, updated_at = ?
+           WHERE wallet_address = ? AND claimable_raw = ?`,
+        )
+        .bind(nextClaimable.toString(), nextClaimed.toString(), nowSec, balRow.wallet_address, String(balRow.claimable_raw)),
+      this.db
+        .prepare(
+          `UPDATE promo_claims
+           SET status = ?, fee_tx_hash = ?, updated_at = ?
+           WHERE claim_id = ? AND status = ? AND NOT EXISTS (SELECT 1 FROM promo_claims WHERE fee_tx_hash = ?)`,
+        )
+        .bind(CLAIM_STATUS.FEE_CONFIRMED, tx.txHash, nowSec, claimRow.claim_id, CLAIM_STATUS.PENDING_FEE, tx.txHash),
+    ]);
+    if (changes(out?.[0]) !== 1 || changes(out?.[1]) !== 1) {
+      throw new PromoError('CONFLICT', 'concurrent promo claim verification conflict');
+    }
+
+    const updated = await this.getClaim(claimRow.claim_id);
+    return {
+      claim: updated,
+      payoutInstruction: {
+        op: '0x0f8a7ea5',
+        fromHotWallet: this.hotWalletAddress,
+        recipient: updated.walletAddress,
+        jettonAmountRaw: updated.amountRaw,
+        attachedTonNano: this.transferGasNano.toString(),
+        sendExcessesTo: this.hotWalletAddress,
+        forwardTonNano: '0',
+      },
+    };
+  }
+
+  async markPayoutCompleted(claimId, payoutTxHash, nowSec = Math.floor(Date.now() / 1000)) {
+    const res = await this.db
+      .prepare(
+        `UPDATE promo_claims
+         SET status = ?, payout_tx_hash = ?, updated_at = ?
+         WHERE claim_id = ? AND status IN (?, ?)`,
+      )
+      .bind(CLAIM_STATUS.COMPLETED, payoutTxHash, nowSec, claimId, CLAIM_STATUS.FEE_CONFIRMED, CLAIM_STATUS.PAYOUT_SENT)
+      .run();
+    if (changes(res) !== 1) {
+      const cur = await this.getClaim(claimId);
+      if (!cur) throw new PromoError('NOT_FOUND', `claim ${claimId} not found`);
+      throw new PromoError('INVALID_STATE', `cannot complete claim in state ${cur.status}`);
+    }
+    return this.getClaim(claimId);
   }
 
   _formatRow(r) {

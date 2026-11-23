@@ -7,15 +7,16 @@ import {
   loadParams,
   assertTargetInCorridor,
   aggregateCandles,
-  V15_ROOT,
+  resolveProtocolRoot,
 } from './lib/v15-core.mjs';
 
 function parseArgs(argv) {
-  const out = { execute: false, profile: process.env.A9_PROFILE || process.env.A9_NETWORK || 'testnet', queryId: String(Date.now()) };
+  const out = { execute: false, protocol: 'v15', profile: process.env.A9_PROFILE || process.env.A9_NETWORK || 'testnet', queryId: String(Date.now()) };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--action') out.action = argv[++i];
     else if (a === '--profile' || a === '--network') out.profile = argv[++i];
+    else if (a === '--protocol') out.protocol = argv[++i];
     else if (a === '--round') out.round = Number(argv[++i]);
     else if (a === '--twap') out.twap = argv[++i];
     else if (a === '--target') out.target = argv[++i];
@@ -36,6 +37,11 @@ if (!args.action) {
   process.exit(1);
 }
 
+const protocolRoot = resolveProtocolRoot(args.protocol);
+const maxRoundId = args.protocol === 'v16' ? 0xffffffff : 255;
+if (args.round !== undefined && (!Number.isInteger(args.round) || args.round < 1 || args.round > maxRoundId)) {
+  throw new Error(`--round must be 1..${maxRoundId} for ${args.protocol}`);
+}
 const { data: p } = loadParams(args.profile);
 const env = { ...process.env, A9_OP_ACTION: args.action, A9_QUERY_ID: args.queryId };
 
@@ -89,8 +95,8 @@ if (p.network === 'mainnet' && process.env.OPS_CONFIRM_MAINNET !== 'YES') {
 }
 
 env.OPS_EXECUTE = 'true';
-const res = spawnSync('acton', ['script', '--net', p.network, '../ops/tolk/round_ops_v15.tolk'], {
-  cwd: V15_ROOT,
+const res = spawnSync('acton', ['script', '--net', p.network, `../ops/tolk/round_ops_${args.protocol}.tolk`], {
+  cwd: protocolRoot,
   env,
   stdio: 'inherit',
 });

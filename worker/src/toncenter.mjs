@@ -3,13 +3,14 @@
 const VALID_ACCOUNT_STATES = new Set(['active', 'uninitialized', 'frozen']);
 
 export class TonCenterClient {
-  constructor({ apiBase, apiKey = '', fetchImpl = globalThis.fetch, minIntervalMs = null, maxRetries = 3 } = {}) {
+  constructor({ apiBase, apiKey = '', fetchImpl = globalThis.fetch, minIntervalMs = null, maxRetries = 3, timeoutMs = 8000 } = {}) {
     if (!apiBase) throw new Error('TONCENTER_API_BASE is required');
     this.apiBase = apiBase.replace(/\/+$/, '');
     this.apiKey = apiKey;
     this.fetch = fetchImpl;
     this.minIntervalMs = minIntervalMs ?? (apiKey ? 0 : 1100);
     this.maxRetries = maxRetries;
+    this.timeoutMs = Number(timeoutMs) > 0 ? Number(timeoutMs) : 8000;
     this._lastReqAt = 0;
   }
 
@@ -22,7 +23,8 @@ export class TonCenterClient {
         if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       }
       this._lastReqAt = Date.now();
-      const res = await this.fetch(`${this.apiBase}${path}`, { ...options, headers });
+      const signal = options.signal || (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(this.timeoutMs) : undefined);
+      const res = await this.fetch(`${this.apiBase}${path}`, { ...options, headers, ...(signal ? { signal } : {}) });
       if (res.ok) return await res.json();
       if ((res.status === 429 || res.status === 503) && attempt < this.maxRetries) {
         await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
@@ -113,6 +115,7 @@ export class TonCenterClient {
   /** Read v15 RoundController.get_protocol_state() directly from chain. */
   async fetchProtocolState(roundControllerAddress) {
     const s = await this.runGetMethod(roundControllerAddress, 'get_protocol_state');
+    const activeLockedRounds = TonCenterClient.parseNum(s[8]);
     return {
       currentRoundId: Number(TonCenterClient.parseNum(s[0])),
       successCount: Number(TonCenterClient.parseNum(s[1])),
@@ -122,7 +125,8 @@ export class TonCenterClient {
       teamCarryRaw: TonCenterClient.parseNum(s[5]).toString(),
       lastSuccessAt: Number(TonCenterClient.parseNum(s[6])),
       endAt: Number(TonCenterClient.parseNum(s[7])),
-      activeLockedRounds: Number(TonCenterClient.parseNum(s[8])),
+      activeLockedRounds: activeLockedRounds <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(activeLockedRounds) : null,
+      activeLockedRoundsRaw: activeLockedRounds.toString(),
     };
   }
 
@@ -176,6 +180,27 @@ export class TonCenterClient {
       });
     }
     return out;
+  }
+
+  /**
+   * Verify an outbound payout transaction from a hot wallet via TonCenter /getTransactions.
+   * Matches by exact txHash (hex or base64) and inspects out_msgs presence to confirm execution.
+   */
+  async verifyOutboundPayout(hotWalletAddress, payout, limit = 40) {
+    if (!hotWalletAddress || !payout?.txHash) return { state: 'PENDING' };
+    const q = new URLSearchParams({ address: hotWalletAddress, limit: String(limit), archival: 'false' });
+    const body = await this._request(`/getTransactions?${q.toString()}`, { method: 'GET' });
+    if (!body?.ok || !Array.isArray(body.result)) return { state: 'PENDING' };
+    const target = String(payout.txHash).replace(/^0x/i, '').toLowerCase();
+    for (const tx of body.result) {
+      const rawHash = String(tx.transaction_id?.hash || '');
+      const hexHash = rawHash ? Buffer.from(rawHash, 'base64').toString('hex').toLowerCase() : '';
+      if (rawHash.toLowerCase() === target || hexHash === target) {
+        const hasOut = Array.isArray(tx.out_msgs) && tx.out_msgs.length > 0;
+        return hasOut ? { state: 'CONFIRMED', txHash: rawHash } : { state: 'FAILED', txHash: rawHash };
+      }
+    }
+    return { state: 'PENDING' };
   }
 
   /**

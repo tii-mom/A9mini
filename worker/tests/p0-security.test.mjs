@@ -8,6 +8,7 @@ import { PresaleHotWalletEngine, PRESALE_STATUS, STALE_BROADCAST_SEC } from '../
 import { D1PresaleStore, D1SocialStore, D1PredictionEngine, D1ProgressionEngine } from '../src/d1-growth-store.mjs';
 import { PresalePayoutRunner } from '../src/presale-runner.mjs';
 import { PromoHotWalletEngine } from '../src/promo-hotwallet.mjs';
+import { D1PromoStore } from '../src/d1-promo-store.mjs';
 import { SocialStore, parseStartAppParam, createTelegramBotGroupVerifier } from '../src/social-store.mjs';
 import { PredictionEngine, ProgressionEngine, VOUCHER_TTL_MS } from '../src/growth-engine.mjs';
 import { TelegramBroadcaster, MemoryBroadcastLog, D1BroadcastLog, buildTeamDeepLink } from '../src/tg-broadcaster.mjs';
@@ -1892,7 +1893,7 @@ await test('Step 0 & Knife 2: Item shop/inventory fully removed (404), pure 1 GR
     return {
       predictionEngine: new D1PredictionEngine({ db, defaultPoolA9Raw: '10000000000000' }),
       presaleEngine: new D1PresaleStore({ db, hotWalletAddress: HOT, open: true }),
-      promoEngine: new PromoHotWalletEngine({ hotWalletAddress: HOT }),
+      promoEngine: new D1PromoStore({ db, hotWalletAddress: HOT }),
       socialStore: new D1SocialStore({ db }),
       identityStore: new D1IdentityStore({ db }),
     };
@@ -1904,7 +1905,7 @@ await test('Step 0 & Knife 2: Item shop/inventory fully removed (404), pure 1 GR
     await runSuite('d1-miniflare', async () => ({
       predictionEngine: new D1PredictionEngine({ db: mf.db, defaultPoolA9Raw: '10000000000000' }),
       presaleEngine: new D1PresaleStore({ db: mf.db, hotWalletAddress: HOT, open: true }),
-      promoEngine: new PromoHotWalletEngine({ hotWalletAddress: HOT }),
+      promoEngine: new D1PromoStore({ db: mf.db, hotWalletAddress: HOT }),
       socialStore: new D1SocialStore({ db: mf.db }),
       identityStore: new D1IdentityStore({ db: mf.db }),
     }));
@@ -2253,6 +2254,72 @@ await test('Knife 3: TG squad broadcaster (disabled by default, bound-only targe
         makePresale: (broadcaster) => new D1PresaleStore({ db: mf.db, hotWalletAddress: HOT, open: true, socialStore, broadcaster }),
       };
     });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Batch 1 (D1 SQLite + Miniflare/workerd): Atomic activateToPromo rollback & same-DB ledger guard
+// ---------------------------------------------------------------------------
+await test('Batch 1 (SQLite + workerd D1): activateToPromo rejects missing/cross-ledger promo before write and rolls back all 3 tables on last-write failure', async () => {
+  const runAtomicSuite = async (label, rawDb) => {
+    const hash = new Uint8Array(32).fill(0x44);
+    const wBounce = formatTonAddress(0, hash, { bounceable: true, testOnly: false });
+    const wRaw = `0:${'44'.repeat(32)}`;
+    const promo = new D1PromoStore({ db: rawDb, hotWalletAddress: HOT });
+    const memPromo = new PromoHotWalletEngine({ hotWalletAddress: HOT });
+    const pred = new D1PredictionEngine({ db: rawDb, defaultPoolA9Raw: '15000000000000000000' });
+
+    await pred.placeBet({ roundId: 1, userId: 'u_b1', side: 'PASS' }, 1000);
+    await pred.settleRoundBets(1, true, 18, '15000000000000000000', 1_100_000);
+
+    // 1) Missing or cross-ledger promo -> fails BEFORE any write; all 3 tables untouched
+    await assert.rejects(() => pred.activateToPromo('u_b1', wBounce, null, { qualified: true, nowMs: 1_150_000, activationId: 'b1-no-promo' }), { code: 'PROMO_LEDGER_UNAVAILABLE' }, label);
+    await assert.rejects(() => pred.activateToPromo('u_b1', wBounce, memPromo, { qualified: true, nowMs: 1_150_000, activationId: 'b1-cross' }), { code: 'PROMO_LEDGER_UNAVAILABLE' }, label);
+    assert.equal((await pred.getUserSummary('u_b1', 1)).pendingActivationRaw, '15000000000000000000', label);
+    assert.equal(Number((await rawDb.prepare('SELECT COUNT(*) AS c FROM prediction_activations').first()).c), 0, label);
+    assert.equal(Number((await rawDb.prepare('SELECT COUNT(*) AS c FROM promo_balances').first()).c), 0, label);
+
+    // 2) Sabotage the 3rd statement (UPDATE promo_balances) AFTER stmts[0] and stmts[1] execute -> ALL 3 tables roll back
+    await promo.creditReward(wRaw, '1000000000000', 900);
+    let sabotageOnce = true;
+    const flakyDb = {
+      prepare: (sql) => rawDb.prepare(sql),
+      async batch(stmts) {
+        if (sabotageOnce && stmts.length === 3) {
+          sabotageOnce = false;
+          return rawDb.batch([stmts[0], stmts[1], rawDb.prepare('UPDATE __nonexistent_b1_crash SET x = 1')]);
+        }
+        return rawDb.batch(stmts);
+      },
+    };
+    const flakyPred = new D1PredictionEngine({ db: flakyDb, defaultPoolA9Raw: '15000000000000000000' });
+    const flakyPromo = new D1PromoStore({ db: flakyDb, hotWalletAddress: HOT });
+    await assert.rejects(
+      () => flakyPred.activateToPromo('u_b1', wBounce, flakyPromo, { qualified: true, nowMs: 1_200_000, activationId: 'b1-rollback-1' }),
+      /__nonexistent_b1_crash|no such table/i,
+      label,
+    );
+    assert.equal((await pred.getUserSummary('u_b1', 1)).pendingActivationRaw, '15000000000000000000', label);
+    assert.equal((await pred.getUserSummary('u_b1', 1)).activatedRaw, '0', label);
+    assert.equal(Number((await rawDb.prepare('SELECT COUNT(*) AS c FROM prediction_activations WHERE activation_id = ?').bind('b1-rollback-1').first()).c), 0, label);
+    assert.equal((await promo.getBalance(wRaw)).claimableRaw, '1000000000000', label);
+
+    // 3) Retry succeeds ONCE and duplicate retry returns idempotent: true with zero extra credit
+    const ok1 = await pred.activateToPromo('u_b1', wBounce, promo, { qualified: true, nowMs: 1_205_000, activationId: 'b1-rollback-1' });
+    assert.equal(ok1.activatedRaw, '15000000000000000000', label);
+    assert.equal(ok1.idempotent, false, label);
+    assert.equal((await pred.getUserSummary('u_b1', 1)).pendingActivationRaw, '0', label);
+    assert.equal((await promo.getBalance(wBounce)).claimableRaw, '15000001000000000000', label);
+    const ok2 = await pred.activateToPromo('u_b1', wBounce, promo, { qualified: true, nowMs: 1_206_000, activationId: 'b1-rollback-1' });
+    assert.equal(ok2.idempotent, true, label);
+    assert.equal((await promo.getBalance(wBounce)).claimableRaw, '15000001000000000000', label);
+  };
+
+  await runAtomicSuite('d1-sqlite', createSqliteD1(MIGRATIONS));
+  const mf = await createMiniflareD1(MIGRATIONS);
+  if (mf) {
+    MF_DISPOSE.push(mf.dispose);
+    await runAtomicSuite('d1-miniflare', mf.db);
   }
 });
 

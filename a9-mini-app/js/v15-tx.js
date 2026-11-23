@@ -186,15 +186,19 @@ export function encodeStakeJettonTransferBoc({
   roundId,
   queryId = BigInt(Date.now()),
   forwardTonNano = V15_GAS.STAKE_FORWARD_NANO,
+  protocolVersion = 'v15',
 }) {
   if (!roundController || !responseDestination) throw new Error('roundController and responseDestination required');
   if (BigInt(amountA9Raw) <= 0n) throw new Error('amountA9Raw must be positive');
+  if (protocolVersion !== 'v15' && protocolVersion !== 'v16') throw new Error('unsupported stake protocol version');
+  const wideRoundId = protocolVersion === 'v16';
+  const maxRoundId = wideRoundId ? 0xffffffff : 255;
   const rId = Number(roundId);
-  if (!Number.isInteger(rId) || rId < 1 || rId > 255) throw new Error('roundId must be 1..255');
+  if (!Number.isInteger(rId) || rId < 1 || rId > maxRoundId) throw new Error(`roundId must be 1..${maxRoundId}`);
 
   const forwardCell = new BitBuilder()
-    .storeUint(V15_OPCODES.STAKE_DEPOSIT, 32)
-    .storeUint(rId, 8)
+    .storeUint(wideRoundId ? 0x52540010 : V15_OPCODES.STAKE_DEPOSIT, 32)
+    .storeUint(rId, wideRoundId ? 32 : 8)
     .storeUint(0, 2); // beneficiary = addr_none (uses transferInitiator)
 
   const root = new BitBuilder()
@@ -219,6 +223,7 @@ export function buildV15StakeTx({
   amountA9Raw,
   roundId,
   queryId = BigInt(Date.now()),
+  protocolVersion = 'v15',
 }) {
   if (!userJettonWallet) throw new Error('userJettonWallet is required');
   return {
@@ -233,6 +238,7 @@ export function buildV15StakeTx({
           amountA9Raw,
           roundId,
           queryId,
+          protocolVersion,
         }),
       },
     ],
@@ -254,7 +260,7 @@ export function buildV15ClaimTx(ticketAddress, queryId = BigInt(Date.now())) {
   };
 }
 
-/** Ready-to-sign TON Connect 2.0 tx for 0-contract promo hot-wallet claim (user pays 0.06 TON) */
+/** Ready-to-sign TON Connect 2.0 tx for 0-contract promo hot-wallet claim (user pays 0.06 GRAM) */
 export function buildV15PromoFeeTx({ payTo, feeRequiredNano = V15_GAS.PROMO_FEE_NANO, memo }) {
   if (!payTo) throw new Error('payTo (promo hot wallet address) is required');
   if (!memo || !String(memo).startsWith('claim:')) throw new Error('valid claim:<id> memo is required');
@@ -264,6 +270,23 @@ export function buildV15PromoFeeTx({ payTo, feeRequiredNano = V15_GAS.PROMO_FEE_
       {
         address: payTo,
         amount: String(feeRequiredNano),
+        payload: encodeTextCommentBoc(memo),
+      },
+    ],
+  };
+}
+
+/** Ready-to-sign TON Connect 2.0 tx for 0-contract A9 fixed-rate exchange (1 GRAM = 2,002 A9) */
+export function buildV15PresaleTx({ payTo, tonNano, memo }) {
+  if (!payTo) throw new Error('payTo (presale hot wallet address) is required');
+  if (!memo || !String(memo).startsWith('buy:')) throw new Error('valid buy:<orderId> memo is required');
+  if (BigInt(tonNano || 0) <= 0n) throw new Error('tonNano must be positive');
+  return {
+    validUntil: Math.floor(Date.now() / 1000) + 300,
+    messages: [
+      {
+        address: payTo,
+        amount: String(tonNano),
         payload: encodeTextCommentBoc(memo),
       },
     ],

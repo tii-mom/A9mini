@@ -71,6 +71,8 @@ export function mapV15RoundDetail(roundId, round, candles = [], nowSec = Math.fl
 
 export function buildV15ConfigPayload(env = {}, protocolState = null) {
   const A9 = 1_000_000_000n;
+  const proto = String(env.A9_PROTOCOL_VERSION || 'v15').trim().toLowerCase() === 'v16' ? 'v16' : 'v15';
+  const maxRoundId = proto === 'v16' ? 4294967295 : 255;
   const ps = protocolState && typeof protocolState === 'object' ? protocolState : null;
   const dataAvailable = Boolean(
     ps &&
@@ -78,10 +80,13 @@ export function buildV15ConfigPayload(env = {}, protocolState = null) {
       (ps.poolRemainingRaw !== undefined && ps.poolRemainingRaw !== null),
   );
   return {
-    protocolVersion: 'v15',
+    protocolVersion: proto,
+    stakeProtocolVersion: proto,
+    maxRoundId,
     network: env.A9_NETWORK || 'testnet',
+    botHandle: String(env.A9_TG_BOT_HANDLE || 'A9ProtocolBot').replace(/^@/, '').trim() || 'A9ProtocolBot',
     openEnded: true,
-    roundCount: null, // v15: no fixed 10-round cap; runs until 7B reward pool is exhausted
+    roundCount: null, // runs until 7B reward pool is exhausted (protocol maxRoundId cap exposed explicitly)
     candleCount: 24,
     minQualifiedCandles: 16,
     maxRewardCapMultiplier: 15,
@@ -112,6 +117,9 @@ export function buildV15ConfigPayload(env = {}, protocolState = null) {
           teamCarryRaw: ps.teamCarryRaw !== undefined && ps.teamCarryRaw !== null ? String(ps.teamCarryRaw) : null,
           lastSuccessAt: Number(ps.lastSuccessAt || 0),
           endAt: Number(ps.endAt || 0),
+          activeLockedRoundsRaw: ps.activeLockedRoundsRaw !== undefined && ps.activeLockedRoundsRaw !== null
+            ? String(ps.activeLockedRoundsRaw)
+            : (ps.activeLockedRounds !== undefined && ps.activeLockedRounds !== null ? String(ps.activeLockedRounds) : '0'),
         }
       : {
           dataAvailable: false,
@@ -123,6 +131,7 @@ export function buildV15ConfigPayload(env = {}, protocolState = null) {
           teamCarryRaw: null,
           lastSuccessAt: null,
           endAt: null,
+          activeLockedRoundsRaw: null,
         },
   };
 }

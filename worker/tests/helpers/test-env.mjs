@@ -60,6 +60,7 @@ export const MIGRATIONS = [
   '../../migrations/0005_phase3_progression_stamps.sql',
   '../../migrations/0006_phase4_6_sticker_packs_inventory.sql',
   '../../migrations/0007_tg_broadcast_events.sql',
+  '../../migrations/0008_prediction_activations.sql',
 ];
 
 /** Async dump of every user table; works for the SQLite adapter and for real (Miniflare) D1. */

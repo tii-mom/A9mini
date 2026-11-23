@@ -700,9 +700,9 @@ function createMockD1() {
   };
 }
 
-await test('D1PromoStore.creditReward preserves BigInt precision across multiple credits', async () => {
+await test('D1PromoStore.creditReward preserves BigInt precision across multiple credits and supports verifyInboundFeeTx + markPayoutCompleted', async () => {
   const { D1PromoStore } = await import('../src/d1-promo-store.mjs');
-  const db = createMockD1();
+  const db = createSqliteD1(FRESH_SCHEMA);
   const store = new D1PromoStore({ db, hotWalletAddress: 'EQ_D1_HOT' });
 
   // Values exceeding Number.MAX_SAFE_INTEGER (9.007e15) to verify BigInt precision
@@ -714,6 +714,19 @@ await test('D1PromoStore.creditReward preserves BigInt precision across multiple
   const intent = await store.createClaimIntent('EQ_BIGINT_USER', 1002);
   assert.equal(intent.amountRaw, '15000002400000000000');
   assert.equal(intent.payTo, 'EQ_D1_HOT');
+
+  // Verify 0.06 GRAM inbound fee -> atomic balance deduction -> markPayoutCompleted
+  const verified = await store.verifyInboundFeeTx(
+    { txHash: 'd1-fee-tx-1', finality: 'finalized', to: 'EQ_D1_HOT', from: 'EQ_BIGINT_USER', valueNano: '60000000', memo: intent.memo },
+    1010,
+  );
+  assert.equal(verified.claim.status, CLAIM_STATUS.FEE_CONFIRMED);
+  assert.equal(verified.payoutInstruction.jettonAmountRaw, '15000002400000000000');
+  assert.equal((await store.getBalance('EQ_BIGINT_USER')).claimableRaw, '0');
+
+  const done = await store.markPayoutCompleted(intent.claimId, 'd1-payout-tx-1', 1020);
+  assert.equal(done.status, CLAIM_STATUS.COMPLETED);
+  assert.equal(done.payoutTxHash, 'd1-payout-tx-1');
 });
 
 await test('POST /api/admin/prediction/settle rejects unauthorized calls (401) and settles with valid admin token', async () => {
@@ -869,6 +882,204 @@ await test('PredictionEngine first-loss rookie bonus: second loss gets 0, round 
   const sOff = predOff.settleRoundBets(1, true, 16, '10000000000000', 1_000_000);
   assert.equal(sOff.firstLossBonusCount, 0);
   assert.equal(predOff.getUserSummary('off_u', 1).pendingActivationRaw, '0');
+});
+
+await test('Batch 1: D1PredictionEngine.activateToPromo is atomic, idempotent on retry, rolls back on mid-batch fault, and handles aliases + BigInt', async () => {
+  const { D1PromoStore } = await import('../src/d1-promo-store.mjs');
+  const { D1PredictionEngine } = await import('../src/d1-growth-store.mjs');
+  const { formatTonAddress } = await import('../src/ton-address.mjs');
+  const db = createSqliteD1(FRESH_SCHEMA);
+  const HOT = 'EQ_D1_ATOMIC_HOT';
+  const hash = new Uint8Array(32).fill(0x22);
+  const wBounce = formatTonAddress(0, hash, { bounceable: true, testOnly: false });
+  const wNonBounce = formatTonAddress(0, hash, { bounceable: false, testOnly: false });
+  const wRaw = `0:${'22'.repeat(32)}`;
+
+  const promo = new D1PromoStore({ db, hotWalletAddress: HOT });
+  const pred = new D1PredictionEngine({ db, defaultPoolA9Raw: '15000000000000000000' }); // > Number.MAX_SAFE_INTEGER
+
+  await pred.placeBet({ roundId: 1, userId: 'u_atomic', side: 'PASS' }, 1000);
+  await pred.settleRoundBets(1, true, 18, '15000000000000000000', 1_100_000);
+
+  // 0) Missing or cross-ledger promoEngine -> fail BEFORE any write; all 3 tables untouched
+  const memPromo = new PromoHotWalletEngine({ hotWalletAddress: HOT });
+  const otherPromo = new D1PromoStore({ db: createSqliteD1(FRESH_SCHEMA), hotWalletAddress: HOT });
+  await assert.rejects(() => pred.activateToPromo('u_atomic', wBounce, null, { qualified: true, nowMs: 1_150_000, activationId: 'req-no-promo' }), { code: 'PROMO_LEDGER_UNAVAILABLE' });
+  await assert.rejects(() => pred.activateToPromo('u_atomic', wBounce, memPromo, { qualified: true, nowMs: 1_150_000, activationId: 'req-cross-mem' }), { code: 'PROMO_LEDGER_UNAVAILABLE' });
+  await assert.rejects(() => pred.activateToPromo('u_atomic', wBounce, otherPromo, { qualified: true, nowMs: 1_150_000, activationId: 'req-cross-d1' }), { code: 'PROMO_LEDGER_UNAVAILABLE' });
+  assert.equal((await pred.getUserSummary('u_atomic', 1)).pendingActivationRaw, '15000000000000000000');
+  assert.equal((await db.prepare('SELECT COUNT(*) AS c FROM prediction_activations').first()).c, 0);
+  assert.equal((await db.prepare('SELECT COUNT(*) AS c FROM promo_balances').first()).c, 0);
+
+  // Pre-credit 1,000 A9 via non-bounceable alias
+  await promo.creditReward(wNonBounce, '1000000000000', 900);
+
+  // 1) Last-write failure AFTER first two writes execute -> all 3 tables roll back
+  const origBatch = db.batch.bind(db);
+  let failOnce = true;
+  db.batch = async (stmts) => {
+    if (failOnce && stmts.length === 3) {
+      failOnce = false;
+      return origBatch([stmts[0], stmts[1], db.prepare('UPDATE __nonexistent_b1_crash SET x = 1')]);
+    }
+    return origBatch(stmts);
+  };
+  await assert.rejects(
+    () => pred.activateToPromo('u_atomic', wBounce, promo, { qualified: true, nowMs: 1_200_000, activationId: 'req-atomic-1' }),
+    /__nonexistent_b1_crash|no such table/i,
+  );
+  assert.equal((await pred.getUserSummary('u_atomic', 1)).pendingActivationRaw, '15000000000000000000');
+  assert.equal((await pred.getUserSummary('u_atomic', 1)).activatedRaw, '0');
+  assert.equal((await db.prepare('SELECT COUNT(*) AS c FROM prediction_activations WHERE activation_id = ?').bind('req-atomic-1').first()).c, 0);
+  assert.equal((await promo.getBalance(wRaw)).claimableRaw, '1000000000000');
+
+  // 2) Simulate concurrent credit from another source right before batch -> NOT NULL snapshot guard rolls back & retries cleanly
+  let injectRace = true;
+  db.batch = async (stmts) => {
+    if (injectRace) {
+      injectRace = false;
+      await promo.creditReward(wRaw, '500000000000', 1201); // concurrent +500 A9 referral
+    }
+    return origBatch(stmts);
+  };
+  const act1 = await pred.activateToPromo('u_atomic', wBounce, promo, { qualified: true, nowMs: 1_200_000, activationId: 'req-atomic-1' });
+  db.batch = origBatch;
+
+  assert.equal(act1.activatedRaw, '15000000000000000000');
+  assert.equal(act1.activationId, 'req-atomic-1');
+  assert.equal(act1.idempotent, false);
+  // Accounting invariant: 1,000 (initial) + 500 (concurrent referral) + 15,000,000,000 (activated)
+  assert.equal((await pred.getUserSummary('u_atomic', 1)).pendingActivationRaw, '0');
+  assert.equal((await promo.getBalance(wNonBounce)).claimableRaw, '15000001500000000000');
+
+  // 3) Same request retry after lost response -> returns original ledger row with zero extra credit
+  const actRetry = await pred.activateToPromo('u_atomic', wBounce, promo, { qualified: true, nowMs: 1_205_000, activationId: 'req-atomic-1' });
+  assert.equal(actRetry.idempotent, true);
+  assert.equal(actRetry.activatedRaw, '15000000000000000000');
+  assert.equal(actRetry.activationId, 'req-atomic-1');
+  assert.equal((await promo.getBalance(wBounce)).claimableRaw, '15000001500000000000');
+});
+
+await test('Batch 2: v16 candidate config, round #256 mapping, and uint128 activeLockedRounds precision', async () => {
+  const { buildV15ConfigPayload } = await import('../src/v15-indexer.mjs');
+  const { TonCenterClient } = await import('../src/toncenter.mjs');
+  // Pack 4 uint32 round IDs (254, 255, 256, 257) into uint128 (> Number.MAX_SAFE_INTEGER)
+  const packed128 = 254n | (255n << 32n) | (256n << 64n) | (257n << 96n);
+  const mockFetch = async () => ({
+    ok: true,
+    json: async () => ({
+      ok: true,
+      result: {
+        exit_code: 0,
+        stack: [
+          ['num', '0x100'], ['num', '0xc'], ['num', '0x1000'], ['num', '0x200'],
+          ['num', '0x300'], ['num', '0x40'], ['num', '0x500'], ['num', '0x0'],
+          ['num', `0x${packed128.toString(16)}`],
+        ],
+      },
+    }),
+  });
+  const tc = new TonCenterClient({ apiBase: 'http://mock-v16.local', fetchImpl: mockFetch, minIntervalMs: 0 });
+  const ps = await tc.fetchProtocolState('EQ_RC_V16');
+  assert.equal(ps.currentRoundId, 256);
+  assert.equal(ps.activeLockedRoundsRaw, packed128.toString());
+
+  const cfgV16 = buildV15ConfigPayload({ A9_PROTOCOL_VERSION: 'v16', A9_NETWORK: 'testnet', A9_TG_BOT_HANDLE: 'A9ProtocolBot' }, ps);
+  assert.equal(cfgV16.protocolVersion, 'v16');
+  assert.equal(cfgV16.stakeProtocolVersion, 'v16');
+  assert.equal(cfgV16.maxRoundId, 4294967295);
+  assert.equal(cfgV16.poolState.currentRoundId, 256);
+  assert.equal(cfgV16.poolState.activeLockedRoundsRaw, packed128.toString());
+
+  const r256 = mapV15RoundDetail(256, { status: 1, targetPriceUsdE8: '232000', twap24hUsdE8: '116000', stakeOpenAt: 1000, stakeCloseAt: 5000, rewardBudgetRaw: '700000000000000000' }, [], 2000);
+  assert.equal(r256.roundId, 256);
+  assert.equal(r256.state, 'STAKING_OPEN');
+
+  const { default: cfWorker } = await import('../src/cf-worker.mjs');
+  const incompleteRes = await cfWorker.fetch(
+    new Request('https://a9.example/api/health'),
+    { A9_ENVIRONMENT: 'candidate', A9_PROTOCOL_VERSION: 'v16', A9_NETWORK: 'testnet' },
+  );
+  assert.equal(incompleteRes.status, 503);
+  const incompleteBody = await incompleteRes.json();
+  assert.equal(incompleteBody.error.code, 'CANDIDATE_CONFIG_INCOMPLETE');
+  assert.ok(incompleteBody.error.missing.includes('DB'));
+  assert.ok(incompleteBody.error.missing.includes('A9_ROUND_CONTROLLER_ADDRESS'));
+});
+
+await test('Batch 1: reconcilePredictionLedger handles wallet rebind without false positive, flags shortfall & legacy mixed-promo, and keeps >64-bit BigInt precision', async () => {
+  const { D1PromoStore } = await import('../src/d1-promo-store.mjs');
+  const { D1PredictionEngine, reconcilePredictionLedger } = await import('../src/d1-growth-store.mjs');
+  const { D1IdentityStore } = await import('../src/auth.mjs');
+  const { formatTonAddress } = await import('../src/ton-address.mjs');
+  const db = createSqliteD1(FRESH_SCHEMA);
+  const promo = new D1PromoStore({ db, hotWalletAddress: 'EQ_RECON_HOT' });
+  const pred = new D1PredictionEngine({ db });
+  const idStore = new D1IdentityStore({ db });
+
+  const mkWallet = (fill) => formatTonAddress(0, new Uint8Array(32).fill(fill), { bounceable: true, testOnly: false });
+  const oldW = mkWallet(0x11);
+  const newW = mkWallet(0x22);
+  const shortW = mkWallet(0x33);
+  const legacyW = mkWallet(0x44);
+
+  // 1) User activates > 64-bit signed int (20,000,000,000,000,000,000 > 9.22e18) to oldW, then rebinds to newW (0 promo) -> MUST be OK
+  const hugeAmt = '20000000000000000000';
+  await idStore.bindWallet('u_rebind', oldW, 1000);
+  await pred.placeBet({ roundId: 1, userId: 'u_rebind', side: 'PASS' }, 1000);
+  await pred.settleRoundBets(1, true, 18, hugeAmt, 1_100_000);
+  await pred.activateToPromo('u_rebind', oldW, promo, { qualified: true, nowMs: 1_200_000, activationId: 'rec-rebind-1' });
+  await db.prepare('UPDATE wallet_bindings SET wallet_address = ?, wallet_key = ?, updated_at = 1300 WHERE tg_user_id = ?')
+    .bind(newW, `0:${'22'.repeat(32)}`, 'u_rebind').run();
+
+  // 2) True shortfall on original wallet_key -> DISCREPANCY_MISSING_PROMO_CREDIT
+  await idStore.bindWallet('u_short', shortW, 1000);
+  await db.prepare(`INSERT INTO prediction_rewards (user_id, pending_activation_raw, activated_raw, total_settled, total_won, streak, updated_at)
+    VALUES ('u_short', '0', '5000000000000', 1, 1, 1, 1000)`).run();
+  await db.prepare(`INSERT INTO prediction_activations (activation_id, user_id, wallet_key, wallet_address, amount_raw, created_at)
+    VALUES ('rec-short-1', 'u_short', ?, ?, '5000000000000', 1000)`).bind(`0:${'33'.repeat(32)}`, shortW).run();
+  await promo.creditReward(shortW, '1000000000000', 1000); // only 1,000 A9 instead of 5,000 A9
+
+  // 3) Legacy pre-0008 activation with mixed referral credit on promo_balances -> MANUAL_REVIEW_INSUFFICIENT_EVIDENCE
+  await idStore.bindWallet('u_legacy', legacyW, 1000);
+  await db.prepare(`INSERT INTO prediction_rewards (user_id, pending_activation_raw, activated_raw, total_settled, total_won, streak, updated_at)
+    VALUES ('u_legacy', '0', '3000000000000', 1, 1, 1, 1000)`).run();
+  await promo.creditReward(legacyW, '8000000000000', 1000); // mixed referral credit masks whether 3,000 A9 landed
+
+  // 4) Ledger sum exceeds activated_raw (activated=1, ledger=2e19, promo=2e19) -> DISCREPANCY_LEDGER_EXCEEDS_ACTIVATED
+  const excessW = mkWallet(0x55);
+  await idStore.bindWallet('u_excess', excessW, 1000);
+  await db.prepare(`INSERT INTO prediction_rewards (user_id, pending_activation_raw, activated_raw, total_settled, total_won, streak, updated_at)
+    VALUES ('u_excess', '0', '1', 1, 1, 1, 1000)`).run();
+  await db.prepare(`INSERT INTO prediction_activations (activation_id, user_id, wallet_key, wallet_address, amount_raw, created_at)
+    VALUES ('rec-excess-1', 'u_excess', ?, ?, ?, 1000)`).bind(`0:${'55'.repeat(32)}`, excessW, hugeAmt).run();
+  await promo.creditReward(excessW, hugeAmt, 1000);
+
+  // 5) activated_raw = 0 (or missing prediction_rewards row) while ledger row exists -> DISCREPANCY_LEDGER_EXCEEDS_ACTIVATED
+  const orphanW = mkWallet(0x66);
+  await db.prepare(`INSERT INTO prediction_activations (activation_id, user_id, wallet_key, wallet_address, amount_raw, created_at)
+    VALUES ('rec-zero-1', 'u_zero_act', ?, ?, '700000000000', 1000)`).bind(`0:${'66'.repeat(32)}`, orphanW).run();
+  await promo.creditReward(orphanW, '700000000000', 1000);
+
+  const report = await reconcilePredictionLedger(db);
+  assert.equal(report.okUsers, 1); // ONLY u_rebind passed with zero false positive
+  assert.equal(report.findings.length, 4);
+  const fShort = report.findings.find((f) => f.status === 'DISCREPANCY_MISSING_PROMO_CREDIT');
+  assert.ok(fShort);
+  assert.equal(fShort.activatedRaw, '5000000000000');
+  const fLegacy = report.findings.find((f) => f.status === 'MANUAL_REVIEW_INSUFFICIENT_EVIDENCE');
+  assert.ok(fLegacy);
+  assert.equal(fLegacy.reason, 'legacy_pre_0008_unbacked_or_mixed_promo');
+  assert.equal(fLegacy.legacyUnbackedRaw, '3000000000000');
+  const fExcess = report.findings.find((f) => f.reason === 'ledger_sum_exceeds_activated_raw');
+  assert.ok(fExcess);
+  assert.equal(fExcess.status, 'DISCREPANCY_LEDGER_EXCEEDS_ACTIVATED');
+  assert.equal(fExcess.excessRaw, '19999999999999999999');
+  const fZero = report.findings.find((f) => f.reason === 'ledger_exists_with_zero_activated');
+  assert.ok(fZero);
+  assert.equal(fZero.status, 'DISCREPANCY_LEDGER_EXCEEDS_ACTIVATED');
+  assert.equal(fZero.activatedRaw, '0');
+  assert.equal(fZero.ledgerSumRaw, '700000000000');
 });
 
 console.log(`All ${passed} A9 v15 worker tests passed.`);

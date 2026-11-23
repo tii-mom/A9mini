@@ -66,6 +66,25 @@ test('buildV15StakeTx builds valid 2-cell TEP-74 AskToTransfer BOC with 0x525400
   assert.equal(raw.readBigUInt64BE(17), 77n);
 });
 
+test('v16 stake encodes full 32-bit round IDs and keeps v15 payloads distinct', () => {
+  const address = '0:' + 'ab'.repeat(32);
+  const stake = {
+    userJettonWallet: address,
+    roundController: address,
+    userAddress: address,
+    amountA9Raw: '10000000000000',
+    queryId: 77n,
+  };
+  const encode = (roundId, protocolVersion) => Buffer.from(
+    buildV15StakeTx({ ...stake, roundId, protocolVersion }).messages[0].payload, 'base64',
+  );
+  assert.equal(encode(255).subarray(-6).toString('hex'), '5254000fff20');
+  assert.equal(encode(256, 'v16').subarray(-9).toString('hex'), '525400100000010020');
+  assert.equal(encode(0xffffffff, 'v16').subarray(-9).toString('hex'), '52540010ffffffff20');
+  assert.throws(() => encode(256), /1\.\.255/);
+  assert.throws(() => encode(0x100000000, 'v16'), /1\.\.4294967295/);
+});
+
 test('buildV15ClaimTx and buildV15PromoFeeTx produce valid TON Connect 2.0 message payloads', () => {
   const claimTx = buildV15ClaimTx('EQ_TICKET_DEMO', 99n);
   assert.equal(claimTx.messages.length, 1);

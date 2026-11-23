@@ -1,42 +1,47 @@
 #!/usr/bin/env node
 // A9 Protocol v15 — Minimalist 4-contract deployment CLI (default dry-run).
 import { spawnSync } from 'node:child_process';
-import { loadParams, verifyV15Artifacts, V15_ROOT } from './lib/v15-core.mjs';
+import { validateDeployPreflight } from './lib/v15-core.mjs';
 
 function parseArgs(argv) {
-  const out = { profile: process.env.A9_PROFILE || process.env.A9_NETWORK || 'testnet', execute: false };
+  const out = { profile: process.env.A9_PROFILE || process.env.A9_NETWORK || 'testnet', execute: false, strict: false, protocol: 'v15' };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--profile' || argv[i] === '--network') out.profile = argv[++i];
+    else if (argv[i] === '--protocol') out.protocol = argv[++i];
     else if (argv[i] === '--execute') out.execute = true;
+    else if (argv[i] === '--strict') out.strict = true;
     else if (argv[i] === '--dry-run') out.execute = false;
   }
   return out;
 }
 
 const args = parseArgs(process.argv.slice(2));
-const { profile, data: p } = loadParams(args.profile);
-const artifacts = verifyV15Artifacts(V15_ROOT);
+const preflight = validateDeployPreflight({
+  protocol: args.protocol,
+  profile: args.profile,
+  env: process.env,
+  execute: args.execute,
+  strict: args.strict,
+});
+const { profile, params: p, protocolRoot, artifacts } = preflight;
 
-console.log(`[v15-deploy] Verified ${artifacts.length} compiled artifacts against ci/artifacts.sha256`);
-console.log(`[v15-deploy] Profile loaded: ${profile} (network=${p.network})`);
+console.log(`[${args.protocol}-deploy] Verified ${artifacts.length} compiled artifacts against ci/artifacts.sha256`);
+console.log(`[${args.protocol}-deploy] Profile loaded: ${profile} (network=${p.network})`);
 
-if (args.execute) {
-  if (process.env.OPS_EXECUTE !== '1' || process.env.OPS_CONFIRM !== 'YES') {
-    console.error('Refusing --execute: set OPS_EXECUTE=1 and OPS_CONFIRM=YES');
-    process.exit(1);
-  }
-  if (p.network === 'mainnet' && process.env.OPS_CONFIRM_MAINNET !== 'YES') {
-    console.error('Refusing mainnet --execute: set OPS_CONFIRM_MAINNET=YES');
-    process.exit(1);
-  }
-} else {
-  console.log('[v15-deploy] DRY-RUN mode: no on-chain transaction will be broadcast.');
-  console.log('[v15-deploy] Summary:', JSON.stringify({
+if (!args.execute) {
+  console.log(`[${args.protocol}-deploy] DRY-RUN mode: no on-chain transaction will be broadcast.`);
+  console.log(`[${args.protocol}-deploy] Summary:`, JSON.stringify({
+    protocol: args.protocol,
     network: p.network,
     totalSupplyA9: (BigInt(p.supply.totalSupplyRaw) / 1_000_000_000n).toString(),
     rcFundingA9: (BigInt(p.supply.rcFundingRaw) / 1_000_000_000n).toString(),
     timing: p.timing,
     promoUserFeeTon: p.promoHotWallet.userFeeTon,
+    artifacts: artifacts.map((a) => ({ path: a.relPath, sha256: a.sha256 })),
+    missingRequiredForExecute: preflight.missing,
+    invalidConfigForExecute: preflight.invalid,
+    warnings: preflight.warnings,
+    readyForExecute: preflight.readyForExecute,
   }, null, 2));
   process.exit(0);
 }
@@ -44,6 +49,7 @@ if (args.execute) {
 const env = {
   ...process.env,
   A9_NETWORK: p.network,
+  A9_PROTOCOL_VERSION: args.protocol,
   A9_METADATA_URI: process.env.A9_METADATA_URI || '',
   A9_TOTAL_SUPPLY_RAW: p.supply.totalSupplyRaw,
   A9_REWARD_POOL_RAW: p.supply.rewardPoolRaw,
@@ -69,7 +75,7 @@ const env = {
 };
 
 const res = spawnSync('acton', ['script', '--net', p.network, '../ops/tolk/deploy_v15.tolk'], {
-  cwd: V15_ROOT,
+  cwd: protocolRoot,
   env,
   stdio: 'inherit',
 });
