@@ -78,7 +78,7 @@ export const I18N = {
     navUnlock: '奖励解锁',
     navAllocation: '分配与结算',
     navLedger: '闯关账本',
-    openApp: '打开 A9 应用',
+    openSimulator: '查看收益试算',
     themeToDark: '暗夜终端',
     themeToLight: '雪宣纸亮色',
 
@@ -210,7 +210,7 @@ export const I18N = {
     navUnlock: 'Unlock',
     navAllocation: 'Tokenomics',
     navLedger: 'Ledger',
-    openApp: 'Open A9 App',
+    openSimulator: 'Open reward estimator',
     themeToDark: 'Dark Terminal',
     themeToLight: 'Snow Paper',
 
