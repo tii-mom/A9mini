@@ -519,6 +519,45 @@ await test('Chest OG PNG (16x9 & 9x16) and SVG render real chest progress withou
   assert.equal(svgMissing.status, 200);
   assert.match(svgMissing.rawBody, /A9 CHEST · BOOST &amp; OPEN/);
   assert.doesNotMatch(svgMissing.rawBody, /DATA PENDING|ROUND PENDING/);
+
+  // 4) Fractional reward chest (SHOP_BOOST Bronze: 1981.98 + 19.8198 = 2,001.7998 A9) preserves decimals in SVG, 16x9 PNG, and 9x16 PNG
+  const shopChest = await chest.createShopBoostChest({ userId: '7001', walletAddress: W_OWNER, skuId: 'chest_bronze', orderId: 'ord_og_frac' }, 5020);
+  const svgFrac = await router({ method: 'GET', pathname: `/c/img/chest/${shopChest.chestId}.svg`, nowSec: 5021 });
+  assert.equal(svgFrac.status, 200);
+  assert.match(svgFrac.rawBody, /2,001\.7998 A9 Reward/);
+
+  const pngFracLand = await router({ method: 'GET', pathname: `/c/img/chest/${shopChest.chestId}.png`, nowSec: 5021 });
+  const pngFracStory = await router({ method: 'GET', pathname: `/c/img/chest/${shopChest.chestId}.png`, query: { ratio: '9x16' }, nowSec: 5021 });
+  for (const res of [pngFracLand, pngFracStory]) {
+    assert.equal(res.status, 200);
+    assert.equal(res.contentType, 'image/png');
+    assert.deepEqual(Array.from(res.rawBody.subarray(0, 8)), [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  }
+  const { renderOgCardPng } = await import('../src/growth-engine.mjs');
+  const pngWholeLand = await renderOgCardPng({
+    type: 'chest',
+    roundId: null,
+    hasData: true,
+    state: '0/2 ASSISTS',
+    qualified: 0,
+    totalSlots: 2,
+    targetUsd: 'Bronze Chest',
+    budgetA9: '2,001',
+    ratio: '16x9',
+  });
+  const pngWholeStory = await renderOgCardPng({
+    type: 'chest',
+    roundId: null,
+    hasData: true,
+    state: '0/2 ASSISTS',
+    qualified: 0,
+    totalSlots: 2,
+    targetUsd: 'Bronze Chest',
+    budgetA9: '2,001',
+    ratio: '9x16',
+  });
+  assert.notEqual(Buffer.from(pngFracLand.rawBody).toString('base64'), Buffer.from(pngWholeLand).toString('base64'));
+  assert.notEqual(Buffer.from(pngFracStory.rawBody).toString('base64'), Buffer.from(pngWholeStory).toString('base64'));
 });
 
 console.log(`All ${passed} A9 v15 Chest Mall & Viral Assist tests passed.`);

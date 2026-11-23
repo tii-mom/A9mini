@@ -116,17 +116,34 @@ def pick_focus_round(rounds):
 
 
 async def current_round_summary():
-    """从实时协议接口读取焦点轮摘要，缺失或不可达时返回“待核验”。"""
+    """从实时协议接口读取焦点轮摘要，显式区分未开轮（unopened）、接口故障（unavailable）与已开轮（active）。"""
     rounds = await fetch_json("/api/rounds")
+    if rounds is None or not isinstance(rounds, list):
+        return {
+            "status": "unavailable",
+            "round": PENDING,
+            "state": PENDING,
+            "target": PENDING,
+            "twap": PENDING,
+            "qualified": PENDING,
+        }
     r = pick_focus_round(rounds)
-    if not r:
-        return {"round": PENDING, "state": PENDING, "target": PENDING, "twap": PENDING, "qualified": PENDING}
+    if not r or r.get("state") == "UNOPENED" or not r.get("roundId"):
+        return {
+            "status": "unopened",
+            "round": PENDING,
+            "state": STATE_LABELS["UNOPENED"],
+            "target": PENDING,
+            "twap": PENDING,
+            "qualified": PENDING,
+        }
     q = r.get("qualifiedCandles")
     raw_twap = r.get("priceUsdE8") if r.get("priceValid") is not False else None
     if raw_twap is None:
         raw_twap = r.get("twap24hUsdE8")
     return {
-        "round": f"#{r.get('roundId')}" if r.get("roundId") else PENDING,
+        "status": "active",
+        "round": f"#{r.get('roundId')}",
         "state": STATE_LABELS.get(r.get("state"), r.get("state") or PENDING),
         "target": usd_e8(r.get("targetPriceUsdE8")),
         "twap": usd_e8(raw_twap),
@@ -140,7 +157,7 @@ def _esc(value):
 
 async def render_start():
     s = await current_round_summary()
-    if s["round"] == PENDING:
+    if s["status"] == "unopened":
         return (
             "<b>A9 · 财富大冒险</b>\n"
             "首轮链上闯关蓄水筹备中，免费青铜宝箱与宝箱商城入口已就绪。\n\n"
@@ -148,6 +165,12 @@ async def render_start():
             "• 宝箱商城：0.99 GRAM 起固定汇率兑换（1 GRAM = 2,002 A9），可选 24H 助力膨胀\n"
             "• 战队群主：绑定 ≥50 人真实 TG 群可享 5,000 A9 创世金库与 12% 永久返佣\n\n"
             "点击下方按钮打开小程序。参与有风险，一切规则与结果以链上及协议公示为准。"
+        )
+    if s["status"] == "unavailable":
+        return (
+            "<b>A9 · 财富大冒险</b>\n"
+            "协议状态接口暂不可达，当前轮次与行情数据待核验，请稍后重试或在小程序内刷新查看。\n\n"
+            "你仍可直接打开小程序查看规则、免费宝箱与宝箱商城入口。参与有风险，结果以链上结算为准。"
         )
     return (
         "<b>A9 · 财富大冒险</b>\n"

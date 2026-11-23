@@ -57,6 +57,19 @@ function formatWholeA9FromRaw(raw) {
   }
 }
 
+function formatExactA9FromRaw(raw) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  try {
+    const n = BigInt(String(raw));
+    if (n <= 0n) return null;
+    const whole = (n / 1_000_000_000n).toLocaleString('en-US');
+    const frac = String(n % 1_000_000_000n).padStart(9, '0').replace(/0+$/, '');
+    return frac ? `${whole}.${frac}` : whole;
+  } catch {
+    return null;
+  }
+}
+
 function err(code, message, status = 400) {
   return { status, body: { ok: false, error: { code, message }, ts: Date.now() } };
 }
@@ -814,7 +827,7 @@ export function createApiRouter({
         const ratio = query.ratio === '9x16' ? '9x16' : '16x9';
         if (type === 'chest') {
           const chest = chestEngine ? await chestEngine.getChest(id) : null;
-          const rewardStr = chest ? formatWholeA9FromRaw(chest.source === 'SHOP_BOOST' ? (BigInt(chest.baseA9Raw) + BigInt(chest.boostA9Raw)).toString() : chest.baseA9Raw) : null;
+          const rewardStr = chest ? formatExactA9FromRaw(chest.source === 'SHOP_BOOST' ? (BigInt(chest.baseA9Raw) + BigInt(chest.boostA9Raw)).toString() : chest.baseA9Raw) : null;
           const pngBytes = await renderOgCardPng({
             type: 'chest',
             roundId: null,
@@ -853,7 +866,7 @@ export function createApiRouter({
         const [, type, id] = ogImgMatch;
         if (type === 'chest') {
           const chest = chestEngine ? await chestEngine.getChest(id) : null;
-          const rewardStr = chest ? formatWholeA9FromRaw(chest.source === 'SHOP_BOOST' ? (BigInt(chest.baseA9Raw) + BigInt(chest.boostA9Raw)).toString() : chest.baseA9Raw) : null;
+          const rewardStr = chest ? formatExactA9FromRaw(chest.source === 'SHOP_BOOST' ? (BigInt(chest.baseA9Raw) + BigInt(chest.boostA9Raw)).toString() : chest.baseA9Raw) : null;
           const svg = renderOgCardSvg({
             type: 'chest',
             roundId: null,

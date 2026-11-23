@@ -904,7 +904,7 @@ export async function renderOgCardPng({
     ? (verified ? chestState : 'BOOST AND OPEN')
     : (verified && qualNum !== null ? `${qualNum}/${totalSlots} SLOTS` : 'DATA PENDING');
   const cleanTarget = verified ? (String(targetUsd || '--').replace(/[^0-9.$-]/g, '') || '--') : '--';
-  const cleanBudget = verified && budgetA9 ? String(budgetA9).replace(/[^0-9A-Za-z]/g, '') : null;
+  const cleanBudget = verified && budgetA9 ? String(budgetA9).replace(/[^0-9A-Za-z.]/g, '') : null;
   const poolLine = isChest
     ? (cleanBudget ? `REWARD ${cleanBudget} A9  FREE BRONZE #1` : 'ASSIST TO CLAIM BRONZE #1')
     : (cleanBudget ? `POOL ${cleanBudget} A9  UP TO 15X` : 'ON-CHAIN DATA PENDING');
