@@ -9,7 +9,7 @@ A9 · 财富大冒险 Telegram Bot 配套服务（命令菜单 + 安全 Mini App
 
 用法：
   export A9_BOT_TOKEN="your_botfather_token"
-  export A9_MINI_APP_URL="https://a9.lat/?mode=live"
+  export A9_MINI_APP_URL="https://app.a9.lat/?mode=live"
   export A9_API_BASE="https://api.a9.lat"
   pip install "python-telegram-bot>=21.0"
   python3 bot/a9_bot.py
@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO, format="[a9-bot] %(asctime)s %(levelname
 logger = logging.getLogger("a9_bot")
 
 BOT_TOKEN = os.getenv("A9_BOT_TOKEN", "")
-MINI_APP_URL = os.getenv("A9_MINI_APP_URL", "https://a9.lat/?mode=live").strip()
+MINI_APP_URL = os.getenv("A9_MINI_APP_URL", "https://app.a9.lat/?mode=live").strip()
 API_BASE = os.getenv("A9_API_BASE", "").rstrip("/")
 
 PENDING = "待核验"
@@ -66,7 +66,7 @@ ROUTE_MAP = {
 
 def build_mini_app_url(startapp=None):
     """安全拼接 Mini App URL，保留现有查询参数并默认注入 mode=live，避免出现双问号破坏链接。"""
-    parsed = urllib.parse.urlsplit(MINI_APP_URL or "https://a9.lat/?mode=live")
+    parsed = urllib.parse.urlsplit(MINI_APP_URL or "https://app.a9.lat/?mode=live")
     params = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=False))
     params.setdefault("mode", "live")
     if startapp:
