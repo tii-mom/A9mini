@@ -62,11 +62,19 @@ export const ENDPOINTS = Object.freeze({
 });
 
 export class ApiError extends Error {
-  constructor(code, message) {
+  constructor(code, message, status = null) {
     super(message);
     this.name = 'ApiError';
     this.code = code;
+    this.status = status;
   }
+}
+
+let serverClockOffsetMs = 0;
+
+/** 返回经服务端信封 ts 校偏后的当前毫秒时间戳，抗客户端设备时钟偏差与后台休眠。 */
+export function serverNowMs() {
+  return Date.now() + serverClockOffsetMs;
 }
 
 /** BAM ApiResponse<T> 信封：{ ok, data, ts } | { ok:false, error:{code,message} } */
@@ -90,17 +98,20 @@ async function request(path, { timeoutMs = config.timeoutMs, method = 'GET', bod
     try {
       body = await res.json();
     } catch (_) {
-      throw new ApiError('BAD_RESPONSE', `接口返回非 JSON（HTTP ${res.status}）`);
+      throw new ApiError('BAD_RESPONSE', `接口返回非 JSON（HTTP ${res.status}）`, res.status);
     }
     if (!body || typeof body !== 'object' || !('ok' in body)) {
-      throw new ApiError('BAD_RESPONSE', '接口返回格式错误');
+      throw new ApiError('BAD_RESPONSE', '接口返回格式错误', res.status);
     }
-    if (!body.ok) throw new ApiError(body.error?.code || 'API_ERROR', body.error?.message || '接口返回错误');
+    if (typeof body.ts === 'number' && Number.isFinite(body.ts) && body.ts > 1_000_000_000_000) {
+      serverClockOffsetMs = body.ts - Date.now();
+    }
+    if (!body.ok) throw new ApiError(body.error?.code || 'API_ERROR', body.error?.message || '接口返回错误', res.status);
     return body.data;
   } catch (e) {
-    if (timedOut) throw new ApiError('NETWORK', '请求超时，请重试');
+    if (timedOut) throw new ApiError('NETWORK', '请求超时，请重试', 408);
     if (e instanceof ApiError) throw e;
-    throw new ApiError('NETWORK', '网络异常或接口不可达，请重试');
+    throw new ApiError('NETWORK', '网络异常或接口不可达，请重试', 0);
   } finally {
     clearTimeout(timer);
   }
@@ -262,12 +273,14 @@ export function mapRoundView(snapshot) {
     rewardBudgetA9: rawToA9(d.rewardBudgetRaw, decimals),
     totalStakedRaw: d.totalAcceptedStakeRaw ?? null,
     totalWeightRaw: d.totalWeightRaw ?? null,
-    stakerCount: Number(d.stakerCount) || 0,
+    stakerCount: Number(d.stakerCount ?? d.entryCount) || 0,
     entryCount: Number(d.entryCount) || 0,
     successCount: Number.isInteger(c.poolState?.successCount) ? c.poolState.successCount : null,
     unlock: d.unlock || null,
     poolState: c.poolState || null,
     promoHotWallet: c.promoHotWallet || null,
+    chestMall: c.chestMall || null,
+    protocolConfig: c,
     result: d.result || null,
     updatedAt: d.updatedAt || snapshot.fetchedAt,
     source: snapshot.source,

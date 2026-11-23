@@ -283,8 +283,8 @@ export function createApiRouter({
       // Warm-up & Team social endpoints (acting wallet always comes from the verified binding)
       if (method === 'POST' && pathname === '/api/warmup/register') {
         if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
-        const { walletAddress } = await auth.wallet(body?.walletAddress || null);
-        return ok(await socialStore.registerWarmup({ roundId: body?.roundId, walletAddress, referrerId: body?.referrerId || null }, nowSec));
+        const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
+        return ok(await socialStore.registerWarmup({ roundId: body?.roundId, walletAddress, referrerId: body?.referrerId || null, aliases: [identity.telegramUserId] }, nowSec));
       }
 
       if (method === 'POST' && pathname === '/api/warmup/cancel') {
@@ -368,8 +368,8 @@ export function createApiRouter({
 
       if (method === 'POST' && pathname === '/api/team/join') {
         if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
-        const { binding, walletAddress } = await auth.wallet(body?.walletAddress || null);
-        const team = await socialStore.joinTeam({ teamId: body?.teamId, walletAddress, referrerId: body?.referrerId || null }, nowSec);
+        const { identity, binding, walletAddress } = await auth.wallet(body?.walletAddress || null);
+        const team = await socialStore.joinTeam({ teamId: body?.teamId, walletAddress, referrerId: body?.referrerId || null, aliases: [identity.telegramUserId] }, nowSec);
         return ok(sanitizeTeamView(team, binding.walletKey));
       }
 
@@ -388,6 +388,34 @@ export function createApiRouter({
         if (!predictionEngine) return err('PREDICTION_DISABLED', 'prediction engine not configured', 503);
         const id = await auth.telegram();
         if (body?.userId && String(body.userId) !== id.telegramUserId) return err('FORBIDDEN', 'userId does not match the signed-in Telegram user', 403);
+
+        // 严格依据服务端链上轮次与质押截止时间判断预测窗口（防止观察期明牌后下注）
+        const requestedRoundId = Number(body?.roundId);
+        const ps = stateStore?.getProtocolState?.() || null;
+        if (ps && ps.dataAvailable === false) {
+          return err('CHAIN_STATE_UNAVAILABLE', 'on-chain round state unavailable for prediction betting', 503);
+        }
+        const chainRound = Number.isInteger(requestedRoundId) && requestedRoundId > 0
+          ? stateStore?.getRound?.(requestedRoundId)
+          : null;
+        if (ps?.dataAvailable === true || chainRound) {
+          const currentRoundId = Number(ps?.currentRoundId || 0);
+          if (!Number.isInteger(requestedRoundId) || requestedRoundId <= 0 || (currentRoundId > 0 && requestedRoundId !== currentRoundId)) {
+            return err('ROUND_NOT_OPEN', 'prediction betting is only open for the active on-chain round', 400);
+          }
+          if (!chainRound || !chainRound.round || Number(chainRound.round.status) !== 1) {
+            return err('ROUND_NOT_OPEN', 'target round is not open for prediction betting', 400);
+          }
+          const stakeOpenAt = Number(chainRound.round.stakeOpenAt || 0);
+          const stakeCloseAt = Number(chainRound.round.stakeCloseAt || 0);
+          if (stakeOpenAt > 0 && nowSec < stakeOpenAt) {
+            return err('ROUND_NOT_OPEN', 'prediction betting has not opened yet', 400);
+          }
+          if (stakeCloseAt <= 0 || nowSec >= stakeCloseAt) {
+            return err('BETTING_CLOSED', 'prediction betting closed when staking ended', 400);
+          }
+        }
+
         const ref = String(body?.referrerId || '').trim() || null;
         if (socialStore && ref) await socialStore.bindReferral(id.telegramUserId, ref, nowSec);
         return ok(await predictionEngine.placeBet({
@@ -789,7 +817,8 @@ export function createApiRouter({
       if (e instanceof PromoError || e instanceof PresaleError || e instanceof GrowthError) {
         return err(e.code, e.message, 400);
       }
-      return err('INTERNAL_ERROR', e.message || 'internal error', 500);
+      console.error('[a9-api] unhandled internal error:', e?.stack || e?.message || e);
+      return err('INTERNAL_ERROR', 'internal server error', 500);
     }
   };
 }

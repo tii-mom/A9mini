@@ -29,6 +29,15 @@ export class PromoError extends Error {
   }
 }
 
+export function deriveClaimQueryId(claimId) {
+  let h = 14695981039346656037n;
+  for (const ch of String(claimId || '')) {
+    h ^= BigInt(ch.charCodeAt(0));
+    h = (h * 1099511628211n) & 0xFFFFFFFFFFFFFFFFn;
+  }
+  return (h === 0n ? 1n : h).toString();
+}
+
 export class PromoHotWalletEngine {
   constructor({
     hotWalletAddress,
@@ -104,6 +113,50 @@ export class PromoHotWalletEngine {
   }
 
   /**
+   * Read-only dry-run verification: validates a finalized 0.06 GRAM fee inbound tx and builds
+   * a payoutInstruction WITHOUT modifying balances, claims, or usedFeeTxHashes.
+   */
+  planInboundFeeTx(tx, nowSec = Math.floor(Date.now() / 1000)) {
+    if (!tx || !tx.txHash) throw new PromoError('BAD_TX', 'missing txHash');
+    if (tx.finality !== 'finalized') throw new PromoError('NOT_FINALIZED', 'fee tx must be finalized');
+    if (this.usedFeeTxHashes.has(tx.txHash)) throw new PromoError('REPLAY_TX', 'fee tx already processed');
+    if (addressKey(tx.to) !== addressKey(this.hotWalletAddress)) throw new PromoError('WRONG_DEST', 'destination is not promo hot wallet');
+
+    const memo = String(tx.memo || '').trim();
+    const claimId = this.memoIndex.get(memo);
+    if (!claimId) throw new PromoError('UNKNOWN_MEMO', `no claim matches memo: ${memo}`);
+
+    const claim = this.claims.get(claimId);
+    if (claim.status !== CLAIM_STATUS.PENDING_FEE) {
+      throw new PromoError('INVALID_STATE', `claim ${claimId} is ${claim.status}`);
+    }
+    if (nowSec > claim.expiresAt) {
+      throw new PromoError('CLAIM_EXPIRED', `claim ${claimId} expired`);
+    }
+    const receivedNano = BigInt(tx.valueNano || 0);
+    if (receivedNano < claim.feeRequiredNano) {
+      throw new PromoError('INSUFFICIENT_FEE', `received ${receivedNano} < required ${claim.feeRequiredNano}`);
+    }
+    const bal = this.balances.get(addressKey(claim.walletAddress));
+    if (!bal || bal.claimableRaw < claim.amountRaw) {
+      throw new PromoError('INSUFFICIENT_BALANCE', 'claimable balance changed');
+    }
+    return {
+      claim: this.formatClaim(claim),
+      payoutInstruction: {
+        op: '0x0f8a7ea5',
+        queryId: deriveClaimQueryId(claim.claimId),
+        fromHotWallet: this.hotWalletAddress,
+        recipient: claim.walletAddress,
+        jettonAmountRaw: claim.amountRaw.toString(),
+        attachedTonNano: this.transferGasNano.toString(),
+        sendExcessesTo: this.hotWalletAddress,
+        forwardTonNano: '0',
+      },
+    };
+  }
+
+  /**
    * Process a finalized inbound GRAM transfer to the promo hot wallet.
    * Returns a ready-to-broadcast TEP-74 payout instruction when valid.
    */
@@ -150,6 +203,7 @@ export class PromoHotWalletEngine {
       claim: this.formatClaim(claim),
       payoutInstruction: {
         op: '0x0f8a7ea5', // Standard TEP-74 AskToTransfer
+        queryId: deriveClaimQueryId(claim.claimId),
         fromHotWallet: this.hotWalletAddress,
         recipient: claim.walletAddress,
         jettonAmountRaw: claim.amountRaw.toString(),

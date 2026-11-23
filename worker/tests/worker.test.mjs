@@ -3,9 +3,15 @@
 import assert from 'node:assert/strict';
 import { deriveRoundStage, mapV15RoundDetail } from '../src/v15-indexer.mjs';
 import { PromoHotWalletEngine, CLAIM_STATUS } from '../src/promo-hotwallet.mjs';
+import { D1PromoStore } from '../src/d1-promo-store.mjs';
+import { PromoPayoutRunner } from '../src/promo-runner.mjs';
+import { PredictionEngine } from '../src/growth-engine.mjs';
+import { D1PresaleStore, D1SocialStore } from '../src/d1-growth-store.mjs';
+import { SocialStore } from '../src/social-store.mjs';
+import { TonCenterClient } from '../src/toncenter.mjs';
 import { createApiRouter } from '../src/api.mjs';
 import { MemoryIdentityStore } from '../src/auth.mjs';
-import { TEST_BOT_TOKEN, tgHeaders, createSqliteD1, FRESH_SCHEMA, completePurchase } from './helpers/test-env.mjs';
+import { TEST_BOT_TOKEN, tgHeaders, createSqliteD1, FRESH_SCHEMA, MIGRATIONS, dumpDb, completePurchase } from './helpers/test-env.mjs';
 
 let passed = 0;
 async function test(name, fn) {
@@ -1080,6 +1086,239 @@ await test('Batch 1: reconcilePredictionLedger handles wallet rebind without fal
   assert.equal(fZero.status, 'DISCREPANCY_LEDGER_EXCEEDS_ACTIVATED');
   assert.equal(fZero.activatedRaw, '0');
   assert.equal(fZero.ledgerSumRaw, '700000000000');
+});
+
+await test('W1-1: POST /api/prediction/bet enforces on-chain round status and stakeCloseAt cutoff', async () => {
+  const pred = new PredictionEngine();
+  const makeStateStore = ({ dataAvailable = true, currentRoundId = 1, round = null } = {}) => ({
+    getTiming: () => ({ observationSeconds: 86400 }),
+    getProtocolState: () => ({ dataAvailable, currentRoundId, successCount: 0 }),
+    listRounds: () => (round ? [{ roundId: currentRoundId, round, candles: [] }] : []),
+    getRound: (id) => (round && Number(id) === currentRoundId ? { roundId: currentRoundId, round, candles: [] } : null),
+  });
+  const mkRouter = (ss) => createApiRouter({ env: { A9_BOT_TOKEN: TEST_BOT_TOKEN }, stateStore: ss, predictionEngine: pred });
+  const h = await tgHeaders(9101, { nowSec: 1500 });
+
+  // 1) Chain state unavailable -> 503
+  const rUnavail = await mkRouter(makeStateStore({ dataAvailable: false, currentRoundId: null }))({
+    method: 'POST', pathname: '/api/prediction/bet', headers: h, body: { roundId: 1, side: 'PASS' }, nowSec: 1500,
+  });
+  assert.equal(rUnavail.status, 503);
+  assert.equal(rUnavail.body.error.code, 'CHAIN_STATE_UNAVAILABLE');
+
+  // 2) Wrong roundId (!== currentRoundId) -> 400 ROUND_NOT_OPEN
+  const activeRound = { status: 1, stakeOpenAt: 1000, stakeCloseAt: 2000 };
+  const rWrong = await mkRouter(makeStateStore({ currentRoundId: 2, round: activeRound }))({
+    method: 'POST', pathname: '/api/prediction/bet', headers: h, body: { roundId: 1, side: 'PASS' }, nowSec: 1500,
+  });
+  assert.equal(rWrong.status, 400);
+  assert.equal(rWrong.body.error.code, 'ROUND_NOT_OPEN');
+
+  // 3) Past stakeCloseAt (observing phase) -> 400 BETTING_CLOSED
+  const rClosed = await mkRouter(makeStateStore({ currentRoundId: 1, round: activeRound }))({
+    method: 'POST', pathname: '/api/prediction/bet', headers: h, body: { roundId: 1, side: 'PASS' }, nowSec: 2000,
+  });
+  assert.equal(rClosed.status, 400);
+  assert.equal(rClosed.body.error.code, 'BETTING_CLOSED');
+
+  // 4) Settled round (status = 2) -> 400 ROUND_NOT_OPEN
+  const rSettled = await mkRouter(makeStateStore({ currentRoundId: 1, round: { status: 2, stakeOpenAt: 1000, stakeCloseAt: 2000 } }))({
+    method: 'POST', pathname: '/api/prediction/bet', headers: h, body: { roundId: 1, side: 'PASS' }, nowSec: 1500,
+  });
+  assert.equal(rSettled.status, 400);
+  assert.equal(rSettled.body.error.code, 'ROUND_NOT_OPEN');
+
+  // 5) Within active staking window -> 200
+  const rOk = await mkRouter(makeStateStore({ currentRoundId: 1, round: activeRound }))({
+    method: 'POST', pathname: '/api/prediction/bet', headers: h, body: { roundId: 1, side: 'PASS' }, nowSec: 1500,
+  });
+  assert.equal(rOk.status, 200);
+  assert.equal(rOk.body.data.roundId, 1);
+});
+
+await test('W1-2: PromoPayoutRunner dry-run is strictly read-only (zero balance deduction or DB write)', async () => {
+  const db = createSqliteD1(MIGRATIONS);
+  const HOT = 'kQDNHik_ofaZns7ki5yuMYHMHODiRSs_lcTG9R5p2iyJwt4X';
+  const USER = 'kQA_PROMO_DRYRUN_USER';
+  const d1Promo = new D1PromoStore({ db, hotWalletAddress: HOT });
+  await d1Promo.creditReward(USER, '5000000000000', 1000);
+  const intent = await d1Promo.createClaimIntent(USER, 1001);
+  const beforeDump = await dumpDb(db);
+
+  const mockTc = {
+    fetchInboundTransfers: async () => [{
+      txHash: 'tx-dryrun-001',
+      finality: 'finalized',
+      to: HOT,
+      from: USER,
+      valueNano: '60000000',
+      memo: intent.memo,
+      utime: 1002,
+    }],
+  };
+  let broadcastCalls = 0;
+  const runner = new PromoPayoutRunner({
+    engine: d1Promo,
+    tonCenter: mockTc,
+    broadcaster: async () => { broadcastCalls += 1; return { txHash: '0xshould_not_run' }; },
+    execute: false,
+    logger: { log() {} },
+  });
+  const summary = await runner.tick(1003);
+  assert.equal(summary.dryRun, 1);
+  assert.equal(summary.processed, 0);
+  assert.equal(summary.errors.length, 0);
+  assert.equal(broadcastCalls, 0);
+  assert.equal(await dumpDb(db), beforeDump);
+  assert.equal((await d1Promo.getBalance(USER)).claimableRaw, '5000000000000');
+  assert.equal((await d1Promo.getClaim(intent.claimId)).status, CLAIM_STATUS.PENDING_FEE);
+});
+
+await test('W1-3: D1PromoStore.verifyInboundFeeTx rolls back ENTIRE db.batch() on concurrent claim/balance mutation', async () => {
+  const db = createSqliteD1(MIGRATIONS);
+  const HOT = 'kQDNHik_ofaZns7ki5yuMYHMHODiRSs_lcTG9R5p2iyJwt4X';
+  const USER = 'kQA_PROMO_RACE_USER';
+  const d1Promo = new D1PromoStore({ db, hotWalletAddress: HOT });
+  await d1Promo.creditReward(USER, '5000000000000', 1000);
+  const intent = await d1Promo.createClaimIntent(USER, 1001);
+
+  // Inject concurrent mutation right before db.batch() executes:
+  // Scenario A: another worker marks the claim EXPIRED after initial SELECT but before batch().
+  const origBatch = db.batch.bind(db);
+  let intercepted = false;
+  db.batch = async (stmts) => {
+    if (!intercepted) {
+      intercepted = true;
+      await db.prepare('UPDATE promo_claims SET status = ? WHERE claim_id = ?').bind(CLAIM_STATUS.EXPIRED, intent.claimId).run();
+    }
+    return origBatch(stmts);
+  };
+  await assert.rejects(
+    () => d1Promo.verifyInboundFeeTx({
+      txHash: 'tx-race-expired',
+      finality: 'finalized',
+      to: HOT,
+      from: USER,
+      valueNano: '60000000',
+      memo: intent.memo,
+    }, 1002),
+    { code: 'CONFLICT' },
+  );
+  // Balance must be 100% preserved (zero evaporation) and claim remains EXPIRED!
+  assert.equal((await d1Promo.getBalance(USER)).claimableRaw, '5000000000000');
+  assert.equal((await d1Promo.getBalance(USER)).totalClaimedRaw, '0');
+  assert.equal((await d1Promo.getClaim(intent.claimId)).status, CLAIM_STATUS.EXPIRED);
+
+  // Scenario B: new claim where promo_balances concurrently receives another credit before batch().
+  db.batch = origBatch;
+  const intent2 = await d1Promo.createClaimIntent(USER, 1005);
+  let interceptedB = false;
+  db.batch = async (stmts) => {
+    if (!interceptedB) {
+      interceptedB = true;
+      await db.prepare('UPDATE promo_balances SET claimable_raw = ? WHERE wallet_address = ?').bind('6000000000000', USER).run();
+    }
+    return origBatch(stmts);
+  };
+  await assert.rejects(
+    () => d1Promo.verifyInboundFeeTx({
+      txHash: 'tx-race-balance',
+      finality: 'finalized',
+      to: HOT,
+      from: USER,
+      valueNano: '60000000',
+      memo: intent2.memo,
+    }, 1006),
+    { code: 'CONFLICT' },
+  );
+  db.batch = origBatch;
+  assert.equal((await d1Promo.getBalance(USER)).claimableRaw, '6000000000000');
+  assert.equal((await d1Promo.getBalance(USER)).totalClaimedRaw, '0');
+  assert.equal((await d1Promo.getClaim(intent2.claimId)).status, CLAIM_STATUS.PENDING_FEE);
+  assert.equal((await d1Promo.getClaim(intent2.claimId)).feeTxHash, null);
+});
+
+await test('W1-4: D1PresaleRepo.insertOrderIfCapacity handles >INT64_MAX (10B A9 raw = 1e19) with exact BigInt precision', async () => {
+  const db = createSqliteD1(MIGRATIONS);
+  const HOT = 'kQDNHik_ofaZns7ki5yuMYHMHODiRSs_lcTG9R5p2iyJwt4X';
+  const CAP_10B = 10_000_000_000n * 1_000_000_000n; // 10,000,000,000,000,000,000 > INT64_MAX (9.223e18)
+  const presale = new D1PresaleStore({
+    db,
+    hotWalletAddress: HOT,
+    rateA9PerTon: 100_000_000n,
+    minOrderTon: 1n,
+    maxOrderTon: 100n,
+    defaultQuotaTon: 100n,
+    totalCapA9Raw: CAP_10B,
+    open: true,
+  });
+  // First order: 60 TON * 100M = 6B A9 raw (6e18)
+  const o1 = await presale.createOrderIntent('EQ_HUGE_1', '60', 1000);
+  assert.equal(o1.a9AmountRaw, (6_000_000_000n * 1_000_000_000n).toString());
+  // Second order: 40 TON * 100M = 4B A9 raw -> total exactly 10B A9 raw (1e19 > INT64_MAX) -> MUST SUCCEED
+  const o2 = await presale.createOrderIntent('EQ_HUGE_2', '40', 1001);
+  assert.equal(o2.a9AmountRaw, (4_000_000_000n * 1_000_000_000n).toString());
+  // Third order: even 1 TON would exceed 10B cap -> MUST REJECT with SOLD_OUT
+  await assert.rejects(() => presale.createOrderIntent('EQ_HUGE_3', '1', 1002), { code: 'SOLD_OUT' });
+});
+
+await test('W1-5: Warmup blocks cancel->register invite farming and team switch updates old team member_count', async () => {
+  for (const [label, social] of [
+    ['memory', new SocialStore()],
+    ['d1', new D1SocialStore({ db: createSqliteD1(MIGRATIONS) })],
+  ]) {
+    await social.registerWarmup({ roundId: 1, walletAddress: 'EQ_REF_LEADER' }, 1000);
+    await social.registerWarmup({ roundId: 1, walletAddress: 'EQ_FARMER', referrerId: 'EQ_REF_LEADER' }, 1001);
+    await social.cancelWarmup({ roundId: 1, walletAddress: 'EQ_FARMER' }, 1002);
+    await social.registerWarmup({ roundId: 1, walletAddress: 'EQ_FARMER', referrerId: 'EQ_REF_LEADER' }, 1003);
+    await social.cancelWarmup({ roundId: 1, walletAddress: 'EQ_FARMER' }, 1004);
+    await social.registerWarmup({ roundId: 1, walletAddress: 'EQ_FARMER', referrerId: 'EQ_REF_LEADER' }, 1005);
+    const lb = await social.getWarmupLeaderboard(1, 10);
+    const leader = lb.find((r) => r.walletAddress === 'EQ_REF_LEADER');
+    assert.equal(leader?.validInvites, 1, `${label}: cancel->register must NOT inflate validInvites`);
+
+    await social.createOrBindTeamGroup({ teamId: 'TM-A', name: 'Team A', captainWallet: 'EQ_CAP_A' }, 1000);
+    await social.createOrBindTeamGroup({ teamId: 'TM-B', name: 'Team B', captainWallet: 'EQ_CAP_B' }, 1000);
+    await social.joinTeam({ teamId: 'TM-A', walletAddress: 'EQ_MOVER' }, 1001);
+    assert.equal((await social.getTeamByWallet('EQ_CAP_A')).memberCount, 2, label);
+    await social.joinTeam({ teamId: 'TM-B', walletAddress: 'EQ_MOVER' }, 1002);
+    assert.equal((await social.getTeamByWallet('EQ_CAP_A')).memberCount, 1, `${label}: old team count must decrement on switch`);
+    assert.equal((await social.getTeamByWallet('EQ_CAP_B')).memberCount, 2, label);
+  }
+});
+
+await test('W1-6: cf-worker production fail-closed/CORS x-idempotency-key & TonCenter strict stack + conservative verifier', async () => {
+  const { default: cfWorker } = await import('../src/cf-worker.mjs');
+  // 1) OPTIONS allows x-idempotency-key; mainnet without allowlist omits wildcard '*'
+  const optProd = await cfWorker.fetch(
+    new Request('https://api.a9.lat/api/prediction/activate', { method: 'OPTIONS', headers: { origin: 'https://evil.example' } }),
+    { A9_NETWORK: 'mainnet' },
+  );
+  assert.equal(optProd.status, 204);
+  assert.ok(optProd.headers.get('access-control-allow-headers').includes('x-idempotency-key'));
+  assert.equal(optProd.headers.get('access-control-allow-origin'), null);
+
+  // 2) Production without DB binding fails closed with 503 PRODUCTION_CONFIG_INCOMPLETE
+  const prodNoDb = await cfWorker.fetch(
+    new Request('https://api.a9.lat/api/config'),
+    { A9_NETWORK: 'mainnet', A9_PUBLIC_ORIGIN: 'https://a9.lat' },
+  );
+  assert.equal(prodNoDb.status, 503);
+  const prodBody = await prodNoDb.json();
+  assert.equal(prodBody.error.code, 'PRODUCTION_CONFIG_INCOMPLETE');
+
+  // 3) TonCenterClient strict stack check rejects truncated get_round / get_protocol_state instead of returning fake 0
+  const badTc = new TonCenterClient({
+    apiBase: 'https://mock.toncenter',
+    apiKey: 'k',
+    fetchImpl: async () => ({ ok: true, json: async () => ({ ok: true, result: { exit_code: 0, stack: [['num', '0x1']] } }) }),
+  });
+  await assert.rejects(() => badTc.fetchProtocolState('EQ_RC'), /truncated stack/);
+  await assert.rejects(() => badTc.fetchRound('EQ_RC', 1), /truncated stack/);
+
+  // 4) verifyOutboundPayout never false-positives on outer out_msgs alone
+  const v = await badTc.verifyOutboundPayout('EQ_HOT', { txHash: '0xabc' });
+  assert.equal(v.state, 'PENDING');
 });
 
 console.log(`All ${passed} A9 v15 worker tests passed.`);

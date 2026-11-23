@@ -5,13 +5,13 @@ import { stageLabel } from './pages/wealthverse.js';
 import { characterArt } from './wealth-art.js';
 import qrcode from './vendor/qrcode.js';
 import { config } from './config.js';
+import { buildTmaDeepLink, getShareRef } from './share.js';
 
 function drawQrMatrix(ctx, x, y, size, startParam) {
-  const url = new URL(location.pathname, location.origin);
-  url.searchParams.set('mode', config.mode);
-  url.searchParams.set('startapp', startParam);
+  // 使用标准 Telegram Mini App 深链，保证相机/聊天扫码直接拉起 TMA 并携带 initData 与归因参数
+  const targetUrl = buildTmaDeepLink(startParam);
   const code = qrcode(0, 'M');
-  code.addData(url.href);
+  code.addData(targetUrl);
   code.make();
   const count = code.getModuleCount();
   const step = Math.floor(size / (count + 8));
@@ -145,12 +145,14 @@ function paintPoster(canvas, title, lines, param, tall = false) {
 }
 
 export function renderReferralPoster(canvas) {
-  const { team, user } = store.state;
+  const { team } = store.state;
+  const ref = getShareRef();
+  const teamPrefix = team.id && /^(?:G|T|TM|TEAM)-/i.test(team.id) ? `${team.id}_` : '';
   paintPoster(
     canvas,
     L('战队邀请函', 'Squad Invitation'),
     [L('轮次闯关 · A9 进化图鉴', 'Round Quest · A9 Evolution Deck')],
-    `invite_${team.id || 'A9'}_${(user.shortAddress || 'A9USER').slice(-4)}`,
+    `invite_${teamPrefix}${ref}`,
   );
 }
 

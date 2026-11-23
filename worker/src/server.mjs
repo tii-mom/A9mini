@@ -205,7 +205,7 @@ const server = createServer(async (req, res) => {
     res.writeHead(204, {
       'access-control-allow-origin': '*',
       'access-control-allow-methods': 'GET, POST, OPTIONS',
-      'access-control-allow-headers': 'content-type, authorization, x-a9-admin-token, x-telegram-init-data',
+      'access-control-allow-headers': 'content-type, authorization, x-a9-admin-token, x-telegram-init-data, x-idempotency-key',
     });
     res.end();
     return;

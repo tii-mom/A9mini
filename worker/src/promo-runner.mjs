@@ -34,8 +34,15 @@ export class PromoPayoutRunner {
           continue;
         }
         try {
-          const { claim, payoutInstruction } = this.engine.verifyInboundFeeTx(tx, nowSec);
+          // DRY-RUN 必须保持绝对只读：先判断 execute，再决定是只读预演还是落库扣款
           if (!this.execute) {
+            const planner = typeof this.engine.planInboundFeeTx === 'function'
+              ? this.engine.planInboundFeeTx.bind(this.engine)
+              : null;
+            if (!planner) {
+              throw new Error('promo engine missing read-only planInboundFeeTx for dry-run');
+            }
+            const { claim, payoutInstruction } = await planner(tx, nowSec);
             summary.dryRun += 1;
             this.logger.log?.(`[promo-runner][DRY-RUN] Verified ${claim.claimId} -> would send ${payoutInstruction.jettonAmountRaw} raw A9 to ${payoutInstruction.recipient}`);
             continue;
@@ -43,8 +50,9 @@ export class PromoPayoutRunner {
           if (typeof this.broadcaster !== 'function') {
             throw new Error('broadcaster callback is required when execute=true');
           }
+          const { claim, payoutInstruction } = await this.engine.verifyInboundFeeTx(tx, nowSec);
           const sent = await this.broadcaster(payoutInstruction);
-          this.engine.markPayoutCompleted(claim.claimId, sent.txHash, nowSec);
+          await this.engine.markPayoutCompleted(claim.claimId, sent.txHash, nowSec);
           summary.processed += 1;
           this.logger.log?.(`[promo-runner] Paid ${claim.claimId} tx=${sent.txHash} (excesses -> ${payoutInstruction.sendExcessesTo})`);
         } catch (e) {

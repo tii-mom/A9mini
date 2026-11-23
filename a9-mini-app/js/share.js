@@ -12,6 +12,19 @@ import { escapeHtml, formatNum, showToast, copyText, openModal, closeModal } fro
 import { icon } from './icons.js';
 import { L } from './i18n.js';
 
+export function getBotHandle() {
+  const fromServer = store.state.round?.protocolConfig?.tgBotHandle;
+  const fromGlobal = typeof window !== 'undefined' ? window.__A9_CONFIG__?.tgBotHandle : '';
+  return String(fromServer || fromGlobal || 'A9ProtocolBot').replace(/^@+/, '');
+}
+
+/** 生成标准 Telegram Mini App 深链：https://t.me/<bot>?startapp=<param> */
+export function buildTmaDeepLink(startParam) {
+  const safeParam = String(startParam || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+  const bot = getBotHandle();
+  return safeParam ? `https://t.me/${bot}?startapp=${encodeURIComponent(safeParam)}` : `https://t.me/${bot}`;
+}
+
 export function getShareRef() {
   const uid = getEffectiveUserId(store.state.user);
   if (uid) return uid;

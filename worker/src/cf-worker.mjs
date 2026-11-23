@@ -13,6 +13,12 @@ import { D1SocialStore, D1PredictionEngine, D1ProgressionEngine, D1PresaleStore 
 import { D1IdentityStore, MemoryIdentityStore } from './auth.mjs';
 import { TelegramBroadcaster, D1BroadcastLog, MemoryBroadcastLog } from './tg-broadcaster.mjs';
 
+function isStrictDeployEnv(env = {}) {
+  const e = String(env.A9_ENVIRONMENT || '').trim().toLowerCase();
+  const net = String(env.A9_NETWORK || '').trim().toLowerCase();
+  return e === 'production' || e === 'candidate' || net === 'mainnet';
+}
+
 function resolveCorsOrigin(request, env = {}) {
   const rawList = [
     env.A9_PUBLIC_ORIGIN || '',
@@ -20,7 +26,10 @@ function resolveCorsOrigin(request, env = {}) {
   ]
     .map((s) => s.trim().replace(/\/+$/, ''))
     .filter(Boolean);
-  if (!rawList.length) return '*';
+  if (!rawList.length) {
+    // 生产与候选环境未配置 CORS 白名单时绝不退化为通配符 '*'
+    return isStrictDeployEnv(env) ? null : '*';
+  }
   const reqOrigin = String(request?.headers?.get?.('origin') || '').trim().replace(/\/+$/, '');
   if (reqOrigin && rawList.includes(reqOrigin)) return reqOrigin;
   return rawList[0];
@@ -29,15 +38,16 @@ function resolveCorsOrigin(request, env = {}) {
 function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}, origin = '*') {
   return {
     'content-type': contentType,
-    'access-control-allow-origin': origin,
+    ...(origin ? { 'access-control-allow-origin': origin } : {}),
     'access-control-allow-methods': 'GET, POST, OPTIONS',
-    'access-control-allow-headers': 'content-type, authorization, x-a9-admin-token, x-telegram-init-data',
+    'access-control-allow-headers': 'content-type, authorization, x-a9-admin-token, x-telegram-init-data, x-idempotency-key',
     ...(origin !== '*' ? { vary: 'Origin' } : {}),
     ...extra,
   };
 }
 
 const CHAIN_CACHE_TTL_SEC = 15;
+const CHAIN_CACHE_STALE_MAX_SEC = 60;
 
 function routeNeedsChainState(pathname) {
   return (
@@ -45,6 +55,7 @@ function routeNeedsChainState(pathname) {
     pathname === '/api/rounds' ||
     pathname.startsWith('/api/rounds/') ||
     pathname.startsWith('/api/user/') ||
+    pathname === '/api/prediction/bet' ||
     pathname.startsWith('/api/prediction/user/') ||
     pathname.startsWith('/api/prediction/activate') ||
     pathname.startsWith('/api/progression/') ||
@@ -178,7 +189,8 @@ const memPredictionEngine = new PredictionEngine();
 const memProgressionEngine = new ProgressionEngine();
 const memIdentityStore = new MemoryIdentityStore();
 const memBroadcastLog = new MemoryBroadcastLog();
-let memChainCache = { fetchedAt: 0, ps: null, rounds: [] };
+// 按 `${apiBase}:${rcAddr}` 分桶存储链上缓存，防止同 isolate 多环境配置串数据
+const memChainCacheByTarget = new Map();
 
 function buildBroadcaster(env, { socialStore, identityStore, hasD1 }) {
   return new TelegramBroadcaster({
@@ -205,16 +217,38 @@ const CANDIDATE_REQUIRED_VARS = [
 ];
 
 export function validateCandidateEnv(env = {}) {
-  const isCandidate = String(env.A9_ENVIRONMENT || '').trim().toLowerCase() === 'candidate'
+  const envName = String(env.A9_ENVIRONMENT || '').trim().toLowerCase();
+  const isCandidate = envName === 'candidate'
     || String(env.A9_PROTOCOL_VERSION || '').trim().toLowerCase() === 'v16';
-  if (!isCandidate) return { ok: true, missing: [] };
-  const missing = [];
-  if (!env.DB) missing.push('DB');
-  for (const key of CANDIDATE_REQUIRED_VARS) {
-    if (!String(env[key] || '').trim()) missing.push(key);
+  if (isCandidate) {
+    const missing = [];
+    if (!env.DB) missing.push('DB');
+    for (const key of CANDIDATE_REQUIRED_VARS) {
+      if (!String(env[key] || '').trim()) missing.push(key);
+    }
+    return { ok: missing.length === 0, missing, code: 'CANDIDATE_CONFIG_INCOMPLETE' };
   }
-  return { ok: missing.length === 0, missing };
+  const isProduction = envName === 'production' || String(env.A9_NETWORK || '').trim().toLowerCase() === 'mainnet';
+  if (isProduction) {
+    const missing = [];
+    // 生产环境严禁无 D1 绑定时静默退回内存 Store
+    if (!env.DB) missing.push('DB');
+    // 若开启兑换/购箱写入口，必须具备独立预售热钱包、Bot Token 与域名白名单
+    if (env.A9_PRESALE_OPEN === '1') {
+      if (!String(env.A9_PRESALE_HOT_WALLET_ADDRESS || '').trim()) missing.push('A9_PRESALE_HOT_WALLET_ADDRESS');
+      if (!String(env.A9_BOT_TOKEN || '').trim()) missing.push('A9_BOT_TOKEN');
+      if (!String(env.A9_PUBLIC_ORIGIN || '').trim() && !String(env.A9_TON_PROOF_DOMAINS || '').trim()) {
+        missing.push('A9_PUBLIC_ORIGIN|A9_TON_PROOF_DOMAINS');
+      }
+    }
+    if (missing.length) {
+      return { ok: false, missing, code: 'PRODUCTION_CONFIG_INCOMPLETE' };
+    }
+  }
+  return { ok: true, missing: [], code: null };
 }
+
+export const validateDeployEnv = validateCandidateEnv;
 
 export default {
   async fetch(request, env = {}) {
@@ -222,14 +256,14 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders('application/json; charset=utf-8', {}, corsOrigin) });
     }
-    const candCheck = validateCandidateEnv(env);
+    const candCheck = validateDeployEnv(env);
     if (!candCheck.ok) {
       return new Response(
         JSON.stringify({
           ok: false,
           error: {
-            code: 'CANDIDATE_CONFIG_INCOMPLETE',
-            message: `Candidate environment missing required bindings/config: ${candCheck.missing.join(', ')}`,
+            code: candCheck.code || 'CANDIDATE_CONFIG_INCOMPLETE',
+            message: `Deployment environment missing required bindings/config: ${candCheck.missing.join(', ')}`,
             missing: candCheck.missing,
           },
         }),
@@ -258,10 +292,12 @@ export default {
     let rounds = [];
 
     if (tc && rcAddr && routeNeedsChainState(url.pathname)) {
-      const memFresh = memChainCache.ps && (nowSec - memChainCache.fetchedAt) <= CHAIN_CACHE_TTL_SEC;
+      const cacheKey = `${env.TONCENTER_API_BASE || ''}:${rcAddr}`;
+      const cached = memChainCacheByTarget.get(cacheKey) || null;
+      const memFresh = cached?.ps && (nowSec - cached.fetchedAt) <= CHAIN_CACHE_TTL_SEC;
       if (memFresh) {
-        ps = memChainCache.ps;
-        rounds = memChainCache.rounds;
+        ps = cached.ps;
+        rounds = cached.rounds;
       } else {
         const d1Rounds = hasD1 ? await readCachedRoundsFromD1(env.DB, nowSec) : null;
         try {
@@ -279,11 +315,12 @@ export default {
             rounds = fetched;
             if (hasD1) await writeRoundsCacheToD1(env.DB, rounds, nowSec);
           }
-          memChainCache = { fetchedAt: nowSec, ps, rounds };
+          memChainCacheByTarget.set(cacheKey, { fetchedAt: nowSec, ps, rounds });
         } catch {
-          if (memChainCache.ps) {
-            ps = memChainCache.ps;
-            rounds = memChainCache.rounds;
+          // 仅允许在最大容忍窗口（60s）内短时降级读缓存，超时后绝不拿陈旧快照冒充实时状态
+          if (cached?.ps && (nowSec - cached.fetchedAt) <= CHAIN_CACHE_STALE_MAX_SEC) {
+            ps = cached.ps;
+            rounds = cached.rounds;
           } else {
             ps = { dataAvailable: false, currentRoundId: null, successCount: null, poolRemainingRaw: null, carryRaw: null, teamPoolRemainingRaw: null, teamCarryRaw: null };
           }
@@ -419,9 +456,22 @@ export default {
         }
       }
       if (hasD1) await writeRoundsCacheToD1(env.DB, synced, nowSec);
-      memChainCache = { fetchedAt: nowSec, ps: { dataAvailable: true, ...ps }, rounds: synced };
+      const cacheKey = `${env.TONCENTER_API_BASE || ''}:${env.A9_ROUND_CONTROLLER_ADDRESS}`;
+      memChainCacheByTarget.set(cacheKey, { fetchedAt: nowSec, ps: { dataAvailable: true, ...ps }, rounds: synced });
     } catch (e) {
       console.error('[a9mini-v15-worker] scheduled sync error:', e?.message || e);
+    } finally {
+      // 定期清理过期超过 24 小时的 ton_proof 挑战记录，防止 D1 存储被恶意刷爆
+      if (hasD1) {
+        try {
+          await env.DB
+            .prepare('DELETE FROM auth_ton_proof_payloads WHERE expires_at < ?')
+            .bind(nowSec - 86400)
+            .run();
+        } catch (cleanupErr) {
+          console.error('[a9mini-v15-worker] auth payload cleanup error:', cleanupErr?.message || cleanupErr);
+        }
+      }
     }
   },
 };

@@ -9,6 +9,7 @@ import {
   buildV15StakeTx,
   buildV15ClaimTx,
   buildV15PromoFeeTx,
+  buildV15PresaleTx,
   V15_GAS,
 } from './v15-tx.js';
 
@@ -103,6 +104,21 @@ test('buildV15ClaimTx and buildV15PromoFeeTx produce valid TON Connect 2.0 messa
 
 test('encodeSingleCellBoc rejects payloads > 127 bytes', () => {
   assert.throws(() => encodeSingleCellBoc(new Uint8Array(128)));
+});
+
+test('buildV15PresaleTx builds valid buy:<orderId> TON Connect 2.0 payload and rejects invalid memos', () => {
+  const tx = buildV15PresaleTx({
+    payTo: 'EQ_PRESALE_HOT_DEMO',
+    tonNano: '990000000',
+    memo: 'buy:ord_chest_01',
+  });
+  assert.equal(tx.messages.length, 1);
+  assert.equal(tx.messages[0].address, 'EQ_PRESALE_HOT_DEMO');
+  assert.equal(tx.messages[0].amount, '990000000');
+  const raw = Buffer.from(tx.messages[0].payload, 'base64');
+  assert.equal(raw.subarray(0, 4).toString('hex'), 'b5ee9c72');
+  assert.throws(() => buildV15PresaleTx({ payTo: 'EQ_X', tonNano: '990000000', memo: 'claim:123' }));
+  assert.throws(() => buildV15PresaleTx({ payTo: 'EQ_X', tonNano: '0', memo: 'buy:123' }));
 });
 
 console.log(`All ${passed} v15 frontend tx-builder tests passed.`);

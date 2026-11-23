@@ -111,7 +111,7 @@ export function renderWarmupHome(root, navigate) {
         }
         regBtn.disabled = true;
         try {
-          await registerWarmup({ walletAddress: user.address, userId: uid, referrerId: store.state.referral.referrerId });
+          await registerWarmup({ roundId: round.currentRound || 1, walletAddress: user.address, userId: uid, referrerId: store.state.referral.referrerId });
           A9Haptic.success();
           burstParticles(regBtn);
           store.update(s => { s.user.warmupRegistered = true; });
@@ -280,8 +280,26 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     if (root.isConnected) render();
   };
 
+  const resolveChestSkus = () => {
+    const serverSkus = !config.isDemo ? store.state.round?.chestMall?.skus : null;
+    if (Array.isArray(serverSkus) && serverSkus.length) {
+      return serverSkus.map((s) => ({
+        skuId: s.skuId,
+        tier: s.tier,
+        zh: s.zh,
+        en: s.en,
+        priceGram: String(s.priceGram),
+        baseA9: Number(s.baseA9),
+        maxBoostPct: Math.round(Number(s.maxBoostBps || 0) / 100),
+        maxBoostA9: Number(((Number(s.maxBoostA9Raw || 0)) / 1e9).toFixed(2)),
+        requiredAssists: Number(s.requiredAssists || 2)
+      }));
+    }
+    return DEMO_CHEST_SKUS;
+  };
+
   const render = () => {
-    const skus = DEMO_CHEST_SKUS;
+    const skus = resolveChestSkus();
     const sel = skus.find((s) => s.skuId === selectedSkuId) || skus[0];
     const totalIfBoost = Number((sel.baseA9 + sel.maxBoostA9).toFixed(2));
     const activeShopChests = (chestData.shopChests || []).filter((c) => c.status !== 'OPENED');

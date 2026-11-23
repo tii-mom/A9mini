@@ -102,7 +102,7 @@ export const V15_SOURCE = Object.freeze({
   protocolVersion: 'v15',
   contractsDir: 'A9mini/v15/',
   workerDir: 'A9mini/worker/',
-  spec: '4 合约极简架构（标准 TEP-74 Jetton + RoundController + StakeTicket）+ 0 合约推广热钱包（0.06 TON）',
+  spec: '4 合约极简架构（标准 TEP-74 Jetton + RoundController + StakeTicket）+ 0 合约推广热钱包（0.06 GRAM）',
   note: 'Batch A 已关闭 live 资金入口并限制非信任 API URL 覆盖；待 B–F 独立验收通过后再开放实盘。'
 });
 

@@ -73,11 +73,44 @@ export const A9TMA = {
     const sanitizeToken = (v, maxLen = 64) => String(v || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, maxLen);
 
     const safeRaw = sanitizeToken(rawParam, 64);
-    if (rawParam === 'claim') return { raw: safeRaw, type: 'claim', id: '', ref: '', route: '/claim', scrollTarget: null };
-    if (rawParam === 'warmup') return { raw: safeRaw, type: 'warmup', id: '', ref: '', route: '/warmup', scrollTarget: null };
-    if (rawParam === 'market') return { raw: safeRaw, type: 'market', id: '', ref: '', route: '/internal/market', scrollTarget: null };
+    if (rawParam === 'claim') return { raw: safeRaw, type: 'claim', id: '', ref: '', route: '/claim', scrollTarget: null, isAttribution: false };
+    if (rawParam === 'warmup') return { raw: safeRaw, type: 'warmup', id: '', ref: '', route: '/warmup', scrollTarget: null, isAttribution: false };
+    if (rawParam === 'market') return { raw: safeRaw, type: 'market', id: '', ref: '', route: '/internal/market', scrollTarget: null, isAttribution: false };
+    if (rawParam === 'profile') return { raw: safeRaw, type: 'profile', id: '', ref: '', route: '/profile', scrollTarget: null, isAttribution: false };
+    if (rawParam === 'team') return { raw: safeRaw, type: 'team', id: '', ref: '', route: '/team', scrollTarget: null, isAttribution: false };
+    if (rawParam === 'leaderboard') return { raw: safeRaw, type: 'leaderboard', id: '', ref: '', route: '/leaderboard', scrollTarget: null, isAttribution: false };
+    if (rawParam === 'rules') return { raw: safeRaw, type: 'rules', id: '', ref: '', route: '/rules', scrollTarget: null, isAttribution: false };
 
-    const parts = rawParam.split('_');
+    // 1) invite_<teamId>_<referrerId> 或 invite_<referrerId>（与后端 social-store.mjs 规则完全一致，保护含 '_' 的 TON 友好地址）
+    if (/^invite_/i.test(safeRaw)) {
+      const rest = safeRaw.slice('invite_'.length);
+      if (!rest) return null;
+      const teamMatch = rest.match(/^((?:G|T|TM|TEAM)-[A-Za-z0-9-]+)_(.+)$/i);
+      if (teamMatch) {
+        return {
+          raw: safeRaw,
+          type: 'invite',
+          id: sanitizeToken(teamMatch[1], 48),
+          teamId: sanitizeToken(teamMatch[1], 48),
+          ref: sanitizeToken(teamMatch[2], 64),
+          route: '/team/invite',
+          scrollTarget: null,
+          isAttribution: true,
+        };
+      }
+      return {
+        raw: safeRaw,
+        type: 'invite',
+        id: '',
+        teamId: '',
+        ref: sanitizeToken(rest, 64),
+        route: '/team/invite',
+        scrollTarget: null,
+        isAttribution: true,
+      };
+    }
+
+    const parts = safeRaw.split('_');
     const type = sanitizeToken(parts[0], 16).toLowerCase();
     if (type === 'chest') {
       let chestId = '';
@@ -89,19 +122,19 @@ export const A9TMA = {
         chestId = sanitizeToken(parts[1], 48);
         ref = sanitizeToken(parts.slice(2).join('_'), 64);
       }
-      return { raw: safeRaw, type: 'chest', id: chestId, ref, route: '/internal/market', scrollTarget: null, chestId };
+      return { raw: safeRaw, type: 'chest', id: chestId, ref, route: '/internal/market', scrollTarget: null, chestId, isAttribution: true };
     }
     const id = sanitizeToken(parts[1], 48);
     const ref = sanitizeToken(parts.slice(2).join('_'), 64);
 
-    if (type === 'bet') return { raw: safeRaw, type, id, ref, route: '/round', scrollTarget: 'prediction' };
-    if (type === 'round') return { raw: safeRaw, type, id, ref, route: '/round', scrollTarget: 'prediction' };
-    if (type === 'burn') return { raw: safeRaw, type, id, ref, route: '/round', scrollTarget: 'burn' };
+    if (type === 'bet') return { raw: safeRaw, type, id, ref, route: '/round', scrollTarget: 'prediction', isAttribution: true };
+    if (type === 'round') return { raw: safeRaw, type, id, ref, route: '/round', scrollTarget: 'prediction', isAttribution: true };
+    if (type === 'burn') return { raw: safeRaw, type, id, ref, route: '/round', scrollTarget: 'burn', isAttribution: true };
+    if (type === 'gallery') return { raw: safeRaw, type, id, ref, route: '/gallery', scrollTarget: null, isAttribution: true };
     if (type === 'proof') {
       const certId = id ? (id.startsWith('A9-STAKE-') ? id : `A9-STAKE-${id}`) : '';
-      return { raw: safeRaw, type, id: certId, ref, route: certId ? `/proof/${certId}` : '/proof', scrollTarget: null };
+      return { raw: safeRaw, type, id: certId, ref, route: certId ? `/proof/${certId}` : '/proof', scrollTarget: null, isAttribution: true };
     }
-    if (type === 'invite') return { raw: safeRaw, type, id, ref: ref || id, route: '/team/invite', scrollTarget: null };
     return null;
   },
 

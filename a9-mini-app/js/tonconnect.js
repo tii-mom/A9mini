@@ -45,6 +45,9 @@ class A9TonConnect {
     this.sdkReady = false;
     this.lastError = null;
     this._onChanged = null;
+    this._proofPayload = null;
+    this._proofExpiresAtSec = 0;
+    this._proofPurpose = 'bind';
   }
 
   syncTheme(mode) {
@@ -58,7 +61,7 @@ class A9TonConnect {
     try {
       const globalSDK = window.TON_CONNECT_UI;
       if (globalSDK && globalSDK.TonConnectUI) {
-        const manifestUrl = new URL('./tonconnect-manifest.json', window.location.href).href;
+        const manifestUrl = new URL('/tonconnect-manifest.json', window.location.origin).href;
         const isDark = document.documentElement.dataset.theme === 'dark';
         this.ui = new globalSDK.TonConnectUI({
           manifestUrl,
@@ -101,16 +104,36 @@ class A9TonConnect {
     }
   }
 
-  /** 预取一次性 ton_proof 载荷，下次连接钱包时随连接请求一起签名。 */
-  async _prepareProofPayload() {
-    if (!this.ui || !proofFlowEnabled() || typeof this.ui.setConnectRequestParameters !== 'function') return;
+  /** 预取一次性 ton_proof 载荷，并记录过期时间，避免超过 15 分钟 TTL 签出失效挑战。 */
+  async _prepareProofPayload(purpose = 'bind') {
+    if (!this.ui || !proofFlowEnabled() || typeof this.ui.setConnectRequestParameters !== 'function') return false;
     try {
+      this._proofPurpose = purpose;
       this.ui.setConnectRequestParameters({ state: 'loading' });
-      const { payload } = await requestTonProofPayload();
+      const res = await requestTonProofPayload(purpose);
+      const payload = res?.payload || '';
+      if (!payload) throw new Error('empty ton_proof payload');
+      this._proofPayload = payload;
+      this._proofExpiresAtSec = Number(res?.expiresAt || (Math.floor(Date.now() / 1000) + 900));
       this.ui.setConnectRequestParameters({ state: 'ready', value: { tonProof: payload } });
-    } catch (_) {
+      return true;
+    } catch (e) {
+      this._proofPayload = null;
+      this._proofExpiresAtSec = 0;
+      this.lastError = e?.message || '获取钱包归属挑战失败';
       this.ui.setConnectRequestParameters(null);
+      return false;
     }
+  }
+
+  /** 拉起钱包连接前确保 ton_proof 挑战有效且剩余寿命 > 120s，防止过期或首次预取失败竞态。 */
+  async _ensureFreshProofPayload(purpose = 'bind') {
+    if (!proofFlowEnabled()) return true;
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (this._proofPayload && this._proofPurpose === purpose && (this._proofExpiresAtSec - nowSec) > 120) {
+      return true;
+    }
+    return this._prepareProofPayload(purpose);
   }
 
   /**
@@ -126,23 +149,34 @@ class A9TonConnect {
       let freshVerified = false;
       let verificationState = 'unverified';
       let pending = false;
-      if (proof && 'proof' in proof) {
+      let pendingSwitch = null;
+      if (proof && 'error' in proof) {
+        const reason = proof.error?.message || proof.error?.code || '钱包未提供归属签名';
+        showToast(`钱包未完成归属签名：${reason}`, 'amber');
+      } else if (proof && 'proof' in proof) {
         const res = await submitTonProof({
           address: wallet.account.address,
           network: wallet.account.chain,
           publicKey: wallet.account.publicKey,
           walletStateInit: wallet.account.walletStateInit,
           proof: proof.proof,
+          purpose: this._proofPurpose || 'bind',
         });
-        freshVerified = res?.status === 'BOUND' || res?.status === 'UNCHANGED';
+        freshVerified = res?.status === 'BOUND' || res?.status === 'UNCHANGED' || res?.status === 'REBIND_CANCELLED';
         if (freshVerified) verificationState = 'fresh_proof';
+        pendingSwitch = res?.wallet?.pendingSwitch || null;
         if (res?.status === 'PENDING_REBIND') {
           pending = true;
           showToast(`换绑申请已提交，将于 ${new Date(res.wallet.pendingSwitch.effectiveAt * 1000).toLocaleString()} 生效；原钱包可签名取消`, 'amber');
+        } else if (res?.status === 'UNBOUND') {
+          showToast('已通过原钱包签名解除钱包绑定', 'amber');
+        } else if (res?.status === 'REBIND_CANCELLED') {
+          showToast('已取消待生效的钱包换绑申请');
         }
       } else {
         // 恢复的本地钱包连接没有本次 ton_proof：不标为本次已重新验证，仅核对服务端既有绑定。
         const me = await fetchMe();
+        pendingSwitch = me?.wallet?.pendingSwitch || null;
         const boundKey = me?.wallet?.walletKey || canonicalWalletKey(me?.wallet?.address);
         const restoredKey = canonicalWalletKey(wallet.account.address);
         if (boundKey && restoredKey && boundKey === restoredKey) {
@@ -152,10 +186,11 @@ class A9TonConnect {
       store.update(s => {
         s.user.walletVerified = freshVerified;
         s.user.walletVerificationState = verificationState;
+        s.user.pendingSwitch = pendingSwitch;
       });
       if (verificationState === 'restored_binding') {
         showToast('已恢复连接（沿用服务端历史绑定，本次未重新签名验证）', 'amber');
-      } else if (!freshVerified && !pending) {
+      } else if (!freshVerified && !pending && !(proof && 'error' in proof)) {
         showToast('钱包尚未完成归属验证，请断开后重新连接并签名', 'amber');
       }
     } catch (e) {
@@ -165,7 +200,9 @@ class A9TonConnect {
       });
       showToast(`钱包归属验证失败：${e?.message || '请重试'}`, 'error');
     } finally {
-      this._prepareProofPayload();
+      this._proofPayload = null;
+      this._proofExpiresAtSec = 0;
+      this._prepareProofPayload('bind');
     }
   }
 
@@ -201,6 +238,7 @@ class A9TonConnect {
         </div>
         ${!canSandbox && user.connected ? `<div class="row-between" style="margin-top:6px;"><span class="caps text-muted">OWNERSHIP PROOF</span>${verifyChip}</div>` : ''}
         <div class="num-sm text-cyan" style="margin-top:6px;word-break:break-all;">${user.connected ? escapeHtml(user.address) : '尚未连接非托管 TON 钱包'}</div>
+        ${!canSandbox && user.pendingSwitch ? `<div class="num-xs text-gold" style="margin-top:6px;">待生效换绑：将于 ${new Date(Number(user.pendingSwitch.effectiveAt) * 1000).toLocaleString()} 生效；可使用原钱包重签取消。</div>` : ''}
         ${!this.sdkReady ? `<div class="num-xs text-muted" style="margin-top:6px;">${escapeHtml(this.lastError || 'SDK 未就绪')}</div>` : ''}
         ${canSandbox ? `<div class="num-xs text-gold" style="margin-top:6px;">当前为演示模式：沙盒连接与资金结果均由本地演示数据生成，不会触发真实钱包签名。</div>` : `<div class="num-xs text-muted" style="margin-top:6px;">当前为真实只读模式：仅支持连接钱包与只读数据查看，不会发起任何资金交易签名。</div>`}
       </div>
@@ -211,6 +249,8 @@ class A9TonConnect {
       ` : ''}
       <div class="col-gap">
         <button class="btn btn-primary" id="tc-real-connect">${icon('bolt', 16)} ${this.sdkReady ? '唤起 TON Connect 2.0 官方钱包列表' : (canSandbox ? '连接非托管 TON 钱包 (模拟)' : '重试加载钱包 SDK')}</button>
+        ${!canSandbox && this.sdkReady && user.pendingSwitch ? `<button class="btn btn-secondary" id="tc-cancel-rebind">${icon('shieldCheck', 15)} 原钱包重签取消换绑</button>` : ''}
+        ${!canSandbox && this.sdkReady && user.connected ? `<button class="btn btn-secondary" id="tc-unbind-wallet">${icon('shieldAlert', 15)} 签名解除服务端绑定</button>` : ''}
         ${user.connected ? `<button class="btn btn-danger" id="tc-disconnect">${icon('x', 16)} 断开当前钱包连接</button>` : ''}
         <button class="btn btn-secondary" id="tc-close">关闭</button>
       </div>
@@ -218,10 +258,20 @@ class A9TonConnect {
 
     document.getElementById('tc-close').onclick = closeModal;
 
-    document.getElementById('tc-real-connect').onclick = async () => {
+    const launchWithProof = async (purpose = 'bind') => {
       closeModal();
       if (this.sdkReady && this.ui) {
         try {
+          if (proofFlowEnabled()) {
+            if (purpose !== 'bind' && this.ui.connected) {
+              try { await this.ui.disconnect(); } catch (_) {}
+            }
+            const ready = await this._ensureFreshProofPayload(purpose);
+            if (!ready) {
+              showToast('获取钱包签名挑战失败，请检查网络后重试', 'error');
+              return;
+            }
+          }
           await this.ui.openModal();
           return;
         } catch (e) {
@@ -245,6 +295,12 @@ class A9TonConnect {
       if (onChanged) onChanged();
     };
 
+    document.getElementById('tc-real-connect').onclick = () => launchWithProof('bind');
+    const cancelRebindBtn = document.getElementById('tc-cancel-rebind');
+    if (cancelRebindBtn) cancelRebindBtn.onclick = () => launchWithProof('cancel_rebind');
+    const unbindBtn = document.getElementById('tc-unbind-wallet');
+    if (unbindBtn) unbindBtn.onclick = () => launchWithProof('unbind');
+
     const discBtn = document.getElementById('tc-disconnect');
     if (discBtn) {
       discBtn.onclick = async () => {
@@ -257,6 +313,8 @@ class A9TonConnect {
           s.user.connected = false;
           s.user.address = null;
           s.user.shortAddress = null;
+          s.user.walletVerified = false;
+          s.user.walletVerificationState = 'unverified';
         });
         showToast('已断开 TON 钱包连接', 'amber');
         if (onChanged) onChanged();

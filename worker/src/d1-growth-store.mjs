@@ -30,9 +30,11 @@ export class D1SocialStore {
   async getReferrer(subjectKey) {
     const subj = String(subjectKey || '').trim();
     if (!subj) return null;
+    const candidates = Array.from(new Set([subj, addressKey(subj), ...addressAliases(subj)].filter(Boolean)));
+    const ph = candidates.map(() => '?').join(', ');
     const row = await this.db
-      .prepare('SELECT referrer_id FROM referrals WHERE subject_key = ?')
-      .bind(subj)
+      .prepare(`SELECT referrer_id FROM referrals WHERE subject_key IN (${ph}) ORDER BY bound_at ASC LIMIT 1`)
+      .bind(...candidates)
       .first();
     return row ? String(row.referrer_id) : null;
   }
@@ -107,14 +109,20 @@ export class D1SocialStore {
   }
 
   async registerWarmup(
-    { roundId = 1, walletAddress, referrerWallet = null, referrerId = null },
+    { roundId = 1, walletAddress, referrerWallet = null, referrerId = null, aliases = [] },
     nowSec = Math.floor(Date.now() / 1000),
   ) {
     if (!walletAddress) throw new Error('walletAddress required');
     const rId = Number(roundId);
     const rawRef = String(referrerId || referrerWallet || '').trim() || null;
-    if (rawRef) await this.bindReferral(walletAddress, rawRef, nowSec);
-    const effectiveRef = await this.getReferrer(walletAddress);
+    if (rawRef) await this.bindReferral(walletAddress, rawRef, nowSec, { aliases });
+    let effectiveRef = await this.getReferrer(walletAddress);
+    if (!effectiveRef && Array.isArray(aliases)) {
+      for (const a of aliases) {
+        effectiveRef = await this.getReferrer(a);
+        if (effectiveRef) break;
+      }
+    }
 
     const existing = await this.db
       .prepare('SELECT * FROM warmup_registrations WHERE round_id = ? AND wallet_address = ?')
@@ -124,9 +132,10 @@ export class D1SocialStore {
       return this._formatWarmup(existing);
     }
 
+    const isFirstSignup = !existing;
     const validInvites = existing ? Number(existing.valid_invites) : 0;
     const createdAt = existing ? Number(existing.created_at) : nowSec;
-    const refToStore = effectiveRef && effectiveRef !== walletAddress ? effectiveRef : null;
+    const refToStore = effectiveRef && addressKey(effectiveRef) !== addressKey(walletAddress) ? effectiveRef : null;
 
     await this.db
       .prepare(
@@ -141,7 +150,8 @@ export class D1SocialStore {
       .bind(rId, walletAddress, refToStore, validInvites, createdAt, nowSec)
       .run();
 
-    if (refToStore) {
+    // 仅首次报名时累加推荐人有效邀请，封堵反复 cancel -> register 刷榜漏洞
+    if (isFirstSignup && refToStore) {
       await this.db
         .prepare(
           `UPDATE warmup_registrations
@@ -324,15 +334,34 @@ export class D1SocialStore {
     };
   }
 
-  async joinTeam({ teamId, walletAddress, referrerId = null }, nowSec = Math.floor(Date.now() / 1000)) {
+  async joinTeam({ teamId, walletAddress, referrerId = null, aliases = [] }, nowSec = Math.floor(Date.now() / 1000)) {
     const team = await this.db.prepare('SELECT * FROM team_groups WHERE team_id = ?').bind(teamId).first();
     if (!team) throw new Error(`team ${teamId} not found`);
-    if (referrerId) await this.bindReferral(walletAddress, referrerId, nowSec);
+    if (referrerId) await this.bindReferral(walletAddress, referrerId, nowSec, { aliases });
+
+    const prevRow = await this.db
+      .prepare('SELECT team_id FROM team_members WHERE wallet_address = ? LIMIT 1')
+      .bind(walletAddress)
+      .first();
+    const prevTeamId = prevRow?.team_id ? String(prevRow.team_id) : null;
 
     await this.db
       .prepare('INSERT OR REPLACE INTO team_members (wallet_address, team_id, joined_at) VALUES (?, ?, ?)')
       .bind(walletAddress, teamId, nowSec)
       .run();
+
+    // 若发生换队，同步重算旧队人数，避免旧队 member_count 虚高
+    if (prevTeamId && prevTeamId !== teamId) {
+      const prevCntRow = await this.db
+        .prepare('SELECT COUNT(*) AS cnt FROM team_members WHERE team_id = ?')
+        .bind(prevTeamId)
+        .first();
+      await this.db
+        .prepare('UPDATE team_groups SET member_count = ?, updated_at = ? WHERE team_id = ?')
+        .bind(Number(prevCntRow?.cnt || 0), nowSec, prevTeamId)
+        .run();
+    }
+
     const cntRow = await this.db
       .prepare('SELECT COUNT(*) AS cnt FROM team_members WHERE team_id = ?')
       .bind(teamId)
@@ -1227,17 +1256,46 @@ export class D1PresaleRepo {
   }
 
   async insertOrderIfCapacity(o, { capA9Raw, userQuotaNano, nowSec }) {
+    // 将十进制大整数按 10^9 拆分高位（整币）与低位（纳币）在单语句中精确比较，
+    // 彻底规避 SQLite 有符号 INT64（9.223×10^18 < 100 亿 A9 raw = 10^19）溢出与截断风险。
+    const DEC9 = 1_000_000_000n;
+    const split9 = (val) => {
+      const n = BigInt(val);
+      return { hi: (n / DEC9).toString(), lo: (n % DEC9).toString() };
+    };
+    const hiExpr = (col) => `CASE WHEN length(${col}) > 9 THEN CAST(substr(${col}, 1, length(${col}) - 9) AS INTEGER) ELSE 0 END`;
+    const loExpr = (col) => `CAST(CASE WHEN length(${col}) > 9 THEN substr(${col}, length(${col}) - 8) ELSE ${col} END AS INTEGER)`;
+
+    const addA9 = split9(o.a9AmountRaw);
+    const capA9 = split9(capA9Raw);
+    const addTon = split9(o.tonNano);
+    const capTon = split9(userQuotaNano);
+
     // 同时覆盖新行（wallet_key）与尚未回填的历史友好地址行（EQ/UQ/kQ/0Q/raw 全部规范形式），保持单语句原子性。
     const aliases = addressAliases(o.walletAddress);
     const aliasPlaceholders = aliases.map(() => '?').join(', ');
-    const whereClause = `WHERE (SELECT COALESCE(SUM(CAST(a9_amount_raw AS INTEGER)), 0) FROM presale_orders WHERE ${RESERVING_SQL})
-                 + CAST(? AS INTEGER) <= CAST(? AS INTEGER)
-           AND (SELECT COALESCE(SUM(CAST(ton_nano AS INTEGER)), 0) FROM presale_orders
-                 WHERE (wallet_key = ? OR (wallet_key IS NULL AND wallet_address IN (${aliasPlaceholders}))) AND ${RESERVING_SQL})
-                 + CAST(? AS INTEGER) <= CAST(? AS INTEGER)`;
+    const whereClause = `WHERE EXISTS (
+             SELECT 1 FROM (
+               SELECT
+                 (COALESCE(SUM(${hiExpr('a9_amount_raw')}), 0) + CAST(? AS INTEGER)
+                   + (COALESCE(SUM(${loExpr('a9_amount_raw')}), 0) + CAST(? AS INTEGER)) / 1000000000) AS tot_hi,
+                 ((COALESCE(SUM(${loExpr('a9_amount_raw')}), 0) + CAST(? AS INTEGER)) % 1000000000) AS tot_lo
+               FROM presale_orders WHERE ${RESERVING_SQL}
+             ) WHERE tot_hi < CAST(? AS INTEGER) OR (tot_hi = CAST(? AS INTEGER) AND tot_lo <= CAST(? AS INTEGER))
+           )
+           AND EXISTS (
+             SELECT 1 FROM (
+               SELECT
+                 (COALESCE(SUM(${hiExpr('ton_nano')}), 0) + CAST(? AS INTEGER)
+                   + (COALESCE(SUM(${loExpr('ton_nano')}), 0) + CAST(? AS INTEGER)) / 1000000000) AS tot_hi,
+                 ((COALESCE(SUM(${loExpr('ton_nano')}), 0) + CAST(? AS INTEGER)) % 1000000000) AS tot_lo
+               FROM presale_orders
+               WHERE (wallet_key = ? OR (wallet_key IS NULL AND wallet_address IN (${aliasPlaceholders}))) AND ${RESERVING_SQL}
+             ) WHERE tot_hi < CAST(? AS INTEGER) OR (tot_hi = CAST(? AS INTEGER) AND tot_lo <= CAST(? AS INTEGER))
+           )`;
     const tailArgs = [
-      nowSec, o.a9AmountRaw.toString(), BigInt(capA9Raw).toString(),
-      o.walletKey, ...aliases, nowSec, o.tonNano.toString(), BigInt(userQuotaNano).toString(),
+      addA9.hi, addA9.lo, addA9.lo, nowSec, capA9.hi, capA9.hi, capA9.lo,
+      addTon.hi, addTon.lo, addTon.lo, o.walletKey, ...aliases, nowSec, capTon.hi, capTon.hi, capTon.lo,
     ];
     try {
       const res = await this.db

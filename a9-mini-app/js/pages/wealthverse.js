@@ -369,7 +369,7 @@ export function city() {
   }
 
   const gates = [
-    ['/internal/market',          'market', L('宝箱商城', 'Chest Mall'),  L('0.99 GRAM起', 'From 0.99G')],
+    ['/internal/market',          'market', L('宝箱商城', 'Chest Mall'),  L('0.99 GRAM起', 'From 0.99 GRAM')],
     ['/internal/market?tab=free', 'trophy', L('免费宝箱', 'Free Chests'), L('助力领 A9', 'Assist A9')],
     ['/rewards',                  'vault',  L('奖金金库', 'Vault'),       L('连胜解锁', 'Vesting')],
     ['/rules',                    'rules',  L('闯关指南', 'Guide'),       L('常见问题', 'FAQ Guide')],
@@ -1123,7 +1123,7 @@ export function portfolioPanel(root, guild = false) {
       row(L('成员', 'Members'), data?.team?.memberCount ?? waiting());
       row(
         L('职位', 'Role'),
-        data?.team?.captainWallet === user.address && user.address
+        data?.team?.role === 'captain' || (data?.team?.captainWallet === user.address && user.address)
           ? L('队长', 'Captain')
           : data?.team
             ? L('成员', 'Member')

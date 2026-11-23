@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#F6F6F8" />
   <title>A9 · 财富大冒险</title>
   <script>
-    (function(){try{var t=localStorage.getItem('a9_theme_mode');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',t==='dark'?'#161619':'#F6F6F8');}}catch(e){}})();
+    (function(){try{var raw=localStorage.getItem('a9_ui_prefs_v1');var p=raw?JSON.parse(raw):null;var t=(p&&p.settings&&p.settings.themeMode)||localStorage.getItem('a9_theme_mode');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',t==='dark'?'#161619':'#F6F6F8');}}catch(e){}})();
   </script>
   <!-- Telegram WebApp SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>

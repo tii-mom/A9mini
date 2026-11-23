@@ -27,7 +27,17 @@ export class TonCenterClient {
       }
       this._lastReqAt = Date.now();
       const signal = options.signal || (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(this.timeoutMs) : undefined);
-      const res = await this.fetch(`${this.apiBase}${path}`, { ...options, headers, ...(signal ? { signal } : {}) });
+      let res;
+      try {
+        res = await this.fetch(`${this.apiBase}${path}`, { ...options, headers, ...(signal ? { signal } : {}) });
+      } catch (e) {
+        // 捕获瞬态网络错误与超时 AbortError，按 maxRetries 退避重试
+        if (attempt < this.maxRetries) {
+          await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+          continue;
+        }
+        throw new Error(`TonCenter network/timeout error on ${path}: ${e?.message || e}`);
+      }
       if (res.ok) return await res.json();
       if ((res.status === 429 || res.status === 503) && attempt < this.maxRetries) {
         await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
@@ -115,51 +125,68 @@ export class TonCenterClient {
     return parsed === null ? 0n : parsed;
   }
 
-  /** Read v15 RoundController.get_protocol_state() directly from chain. */
+  /** Read v15/v16 RoundController.get_protocol_state() directly from chain (strict stack validation). */
   async fetchProtocolState(roundControllerAddress) {
     const s = await this.runGetMethod(roundControllerAddress, 'get_protocol_state');
-    const activeLockedRounds = TonCenterClient.parseNum(s[8]);
+    if (!Array.isArray(s) || s.length < 9) {
+      throw new Error(`get_protocol_state returned truncated stack (len=${s?.length ?? 0})`);
+    }
+    const reqNum = (idx, label) => {
+      const v = TonCenterClient.parseStrictNum(s[idx], { allowNegative: false });
+      if (v === null) throw new Error(`get_protocol_state invalid ${label} at stack[${idx}]`);
+      return v;
+    };
+    const activeLockedRounds = reqNum(8, 'activeLockedRounds');
     return {
-      currentRoundId: Number(TonCenterClient.parseNum(s[0])),
-      successCount: Number(TonCenterClient.parseNum(s[1])),
-      poolRemainingRaw: TonCenterClient.parseNum(s[2]).toString(),
-      carryRaw: TonCenterClient.parseNum(s[3]).toString(),
-      teamPoolRemainingRaw: TonCenterClient.parseNum(s[4]).toString(),
-      teamCarryRaw: TonCenterClient.parseNum(s[5]).toString(),
-      lastSuccessAt: Number(TonCenterClient.parseNum(s[6])),
-      endAt: Number(TonCenterClient.parseNum(s[7])),
+      currentRoundId: Number(reqNum(0, 'currentRoundId')),
+      successCount: Number(reqNum(1, 'successCount')),
+      poolRemainingRaw: reqNum(2, 'poolRemainingRaw').toString(),
+      carryRaw: reqNum(3, 'carryRaw').toString(),
+      teamPoolRemainingRaw: reqNum(4, 'teamPoolRemainingRaw').toString(),
+      teamCarryRaw: reqNum(5, 'teamCarryRaw').toString(),
+      lastSuccessAt: Number(reqNum(6, 'lastSuccessAt')),
+      endAt: Number(reqNum(7, 'endAt')),
       activeLockedRounds: activeLockedRounds <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(activeLockedRounds) : null,
       activeLockedRoundsRaw: activeLockedRounds.toString(),
     };
   }
 
-  /** Read v15 RoundController.get_round(roundId) directly from chain. */
+  /** Read v15/v16 RoundController.get_round(roundId) directly from chain (strict stack validation). */
   async fetchRound(roundControllerAddress, roundId) {
     const s = await this.runGetMethod(roundControllerAddress, 'get_round', [['num', String(roundId)]]);
+    if (!Array.isArray(s) || s.length < 17) {
+      throw new Error(`get_round(${roundId}) returned truncated stack (len=${s?.length ?? 0})`);
+    }
+    const reqNum = (idx, label) => {
+      const v = TonCenterClient.parseStrictNum(s[idx], { allowNegative: false });
+      if (v === null) throw new Error(`get_round(${roundId}) invalid ${label} at stack[${idx}]`);
+      return v;
+    };
     return {
-      status: Number(TonCenterClient.parseNum(s[0])),
-      targetPriceUsdE8: TonCenterClient.parseNum(s[1]).toString(),
-      twap24hUsdE8: TonCenterClient.parseNum(s[2]).toString(),
-      stakeOpenAt: Number(TonCenterClient.parseNum(s[3])),
-      stakeCloseAt: Number(TonCenterClient.parseNum(s[4])),
-      settledAt: Number(TonCenterClient.parseNum(s[5])),
-      totalStakeRaw: TonCenterClient.parseNum(s[6]).toString(),
-      totalWeightRaw: TonCenterClient.parseNum(s[7]).toString(),
-      rewardBudgetRaw: TonCenterClient.parseNum(s[8]).toString(),
-      qualifiedCandles: Number(TonCenterClient.parseNum(s[9])),
-      candleHash: `0x${TonCenterClient.parseNum(s[10]).toString(16)}`,
-      immediateBps: Number(TonCenterClient.parseNum(s[11])),
-      lockedSlices: Number(TonCenterClient.parseNum(s[12])),
-      unlockedSlices: Number(TonCenterClient.parseNum(s[13])),
-      burnedSlices: Number(TonCenterClient.parseNum(s[14])),
-      lockedTotalRaw: TonCenterClient.parseNum(s[15]).toString(),
-      stakeCount: Number(TonCenterClient.parseNum(s[16])),
+      status: Number(reqNum(0, 'status')),
+      targetPriceUsdE8: reqNum(1, 'targetPriceUsdE8').toString(),
+      twap24hUsdE8: reqNum(2, 'twap24hUsdE8').toString(),
+      stakeOpenAt: Number(reqNum(3, 'stakeOpenAt')),
+      stakeCloseAt: Number(reqNum(4, 'stakeCloseAt')),
+      settledAt: Number(reqNum(5, 'settledAt')),
+      totalStakeRaw: reqNum(6, 'totalStakeRaw').toString(),
+      totalWeightRaw: reqNum(7, 'totalWeightRaw').toString(),
+      rewardBudgetRaw: reqNum(8, 'rewardBudgetRaw').toString(),
+      qualifiedCandles: Number(reqNum(9, 'qualifiedCandles')),
+      candleHash: `0x${reqNum(10, 'candleHash').toString(16)}`,
+      immediateBps: Number(reqNum(11, 'immediateBps')),
+      lockedSlices: Number(reqNum(12, 'lockedSlices')),
+      unlockedSlices: Number(reqNum(13, 'unlockedSlices')),
+      burnedSlices: Number(reqNum(14, 'burnedSlices')),
+      lockedTotalRaw: reqNum(15, 'lockedTotalRaw').toString(),
+      stakeCount: Number(reqNum(16, 'stakeCount')),
     };
   }
 
   /**
-   * Fetch recent finalized inbound TON transfers to a hot wallet (promo or presale).
-   * Normalizes each transaction to { txHash, finality, to, from, valueNano, memo, utime }.
+   * Fetch recent inbound TON transfers to a hot wallet (promo or presale).
+   * Preserves real destination, bounced, and aborted flags so failed bouncebacks
+   * are never mistaken for new customer deposits.
    */
   async fetchInboundTransfers(hotWalletAddress, limit = 30) {
     const q = new URLSearchParams({ address: hotWalletAddress, limit: String(limit), archival: 'false' });
@@ -174,11 +201,14 @@ export class TonCenterClient {
       const memo = typeof inMsg.message === 'string' ? inMsg.message.trim() : '';
       out.push({
         txHash: hash,
+        lt: tx.transaction_id?.lt ? String(tx.transaction_id.lt) : null,
         finality: 'finalized',
-        to: hotWalletAddress,
+        to: inMsg.destination || hotWalletAddress,
         from: inMsg.source,
         valueNano: String(inMsg.value || '0'),
         memo,
+        bounced: Boolean(inMsg.bounced),
+        aborted: Boolean(tx.description?.aborted),
         utime: Number(tx.utime || 0),
       });
     }
@@ -186,24 +216,12 @@ export class TonCenterClient {
   }
 
   /**
-   * Verify an outbound payout transaction from a hot wallet via TonCenter /getTransactions.
-   * Matches by exact txHash (hex or base64) and inspects out_msgs presence to confirm execution.
+   * 安全降级：仅检查外层热钱包 tx 的 out_msgs 存在性无法证实下游 TEP-74 JettonWallet
+   * 是否成功到账或发生 bounce。W2 接入 TonCenter v3 /traces 或 /jetton/transfers 按 queryId
+   * 校验终局交付前，始终保守返回 PENDING，绝不产生假确认（False Positive）。
    */
-  async verifyOutboundPayout(hotWalletAddress, payout, limit = 40) {
-    if (!hotWalletAddress || !payout?.txHash) return { state: 'PENDING' };
-    const q = new URLSearchParams({ address: hotWalletAddress, limit: String(limit), archival: 'false' });
-    const body = await this._request(`/getTransactions?${q.toString()}`, { method: 'GET' });
-    if (!body?.ok || !Array.isArray(body.result)) return { state: 'PENDING' };
-    const target = String(payout.txHash).replace(/^0x/i, '').toLowerCase();
-    for (const tx of body.result) {
-      const rawHash = String(tx.transaction_id?.hash || '');
-      const hexHash = rawHash ? Buffer.from(rawHash, 'base64').toString('hex').toLowerCase() : '';
-      if (rawHash.toLowerCase() === target || hexHash === target) {
-        const hasOut = Array.isArray(tx.out_msgs) && tx.out_msgs.length > 0;
-        return hasOut ? { state: 'CONFIRMED', txHash: rawHash } : { state: 'FAILED', txHash: rawHash };
-      }
-    }
-    return { state: 'PENDING' };
+  async verifyOutboundPayout(_hotWalletAddress, _payout) {
+    return { state: 'PENDING', reason: 'DOWNSTREAM_VERIFIER_REQUIRED' };
   }
 
   /**

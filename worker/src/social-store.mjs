@@ -1,6 +1,6 @@
 // A9 Protocol v15 — Warm-Up Leaderboard, Team / TG-Group Binding & First-Touch Referral Store.
 // Backed by in-memory maps locally and schema.sql tables in D1 production.
-import { addressKey } from './ton-address.mjs';
+import { addressKey, addressAliases } from './ton-address.mjs';
 
 export const WARMUP_TIERS = Object.freeze([
   { minRank: 1, maxRank: 10, rewardA9: 400000 },
@@ -46,7 +46,7 @@ export function parseStartAppParam(rawParam) {
     return { raw, kind: 'invite', teamId: null, targetId: null, referrerId: rest };
   }
 
-  // 2) (round|burn|proof|bet|chest)_<targetId>[_<referrerId>]
+  // 2) (round|burn|proof|bet|chest|gallery)_<targetId>[_<referrerId>]
   const chestM = raw.match(/^chest_(ch_[A-Za-z0-9]+)(?:_(.+))?$/i);
   if (chestM) {
     return {
@@ -57,7 +57,7 @@ export function parseStartAppParam(rawParam) {
       referrerId: chestM[2] || null,
     };
   }
-  const m = raw.match(/^(round|burn|proof|bet|chest)_([^_]+)(?:_(.+))?$/i);
+  const m = raw.match(/^(round|burn|proof|bet|chest|gallery)_([^_]+)(?:_(.+))?$/i);
   if (m) {
     const [, kind, targetId, referrerId] = m;
     return {
@@ -191,7 +191,18 @@ export class SocialStore {
   getReferrer(subjectKey) {
     const subj = String(subjectKey || '').trim();
     if (!subj) return null;
-    return this.referrals.get(subj)?.referrerId || null;
+    const direct = this.referrals.get(subj);
+    if (direct) return direct.referrerId;
+    for (const alias of addressAliases(subj)) {
+      const hit = this.referrals.get(alias);
+      if (hit) return hit.referrerId;
+    }
+    const key = addressKey(subj);
+    if (key && key !== subj) {
+      const hit = this.referrals.get(key);
+      if (hit) return hit.referrerId;
+    }
+    return null;
   }
 
   listDirectReferees(referrerKeys = []) {
@@ -213,24 +224,31 @@ export class SocialStore {
   }
 
   registerWarmup(
-    { roundId = 1, walletAddress, referrerWallet = null, referrerId = null },
+    { roundId = 1, walletAddress, referrerWallet = null, referrerId = null, aliases = [] },
     nowSec = Math.floor(Date.now() / 1000),
   ) {
     if (!walletAddress) throw new Error('walletAddress required');
     const rawRef = String(referrerId || referrerWallet || '').trim() || null;
     if (rawRef) {
-      this.bindReferral(walletAddress, rawRef, nowSec);
+      this.bindReferral(walletAddress, rawRef, nowSec, { aliases });
     }
-    const effectiveRef = this.getReferrer(walletAddress);
+    let effectiveRef = this.getReferrer(walletAddress);
+    if (!effectiveRef && Array.isArray(aliases)) {
+      for (const a of aliases) {
+        effectiveRef = this.getReferrer(a);
+        if (effectiveRef) break;
+      }
+    }
 
     const key = `${roundId}:${walletAddress}`;
     const existing = this.warmups.get(key);
     if (existing && existing.status === 'ACTIVE') return existing;
 
+    const isFirstSignup = !existing;
     const rec = {
       roundId: Number(roundId),
       walletAddress,
-      referrerWallet: effectiveRef && effectiveRef !== walletAddress ? effectiveRef : null,
+      referrerWallet: effectiveRef && addressKey(effectiveRef) !== addressKey(walletAddress) ? effectiveRef : null,
       validInvites: existing?.validInvites || 0,
       status: 'ACTIVE',
       createdAt: existing?.createdAt || nowSec,
@@ -238,8 +256,8 @@ export class SocialStore {
     };
     this.warmups.set(key, rec);
 
-    // Credit valid invite to referrer if registered in the same round
-    if (rec.referrerWallet) {
+    // 仅在首次报名时计入推荐人有效邀请，防止反复 cancel -> register 刷榜
+    if (isFirstSignup && rec.referrerWallet) {
       const refKey = `${roundId}:${rec.referrerWallet}`;
       const ref = this.warmups.get(refKey);
       if (ref && ref.status === 'ACTIVE') {
@@ -361,11 +379,20 @@ export class SocialStore {
     return this.formatTeam(cur);
   }
 
-  joinTeam({ teamId, walletAddress, referrerId = null }, nowSec = Math.floor(Date.now() / 1000)) {
+  joinTeam({ teamId, walletAddress, referrerId = null, aliases = [] }, nowSec = Math.floor(Date.now() / 1000)) {
     const team = this.teams.get(teamId);
     if (!team) throw new Error(`team ${teamId} not found`);
     if (referrerId) {
-      this.bindReferral(walletAddress, referrerId, nowSec);
+      this.bindReferral(walletAddress, referrerId, nowSec, { aliases });
+    }
+    // 换队时从旧队成员集合移除，避免旧队人数虚高
+    const prevTeamId = this.memberTeam.get(walletAddress);
+    if (prevTeamId && prevTeamId !== teamId) {
+      const prevTeam = this.teams.get(prevTeamId);
+      if (prevTeam) {
+        prevTeam.members.delete(walletAddress);
+        prevTeam.updatedAt = nowSec;
+      }
     }
     team.members.add(walletAddress);
     team.updatedAt = nowSec;
@@ -374,7 +401,13 @@ export class SocialStore {
   }
 
   getTeamByWallet(walletAddress) {
-    const teamId = this.memberTeam.get(walletAddress);
+    let teamId = this.memberTeam.get(walletAddress);
+    if (!teamId) {
+      for (const alias of addressAliases(walletAddress)) {
+        teamId = this.memberTeam.get(alias);
+        if (teamId) break;
+      }
+    }
     if (!teamId) return null;
     const team = this.teams.get(teamId);
     return team ? this.formatTeam(team) : null;

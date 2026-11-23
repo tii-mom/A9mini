@@ -6,7 +6,7 @@ import { tickDemoPrice } from './demo-data.js';
 
 import { store } from './store.js';
 import { config } from './config.js';
-import { loadSnapshot, mapRoundView, submitStartAppAttribution, fetchChestById, assistChestById, rawToA9 } from './data.js';
+import { loadSnapshot, mapRoundView, submitStartAppAttribution, fetchChestById, assistChestById, rawToA9, fetchMe, serverNowMs } from './data.js';
 import { A9TMA, A9Haptic } from './tma.js';
 import { A9Audio, bindKineticSurfaces, cleanupKineticSurfaces } from './audio.js';
 import { matchRoute } from './router.js';
@@ -29,8 +29,6 @@ mainEl.addEventListener('error', event => {
   label.textContent = image.alt + ' · ' + L('立绘暂缺', 'Art unavailable');
   image.replaceWith(label);
 }, true);
-
-const THEME_KEY = 'a9_theme_mode';
 
 const TABS = [
   { key: 'challenge', path: '/challenge',       ic: 'navCity',  labelKey: 'tab_challenge' },
@@ -61,7 +59,8 @@ export function getTheme() {
 export function applyTheme(mode) {
   const next = mode === 'dark' ? 'dark' : 'light';
   document.documentElement.dataset.theme = next;
-  try { localStorage.setItem(THEME_KEY, next); } catch (_) {}
+  store.update(s => { s.settings.themeMode = next; });
+  try { localStorage.removeItem('a9_theme_mode'); } catch (_) {}
   A9TMA.syncTheme(next);
   tonConnect.syncTheme(next);
 }
@@ -516,7 +515,7 @@ function startDisplayLoop() {
       let left = null;
       if (openAt > 0 && closeAt > openAt) {
         const earlyEnd = openAt + Math.floor((closeAt - openAt) / 3);
-        const diff = earlyEnd - Math.floor(Date.now() / 1000);
+        const diff = earlyEnd - Math.floor(serverNowMs() / 1000);
         if (diff > 0) left = diff;
       }
       if (left === null && config.isDemo && typeof r.earlyBirdSec === 'number') {
@@ -532,7 +531,7 @@ function startDisplayLoop() {
     const rawExpAt = Number(store.state.prediction?.pendingExpiresAt);
     if (Number.isFinite(rawExpAt) && rawExpAt > 0) {
       const expAtMs = rawExpAt < 1e12 ? rawExpAt * 1000 : rawExpAt;
-      const rem = Math.max(0, Math.floor((expAtMs - Date.now()) / 1000));
+      const rem = Math.max(0, Math.floor((expAtMs - serverNowMs()) / 1000));
       document.querySelectorAll('#pred-exp-cd, [data-pred-exp-cd]').forEach((el) => {
         const isVault = el.getAttribute('data-pred-exp-cd') === 'vault';
         const prefix = isVault ? L('作废倒计时', 'Expires') : L('距过期', 'Expires in');
@@ -569,11 +568,15 @@ window.addEventListener('scroll', () => {
   headerEl.classList.toggle('scrolled', window.scrollY > 6);
 }, { passive: true });
 
-// Bootstrap — 方案 A 默认白昼暖棉纸立体书（尊重用户已保存的暗夜纸本偏好）
+// Bootstrap — 方案 A 默认白昼暖棉纸立体书（尊重用户已保存于 a9_ui_prefs_v1 的暗夜纸本偏好）
 initAutoLanguage();
-applyTheme(localStorage.getItem(THEME_KEY) || 'light');
+applyTheme(store.state.settings?.themeMode || 'light');
 A9TMA.init();
 tonConnect.init();
+
+if (config.apiOverrideRejected && config.apiOverrideError) {
+  showToast(config.apiOverrideError, 'amber');
+}
 
 const startParsed = A9TMA.parseStartParam();
 if (startParsed?.ref) {
@@ -582,10 +585,25 @@ if (startParsed?.ref) {
 if (startParsed?.scrollTarget) {
   store.state.referral.pendingScrollTarget = startParsed.scrollTarget;
 }
-if (!config.isDemo && startParsed?.raw && A9TMA.getRawInitData()) {
+// 仅对含归因语义（invite / 带 ref / 业务实体分享）的 startapp 提交归因，避免把纯导航词 claim/warmup/market 发给后端触发 400
+if (!config.isDemo && startParsed?.raw && (startParsed.isAttribution || startParsed.ref) && A9TMA.getRawInitData()) {
   submitStartAppAttribution({ startParam: startParsed.raw, referrerId: startParsed.ref || null })
     .then((res) => {
       if (res?.referrerId) store.setReferrerId(res.referrerId);
+    })
+    .catch(() => {});
+}
+// Live + Telegram 环境启动同步 /api/me，恢复 tgBound、username、服务端已绑定钱包与 72h 换绑状态
+if (!config.isDemo && A9TMA.getRawInitData()) {
+  fetchMe()
+    .then((me) => {
+      if (!me) return;
+      store.update((s) => {
+        s.user.tgBound = Boolean(me.telegram?.id);
+        if (me.telegram?.username) s.user.username = `@${me.telegram.username}`;
+        s.user.pendingSwitch = me.wallet?.pendingSwitch || null;
+        s.user.serverBoundWallet = me.wallet?.address || null;
+      });
     })
     .catch(() => {});
 }
@@ -594,16 +612,19 @@ if (!config.isDemo && startParsed?.raw && A9TMA.getRawInitData()) {
 async function openChestAssistModal(chestId) {
   if (!chestId) return;
   let chest = null;
+  let loadFailed = false;
   try {
     chest = await fetchChestById(chestId);
   } catch (_) {
     chest = null;
+    loadFailed = true;
   }
-  const label = chest ? L(chest.labelZh, chest.labelEn) : L('好友的 A9 宝箱', "Friend's A9 Chest");
-  const cur = chest ? Number(chest.currentAssists || 0) : 0;
-  const req = chest ? Number(chest.requiredAssists || 2) : 2;
+  const hasDetail = Boolean(chest);
+  const label = hasDetail ? L(chest.labelZh, chest.labelEn) : L('好友的 A9 宝箱', "Friend's A9 Chest");
+  const cur = hasDetail ? Number(chest.currentAssists || 0) : null;
+  const req = hasDetail ? Number(chest.requiredAssists || 2) : null;
   const isBoost = chest?.source === 'SHOP_BOOST';
-  const rewardA9 = chest ? (rawToA9(isBoost ? chest.maxBoostA9Raw : chest.baseA9Raw) || 0) : 300;
+  const rewardA9 = hasDetail ? rawToA9(isBoost ? chest.maxBoostA9Raw : chest.baseA9Raw) : null;
   const connected = Boolean(store.state.user?.connected);
 
   openModal(`
@@ -615,14 +636,17 @@ async function openChestAssistModal(chestId) {
     <div class="sub-tile" style="margin-bottom:12px;">
       <div class="row-between">
         <strong>${escapeHtml(label)}</strong>
-        <span class="chip chip-gold mono">${cur}/${req} ${L('助力', 'assists')}</span>
+        <span class="chip chip-gold mono">${hasDetail ? `${cur}/${req} ${L('助力', 'assists')}` : L('待核验', 'Pending')}</span>
       </div>
       <div class="num-xs text-sec" style="margin-top:6px;line-height:1.5;">
-        ${isBoost
-          ? L(`帮好友助力膨胀（最高额外 +${formatNum(rewardA9, 2)} A9），你顺手 0 成本自动领 1 个青铜宝箱 #1（300 A9）！`, `Help boost this chest (up to +${formatNum(rewardA9, 2)} A9) and auto-claim your free Bronze Chest #1 (300 A9)!`)
-          : L(`帮好友点一下开启【${label}】（${formatNum(rewardA9)} A9），你顺手 0 成本自动领 1 个青铜宝箱 #1（300 A9）！`, `Help open [${label}] (${formatNum(rewardA9)} A9) and auto-claim your own Bronze Chest #1 (300 A9)!`)}
+        ${!hasDetail
+          ? L('宝箱详情待核验（暂未拉取到服务端状态），可点击下方重试读取或先连接 TON 钱包。', 'Chest details pending verification. Tap retry below or connect your TON wallet.')
+          : isBoost
+            ? L(`帮好友助力膨胀（最高额外 +${formatNum(rewardA9, 2)} A9），你顺手 0 成本自动领 1 个青铜宝箱 #1（300 A9）！`, `Help boost this chest (up to +${formatNum(rewardA9, 2)} A9) and auto-claim your free Bronze Chest #1 (300 A9)!`)
+            : L(`帮好友点一下开启【${label}】（${formatNum(rewardA9)} A9），你顺手 0 成本自动领 1 个青铜宝箱 #1（300 A9）！`, `Help open [${label}] (${formatNum(rewardA9)} A9) and auto-claim your own Bronze Chest #1 (300 A9)!`)}
       </div>
     </div>
+    ${loadFailed ? `<button class="btn btn-secondary" id="btn-retry-chest-detail" type="button" style="margin-bottom:10px;">${L('重试读取宝箱详情', 'Retry Loading Details')}</button>` : ''}
     <div class="num-xs text-muted" style="margin-bottom:12px;">
       ${L('防刷规则：仅需连接链上已激活 TON 钱包（0 扣款），助力后自动激活你的青铜宝箱 #1。', 'Anti-sybil: requires an active TON wallet (0 transfer). Auto-unlocks your Bronze Chest #1.')}
     </div>
@@ -632,6 +656,8 @@ async function openChestAssistModal(chestId) {
   `);
 
   document.getElementById('chest-assist-close').onclick = closeModal;
+  const retryBtn = document.getElementById('btn-retry-chest-detail');
+  if (retryBtn) retryBtn.onclick = () => openChestAssistModal(chestId);
   const btn = document.getElementById('btn-do-chest-assist');
   btn.onclick = async () => {
     if (!store.state.user?.connected) {

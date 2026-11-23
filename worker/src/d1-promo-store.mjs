@@ -7,6 +7,7 @@ import {
   DEFAULT_TRANSFER_GAS_NANO,
   DEFAULT_CLAIM_TTL_SEC,
   PromoError,
+  deriveClaimQueryId,
 } from './promo-hotwallet.mjs';
 import { addressKey, addressAliases } from './ton-address.mjs';
 
@@ -162,8 +163,65 @@ export class D1PromoStore {
   }
 
   /**
+   * Read-only dry-run verification: validates finalized 0.06 GRAM inbound fee tx WITHOUT mutating D1.
+   */
+  async planInboundFeeTx(tx, nowSec = Math.floor(Date.now() / 1000)) {
+    if (!tx || !tx.txHash) throw new PromoError('BAD_TX', 'missing txHash');
+    if (tx.finality !== 'finalized') throw new PromoError('NOT_FINALIZED', 'fee tx must be finalized');
+    if (addressKey(tx.to) !== addressKey(this.hotWalletAddress)) {
+      throw new PromoError('WRONG_DEST', 'destination is not promo hot wallet');
+    }
+
+    const replay = await this.db
+      .prepare('SELECT claim_id FROM promo_claims WHERE fee_tx_hash = ? LIMIT 1')
+      .bind(tx.txHash)
+      .first();
+    if (replay) throw new PromoError('REPLAY_TX', 'fee tx already processed');
+
+    const memo = String(tx.memo || '').trim();
+    const claimRow = await this.db
+      .prepare('SELECT * FROM promo_claims WHERE memo = ? LIMIT 1')
+      .bind(memo)
+      .first();
+    if (!claimRow) throw new PromoError('UNKNOWN_MEMO', `no claim matches memo: ${memo}`);
+    if (claimRow.status !== CLAIM_STATUS.PENDING_FEE) {
+      throw new PromoError('INVALID_STATE', `claim ${claimRow.claim_id} is ${claimRow.status}`);
+    }
+    if (nowSec > Number(claimRow.expires_at)) {
+      throw new PromoError('CLAIM_EXPIRED', `claim ${claimRow.claim_id} expired`);
+    }
+    const receivedNano = BigInt(tx.valueNano || 0);
+    const feeRequired = BigInt(claimRow.fee_required_nano || '0');
+    if (receivedNano < feeRequired) {
+      throw new PromoError('INSUFFICIENT_FEE', `received ${receivedNano} < required ${feeRequired}`);
+    }
+    const balRow = await this._findBalanceRow(claimRow.wallet_address);
+    const amountRaw = BigInt(claimRow.amount_raw || '0');
+    const curClaimable = BigInt(balRow?.claimable_raw || '0');
+    if (!balRow || curClaimable < amountRaw) {
+      throw new PromoError('INSUFFICIENT_BALANCE', 'claimable balance changed');
+    }
+    const formatted = this._formatRow(claimRow);
+    return {
+      claim: formatted,
+      payoutInstruction: {
+        op: '0x0f8a7ea5',
+        queryId: deriveClaimQueryId(formatted.claimId),
+        fromHotWallet: this.hotWalletAddress,
+        recipient: formatted.walletAddress,
+        jettonAmountRaw: formatted.amountRaw,
+        attachedTonNano: this.transferGasNano.toString(),
+        sendExcessesTo: this.hotWalletAddress,
+        forwardTonNano: '0',
+      },
+    };
+  }
+
+  /**
    * Atomically verify finalized 0.06 GRAM fee inbound tx and deduct claimable balance in D1.
-   * Safe against replay (fee_tx_hash UNIQUE) and concurrent deductions (CAS on claimable_raw).
+   * Uses NOT NULL constraint guards inside a single db.batch() transaction so any concurrent
+   * balance change, claim state change, or duplicate fee_tx_hash forces a FULL ROLLBACK
+   * (eliminating partial-commit balance evaporation).
    */
   async verifyInboundFeeTx(tx, nowSec = Math.floor(Date.now() / 1000)) {
     if (!tx || !tx.txHash) throw new PromoError('BAD_TX', 'missing txHash');
@@ -213,22 +271,74 @@ export class D1PromoStore {
 
     const nextClaimable = curClaimable - amountRaw;
     const nextClaimed = BigInt(balRow.total_claimed_raw || '0') + amountRaw;
-    const out = await this.db.batch([
-      this.db
-        .prepare(
-          `UPDATE promo_balances
-           SET claimable_raw = ?, total_claimed_raw = ?, updated_at = ?
-           WHERE wallet_address = ? AND claimable_raw = ?`,
-        )
-        .bind(nextClaimable.toString(), nextClaimed.toString(), nowSec, balRow.wallet_address, String(balRow.claimable_raw)),
-      this.db
-        .prepare(
-          `UPDATE promo_claims
-           SET status = ?, fee_tx_hash = ?, updated_at = ?
-           WHERE claim_id = ? AND status = ? AND NOT EXISTS (SELECT 1 FROM promo_claims WHERE fee_tx_hash = ?)`,
-        )
-        .bind(CLAIM_STATUS.FEE_CONFIRMED, tx.txHash, nowSec, claimRow.claim_id, CLAIM_STATUS.PENDING_FEE, tx.txHash),
-    ]);
+    let out;
+    try {
+      out = await this.db.batch([
+        // 守卫 1：校验 claim 仍为 PENDING_FEE、fee_tx_hash 未被使用、且 promo_balances 快照未变动；
+        // 任一条件不成立时向 NOT NULL 列 status 写 NULL，强制 SQLite/D1 回滚整笔 batch 事务。
+        this.db
+          .prepare(
+            `UPDATE promo_claims
+             SET status = CASE
+                   WHEN status = ?
+                    AND NOT EXISTS (SELECT 1 FROM promo_claims WHERE fee_tx_hash = ?)
+                    AND EXISTS (
+                      SELECT 1 FROM promo_balances
+                      WHERE wallet_address = ? AND claimable_raw = ?
+                    )
+                   THEN ?
+                   ELSE NULL
+                 END,
+                 fee_tx_hash = ?,
+                 updated_at = ?
+             WHERE claim_id = ?`,
+          )
+          .bind(
+            CLAIM_STATUS.PENDING_FEE,
+            tx.txHash,
+            balRow.wallet_address,
+            String(balRow.claimable_raw),
+            CLAIM_STATUS.FEE_CONFIRMED,
+            tx.txHash,
+            nowSec,
+            claimRow.claim_id,
+          ),
+        // 守卫 2：仅当守卫 1 确实已将目标 claim 原子置为 FEE_CONFIRMED 且余额快照仍一致时扣款；
+        // 否则向 NOT NULL 列 claimable_raw 写 NULL 触发整批回滚。
+        this.db
+          .prepare(
+            `UPDATE promo_balances
+             SET claimable_raw = CASE
+                   WHEN claimable_raw = ?
+                    AND EXISTS (
+                      SELECT 1 FROM promo_claims
+                      WHERE claim_id = ? AND status = ? AND fee_tx_hash = ?
+                    )
+                   THEN ?
+                   ELSE NULL
+                 END,
+                 total_claimed_raw = ?,
+                 updated_at = ?
+             WHERE wallet_address = ?`,
+          )
+          .bind(
+            String(balRow.claimable_raw),
+            claimRow.claim_id,
+            CLAIM_STATUS.FEE_CONFIRMED,
+            tx.txHash,
+            nextClaimable.toString(),
+            nextClaimed.toString(),
+            nowSec,
+            balRow.wallet_address,
+          ),
+      ]);
+    } catch (e) {
+      const msg = String(e?.message || e);
+      if (/NOT NULL|UNIQUE|constraint/i.test(msg)) {
+        throw new PromoError('CONFLICT', 'concurrent promo claim verification conflict (transaction rolled back)');
+      }
+      throw e;
+    }
     if (changes(out?.[0]) !== 1 || changes(out?.[1]) !== 1) {
       throw new PromoError('CONFLICT', 'concurrent promo claim verification conflict');
     }
@@ -238,6 +348,7 @@ export class D1PromoStore {
       claim: updated,
       payoutInstruction: {
         op: '0x0f8a7ea5',
+        queryId: deriveClaimQueryId(updated.claimId),
         fromHotWallet: this.hotWalletAddress,
         recipient: updated.walletAddress,
         jettonAmountRaw: updated.amountRaw,

@@ -415,14 +415,15 @@ export function renderParticipation(round) {
  * 挑战页观察总览：重心 100% 放在「达标进度 + 剩余时间 → 24H 观测盘 → 选中时段依据」
  */
 export function renderObservation(round) {
-  const passed = round.qualifiedCandles || 0;
+  const hasQualified = Number.isInteger(round.qualifiedCandles);
+  const passed = hasQualified ? round.qualifiedCandles : 0;
   const required = round.minQualifiedCandles || 16;
-  const need = Number.isFinite(round.needMore) ? round.needMore : Math.max(0, required - passed);
-  const pct = required ? Math.round(Math.min(100, (passed / required) * 100)) : 0;
+  const need = !hasQualified ? null : (Number.isFinite(round.needMore) ? round.needMore : Math.max(0, required - passed));
+  const pct = hasQualified && required ? Math.round(Math.min(100, (passed / required) * 100)) : 0;
   const est = round.myWeight > 0 ? estimateRewardA9(round.myStakeTon) : null;
   const isSprint4h = Number(round.countdownSec) > 0 && Number(round.countdownSec) <= 14400;
-  const isRedAlert = isSprint4h && passed >= 12 && passed <= 15;
-  const isMatchPoint = isSprint4h || (passed >= Math.max(1, required - 2) && passed < required);
+  const isRedAlert = isSprint4h && hasQualified && passed >= 12 && passed <= 15;
+  const isMatchPoint = isSprint4h || (hasQualified && passed >= Math.max(1, required - 2) && passed < required);
 
   return `
     ${renderPendingVaultBanner(store.state.prediction, round)}
@@ -632,14 +633,17 @@ export function renderSettlementSuccess(round, user) {
 }
 
 export function renderSettlementFailed(round) {
+  const hasQ = Number.isInteger(round.qualifiedCandles);
+  const reqQ = round.minQualifiedCandles || 16;
+  const failPct = hasQ ? Math.round((round.qualifiedCandles / reqQ) * 100) : 0;
   return `
     ${renderPendingVaultBanner(store.state.prediction, round)}
     <div class="card card-glow-red alert-red-mode" id="burn-monument-card">
       <div class="row-between" style="margin-bottom:10px;">
         ${stagePillTrigger('settlement_burn', round?.currentRound || 1)}
-        <span class="chip chip-red">${L('未通关 · 销毁 BURN', 'Failed · BURN')} ${round.qualifiedCandles || 0}/${round.minQualifiedCandles || 16}</span>
+        <span class="chip chip-red">${L('未通关 · 销毁 BURN', 'Failed · BURN')} ${hasQ ? round.qualifiedCandles : '—'}/${reqQ}</span>
       </div>
-      <div class="progress-track" style="margin-bottom:10px;"><div class="progress-fill red no-anim" style="width:${Math.round((round.qualifiedCandles || 0) / (round.minQualifiedCandles || 16) * 100)}%"></div></div>
+      <div class="progress-track" style="margin-bottom:10px;"><div class="progress-fill red no-anim" style="width:${failPct}%"></div></div>
       <div>
         <div class="list-row"><span class="text-sec">${L('本轮参与本金处理', 'Principal')}</span><span class="num-xs text-red">${L('按 v15 规则销毁 BURN', 'Burned per v15')}</span></div>
         <div class="list-row"><span class="text-sec">${L('战队额度', 'Squad quota')}</span><span class="num-xs text-gold">${L('120,000,000 A9 销毁 / 结转', '120,000,000 A9 burned / carried')}</span></div>

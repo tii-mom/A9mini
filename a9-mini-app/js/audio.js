@@ -6,18 +6,18 @@
  * - 精细指针设备的 3D 凭证反光采用 rAF 节流并在切页时干净释放
  */
 
-const SOUND_KEY = 'a9_sound_enabled';
+import { store } from './store.js';
+
 const PENTA_SCALE = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5, 1174.66, 1318.51];
 
 let audioCtx = null;
 let cachedNoiseBuffer = null;
-let enabled = (() => {
-  try {
-    return localStorage.getItem(SOUND_KEY) === '1';
-  } catch (_) {
-    return false;
-  }
-})();
+let enabled = Boolean(store.state.settings?.soundEnabled);
+
+function persistSoundPref(flag) {
+  store.update((s) => { s.settings.soundEnabled = Boolean(flag); });
+  try { localStorage.removeItem('a9_sound_enabled'); } catch (_) {}
+}
 
 function ensureCtx() {
   if (!enabled || typeof window === 'undefined') return null;
@@ -92,7 +92,7 @@ export const A9Audio = {
 
   toggle() {
     enabled = !enabled;
-    try { localStorage.setItem(SOUND_KEY, enabled ? '1' : '0'); } catch (_) {}
+    persistSoundPref(enabled);
     if (enabled) this.confirm();
     return enabled;
   },

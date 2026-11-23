@@ -157,6 +157,8 @@ const DEFAULT_STATE = {
   },
   settings: {
     language: 'zh-CN',
+    themeMode: 'light',
+    soundEnabled: false,
     hapticsEnabled: true,
     hourlyCandlePush: true,
     settlementPush: true,
@@ -183,6 +185,32 @@ function loadState() {
         if (typeof parsed.user.profileMode === 'string') state.user.profileMode = parsed.user.profileMode;
         if (typeof parsed.user.autoRenew === 'boolean') state.user.autoRenew = parsed.user.autoRenew;
       }
+    }
+    // 兼容迁移旧版散落键到唯一白名单键 a9_ui_prefs_v1 并立即落盘、清理旧键
+    let migrated = false;
+    const legacyTheme = localStorage.getItem('a9_theme_mode');
+    if ((legacyTheme === 'dark' || legacyTheme === 'light') && !parsed?.settings?.themeMode) {
+      state.settings.themeMode = legacyTheme;
+      migrated = true;
+    }
+    const legacySound = localStorage.getItem('a9_sound_enabled');
+    if ((legacySound === '1' || legacySound === '0') && typeof parsed?.settings?.soundEnabled !== 'boolean') {
+      state.settings.soundEnabled = legacySound === '1';
+      migrated = true;
+    }
+    if (legacyTheme !== null) {
+      localStorage.removeItem('a9_theme_mode');
+      migrated = true;
+    }
+    if (legacySound !== null) {
+      localStorage.removeItem('a9_sound_enabled');
+      migrated = true;
+    }
+    if (migrated) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        settings: state.settings,
+        user: { profileMode: state.user.profileMode, autoRenew: state.user.autoRenew }
+      }));
     }
   } catch (_) {
     // 偏好损坏时静默回退到默认值

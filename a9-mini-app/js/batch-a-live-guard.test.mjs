@@ -342,3 +342,53 @@ test('Live mode allows Plaza & Chest Mall read-only view when /api/config is hea
   assert.equal(out.rewardBudgetA9, null);
   assert.equal(out.poolAvailable, false);
 });
+
+test('W1: startapp parser preserves underscore TON addresses, supports gallery/chest, and marks nav tokens non-attribution', () => {
+  const parse = (param) => runScenario(
+    { href: `https://a9.lat/?mode=live&startapp=${encodeURIComponent(param)}` },
+    `
+      const { A9TMA } = await import(JS_URL + '/tma.js');
+      console.log(JSON.stringify(A9TMA.parseStartParam()));
+    `,
+  );
+  const invTon = parse('invite_UQAbc_def_123');
+  assert.equal(invTon.type, 'invite');
+  assert.equal(invTon.ref, 'UQAbc_def_123');
+  assert.equal(invTon.isAttribution, true);
+
+  const invTeam = parse('invite_TM-0001_UQAbc_def');
+  assert.equal(invTeam.teamId, 'TM-0001');
+  assert.equal(invTeam.ref, 'UQAbc_def');
+  assert.equal(invTeam.isAttribution, true);
+
+  const gal = parse('gallery_act-01_1001');
+  assert.equal(gal.type, 'gallery');
+  assert.equal(gal.route, '/gallery');
+  assert.equal(gal.ref, '1001');
+  assert.equal(gal.isAttribution, true);
+
+  const navClaim = parse('claim');
+  assert.equal(navClaim.route, '/claim');
+  assert.equal(navClaim.isAttribution, false);
+});
+
+test('W1: localStorage only persists under single allowlisted key a9_ui_prefs_v1 (theme & sound migrated)', () => {
+  const out = runScenario(
+    { href: 'https://a9.lat/?mode=live' },
+    `
+      localStorage.setItem('a9_theme_mode', 'dark');
+      localStorage.setItem('a9_sound_enabled', '1');
+      const { store } = await import(JS_URL + '/store.js');
+      const { A9Audio } = await import(JS_URL + '/audio.js');
+      A9Audio.toggle();
+      store.persistPrefs();
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i += 1) keys.push(localStorage.key(i));
+      const prefs = JSON.parse(localStorage.getItem('a9_ui_prefs_v1') || '{}');
+      console.log(JSON.stringify({ keys, themeMode: prefs?.settings?.themeMode, soundEnabled: prefs?.settings?.soundEnabled }));
+    `,
+  );
+  assert.deepEqual(out.keys, ['a9_ui_prefs_v1']);
+  assert.equal(out.themeMode, 'dark');
+  assert.equal(out.soundEnabled, false);
+});
