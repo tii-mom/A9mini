@@ -319,3 +319,12 @@ CREATE TABLE IF NOT EXISTS captain_founding_bonuses (
   status TEXT NOT NULL DEFAULT 'CREDITED_PENDING',
   created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS chest_open_credits (
+  chest_id TEXT PRIMARY KEY,
+  recipient_key TEXT NOT NULL,
+  destination TEXT NOT NULL,
+  amount_raw TEXT NOT NULL,
+  open_token TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL
+);

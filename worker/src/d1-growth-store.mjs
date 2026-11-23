@@ -1118,26 +1118,52 @@ export class D1PresaleRepo {
     // 同时覆盖新行（wallet_key）与尚未回填的历史友好地址行（EQ/UQ/kQ/0Q/raw 全部规范形式），保持单语句原子性。
     const aliases = addressAliases(o.walletAddress);
     const aliasPlaceholders = aliases.map(() => '?').join(', ');
-    const res = await this.db
-      .prepare(
-        `INSERT INTO presale_orders
-           (order_id, wallet_address, wallet_key, tg_user_id, referrer_id, sku_id, open_mode, ton_nano, a9_amount_raw, memo, status,
-            refund_ton_nano, expires_at, created_at, updated_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', '0', ?, ?, ?
-         WHERE (SELECT COALESCE(SUM(CAST(a9_amount_raw AS INTEGER)), 0) FROM presale_orders WHERE ${RESERVING_SQL})
+    const whereClause = `WHERE (SELECT COALESCE(SUM(CAST(a9_amount_raw AS INTEGER)), 0) FROM presale_orders WHERE ${RESERVING_SQL})
                  + CAST(? AS INTEGER) <= CAST(? AS INTEGER)
            AND (SELECT COALESCE(SUM(CAST(ton_nano AS INTEGER)), 0) FROM presale_orders
                  WHERE (wallet_key = ? OR (wallet_key IS NULL AND wallet_address IN (${aliasPlaceholders}))) AND ${RESERVING_SQL})
-                 + CAST(? AS INTEGER) <= CAST(? AS INTEGER)`,
-      )
-      .bind(
-        o.orderId, o.walletAddress, o.walletKey, o.tgUserId, o.referrerId, o.skuId || null, o.openMode || 'INSTANT', o.tonNano.toString(), o.a9AmountRaw.toString(), o.memo,
-        o.expiresAt, o.createdAt, o.updatedAt,
-        nowSec, o.a9AmountRaw.toString(), BigInt(capA9Raw).toString(),
-        o.walletKey, ...aliases, nowSec, o.tonNano.toString(), BigInt(userQuotaNano).toString(),
-      )
-      .run();
-    return changes(res) === 1;
+                 + CAST(? AS INTEGER) <= CAST(? AS INTEGER)`;
+    const tailArgs = [
+      nowSec, o.a9AmountRaw.toString(), BigInt(capA9Raw).toString(),
+      o.walletKey, ...aliases, nowSec, o.tonNano.toString(), BigInt(userQuotaNano).toString(),
+    ];
+    try {
+      const res = await this.db
+        .prepare(
+          `INSERT INTO presale_orders
+             (order_id, wallet_address, wallet_key, tg_user_id, referrer_id, sku_id, open_mode, ton_nano, a9_amount_raw, memo, status,
+              refund_ton_nano, expires_at, created_at, updated_at)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', '0', ?, ?, ?
+           ${whereClause}`,
+        )
+        .bind(
+          o.orderId, o.walletAddress, o.walletKey, o.tgUserId, o.referrerId, o.skuId || null, o.openMode || 'INSTANT', o.tonNano.toString(), o.a9AmountRaw.toString(), o.memo,
+          o.expiresAt, o.createdAt, o.updatedAt,
+          ...tailArgs,
+        )
+        .run();
+      return changes(res) === 1;
+    } catch (e) {
+      // 兼容尚未执行 0009 迁移的旧库（如 0001..0004 滚动升级测试）
+      if (!o.skuId && (o.openMode || 'INSTANT') === 'INSTANT' && /no such column:\s*(sku_id|open_mode)/i.test(String(e?.message || e))) {
+        const res = await this.db
+          .prepare(
+            `INSERT INTO presale_orders
+               (order_id, wallet_address, wallet_key, tg_user_id, referrer_id, ton_nano, a9_amount_raw, memo, status,
+                refund_ton_nano, expires_at, created_at, updated_at)
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', '0', ?, ?, ?
+             ${whereClause}`,
+          )
+          .bind(
+            o.orderId, o.walletAddress, o.walletKey, o.tgUserId, o.referrerId, o.tonNano.toString(), o.a9AmountRaw.toString(), o.memo,
+            o.expiresAt, o.createdAt, o.updatedAt,
+            ...tailArgs,
+          )
+          .run();
+        return changes(res) === 1;
+      }
+      throw e;
+    }
   }
 
   async getOrder(id) {

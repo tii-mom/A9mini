@@ -421,7 +421,7 @@ export function createApiRouter({
           const directReferees = await socialStore.listDirectReferees([identity.telegramUserId, walletAddress]);
           const candidateWallets = new Set(directReferees);
           for (const ref of directReferees) {
-            if (/^\d{5,20}$/.test(String(ref)) && identityStore && typeof identityStore.getBinding === 'function') {
+            if (/^\d{1,20}$/.test(String(ref)) && identityStore && typeof identityStore.getBinding === 'function') {
               const b = await identityStore.getBinding(String(ref), nowSec);
               if (b?.walletAddress) candidateWallets.add(b.walletAddress);
             }
@@ -507,9 +507,8 @@ export function createApiRouter({
       const chestOpenMatch = method === 'POST' && pathname.match(/^\/api\/chests\/([^/]+)\/open$/);
       if (chestOpenMatch) {
         if (!chestEngine) return err('CHEST_DISABLED', 'chest engine not configured', 503);
-        // Live 资金只读隔离：除非显式开启 A9_CHEST_OPEN_ENABLED=1 或 presaleEngine.open=true，否则拦截开箱入账写账本
-        const chestOpenAllowed = env.A9_CHEST_OPEN_ENABLED === '1' || Boolean(presaleEngine?.open);
-        if (!chestOpenAllowed) {
+        // 独立开箱入账门禁：必须显式设置 A9_CHEST_OPEN_ENABLED=1（与 A9_PRESALE_OPEN 购箱开关完全解耦）
+        if (env.A9_CHEST_OPEN_ENABLED !== '1') {
           return err('CHEST_OPEN_DISABLED', '当前真实模式处于只读验收阶段，宝箱开箱入账暂未开放', 403);
         }
         const chestId = decodeURIComponent(chestOpenMatch[1]);
@@ -522,7 +521,7 @@ export function createApiRouter({
             const refs = await socialStore.listDirectReferees([identity.telegramUserId, walletAddress]);
             for (const r of refs) {
               wallets.add(r);
-              if (/^\d{5,20}$/.test(String(r)) && identityStore && typeof identityStore.getBinding === 'function') {
+              if (/^\d{1,20}$/.test(String(r)) && identityStore && typeof identityStore.getBinding === 'function') {
                 const b = await identityStore.getBinding(String(r), nowSec);
                 if (b?.walletAddress) wallets.add(b.walletAddress);
               }

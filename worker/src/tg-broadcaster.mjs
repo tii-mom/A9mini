@@ -464,7 +464,7 @@ export class TelegramBroadcaster {
     }
     let recipientTgId = null;
     const ref = String(credit.referrer).trim();
-    if (/^\d{5,20}$/.test(ref)) {
+    if (/^\d{1,20}$/.test(ref)) {
       recipientTgId = ref;
     } else if (this.identityStore && typeof this.identityStore.getTelegramUserIdByWallet === 'function') {
       try {

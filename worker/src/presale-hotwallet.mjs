@@ -829,10 +829,8 @@ export class PresaleEngine {
     const status = normalizeOrderStatus(o.status, o.payoutTxHash);
     const tonNanoStr = BigInt(o.tonNano).toString();
     const skuId = o.skuId || CHEST_MALL_NANO_TO_SKU[tonNanoStr] || null;
-    return {
+    const out = {
       orderId: o.orderId,
-      skuId,
-      openMode: o.openMode || 'INSTANT',
       walletAddress: o.walletAddress,
       referrerId: o.referrerId || null,
       tonNano: tonNanoStr,
@@ -849,6 +847,13 @@ export class PresaleEngine {
       createdAt: Number(o.createdAt),
       updatedAt: Number(o.updatedAt),
     };
+    if (skuId) {
+      out.skuId = skuId;
+      out.openMode = o.openMode || 'INSTANT';
+    } else if (o.openMode === 'BOOST') {
+      out.openMode = 'BOOST';
+    }
+    return out;
   }
 }
 

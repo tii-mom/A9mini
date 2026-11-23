@@ -258,24 +258,19 @@ await test('Direct paid invitee (TG-only ref) unlocks vault, Captain >=50 gets 5
   assert.equal(verRes.body.data.captainBonus.granted, true);
   assert.equal(verRes.body.data.captainBonus.amountRaw, CAPTAIN_FOUNDING_BONUS_RAW.toString());
 
-  // Live funds isolation: when presaleEngine.open=false and A9_CHEST_OPEN_ENABLED!='1', /api/chests/:id/open returns 403 and writes nothing
+  // Independent Chest Open switch: EVEN when presaleEngine.open=true (购箱已开), without A9_CHEST_OPEN_ENABLED='1', /api/chests/:id/open returns 403 and writes 0 to reward tables
   const starter = await chest.claimStarterBronzeChests({ userId: '1001', walletAddress: W_OWNER }, 1041);
   const b1 = starter.chests[0];
   await chest.assistChest({ chestId: b1.chestId, helperUserId: '2001', helperWalletAddress: W_H1, walletActive: true }, 1042);
   await chest.assistChest({ chestId: b1.chestId, helperUserId: '2002', helperWalletAddress: W_H2, walletActive: true }, 1043);
-  const liveClosedRouter = createApiRouter({
-    env: { A9_BOT_TOKEN: BOT_TOKEN },
-    stateStore: emptyStateStore,
-    promoEngine: promo,
-    presaleEngine: new PresaleHotWalletEngine({ hotWalletAddress: HOT_WALLET, open: false }),
-    predictionEngine: pred,
-    chestEngine: chest,
-    identityStore,
-  });
-  const blockedOpen = await liveClosedRouter({ method: 'POST', pathname: `/api/chests/${b1.chestId}/open`, headers: hdrOwner, body: {}, nowSec: 1044 });
+  const pendingBeforeBlock = pred.getUserSummary('1001').pendingActivationRaw;
+  const promoBeforeBlock = promo.getBalance(W_OWNER).claimableRaw;
+  const blockedOpen = await router({ method: 'POST', pathname: `/api/chests/${b1.chestId}/open`, headers: hdrOwner, body: {}, nowSec: 1044 });
   assert.equal(blockedOpen.status, 403);
   assert.equal(blockedOpen.body.error.code, 'CHEST_OPEN_DISABLED');
   assert.equal((await chest.getChest(b1.chestId)).status, 'READY');
+  assert.equal(pred.getUserSummary('1001').pendingActivationRaw, pendingBeforeBlock);
+  assert.equal(promo.getBalance(W_OWNER).claimableRaw, promoBeforeBlock);
 
   // Chest deep-link parser & OG card route
   assert.deepEqual(parseStartAppParam('chest_ch_abc123_1001'), { raw: 'chest_ch_abc123_1001', kind: 'chest', teamId: null, targetId: 'ch_abc123', referrerId: '1001' });
@@ -331,6 +326,22 @@ await test('Migrated SQLite D1 (0001..0009): orders, bound group, atomic open-wi
   assert.equal(opened.nextUnlocked.slotIndex, 2);
   assert.equal(opened.nextUnlocked.status, 'ACTIVE');
   assert.equal((await d1Pred.getUserSummary('3001')).pendingActivationRaw, '300000000000');
+
+  // 2b) Same-second concurrent openChest + BigInt (>2^63) precision proof:
+  // Pre-seed promo_balances with 20000000000000000000 (2e19, overflows SQLite 64-bit signed INTEGER).
+  // Create Bronze SHOP_BOOST chest (+1% = 19819800000 raw = 19.8198 A9) and race 2 opens in the EXACT same second.
+  await db.prepare("INSERT INTO promo_balances (wallet_address, claimable_raw, total_claimed_raw, updated_at) VALUES (?, '20000000000000000000', '0', 2021)").bind(W_OWNER).run();
+  const shopBronze = await d1Chest.createShopBoostChest({ userId: '3001', walletAddress: W_OWNER, skuId: 'chest_bronze', orderId: 'ord_bigint_race' }, 2021);
+  assert.equal(shopBronze.boostA9Raw, '19819800000');
+  const sameSecRace = await Promise.allSettled([
+    d1Chest.openChest({ chestId: shopBronze.chestId, userId: '3001', walletAddress: W_OWNER, promoEngine: d1Promo }, 2022),
+    d1Chest.openChest({ chestId: shopBronze.chestId, userId: '3001', walletAddress: W_OWNER, promoEngine: d1Promo }, 2022),
+  ]);
+  assert.equal(sameSecRace.filter((r) => r.status === 'fulfilled').length, 1);
+  assert.equal(sameSecRace.filter((r) => r.status === 'rejected').length, 1);
+  assert.equal(sameSecRace.find((r) => r.status === 'rejected').reason.code, 'ALREADY_OPENED');
+  // Exact decimal string: 20000000000000000000 + 19819800000 = 20000000019819800000 (NOT double-credited, NOT float!)
+  assert.equal((await d1Promo.getBalance(W_OWNER)).claimableRaw, '20000000019819800000');
 
   // 3) Concurrent assist on the final slot of Bronze #2: 2 distinct helpers race -> 1 succeeds, 0 orphan rows
   const b2 = opened.nextUnlocked;

@@ -275,36 +275,12 @@ export class D1ChestEngine {
     };
   }
 
-  _atomicCreditPromoStmt(walletAddress, rewardRaw, chestId, nowSec) {
-    const amtStr = BigInt(rewardRaw).toString();
-    return this.db
-      .prepare(
-        `INSERT INTO promo_balances (wallet_address, claimable_raw, total_claimed_raw, updated_at)
-         SELECT ?, ?, '0', ?
-         WHERE EXISTS (SELECT 1 FROM user_chests WHERE chest_id = ? AND status = 'OPENED' AND opened_at = ?)
-         ON CONFLICT(wallet_address) DO UPDATE SET
-           claimable_raw = CAST(CAST(promo_balances.claimable_raw AS INTEGER) + CAST(excluded.claimable_raw AS INTEGER) AS TEXT),
-           updated_at = excluded.updated_at`,
-      )
-      .bind(String(walletAddress), amtStr, nowSec, chestId, nowSec);
-  }
-
-  _atomicCreditPendingStmt(userId, rewardRaw, chestId, nowSec) {
-    const amtStr = BigInt(rewardRaw).toString();
-    const expMs = nowSec * 1000 + VOUCHER_TTL_MS;
-    return this.db
-      .prepare(
-        `INSERT INTO prediction_rewards (user_id, pending_activation_raw, activated_raw, pending_expires_at, total_settled, total_won, streak, updated_at)
-         SELECT ?, ?, '0', ?, 0, 0, 0, ?
-         WHERE EXISTS (SELECT 1 FROM user_chests WHERE chest_id = ? AND status = 'OPENED' AND opened_at = ?)
-         ON CONFLICT(user_id) DO UPDATE SET
-           pending_activation_raw = CAST(CAST(prediction_rewards.pending_activation_raw AS INTEGER) + CAST(excluded.pending_activation_raw AS INTEGER) AS TEXT),
-           pending_expires_at = excluded.pending_expires_at,
-           updated_at = excluded.updated_at`,
-      )
-      .bind(String(userId), amtStr, expMs, nowSec, chestId, nowSec);
-  }
-
+  /**
+   * 原子开箱与 BigInt 精确入账（防同秒并发重复发奖 + 防 SQLite 64 位整数溢出）：
+   * 1) 使用每次开箱唯一 openToken 写入 chest_open_credits(chest_id PRIMARY KEY)，物理杜绝同秒并发二次入账；
+   * 2) 余额累加完全在 JS BigInt 中以十进制字符串计算，绝不使用 SQLite CAST(... AS INTEGER)；
+   * 3) 将余额 CAS 条件写进语句 1（chest_open_credits INSERT）的 WHERE 子句：若并发修改了余额，整批 0 行写入并自动重读重试，绝不丢更新也不卡在 OPENED。
+   */
   async openChest(
     {
       chestId,
@@ -319,101 +295,180 @@ export class D1ChestEngine {
   ) {
     const cId = String(chestId || '').trim();
     const uid = String(userId || '').trim();
-    const chest = await this.getChest(cId);
-    if (!chest) throw new ChestError('CHEST_NOT_FOUND', '未找到对应宝箱');
-    if (chest.ownerUserId !== uid) throw new ChestError('FORBIDDEN', '只能开启自己的宝箱');
-    if (chest.status === 'LOCKED') throw new ChestError('CHEST_LOCKED', '请先开启上一个宝箱后再激活当前宝箱');
-    if (chest.status === 'OPENED') throw new ChestError('ALREADY_OPENED', '该宝箱已开启');
+    const MAX_CAS_RETRIES = 6;
 
-    let rewardRaw = 0n;
-    let destination = 'PROMO_BALANCE';
-    let nextUnlocked = null;
+    for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt += 1) {
+      const chest = await this.getChest(cId);
+      if (!chest) throw new ChestError('CHEST_NOT_FOUND', '未找到对应宝箱');
+      if (chest.ownerUserId !== uid) throw new ChestError('FORBIDDEN', '只能开启自己的宝箱');
+      if (chest.status === 'LOCKED') throw new ChestError('CHEST_LOCKED', '请先开启上一个宝箱后再激活当前宝箱');
+      if (chest.status === 'OPENED') throw new ChestError('ALREADY_OPENED', '该宝箱已开启');
 
-    if (chest.source === 'SHOP_BOOST') {
-      rewardRaw = BigInt(chest.boostA9Raw || '0');
-      if (rewardRaw > 0n && !walletAddress) {
-        throw new ChestError('WALLET_REQUIRED', '领取膨胀奖励需绑定钱包地址');
+      let rewardRaw = 0n;
+      let destination = 'PROMO_BALANCE';
+      let nextSpec = null;
+
+      if (chest.source === 'SHOP_BOOST') {
+        rewardRaw = BigInt(chest.boostA9Raw || '0');
+        if (rewardRaw > 0n && !walletAddress) {
+          throw new ChestError('WALLET_REQUIRED', '领取膨胀奖励需绑定钱包地址');
+        }
+      } else {
+        const spec = findFreeChestSpec(chest.tier, chest.slotIndex);
+        if (!spec) throw new ChestError('BAD_STATE', '未知的免费宝箱档位');
+        if (chest.currentAssists < chest.requiredAssists) {
+          throw new ChestError('ASSISTS_UNMET', `还需 ${chest.requiredAssists - chest.currentAssists} 位真实活跃钱包助力后方可开启`);
+        }
+        if (BigInt(teamVolumeNano || 0n) < BigInt(spec.minVolumeNano)) {
+          throw new ChestError('VOLUME_UNMET', '直邀/战队累计真实商城兑换额尚未达到该档位要求');
+        }
+        if (Number(teamTgMemberCount || 0) < Number(spec.minTgMembers)) {
+          throw new ChestError('TG_GROUP_UNMET', `该档位需绑定真实核验 TG 群且群人数不少于 ${spec.minTgMembers} 人`);
+        }
+        rewardRaw = BigInt(chest.baseA9Raw || '0');
+        destination = spec.goesToPendingVault ? 'PENDING_VAULT' : 'PROMO_BALANCE';
+        if (destination === 'PROMO_BALANCE' && rewardRaw > 0n && !walletAddress) {
+          throw new ChestError('WALLET_REQUIRED', '领取该档位宝箱奖励需绑定钱包地址');
+        }
+        nextSpec = nextFreeChestSpec(chest.tier, chest.slotIndex);
       }
+
+      const recipientKey = destination === 'PENDING_VAULT' ? uid : String(walletAddress || uid);
+      const openToken = `op_${randomHex(8)}`;
+      const rewardStr = rewardRaw.toString();
+
+      let balGuardSql = '';
+      let balGuardArgs = [];
+      let creditStmt = null;
+
+      if (rewardRaw > 0n && destination === 'PROMO_BALANCE') {
+        const curRow = await this.db
+          .prepare('SELECT claimable_raw FROM promo_balances WHERE wallet_address = ? LIMIT 1')
+          .bind(recipientKey)
+          .first();
+        if (curRow) {
+          const curStr = String(curRow.claimable_raw || '0');
+          const nextStr = (BigInt(curStr) + rewardRaw).toString();
+          balGuardSql = ' AND EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ? AND claimable_raw = ?)';
+          balGuardArgs = [recipientKey, curStr];
+          creditStmt = this.db
+            .prepare(
+              `UPDATE promo_balances
+               SET claimable_raw = ?, updated_at = ?
+               WHERE wallet_address = ? AND claimable_raw = ?
+                 AND EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)`,
+            )
+            .bind(nextStr, nowSec, recipientKey, curStr, cId, openToken);
+        } else {
+          balGuardSql = ' AND NOT EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ?)';
+          balGuardArgs = [recipientKey];
+          creditStmt = this.db
+            .prepare(
+              `INSERT INTO promo_balances (wallet_address, claimable_raw, total_claimed_raw, updated_at)
+               SELECT ?, ?, '0', ?
+               WHERE EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)
+                 AND NOT EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ?)`,
+            )
+            .bind(recipientKey, rewardStr, nowSec, cId, openToken, recipientKey);
+        }
+      } else if (rewardRaw > 0n && destination === 'PENDING_VAULT') {
+        const curRow = await this.db
+          .prepare('SELECT pending_activation_raw FROM prediction_rewards WHERE user_id = ? LIMIT 1')
+          .bind(recipientKey)
+          .first();
+        const expMs = nowSec * 1000 + VOUCHER_TTL_MS;
+        if (curRow) {
+          const curStr = String(curRow.pending_activation_raw || '0');
+          const nextStr = (BigInt(curStr) + rewardRaw).toString();
+          balGuardSql = ' AND EXISTS (SELECT 1 FROM prediction_rewards WHERE user_id = ? AND pending_activation_raw = ?)';
+          balGuardArgs = [recipientKey, curStr];
+          creditStmt = this.db
+            .prepare(
+              `UPDATE prediction_rewards
+               SET pending_activation_raw = ?, pending_expires_at = ?, updated_at = ?
+               WHERE user_id = ? AND pending_activation_raw = ?
+                 AND EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)`,
+            )
+            .bind(nextStr, expMs, nowSec, recipientKey, curStr, cId, openToken);
+        } else {
+          balGuardSql = ' AND NOT EXISTS (SELECT 1 FROM prediction_rewards WHERE user_id = ?)';
+          balGuardArgs = [recipientKey];
+          creditStmt = this.db
+            .prepare(
+              `INSERT INTO prediction_rewards (user_id, pending_activation_raw, activated_raw, pending_expires_at, total_settled, total_won, streak, updated_at)
+               SELECT ?, ?, '0', ?, 0, 0, 0, ?
+               WHERE EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)
+                 AND NOT EXISTS (SELECT 1 FROM prediction_rewards WHERE user_id = ?)`,
+            )
+            .bind(recipientKey, rewardStr, expMs, nowSec, cId, openToken, recipientKey);
+        }
+      }
+
       const stmts = [
         this.db
-          .prepare("UPDATE user_chests SET status = 'OPENED', opened_at = ?, updated_at = ? WHERE chest_id = ? AND status IN ('ACTIVE', 'READY')")
-          .bind(nowSec, nowSec, cId),
-      ];
-      if (rewardRaw > 0n && walletAddress) {
-        stmts.push(this._atomicCreditPromoStmt(walletAddress, rewardRaw, cId, nowSec));
-      }
-      const out = await this.db.batch(stmts);
-      if (changes(out?.[0]) !== 1) throw new ChestError('ALREADY_OPENED', '该宝箱已开启');
-      if (rewardRaw > 0n && promoEngine && !promoEngine.db && walletAddress && typeof promoEngine.creditReward === 'function') {
-        await promoEngine.creditReward(walletAddress, rewardRaw, nowSec);
-      }
-    } else {
-      const spec = findFreeChestSpec(chest.tier, chest.slotIndex);
-      if (!spec) throw new ChestError('BAD_STATE', '未知的免费宝箱档位');
-      if (chest.currentAssists < chest.requiredAssists) {
-        throw new ChestError('ASSISTS_UNMET', `还需 ${chest.requiredAssists - chest.currentAssists} 位真实活跃钱包助力后方可开启`);
-      }
-      if (BigInt(teamVolumeNano || 0n) < BigInt(spec.minVolumeNano)) {
-        throw new ChestError('VOLUME_UNMET', '直邀/战队累计真实商城兑换额尚未达到该档位要求');
-      }
-      if (Number(teamTgMemberCount || 0) < Number(spec.minTgMembers)) {
-        throw new ChestError('TG_GROUP_UNMET', `该档位需绑定真实核验 TG 群且群人数不少于 ${spec.minTgMembers} 人`);
-      }
-
-      rewardRaw = BigInt(chest.baseA9Raw || '0');
-      destination = spec.goesToPendingVault ? 'PENDING_VAULT' : 'PROMO_BALANCE';
-      if (!spec.goesToPendingVault && rewardRaw > 0n && !walletAddress) {
-        throw new ChestError('WALLET_REQUIRED', '领取该档位宝箱奖励需绑定钱包地址');
-      }
-      const stmts = [
+          .prepare(
+            `INSERT INTO chest_open_credits (chest_id, recipient_key, destination, amount_raw, open_token, created_at)
+             SELECT ?, ?, ?, ?, ?, ?
+             WHERE EXISTS (SELECT 1 FROM user_chests WHERE chest_id = ? AND status IN ('ACTIVE', 'READY'))
+               AND NOT EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ?)${balGuardSql}`,
+          )
+          .bind(cId, recipientKey, destination, rewardStr, openToken, nowSec, cId, cId, ...balGuardArgs),
         this.db
-          .prepare("UPDATE user_chests SET status = 'OPENED', opened_at = ?, updated_at = ? WHERE chest_id = ? AND status IN ('ACTIVE', 'READY')")
-          .bind(nowSec, nowSec, cId),
+          .prepare(
+            `UPDATE user_chests
+             SET status = 'OPENED', opened_at = ?, updated_at = ?
+             WHERE chest_id = ? AND status IN ('ACTIVE', 'READY')
+               AND EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)`,
+          )
+          .bind(nowSec, nowSec, cId, cId, openToken),
       ];
-      const nextSpec = nextFreeChestSpec(chest.tier, chest.slotIndex);
+
       if (nextSpec) {
         stmts.push(
           this.db
             .prepare(
               `UPDATE user_chests
                SET status = 'ACTIVE', updated_at = ?
-               WHERE owner_user_id = ? AND source = 'FREE_TIER' AND tier = ? AND slot_index = ? AND status = 'LOCKED'`,
+               WHERE owner_user_id = ? AND source = 'FREE_TIER' AND tier = ? AND slot_index = ? AND status = 'LOCKED'
+                 AND EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)`,
             )
-            .bind(nowSec, uid, nextSpec.tier, nextSpec.slotIndex),
+            .bind(nowSec, uid, nextSpec.tier, nextSpec.slotIndex, cId, openToken),
         );
       }
-      if (rewardRaw > 0n) {
-        if (spec.goesToPendingVault) {
-          stmts.push(this._atomicCreditPendingStmt(uid, rewardRaw, cId, nowSec));
-        } else if (walletAddress) {
-          stmts.push(this._atomicCreditPromoStmt(walletAddress, rewardRaw, cId, nowSec));
-        }
-      }
+      if (creditStmt) stmts.push(creditStmt);
+
       const out = await this.db.batch(stmts);
-      if (changes(out?.[0]) !== 1) throw new ChestError('ALREADY_OPENED', '该宝箱已开启');
-      if (rewardRaw > 0n) {
-        if (spec.goesToPendingVault && predictionEngine && !predictionEngine.db && typeof predictionEngine.creditPendingBonus === 'function') {
-          await predictionEngine.creditPendingBonus(uid, rewardRaw, nowSec * 1000);
-        } else if (!spec.goesToPendingVault && promoEngine && !promoEngine.db && walletAddress && typeof promoEngine.creditReward === 'function') {
-          await promoEngine.creditReward(walletAddress, rewardRaw, nowSec);
+      if (changes(out?.[0]) === 1) {
+        if (rewardRaw > 0n) {
+          if (destination === 'PENDING_VAULT' && predictionEngine && !predictionEngine.db && typeof predictionEngine.creditPendingBonus === 'function') {
+            await predictionEngine.creditPendingBonus(uid, rewardRaw, nowSec * 1000);
+          } else if (destination === 'PROMO_BALANCE' && promoEngine && !promoEngine.db && walletAddress && typeof promoEngine.creditReward === 'function') {
+            await promoEngine.creditReward(walletAddress, rewardRaw, nowSec);
+          }
         }
+        let nextUnlocked = null;
+        if (nextSpec) {
+          const nextRow = await this.db
+            .prepare("SELECT * FROM user_chests WHERE owner_user_id = ? AND source = 'FREE_TIER' AND tier = ? AND slot_index = ? LIMIT 1")
+            .bind(uid, nextSpec.tier, nextSpec.slotIndex)
+            .first();
+          nextUnlocked = rowToChest(nextRow);
+        }
+        return {
+          chest: await this.getChest(cId),
+          rewardA9Raw: rewardStr,
+          destination,
+          nextUnlocked,
+        };
       }
 
-      if (nextSpec) {
-        const nextRow = await this.db
-          .prepare("SELECT * FROM user_chests WHERE owner_user_id = ? AND source = 'FREE_TIER' AND tier = ? AND slot_index = ? LIMIT 1")
-          .bind(uid, nextSpec.tier, nextSpec.slotIndex)
-          .first();
-        nextUnlocked = rowToChest(nextRow);
+      const latest = await this.getChest(cId);
+      if (!latest || latest.status === 'OPENED') {
+        throw new ChestError('ALREADY_OPENED', '该宝箱已开启');
       }
     }
 
-    return {
-      chest: await this.getChest(cId),
-      rewardA9Raw: rewardRaw.toString(),
-      destination,
-      nextUnlocked,
-    };
+    throw new ChestError('CONCURRENT_OPEN', '账户余额刚发生并发变动，请重试开箱');
   }
 
   async grantCaptainFoundingBonus(
