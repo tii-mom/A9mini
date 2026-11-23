@@ -344,11 +344,34 @@ export class D1PromoStore {
     }
 
     const updated = await this.getClaim(claimRow.claim_id);
+    const queryId = deriveClaimQueryId(updated.claimId);
+    // 幂等写入 promo_payouts 持久化出账意图（兼容尚未执行 0010 迁移的旧库）
+    try {
+      await this.db
+        .prepare(
+          `INSERT OR IGNORE INTO promo_payouts
+             (payout_id, claim_id, wallet_address, wallet_key, amount_raw, query_id, status, attempts, ambiguous, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'PENDING', 0, 0, ?, ?)`,
+        )
+        .bind(
+          `promo:${updated.claimId}`,
+          updated.claimId,
+          updated.walletAddress,
+          addressKey(updated.walletAddress),
+          updated.amountRaw,
+          queryId,
+          nowSec,
+          nowSec,
+        )
+        .run();
+    } catch {
+      // 旧库无 promo_payouts 表时退化兼容
+    }
     return {
       claim: updated,
       payoutInstruction: {
         op: '0x0f8a7ea5',
-        queryId: deriveClaimQueryId(updated.claimId),
+        queryId,
         fromHotWallet: this.hotWalletAddress,
         recipient: updated.walletAddress,
         jettonAmountRaw: updated.amountRaw,
@@ -356,6 +379,157 @@ export class D1PromoStore {
         sendExcessesTo: this.hotWalletAddress,
         forwardTonNano: '0',
       },
+    };
+  }
+
+  /** 将所有历史停留在 FEE_CONFIRMED 但尚未生成 promo_payouts 的记录幂等补建出账意图。 */
+  async queueConfirmedPromoPayouts(nowSec = Math.floor(Date.now() / 1000)) {
+    let queued = 0;
+    try {
+      const res = await this.db
+        .prepare(
+          `SELECT c.* FROM promo_claims c
+           LEFT JOIN promo_payouts p ON p.claim_id = c.claim_id
+           WHERE c.status = ? AND p.claim_id IS NULL
+           ORDER BY c.created_at ASC`,
+        )
+        .bind(CLAIM_STATUS.FEE_CONFIRMED)
+        .all();
+      for (const r of res?.results || []) {
+        const qid = deriveClaimQueryId(r.claim_id);
+        const ins = await this.db
+          .prepare(
+            `INSERT OR IGNORE INTO promo_payouts
+               (payout_id, claim_id, wallet_address, wallet_key, amount_raw, query_id, status, attempts, ambiguous, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'PENDING', 0, 0, ?, ?)`,
+          )
+          .bind(`promo:${r.claim_id}`, r.claim_id, r.wallet_address, addressKey(r.wallet_address), String(r.amount_raw), qid, nowSec, nowSec)
+          .run();
+        if (changes(ins) === 1) queued += 1;
+      }
+    } catch {
+      return 0;
+    }
+    return queued;
+  }
+
+  async listOpenPromoPayouts() {
+    try {
+      const res = await this.db
+        .prepare("SELECT * FROM promo_payouts WHERE status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT') ORDER BY created_at ASC")
+        .all();
+      return (res?.results || []).map((r) => ({
+        payoutId: r.payout_id,
+        claimId: r.claim_id,
+        kind: 'A9',
+        recipient: r.wallet_address,
+        walletKey: r.wallet_key,
+        amount: String(r.amount_raw),
+        queryId: String(r.query_id),
+        status: r.status,
+        attempts: Number(r.attempts || 0),
+        ambiguous: Number(r.ambiguous || 0) === 1,
+        txHash: r.tx_hash || null,
+        lastError: r.last_error || null,
+        createdAt: Number(r.created_at),
+        updatedAt: Number(r.updated_at),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  async claimPromoPayout(payoutId, fromStatuses, { status = 'BROADCASTING', attempts, updatedAt }) {
+    const ph = fromStatuses.map(() => '?').join(', ');
+    const res = await this.db
+      .prepare(`UPDATE promo_payouts SET status = ?, attempts = ?, updated_at = ? WHERE payout_id = ? AND status IN (${ph})`)
+      .bind(status, attempts, updatedAt, payoutId, ...fromStatuses)
+      .run();
+    return changes(res) === 1;
+  }
+
+  async markPromoPayoutSent(payoutId, claimId, txHash, nowSec) {
+    await this.db.batch([
+      this.db
+        .prepare("UPDATE promo_payouts SET status = 'SENT', ambiguous = 0, tx_hash = COALESCE(?, tx_hash), updated_at = ? WHERE payout_id = ? AND status IN ('BROADCASTING', 'RETRY', 'PENDING', 'SENT')")
+        .bind(txHash, nowSec, payoutId),
+      this.db
+        .prepare('UPDATE promo_claims SET status = ?, payout_tx_hash = COALESCE(?, payout_tx_hash), updated_at = ? WHERE claim_id = ? AND status IN (?, ?)')
+        .bind(CLAIM_STATUS.PAYOUT_SENT, txHash, nowSec, claimId, CLAIM_STATUS.FEE_CONFIRMED, CLAIM_STATUS.PAYOUT_SENT),
+    ]);
+  }
+
+  async markPromoPayoutRetry(payoutId, { ambiguous = true, lastError = null }, nowSec) {
+    await this.db
+      .prepare("UPDATE promo_payouts SET status = 'RETRY', ambiguous = ?, last_error = ?, updated_at = ? WHERE payout_id = ? AND status IN ('BROADCASTING', 'SENT', 'RETRY', 'PENDING')")
+      .bind(ambiguous ? 1 : 0, lastError, nowSec, payoutId)
+      .run();
+  }
+
+  async markPromoPayoutNeedsReview(payoutId, reason, nowSec) {
+    await this.db
+      .prepare("UPDATE promo_payouts SET status = 'NEEDS_REVIEW', last_error = ?, updated_at = ? WHERE payout_id = ? AND status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT')")
+      .bind(reason, nowSec, payoutId)
+      .run();
+  }
+
+  async completePromoPayout(payoutId, claimId, txHash, nowSec) {
+    await this.db.batch([
+      this.db
+        .prepare("UPDATE promo_payouts SET status = 'CONFIRMED', ambiguous = 0, tx_hash = COALESCE(?, tx_hash), updated_at = ? WHERE payout_id = ? AND status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT')")
+        .bind(txHash, nowSec, payoutId),
+      this.db
+        .prepare('UPDATE promo_claims SET status = ?, payout_tx_hash = COALESCE(?, payout_tx_hash), updated_at = ? WHERE claim_id = ? AND status IN (?, ?)')
+        .bind(CLAIM_STATUS.COMPLETED, txHash, nowSec, claimId, CLAIM_STATUS.FEE_CONFIRMED, CLAIM_STATUS.PAYOUT_SENT),
+    ]);
+    return this.getClaim(claimId);
+  }
+
+  async getScanCursor(walletAddress) {
+    const key = addressKey(walletAddress);
+    try {
+      const row = await this.db
+        .prepare('SELECT last_lt, last_hash, updated_at FROM chain_scan_cursors WHERE wallet_address = ? LIMIT 1')
+        .bind(key)
+        .first();
+      return row ? { lt: String(row.last_lt), hash: String(row.last_hash), updatedAt: Number(row.updated_at || 0) } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async saveScanCursor(walletAddress, { lt, hash }, nowSec) {
+    if (!lt || !hash) return;
+    const key = addressKey(walletAddress);
+    try {
+      await this.db
+        .prepare(
+          `INSERT INTO chain_scan_cursors (wallet_address, last_lt, last_hash, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(wallet_address) DO UPDATE SET
+             last_lt = excluded.last_lt,
+             last_hash = excluded.last_hash,
+             updated_at = excluded.updated_at`,
+        )
+        .bind(key, String(lt), String(hash), nowSec)
+        .run();
+    } catch {
+      // 旧库兼容
+    }
+  }
+
+  buildPromoInstruction(p) {
+    return {
+      payoutId: p.payoutId,
+      claimId: p.claimId,
+      op: '0x0f8a7ea5',
+      queryId: p.queryId,
+      fromHotWallet: this.hotWalletAddress,
+      recipient: p.recipient,
+      jettonAmountRaw: p.amount,
+      attachedTonNano: this.transferGasNano.toString(),
+      sendExcessesTo: this.hotWalletAddress,
+      forwardTonNano: '0',
     };
   }
 

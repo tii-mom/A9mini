@@ -21,6 +21,7 @@ function parseArgs(argv) {
     else if (a === '--twap') out.twap = argv[++i];
     else if (a === '--target') out.target = argv[++i];
     else if (a === '--candles-file') out.candlesFile = argv[++i];
+    else if (a === '--stake-close-at') out.stakeCloseAt = Number(argv[++i]);
     else if (a === '--qualified') out.qualified = Number(argv[++i]);
     else if (a === '--candle-hash') out.candleHash = argv[++i];
     else if (a === '--signer') out.signer = argv[++i];
@@ -43,10 +44,13 @@ if (args.round !== undefined && (!Number.isInteger(args.round) || args.round < 1
   throw new Error(`--round must be 1..${maxRoundId} for ${args.protocol}`);
 }
 const { data: p } = loadParams(args.profile);
-const env = { ...process.env, A9_OP_ACTION: args.action, A9_QUERY_ID: args.queryId };
+const env = { ...process.env, A9_NETWORK: p.network, A9_OP_ACTION: args.action, A9_QUERY_ID: args.queryId };
 
 if (args.action === 'open-round') {
-  const roundId = Number(args.round || 1);
+  if (!args.round) {
+    throw new Error('--round <id> is required for open-round (refusing to default to round 1)');
+  }
+  const roundId = Number(args.round);
   const twap = args.twap ?? '0';
   const target = args.target;
   if (!target) throw new Error('--target <usd_e8> is required');
@@ -58,17 +62,34 @@ if (args.action === 'open-round') {
 } else if (args.action === 'settle-round') {
   if (!args.round) throw new Error('--round <id> is required');
   let qualified = args.qualified;
-  let candleHashDec = args.candleHash ? BigInt(args.candleHash).toString() : null;
+  let candleHashDec = null;
   if (args.candlesFile) {
     if (!args.target) throw new Error('--target <usd_e8> is required with --candles-file');
     const candles = JSON.parse(readFileSync(args.candlesFile, 'utf8'));
-    const agg = aggregateCandles(args.round, args.target, candles, p.timing.candleCount);
+    const agg = aggregateCandles(args.round, args.target, candles, p.timing.candleCount, {
+      observationSeconds: p.timing.observationSeconds,
+      ...(args.stakeCloseAt !== undefined ? { stakeCloseAt: args.stakeCloseAt } : {}),
+    });
     qualified = agg.qualifiedCandles;
     candleHashDec = agg.candleHashDec;
-    console.log(`[round-ops] Aggregated ${p.timing.candleCount} candles: qualified=${qualified}/${p.timing.candleCount}, hash=${agg.candleHashHex}`);
+    console.log(`[round-ops] Aggregated ${p.timing.candleCount} candles: qualified=${qualified}/${p.timing.candleCount}, window=[${agg.windowStart}..${agg.windowEnd}], hash=${agg.candleHashHex}`);
+  } else {
+    if (p.network === 'mainnet') {
+      throw new Error('mainnet settle-round requires --candles-file <json> --target <usd_e8>; manual --qualified/--candle-hash bypass is forbidden on mainnet');
+    }
+    if (args.candleHash) {
+      const h = BigInt(args.candleHash);
+      if (h <= 0n || h >= (1n << 256n)) {
+        throw new Error('--candle-hash must be a positive uint256');
+      }
+      candleHashDec = h.toString();
+    }
   }
   if (qualified == null || !candleHashDec) {
     throw new Error('provide either --candles-file <json> --target <usd_e8> or --qualified <n> --candle-hash <0x...>');
+  }
+  if (!Number.isInteger(qualified) || qualified < 0 || qualified > p.timing.candleCount) {
+    throw new Error(`--qualified must be an integer in 0..${p.timing.candleCount}, got ${qualified}`);
   }
   env.A9_ROUND_ID = String(args.round);
   env.A9_QUALIFIED_CANDLES = String(qualified);

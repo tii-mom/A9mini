@@ -1,9 +1,10 @@
-// A9 Protocol v15 — Minimalist 4-contract deployment script (Acton 1.1.0).
-// Run from A9mini/v15 via ops/scripts/deploy-v15.mjs (default dry-run).
+// A9 Protocol v15/v16 — Minimalist 4-contract deployment script with 4-step idempotent resume (Acton 1.1.0).
+// Run from A9mini/v15 or A9mini/v16 via ops/scripts/deploy-v15.mjs (default dry-run).
 import "@stdlib/strings"
 import "@acton/env"
-import "@stdlib/strings"
 import "@acton/testing/assert"
+import "@acton/tlb/maybe"
+import "@acton/types/transaction"
 import "@acton/types/big_array"
 import "@acton/build"
 import "@acton/emulation/network"
@@ -31,13 +32,36 @@ fun reqStr(name: string): string {
     return v!;
 }
 
-fun sendAndLog(from: address, msg: OutMessage) {
+fun sendAndVerify(from: address, msg: OutMessage, label: string) {
     val trace = net.send(from, msg).waitForTrace();
-    if (trace == null) { Assert.fail("trace unavailable; check explorer before retry"); }
+    if (trace == null || trace!.size() == 0) {
+        Assert.fail(format("{}: trace unavailable; check explorer before retry", label));
+    }
     var i = 0;
     while (i < trace!.size()) {
-        val tx = trace!.at(i).tx as cell;
-        println("  tx[{}] = 0x{:x}", i, tx.hash());
+        val rawCell = trace!.at(i).tx as cell;
+        println("  tx[{}] = 0x{:x}", i, rawCell.hash());
+        val tx = trace!.at(i).tx.load();
+        val descr = tx.description.load();
+        if (descr is TlbTransOrd) {
+            if (descr.aborted) {
+                Assert.fail(format("{}: tx[{}] aborted on-chain", label, i));
+            }
+            val c = descr.computePh;
+            if (c is TlbTrComputeVm) {
+                val exitCode = c.data.load().exitCode;
+                if (exitCode != 0 && exitCode != 1) {
+                    Assert.fail(format("{}: tx[{}] failed compute exitCode={}", label, i, exitCode));
+                }
+            }
+            val act = descr.action;
+            if (!(act is TlbNone)) {
+                val actionPh = act.value.load();
+                if (!actionPh.success) {
+                    Assert.fail(format("{}: tx[{}] failed action resultCode={}", label, i, actionPh.resultCode));
+                }
+            }
+        }
         i += 1;
     }
 }
@@ -46,9 +70,6 @@ fun main() {
     val network = reqStr("A9_NETWORK");
     if (!network.equalTo("testnet") && !network.equalTo("mainnet")) {
         Assert.fail("A9_NETWORK must be testnet or mainnet");
-    }
-    if (network.equalTo("mainnet") && !(env<string>("OPS_CONFIRM_MAINNET") ?? "").equalTo("YES")) {
-        Assert.fail("mainnet requires OPS_CONFIRM_MAINNET=YES");
     }
 
     val deployer = scripts.wallet(reqStr("A9_DEPLOY_WALLET"));
@@ -66,6 +87,11 @@ fun main() {
     val rewardPool = reqInt("A9_REWARD_POOL_RAW") as uint128;
     val teamPool = reqInt("A9_TEAM_POOL_RAW") as uint128;
     val rcFunding = reqInt("A9_RC_FUNDING_RAW") as coins;
+    val tonMaster = reqInt("A9_TON_MASTER") as coins;
+    val mintTotal = reqInt("A9_TON_MINT_TOTAL") as coins;
+    val mintFwd = reqInt("A9_TON_MINT_FORWARD") as coins;
+    val tonRc = reqInt("A9_TON_RC") as coins;
+    val tonFunding = reqInt("A9_TON_FUNDING") as coins;
 
     val metadataUri = reqStr("A9_METADATA_URI");
     if (metadataUri.calculateLength() == 0) {
@@ -125,15 +151,21 @@ fun main() {
     };
     val controller = AutoDeployAddress { stateInit: controllerInit }.calculateAddress();
 
+    val masterDeployed = scripts.isContractDeployed(master);
+    val controllerDeployed = scripts.isContractDeployed(controller);
+    val deployerBal = scripts.fetchAccountBalance(deployer.address);
+    val treasuryBal = scripts.fetchAccountBalance(treasury.address);
+
     println("=== A9 {} Deployment Plan ({}) ===", env<string>("A9_PROTOCOL_VERSION") ?? "v15", network);
-    println("JettonMaster    = {}", master);
-    println("RoundController = {}", controller);
-    println("Deployer        = {}", deployer.address);
-    println("Treasury        = {}", treasury.address);
+    println("JettonMaster    = {} (deployed={})", master, masterDeployed);
+    println("RoundController = {} (deployed={})", controller, controllerDeployed);
+    println("Deployer        = {} (balance={})", deployer.address, deployerBal);
+    println("Treasury        = {} (balance={})", treasury.address, treasuryBal);
     println("RoundOpener     = {}", roundOpener);
     println("Keeper          = {}", keeper);
     println("TeamWallet      = {}", teamWallet);
 
+    // 只读预演门禁置于 OPS_CONFIRM_MAINNET 之前，避免主网只读干跑因未设主网写确认而被拒
     if (!(env<bool>("OPS_EXECUTE") ?? false)) {
         println("DRY-RUN: no on-chain messages sent.");
         return;
@@ -141,78 +173,134 @@ fun main() {
     if (!(env<string>("OPS_CONFIRM") ?? "").equalTo("YES")) {
         Assert.fail("OPS_CONFIRM=YES required for execution");
     }
-    if (scripts.isContractDeployed(master) || scripts.isContractDeployed(controller)) {
-        Assert.fail("target contract address is already deployed");
+    if (network.equalTo("mainnet") && !(env<string>("OPS_CONFIRM_MAINNET") ?? "").equalTo("YES")) {
+        Assert.fail("mainnet requires OPS_CONFIRM_MAINNET=YES");
     }
 
-    // 1. Deploy JettonMaster
-    println("[1/4] Deploying JettonMaster...");
-    sendAndLog(deployer.address, createMessage({
-        bounce: false,
-        value: reqInt("A9_TON_MASTER") as coins,
-        dest: { stateInit: masterInit },
-        body: TopUpTons {},
-    }));
+    // 1. Deploy JettonMaster (idempotent resume)
+    if (masterDeployed) {
+        val existingMaster = net.runGetMethod<JettonDataReply>(master, "get_jetton_data");
+        val okUnminted = existingMaster.totalSupply == 0 && existingMaster.mintable && existingMaster.adminAddress != null && existingMaster.adminAddress! == treasury.address;
+        val okMinted = existingMaster.totalSupply == totalSupply && !existingMaster.mintable;
+        if (!okUnminted && !okMinted) {
+            Assert.fail("JettonMaster already deployed with unexpected supply/admin state");
+        }
+        println("[1/4] SKIP: JettonMaster already deployed and verified.");
+    } else {
+        val needDeployer = tonMaster + ton("0.1");
+        if (scripts.fetchAccountBalance(deployer.address) < needDeployer) {
+            Assert.fail(format("insufficient deployer balance for JettonMaster (need >= {})", needDeployer));
+        }
+        println("[1/4] Deploying JettonMaster...");
+        sendAndVerify(deployer.address, createMessage({
+            bounce: false,
+            value: tonMaster,
+            dest: { stateInit: masterInit },
+            body: TopUpTons {},
+        }), "step1-deploy-master");
+    }
 
-    // 2. Mint 10B A9 once -> permanently drop admin
-    println("[2/4] Minting 10B A9 once and renouncing admin...");
-    val mintTotal = reqInt("A9_TON_MINT_TOTAL") as coins;
-    val mintFwd = reqInt("A9_TON_MINT_FORWARD") as coins;
-    val mintBody = beginCell()
-        .storeUint(0x00000015, 32)
-        .storeUint(1, 64)
-        .storeAddress(treasury.address)
-        .storeCoins(mintFwd)
-        .storeCoins(totalSupply)
-        .storeCoins(mintTotal)
-        .storeUint(0, 1)
-        .endCell();
-    sendAndLog(treasury.address, createMessage({ bounce: true, value: mintTotal, dest: master, body: mintBody }));
+    // 2. Mint 10B A9 once -> permanently drop admin (idempotent resume)
+    val mBefore = net.runGetMethod<JettonDataReply>(master, "get_jetton_data");
+    if (mBefore.totalSupply == totalSupply && !mBefore.mintable) {
+        println("[2/4] SKIP: 10B A9 already minted and admin permanently renounced.");
+    } else if (mBefore.totalSupply == 0 && mBefore.mintable && mBefore.adminAddress != null && mBefore.adminAddress! == treasury.address) {
+        val needTreasury = mintTotal + ton("0.1");
+        if (scripts.fetchAccountBalance(treasury.address) < needTreasury) {
+            Assert.fail(format("insufficient treasury balance for MintOnce (need >= {})", needTreasury));
+        }
+        println("[2/4] Minting 10B A9 once and renouncing admin...");
+        val mintBody = beginCell()
+            .storeUint(0x00000015, 32)
+            .storeUint(1, 64)
+            .storeAddress(treasury.address)
+            .storeCoins(mintFwd)
+            .storeCoins(totalSupply)
+            .storeCoins(mintTotal)
+            .storeUint(0, 1)
+            .endCell();
+        sendAndVerify(treasury.address, createMessage({ bounce: true, value: mintTotal, dest: master, body: mintBody }), "step2-mint-once");
+    } else {
+        Assert.fail("unexpected JettonMaster state before MintOnce");
+    }
 
     val mData = net.runGetMethod<JettonDataReply>(master, "get_jetton_data");
     if (mData.totalSupply != totalSupply || mData.mintable) {
         Assert.fail("mint-once verification failed");
     }
 
-    // 3. Deploy RoundController
-    println("[3/4] Deploying RoundController...");
-    sendAndLog(deployer.address, createMessage({
-        bounce: false,
-        value: reqInt("A9_TON_RC") as coins,
-        dest: { stateInit: controllerInit },
-        body: TopUpTons {},
-    }));
-
-    // 4. Fund RoundController with 8.2B A9 (forward_ton_amount = 0)
-    println("[4/4] Funding RoundController with 8.2B A9...");
-    val treasuryWallet = net.runGetMethod<address>(master, "get_wallet_address", [treasury.address]);
+    // 3. Deploy RoundController (idempotent resume)
     val rcWallet = net.runGetMethod<address>(master, "get_wallet_address", [controller]);
+    if (controllerDeployed) {
+        if (net.runGetMethod<address>(controller, "get_jetton_wallet_address") != rcWallet) {
+            Assert.fail("existing RoundController jetton wallet address mismatch");
+        }
+        println("[3/4] SKIP: RoundController already deployed and verified.");
+    } else {
+        val needDeployerRc = tonRc + ton("0.1");
+        if (scripts.fetchAccountBalance(deployer.address) < needDeployerRc) {
+            Assert.fail(format("insufficient deployer balance for RoundController (need >= {})", needDeployerRc));
+        }
+        println("[3/4] Deploying RoundController...");
+        sendAndVerify(deployer.address, createMessage({
+            bounce: false,
+            value: tonRc,
+            dest: { stateInit: controllerInit },
+            body: TopUpTons {},
+        }), "step3-deploy-rc");
+    }
+
+    // 4. Fund RoundController with 8.2B A9 (forward_ton_amount = 0, idempotent resume)
+    val treasuryWallet = net.runGetMethod<address>(master, "get_wallet_address", [treasury.address]);
     if (net.runGetMethod<address>(controller, "get_jetton_wallet_address") != rcWallet) {
         Assert.fail("RoundController jetton wallet address mismatch");
     }
-    val transferBody = beginCell()
-        .storeUint(OP_JETTON_TRANSFER, 32)
-        .storeUint(2, 64)
-        .storeCoins(rcFunding)
-        .storeAddress(controller)
-        .storeAddress(treasury.address)
-        .storeMaybeRef(null)
-        .storeCoins(0)
-        .storeUint(0, 1)
-        .endCell();
-    sendAndLog(treasury.address, createMessage({
-        bounce: true,
-        value: reqInt("A9_TON_FUNDING") as coins,
-        dest: treasuryWallet,
-        body: transferBody,
-    }));
+    var rcBalBefore: coins = 0;
+    if (scripts.isContractDeployed(rcWallet)) {
+        rcBalBefore = net.runGetMethod<JettonWalletDataReply>(rcWallet, "get_wallet_data").jettonBalance;
+    }
+
+    if (rcBalBefore == rcFunding) {
+        println("[4/4] SKIP: RoundController already funded with 8.2B A9.");
+    } else if (rcBalBefore == 0) {
+        val needTreasuryFund = tonFunding + ton("0.1");
+        if (scripts.fetchAccountBalance(treasury.address) < needTreasuryFund) {
+            Assert.fail(format("insufficient treasury balance for RC funding (need >= {})", needTreasuryFund));
+        }
+        val treasuryA9Before = net.runGetMethod<JettonWalletDataReply>(treasuryWallet, "get_wallet_data").jettonBalance;
+        if (treasuryA9Before < rcFunding) {
+            Assert.fail(format("insufficient treasury A9 balance ({} < {})", treasuryA9Before, rcFunding));
+        }
+        println("[4/4] Funding RoundController with 8.2B A9...");
+        val transferBody = beginCell()
+            .storeUint(OP_JETTON_TRANSFER, 32)
+            .storeUint(2, 64)
+            .storeCoins(rcFunding)
+            .storeAddress(controller)
+            .storeAddress(treasury.address)
+            .storeMaybeRef(null)
+            .storeCoins(0)
+            .storeUint(0, 1)
+            .endCell();
+        sendAndVerify(treasury.address, createMessage({
+            bounce: true,
+            value: tonFunding,
+            dest: treasuryWallet,
+            body: transferBody,
+        }), "step4-fund-rc");
+    } else {
+        Assert.fail(format("unexpected RoundController A9 balance before funding: {}", rcBalBefore));
+    }
 
     val rcBal = net.runGetMethod<JettonWalletDataReply>(rcWallet, "get_wallet_data").jettonBalance;
+    val treasuryA9After = net.runGetMethod<JettonWalletDataReply>(treasuryWallet, "get_wallet_data").jettonBalance;
     if (rcBal != rcFunding) { Assert.fail("RC funding balance mismatch"); }
+    if (rcBal + treasuryA9After > totalSupply) { Assert.fail("supply conservation violated"); }
 
     println("=== A9 {} Deployed & Verified ===", env<string>("A9_PROTOCOL_VERSION") ?? "v15");
     println("A9_JETTON_MASTER_ADDRESS={}", master);
     println("A9_ROUND_CONTROLLER_ADDRESS={}", controller);
     println("RC_JETTON_WALLET={}", rcWallet);
     println("RC_A9_BALANCE_RAW={}", rcBal);
+    println("TREASURY_A9_BALANCE_RAW={}", treasuryA9After);
 }

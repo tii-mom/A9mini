@@ -1,10 +1,19 @@
 import { liveRound } from './wealthverse.js';
 import { store } from '../store.js';
 import { config } from '../config.js';
-import { estimateRewardA9, fetchPredictionRound, fetchPredictionUser, submitPredictionBet, activatePredictionReward, getEffectiveUserId, rawToA9 } from '../data.js';
+import {
+  estimateRewardA9,
+  fetchPredictionRound,
+  fetchPredictionUser,
+  submitPredictionBet,
+  activatePredictionReward,
+  fetchUserPortfolio,
+  getEffectiveUserId,
+  rawToA9,
+} from '../data.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
-import { formatNum, showToast, copyText, mountSlider, burstParticles, openChoiceSheet, openModal, closeModal, bindCorridorRadarEvents } from '../components.js';
+import { escapeHtml, formatNum, showToast, copyText, mountSlider, burstParticles, openChoiceSheet, openModal, closeModal, bindCorridorRadarEvents } from '../components.js';
 import { characterArt, getBoxheadItem } from '../wealth-art.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
@@ -323,7 +332,7 @@ function bindPredictionCardEvents(root, navigate) {
   const actBtn = card.querySelector('#btn-pred-activate');
   if (actBtn) {
     actBtn.onclick = async () => {
-      if (!config.isDemo) {
+      if (!store.fundsEnabled) {
         showToast(L('当前真实模式处于只读验收阶段，奖励激活入账暂未开放', 'Live mode is read-only; reward activation is currently disabled'), 'amber');
         return;
       }
@@ -425,8 +434,12 @@ function openTransactionSheet(amount, view) {
 export function renderParticipateConfirm(root, navigate) {
   const { user } = store.state;
   const round = store.state.round;
-  if (!config.isDemo) {
-    root.innerHTML=liveRound(round);
+  if (!config.isDemo && !store.fundsEnabled) {
+    root.innerHTML = liveRound(round);
+    return;
+  }
+  if (!config.isDemo && store.fundsEnabled) {
+    renderLiveStakeConfirm(root, navigate);
     return;
   }
   let amount = round.quickStakeTon || 100;
@@ -622,6 +635,166 @@ export function renderParticipateConfirm(root, navigate) {
 
   if (accBtn) accBtn.onclick = handleConfirmSubmit;
   initSlider();
+}
+
+/**
+ * Live 实盘 A9 Jetton 质押确认页（仅在 config.liveFundsEnabled === true 时激活）。
+ * 严格按 v15/v16 合约口径质押 A9 Jetton（附 0.30 GRAM Gas），绝不把 GRAM 当质押本金。
+ */
+function renderLiveStakeConfirm(root, navigate) {
+  const round = store.state.round;
+  const cfg = round.protocolConfig || {};
+  const roundController = cfg.contracts?.roundController || null;
+  const minStakeRaw = BigInt(String(cfg.minStakeRaw || '1000000000000'));
+  const minStakeA9 = Number(minStakeRaw / 1_000_000_000n) || 1000;
+  const protocolVer = cfg.stakeProtocolVersion || (cfg.protocolVersion === 'v16' ? 'v16' : config.stakeProtocolVersion);
+
+  let portfolio = null;
+  let loadError = null;
+  let amountA9 = minStakeA9;
+  let riskAgreed = false;
+  let submitting = false;
+
+  const parseA9InputToRaw = (val) => {
+    const s = String(val ?? '').trim();
+    if (!/^\d+(?:\.\d{1,9})?$/.test(s)) return null;
+    const [whole, frac = ''] = s.split('.');
+    return BigInt(whole) * 1_000_000_000n + BigInt(frac.padEnd(9, '0'));
+  };
+
+  const paint = () => {
+    const { user } = store.state;
+    const balA9 = portfolio?.balanceAvailable && portfolio?.a9BalanceRaw !== null
+      ? rawToA9(portfolio.a9BalanceRaw)
+      : null;
+    const jw = portfolio?.jettonWallet || null;
+    const canSubmit = Boolean(
+      user.connected && user.address && jw && roundController && round.currentRound && round.stage === 'participation' && !submitting,
+    );
+
+    root.innerHTML = `
+      <div class="col-gap anim-page-enter">
+        <div class="card card-hero">
+          <div class="row-between" style="margin-bottom:10px;">
+            <span class="chip chip-gold">${L(`第 ${round.currentRound ?? '—'} 轮 · ${protocolVer.toUpperCase()}`, `Round ${round.currentRound ?? '—'} · ${protocolVer.toUpperCase()}`)}</span>
+            <span class="num-xs text-sec">${L('可用 A9 余额', 'Available A9')}: ${balA9 === null ? L('未获取', 'Unavailable') : `${formatNum(balA9, 2)} A9`}</span>
+          </div>
+          <div class="input-box">
+            <input id="live-stake-a9-input" type="number" min="${minStakeA9}" step="1" value="${amountA9}" aria-label="${L('质押 A9 数量', 'Stake A9 amount')}" />
+            <span class="caps text-sec">A9</span>
+          </div>
+          <div class="grid-4" style="margin-top:8px;">
+            <button class="quick-btn" data-live-amt="${minStakeA9}" type="button">${formatNum(minStakeA9)}</button>
+            <button class="quick-btn" data-live-amt="5000" type="button">5,000</button>
+            <button class="quick-btn" data-live-amt="20000" type="button">20,000</button>
+            <button class="quick-btn" data-live-amt="max" type="button">MAX</button>
+          </div>
+          ${loadError ? `<div class="num-xs text-red" style="margin-top:8px;">${escapeHtml(loadError)}</div>` : ''}
+        </div>
+
+        <div class="card">
+          <div class="card-title" style="margin-bottom:6px;">${icon('receipt', 15, 'text-green')} ${L('链上质押核对清单（A9 本位）', 'On-Chain A9 Stake Checklist')}</div>
+          <div class="check-list">
+            <div class="check-row"><span class="text-sec">${L('质押资产 / 最低门槛', 'Asset / Minimum')}</span><span class="mono" style="font-weight:700;">${formatNum(amountA9)} A9 (≥ ${formatNum(minStakeA9)} A9)</span></div>
+            <div class="check-row"><span class="text-sec">${L('附带链上 Gas（多退少补）', 'Attached Gas (Excess Refunded)')}</span><span class="mono text-sec">0.30 GRAM</span></div>
+            <div class="check-row"><span class="text-sec">${L('目标底价 / 奖励上限', 'Target / Cap')}</span><span class="mono num-xs">${round.targetPrice === null ? L('待定', 'TBD') : '$' + round.targetPrice.toFixed(4)} · 15x</span></div>
+            <div class="check-row"><span class="text-sec">${L('合约地址', 'RoundController')}</span><span class="mono num-xs">${roundController ? escapeHtml(`${roundController.slice(0, 6)}…${roundController.slice(-6)}`) : L('未配置', 'Not configured')}</span></div>
+          </div>
+        </div>
+
+        <div class="risk-check ${riskAgreed ? 'checked' : ''}" id="live-risk-row" role="checkbox" aria-checked="${riskAgreed}" tabindex="0">
+          <span class="risk-box" id="live-risk-box">${riskAgreed ? icon('check', 12) : ''}</span>
+          <span>${L('我已知晓：本交易通过 TEP-74 将 A9 转入 RoundController 合约并附带 0.30 GRAM Gas；观察期 24 时段未达 16 格时，本轮质押 A9 本金将按合约规则销毁。', 'I understand: A9 Jetton is transferred to RoundController with 0.30 GRAM gas; if fewer than 16/24 slots qualify, staked A9 principal is burned on-chain.')}</span>
+        </div>
+
+        ${!user.connected
+          ? `<button class="btn btn-primary" id="btn-live-connect" type="button">${icon('wallet', 15)} ${L('先连接非托管 TON 钱包', 'Connect TON Wallet First')}</button>`
+          : `<button class="btn btn-primary" id="btn-live-stake-submit" type="button" ${!canSubmit ? 'disabled' : ''}>${icon('bolt', 16)} ${submitting ? L('等待钱包签名…', 'Awaiting Signature…') : L(`签名质押 ${formatNum(amountA9)} A9（+ 0.30 GRAM Gas）`, `Sign & Stake ${formatNum(amountA9)} A9 (+ 0.30 GRAM Gas)`)}</button>`}
+        <button class="btn btn-secondary" data-nav="/round" type="button">${icon('arrowLeft', 15)} ${L('返回轮次详情', 'Back to Round')}</button>
+      </div>
+    `;
+
+    const inputEl = root.querySelector('#live-stake-a9-input');
+    if (inputEl) {
+      inputEl.oninput = (e) => {
+        amountA9 = Math.max(0, Number(e.target.value) || 0);
+      };
+    }
+    root.querySelectorAll('[data-live-amt]').forEach((b) => {
+      b.onclick = () => {
+        A9Haptic.light();
+        const v = b.dataset.liveAmt === 'max'
+          ? (balA9 !== null ? Math.floor(balA9) : minStakeA9)
+          : Number(b.dataset.liveAmt);
+        amountA9 = Math.max(minStakeA9, v);
+        paint();
+      };
+    });
+    const rRow = root.querySelector('#live-risk-row');
+    if (rRow) {
+      rRow.onclick = () => { A9Haptic.tick(); riskAgreed = !riskAgreed; paint(); };
+    }
+    const connBtn = root.querySelector('#btn-live-connect');
+    if (connBtn) connBtn.onclick = () => tonConnect.openConnectModal(() => loadPortfolio());
+
+    const submitBtn = root.querySelector('#btn-live-stake-submit');
+    if (submitBtn) {
+      submitBtn.onclick = async () => {
+        if (!riskAgreed) {
+          showToast(L('请先勾选链上风险提示确认', 'Confirm on-chain risk notice first'), 'amber');
+          return;
+        }
+        const rawAmt = parseA9InputToRaw(inputEl?.value ?? amountA9);
+        if (!rawAmt || rawAmt < minStakeRaw) {
+          showToast(L(`质押数量不得低于 ${formatNum(minStakeA9)} A9`, `Minimum stake is ${formatNum(minStakeA9)} A9`), 'error');
+          return;
+        }
+        if (portfolio?.a9BalanceRaw && rawAmt > BigInt(portfolio.a9BalanceRaw)) {
+          showToast(L('链上 A9 余额不足', 'Insufficient on-chain A9 balance'), 'error');
+          return;
+        }
+        submitting = true;
+        paint();
+        const sheet = openTransactionSheet(amountA9, () => navigate('/profile'));
+        try {
+          await tonConnect.sendV15StakeA9({
+            userJettonWallet: jw,
+            roundController,
+            userAddress: user.address,
+            amountA9Raw: rawAmt.toString(),
+            roundId: Number(round.currentRound),
+            protocolVersion: protocolVer,
+          });
+          A9Audio.confirm();
+          sheet.done(
+            L('质押交易已提交链上', 'Stake Transaction Broadcast'),
+            L('请等待区块确认后在「我的 → 闯关凭证」核对 StakeTicket', 'Check your StakeTicket in Me after block confirmation'),
+          );
+        } catch (e) {
+          A9Audio.error();
+          sheet.done(L('签名取消或失败 · 未扣款', 'Cancelled or Failed · No Funds Spent'), e?.message || L('请稍后重试', 'Please retry'), 'error');
+        } finally {
+          submitting = false;
+          if (root.isConnected) paint();
+        }
+      };
+    }
+  };
+
+  const loadPortfolio = async () => {
+    const addr = store.state.user.address;
+    if (!addr) { paint(); return; }
+    try {
+      portfolio = await fetchUserPortfolio(addr);
+      loadError = !portfolio?.jettonWallet ? L('尚未检测到你的 A9 JettonWallet（需先持有 A9）', 'A9 JettonWallet not found (hold A9 first)') : null;
+    } catch (e) {
+      loadError = e?.message || L('读取链上 A9 余额失败，请重试', 'Failed to load on-chain A9 balance');
+    }
+    if (root.isConnected) paint();
+  };
+
+  paint();
+  loadPortfolio();
 }
 
 export function renderParticipateSuccess(root, navigate, certId) {

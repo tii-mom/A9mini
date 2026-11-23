@@ -38,12 +38,13 @@ if (!args.execute) {
     timing: p.timing,
     promoUserFeeTon: p.promoHotWallet.userFeeTon,
     artifacts: artifacts.map((a) => ({ path: a.relPath, sha256: a.sha256 })),
+    derivedAddresses: preflight.derivedAddresses || null,
     missingRequiredForExecute: preflight.missing,
     invalidConfigForExecute: preflight.invalid,
     warnings: preflight.warnings,
     readyForExecute: preflight.readyForExecute,
   }, null, 2));
-  process.exit(0);
+  process.exit(preflight.invalid.length > 0 ? 1 : 0);
 }
 
 const env = {

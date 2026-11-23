@@ -381,12 +381,76 @@ export default {
       ? (hasD1 ? new D1PresaleStore({ db: env.DB, ...presaleOpts }) : new PresaleHotWalletEngine(presaleOpts))
       : null;
 
+    const readRunnerHeartbeats = hasD1
+      ? async () => {
+          try {
+            const res = await env.DB
+              .prepare('SELECT runner_id, role, network, last_seen_at, meta_json FROM runner_heartbeats ORDER BY last_seen_at DESC')
+              .all();
+            return (res?.results || []).map((r) => {
+              let meta = null;
+              if (r.meta_json) {
+                try { meta = JSON.parse(String(r.meta_json)); } catch { meta = null; }
+              }
+              return {
+                runnerId: String(r.runner_id),
+                role: String(r.role),
+                network: String(r.network || ''),
+                lastSeenAt: Number(r.last_seen_at || 0),
+                meta,
+              };
+            });
+          } catch {
+            return [];
+          }
+        }
+      : async () => [];
+
+    const healthChecker = async ({ nowSec: checkNow }) => {
+      const cacheKey = rcAddr ? `${env.TONCENTER_API_BASE || ''}:${rcAddr}` : null;
+      const cached = cacheKey ? memChainCacheByTarget.get(cacheKey) : null;
+      const cacheAgeSec = cached?.fetchedAt ? Math.max(0, checkNow - cached.fetchedAt) : null;
+      let dbOk = !hasD1;
+      let dbError = null;
+      if (hasD1) {
+        try {
+          const row = await env.DB.prepare('SELECT 1 AS ok').first();
+          dbOk = Number(row?.ok) === 1;
+        } catch (e) {
+          dbOk = false;
+          dbError = e?.message || 'D1 health probe failed';
+        }
+      }
+      const runnerHeartbeats = dbOk && hasD1 ? await readRunnerHeartbeats() : [];
+      return {
+        ok: dbOk,
+        db: { bound: hasD1, ok: dbOk, ...(dbError ? { error: dbError } : {}) },
+        cacheAgeSec,
+        runnerHeartbeats,
+      };
+    };
+
     const userReader = (tc && (jmAddr || rcAddr))
-      ? (wallet) => tc.fetchUserPortfolio(wallet, {
-          jettonMasterAddress: jmAddr,
-          roundControllerAddress: rcAddr,
-          roundIds: rounds.map((r) => r.roundId),
-        })
+      ? (wallet, rangeOpts = {}) => {
+          let roundIds = Array.isArray(rangeOpts?.roundIds) && rangeOpts.roundIds.length
+            ? rangeOpts.roundIds
+            : null;
+          if (!roundIds) {
+            const cur = Number(ps.currentRoundId || 0);
+            if (cur > 0) {
+              const startId = Math.max(1, cur - 23);
+              roundIds = [];
+              for (let id = startId; id <= cur; id += 1) roundIds.push(id);
+            } else {
+              roundIds = rounds.map((r) => r.roundId);
+            }
+          }
+          return tc.fetchUserPortfolio(wallet, {
+            jettonMasterAddress: jmAddr,
+            roundControllerAddress: rcAddr,
+            roundIds,
+          });
+        }
       : null;
 
     const router = createApiRouter({
@@ -402,6 +466,8 @@ export default {
       identityStore,
       publicKeyResolver: tc ? (addr) => tc.fetchWalletPublicKey(addr) : null,
       walletStateResolver: tc ? (addr) => tc.fetchWalletAccountState(addr) : null,
+      healthChecker,
+      runnerHeartbeatReader: readRunnerHeartbeats,
     });
     const out = await router({ method: request.method, pathname: url.pathname, query, body, headers });
 

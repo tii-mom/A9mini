@@ -392,3 +392,93 @@ test('W1: localStorage only persists under single allowlisted key a9_ui_prefs_v1
   assert.equal(out.themeMode, 'dark');
   assert.equal(out.soundEnabled, false);
 });
+
+test('W2: URL parameter cannot enable liveFundsEnabled; only explicit injected config activates all 4 live wallet flows', () => {
+  // 1) Attempting ?liveFundsEnabled=1 in URL must stay disabled
+  const blocked = runScenario(
+    {
+      href: 'https://a9.lat/?mode=live&liveFundsEnabled=1',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat' },
+      sdkConnected: true,
+    },
+    `
+      const { config } = await import(JS_URL + '/config.js');
+      const { store } = await import(JS_URL + '/store.js');
+      const { tonConnect } = await import(JS_URL + '/tonconnect.js');
+      tonConnect.init();
+      let code = null;
+      try {
+        await tonConnect.sendV15PresaleTx({ payTo: 'EQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCc8-', tonNano: '990000000', memo: 'buy:ord_1' });
+      } catch (e) { code = e?.code || null; }
+      console.log(JSON.stringify({ liveFundsEnabled: config.liveFundsEnabled, fundsEnabled: store.fundsEnabled, code, txCount: sdkCalls.sendTransaction }));
+    `,
+  );
+  assert.equal(blocked.liveFundsEnabled, false);
+  assert.equal(blocked.fundsEnabled, false);
+  assert.equal(blocked.code, 'LIVE_FUNDS_DISABLED');
+  assert.equal(blocked.txCount, 0);
+
+  // 2) Explicit injected liveFundsEnabled: true enables all 4 real TON Connect wallet flows (and follows server v16 stake version)
+  const enabled = runScenario(
+    {
+      href: 'https://a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat', liveFundsEnabled: true },
+      sdkConnected: true,
+      startParam: 'invite_100',
+    },
+    `
+      const { config } = await import(JS_URL + '/config.js');
+      const { store } = await import(JS_URL + '/store.js');
+      const { tonConnect } = await import(JS_URL + '/tonconnect.js');
+      const { requestChestPurchaseIntent, openChestById } = await import(JS_URL + '/data.js');
+
+      store.update((s) => {
+        s.round.protocolConfig = { protocolVersion: 'v16', stakeProtocolVersion: 'v16' };
+      });
+      tonConnect.init();
+
+      const txs = [];
+      const origSend = tonConnect.ui.sendTransaction.bind(tonConnect.ui);
+      tonConnect.ui.sendTransaction = async (tx) => { txs.push(tx); return origSend(tx); };
+
+      const rPresale = await tonConnect.sendV15PresaleTx({
+        payTo: 'EQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCc8-',
+        tonNano: '990000000',
+        memo: 'buy:ord_live_1',
+      });
+      const rPromo = await tonConnect.sendV15PromoFee({
+        payTo: 'EQCzAIXCKhfHughvMdreCWrkRpxNtHSVoXjm5V0eKbLWG3kB',
+        feeRequiredNano: '60000000',
+        memo: 'claim:cl_live_1',
+      });
+      const rStake = await tonConnect.sendV15StakeA9({
+        userJettonWallet: 'EQCzAIXCKhfHughvMdreCWrkRpxNtHSVoXjm5V0eKbLWG3kB',
+        roundController: 'EQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCc8-',
+        userAddress: '0:' + '11'.repeat(32),
+        amountA9Raw: '1000000000000',
+        roundId: 256,
+      });
+      const rClaim = await tonConnect.sendV15TicketClaim('EQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCc8-');
+
+      await requestChestPurchaseIntent({ walletAddress: '0:' + '11'.repeat(32), skuId: 'chest_bronze', openMode: 'BOOST' });
+      await openChestById('ch_live_1', null, '0:' + '11'.repeat(32));
+
+      console.log(JSON.stringify({
+        liveFundsEnabled: config.liveFundsEnabled,
+        fundsEnabled: store.fundsEnabled,
+        txCount: sdkCalls.sendTransaction,
+        simulatedFlags: [rPresale.simulated, rPromo.simulated, rStake.simulated, rClaim.simulated],
+        amounts: txs.map((t) => t.messages[0].amount),
+        fetchUrls: fetchCalls.map((f) => f.url),
+      }));
+    `,
+  );
+
+  assert.equal(enabled.liveFundsEnabled, true);
+  assert.equal(enabled.fundsEnabled, true);
+  assert.equal(enabled.txCount, 4);
+  assert.deepEqual(enabled.simulatedFlags, [false, false, false, false]);
+  assert.deepEqual(enabled.amounts, ['990000000', '60000000', '300000000', '220000000']);
+  assert.ok(enabled.fetchUrls.some((u) => u.endsWith('/api/presale/intent')));
+  assert.ok(enabled.fetchUrls.some((u) => u.endsWith('/api/chests/ch_live_1/open')));
+});

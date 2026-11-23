@@ -1209,10 +1209,13 @@ export function liveRound(r) {
       ? waiting()
       : date.toLocaleString(L('zh-CN', 'en-US'), { timeZone: 'UTC' }) + ' UTC';
   };
+  const canLiveStake = !config.isDemo && store.fundsEnabled && r.stage === 'participation';
   return `<section class="wv-tower"><small>A9 / ROUND ${r.currentRound ?? '—'}</small><h2>${stageLabel(r.stage)}</h2>
     <p>${L('参与窗口', 'Entry window')} · ${time(r.stakeOpenAt)} — ${time(r.stakeCloseAt)}</p>
     <p>${L('早鸟权重仅影响奖励分配份额', 'Early weights affect allocation only')} · 2.0× / 1.4× / 1.0×</p>
     <p>${L('失败将销毁该轮质押的 A9 本金。', 'Failure burns the A9 principal staked in the round.')}</p>
-    <button class="btn btn-secondary" style="margin-top:12px;" disabled>${L('真实模式只读 · 质押签名暂未开放', 'Live read-only · staking disabled')}</button></section>
+    ${canLiveStake
+      ? `<a class="btn btn-primary" style="margin-top:12px;" href="#/challenge/confirm">${icon('bolt', 15)} ${L('质押 A9 参与本轮闯关', 'Stake A9 in Current Round')}</a>`
+      : `<button class="btn btn-secondary" style="margin-top:12px;" disabled>${store.fundsEnabled ? L('当前轮次非入场窗口', 'Staking window closed') : L('真实模式只读 · 质押签名暂未开放', 'Live read-only · staking disabled')}</button>`}</section>
     ${tower(r)}<nav class="wv-links">${link('/observation/records', L('时段明细', 'Slot details'), 'clock')}${link('/rewards', L('解锁阶段', 'Vesting'), 'unlock')}${link('/warmup', L('预热', 'Warm-up'), 'bolt')}${link('/rules', L('规则', 'Rules'), 'book')}</nav>`;
 }

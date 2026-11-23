@@ -44,9 +44,24 @@ export class PresalePayoutRunner {
       if (this.execute && typeof this.a9Broadcaster !== 'function') {
         throw new Error('a9Broadcaster callback is required when execute=true');
       }
-      const txs = await this.tonCenter.fetchInboundTransfers(this.engine.hotWalletAddress);
+      let txs = [];
+      let nextCursor = null;
+      const canUseCursor = typeof this.tonCenter.fetchInboundTransfersSince === 'function'
+        && typeof this.engine.repo?.getScanCursor === 'function';
+      if (canUseCursor) {
+        const cur = await this.engine.repo.getScanCursor(this.engine.hotWalletAddress);
+        const pageRes = await this.tonCenter.fetchInboundTransfersSince(this.engine.hotWalletAddress, {
+          cursorLt: cur?.lt || null,
+          cursorHash: cur?.hash || null,
+        });
+        txs = Array.isArray(pageRes?.transfers) ? pageRes.transfers : [];
+        nextCursor = pageRes?.nextCursor || null;
+      } else {
+        txs = await this.tonCenter.fetchInboundTransfers(this.engine.hotWalletAddress);
+      }
       // 所有到达热钱包的入账均交由引擎统一分类与持久化（不再提前按 buy: 前缀静默丢弃），
       // 以确保无备注、错备注、错金额、错地址、推广流程与粉尘入账均按规则留痕防重放。
+      let inboundFailed = false;
       for (const tx of txs) {
         try {
           if (!this.execute) {
@@ -67,10 +82,15 @@ export class PresalePayoutRunner {
           else if (res.action === 'CONFIRM') summary.confirmed += 1;
           else if (res.action === 'REFUND') summary.refundQueued += 1;
         } catch (e) {
+          inboundFailed = true;
           summary.errors.push({ txHash: tx?.txHash, code: e?.code || 'ERR', message: e?.message || String(e) });
         }
       }
       if (!this.execute) return summary;
+      // 仅在全部入账均已无错持久化分类后才推进扫描游标，防止中途异常导致永久漏扫
+      if (!inboundFailed && nextCursor && typeof this.engine.repo?.saveScanCursor === 'function') {
+        await this.engine.repo.saveScanCursor(this.engine.hotWalletAddress, nextCursor, nowSec);
+      }
 
       summary.queued = await this.engine.queueConfirmedPayouts(nowSec);
       const before = await this._countCompleted();
@@ -99,11 +119,17 @@ export class PresalePayoutRunner {
   }
 
   async _countCompleted() {
+    if (typeof this.engine.repo?.countOrdersByStatus === 'function') {
+      return this.engine.repo.countOrdersByStatus('COMPLETED');
+    }
     const rows = await this.engine.repo.listOrdersByStatus('COMPLETED');
     return rows.length;
   }
 
   async _countRefunded() {
+    if (typeof this.engine.repo?.countOrdersByStatus === 'function') {
+      return this.engine.repo.countOrdersByStatus('REFUNDED');
+    }
     const rows = await this.engine.repo.listOrdersByStatus('REFUNDED');
     return rows.length;
   }

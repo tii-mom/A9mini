@@ -1,5 +1,14 @@
 import { personalRanks, teamRanks, DEMO_CHEST_SKUS, demoBuyChest } from '../demo-data.js';
-import { fetchWarmupRank, fetchMyChests, claimStarterChests, openChestById, rawToA9 } from '../data.js';
+import {
+  fetchWarmupRank,
+  fetchMyChests,
+  claimStarterChests,
+  openChestById,
+  requestChestPurchaseIntent,
+  fetchPresaleQuota,
+  fetchPresaleOrders,
+  rawToA9,
+} from '../data.js';
 /**
  * Warm-up & Chest Mall Pages — 2-Tab Unified Chest Mall (Paid Boost + Free 5-Tier Viral Chain)
  * - Paid Chest Mall: 5 fixed SKUs (0.99 / 4.99 / 9.99 / 19.99 / 99.99 GRAM) at 1 GRAM = 2,002 A9
@@ -225,6 +234,40 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
   let selectedSkuId = 'chest_bronze';
   let openMode = 'BOOST';
   let chestData = { freeChests: [], shopChests: [], loaded: false };
+  let liveQuota = null;
+  let liveOrdersCount = null;
+  let buyBusy = false;
+
+  const isPresaleServerOpen = () => Boolean(store.state.round?.protocolConfig?.presaleHotWallet?.open);
+  const canPurchaseNow = () => config.isDemo || (store.fundsEnabled && isPresaleServerOpen());
+  const canOpenChestNow = () => config.isDemo || store.fundsEnabled;
+
+  const formatGramFromNano = (nanoStr) => {
+    try {
+      const n = BigInt(String(nanoStr || '0'));
+      const whole = n / 1_000_000_000n;
+      const frac = String(n % 1_000_000_000n).padStart(9, '0').slice(0, 2).replace(/0+$/, '');
+      return `${whole.toLocaleString('en-US')}${frac ? '.' + frac : ''} GRAM`;
+    } catch { return '—'; }
+  };
+
+  const pollOrderAfterTx = async (walletAddress, orderId) => {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await new Promise((r) => setTimeout(r, 2500));
+      if (!root.isConnected) return null;
+      try {
+        const orders = await fetchPresaleOrders(walletAddress);
+        if (Array.isArray(orders)) {
+          liveOrdersCount = orders.length;
+          const found = orders.find((o) => o.orderId === orderId);
+          if (found && (found.status === 'COMPLETED' || found.status === 'PAID_BROADCASTING' || found.status === 'REFUNDED')) {
+            return found;
+          }
+        }
+      } catch (_) {}
+    }
+    return null;
+  };
 
   const formatVolumeReq = (nanoStr) => {
     try {
@@ -277,6 +320,15 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     } catch (_) {
       chestData.loaded = true;
     }
+    if (!config.isDemo && store.state.user.connected && store.state.user.address) {
+      const addr = store.state.user.address;
+      const [qRes, oRes] = await Promise.allSettled([
+        fetchPresaleQuota(addr),
+        fetchPresaleOrders(addr),
+      ]);
+      if (qRes.status === 'fulfilled' && qRes.value) liveQuota = qRes.value;
+      if (oRes.status === 'fulfilled' && Array.isArray(oRes.value)) liveOrdersCount = oRes.value.length;
+    }
     if (root.isConnected) render();
   };
 
@@ -323,8 +375,16 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                     <div class="num-xs text-muted mono">1 GRAM = 2,002 A9 · ${L('0.99 GRAM 起售 · 本金绝不扣押', 'From 0.99 GRAM · Base always yours')}</div>
                   </div>
                 </div>
-                <span class="chip ${config.isDemo ? 'chip-green' : 'chip-gold'}">${config.isDemo ? L('演示开放', 'DEMO OPEN') : L('只读模式', 'READ-ONLY')}</span>
+                <span class="chip ${config.isDemo ? 'chip-green' : canPurchaseNow() ? 'chip-green' : 'chip-gold'}">${config.isDemo ? L('演示开放', 'DEMO OPEN') : canPurchaseNow() ? L('已开放', 'OPEN') : L('只读模式', 'READ-ONLY')}</span>
               </header>
+              ${!config.isDemo && liveQuota ? `
+                <div class="sub-tile" style="margin-bottom:10px;">
+                  <div class="row-between num-xs">
+                    <span class="text-sec">${L('当前钱包剩余购箱额度', 'Wallet Remaining Quota')}</span>
+                    <b class="mono text-green">${formatGramFromNano(liveQuota.remainingNano)}</b>
+                  </div>
+                </div>
+              ` : ''}
 
               <div class="col-gap" style="gap:8px;margin-bottom:12px;">
                 ${skus.map((sku) => {
@@ -365,10 +425,14 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                 ${L('膨胀模式 24H 内随时可收手开箱；售罄自动触发 ≥0.99 GRAM 零手续费被动退款。', 'Stop & open anytime within 24H. Sold-out passive refunds >= 0.99 GRAM are 0-fee.')}
               </div>
 
-              <button class="btn ${config.isDemo ? 'btn-primary' : 'btn-secondary'}" id="btn-buy-chest" type="button" ${!config.isDemo ? 'disabled' : ''}>
-                ${!config.isDemo
+              <button class="btn ${canPurchaseNow() ? 'btn-primary' : 'btn-secondary'}" id="btn-buy-chest" type="button" ${!canPurchaseNow() || buyBusy ? 'disabled' : ''}>
+                ${!store.fundsEnabled
                   ? `${icon('lock', 15)} ${L('真实模式只读 · 宝箱购箱暂未开放', 'Live Read-Only · Purchase Disabled')}`
-                  : `${icon('bolt', 16)} ${L(`演示购买 ${L(sel.zh, sel.en)}（${sel.priceGram} GRAM）`, `Demo Buy ${sel.en} (${sel.priceGram} GRAM)`)}`}
+                  : !config.isDemo && !isPresaleServerOpen()
+                    ? `${icon('lock', 15)} ${L('宝箱商城通道尚未开售', 'Chest Mall Not Yet Open')}`
+                    : config.isDemo
+                      ? `${icon('bolt', 16)} ${L(`演示购买 ${L(sel.zh, sel.en)}（${sel.priceGram} GRAM）`, `Demo Buy ${sel.en} (${sel.priceGram} GRAM)`)}`
+                      : `${icon('bolt', 16)} ${buyBusy ? L('等待钱包确认…', 'Awaiting Wallet…') : L(`立即购买 ${L(sel.zh, sel.en)}（${sel.priceGram} GRAM）`, `Buy ${sel.en} (${sel.priceGram} GRAM)`)}`}
               </button>
             </div>
           </section>
@@ -397,7 +461,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                       <div class="grid-3" style="gap:6px;">
                         <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;">${icon('send', 12)} ${L('群里拉助力', 'Share TG')}</button>
                         <button class="btn btn-secondary btn-sm" data-share-x="${c.chestId}" type="button" style="width:100%;">${icon('xBrand', 12)} ${L('发 X 助力', 'Share X')}</button>
-                        <button class="btn btn-secondary btn-sm" data-open-chest="${c.chestId}" type="button" style="width:100%;" ${!config.isDemo ? 'disabled' : ''}>${icon(config.isDemo ? 'unlock' : 'lock', 12)} ${config.isDemo ? L('立即开箱', 'Open Now') : L('只读暂未开放', 'Read-Only')}</button>
+                        <button class="btn btn-secondary btn-sm" data-open-chest="${c.chestId}" type="button" style="width:100%;" ${!canOpenChestNow() ? 'disabled' : ''}>${icon(canOpenChestNow() ? 'unlock' : 'lock', 12)} ${canOpenChestNow() ? L('立即开箱', 'Open Now') : L('只读暂未开放', 'Read-Only')}</button>
                       </div>
                     </div>
                   `;
@@ -412,7 +476,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                 <span class="icon-badge sky" style="width:36px;height:36px;border-radius:11px;">${icon('receipt', 15)}</span>
                 <div>
                   <div style="font-weight:600;font-size:14px;">${L('购箱小票与退款明细', 'Chest Receipts & Refunds')}</div>
-                  <div class="num-xs text-muted">${L(`共 ${market.records.length} 笔订单`, `${market.records.length} orders`)}</div>
+                  <div class="num-xs text-muted">${config.isDemo ? L(`共 ${market.records.length} 笔订单`, `${market.records.length} orders`) : (liveOrdersCount === null ? L('连接钱包后查看真实订单', 'Connect wallet for live orders') : L(`共 ${formatNum(liveOrdersCount)} 笔订单`, `${formatNum(liveOrdersCount)} orders`))}</div>
                 </div>
               </div>
               <span class="text-muted">${icon('chevronRight', 16)}</span>
@@ -468,7 +532,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                     <div class="grid-3" style="gap:6px;">
                       <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;">${icon('send', 12)} ${L('TG 拉助力', 'TG Share')}</button>
                       <button class="btn btn-secondary btn-sm" data-share-x="${c.chestId}" type="button" style="width:100%;">${icon('xBrand', 12)} ${L('X 发卡片', 'X Share')}</button>
-                      <button class="btn ${isReady && config.isDemo ? 'btn-primary' : 'btn-secondary'} btn-sm" data-open-chest="${c.chestId}" type="button" style="width:100%;" ${!config.isDemo ? 'disabled' : ''}>${icon(config.isDemo ? 'unlock' : 'lock', 12)} ${config.isDemo ? L('开箱', 'Open') : L('只读', 'Read-Only')}</button>
+                      <button class="btn ${isReady && canOpenChestNow() ? 'btn-primary' : 'btn-secondary'} btn-sm" data-open-chest="${c.chestId}" type="button" style="width:100%;" ${!canOpenChestNow() ? 'disabled' : ''}>${icon(canOpenChestNow() ? 'unlock' : 'lock', 12)} ${canOpenChestNow() ? L('开箱', 'Open') : L('只读', 'Read-Only')}</button>
                     </div>
                   ` : ''}
                 </section>
@@ -505,24 +569,63 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
 
     const buyBtn = root.querySelector('#btn-buy-chest');
     if (buyBtn) {
-      buyBtn.onclick = () => {
-        if (!config.isDemo || !store.fundsEnabled) {
+      buyBtn.onclick = async () => {
+        if (!store.fundsEnabled) {
           A9Haptic.warning();
           showToast(L('当前真实模式处于只读验收阶段，购箱下单暂未开放', 'Live mode is read-only; purchase disabled'), 'amber');
           return;
         }
-        const res = demoBuyChest(store.state, selectedSkuId, openMode);
-        if (res.error) {
-          A9Haptic.error();
-          showToast(res.error, 'error');
+        if (config.isDemo) {
+          const res = demoBuyChest(store.state, selectedSkuId, openMode);
+          if (res.error) {
+            A9Haptic.error();
+            showToast(res.error, 'error');
+            return;
+          }
+          A9Haptic.success();
+          burstParticles(buyBtn);
+          showToast(openMode === 'BOOST'
+            ? L(`购箱成功 · 本金 ${formatNum(res.receivedA9, 2)} A9 已到账，24H 膨胀已开启！`, `Purchased! ${formatNum(res.receivedA9, 2)} A9 credited + 24H boost started!`)
+            : L(`直接开箱成功 · +${formatNum(res.receivedA9, 2)} A9`, `Opened! +${formatNum(res.receivedA9, 2)} A9`));
+          loadChests();
           return;
         }
-        A9Haptic.success();
-        burstParticles(buyBtn);
-        showToast(openMode === 'BOOST'
-          ? L(`购箱成功 · 本金 ${formatNum(res.receivedA9, 2)} A9 已到账，24H 膨胀已开启！`, `Purchased! ${formatNum(res.receivedA9, 2)} A9 credited + 24H boost started!`)
-          : L(`直接开箱成功 · +${formatNum(res.receivedA9, 2)} A9`, `Opened! +${formatNum(res.receivedA9, 2)} A9`));
-        loadChests();
+        if (!isPresaleServerOpen()) {
+          A9Haptic.warning();
+          showToast(L('宝箱商城通道尚未开售，请稍后再试', 'Chest Mall is not open yet'), 'amber');
+          return;
+        }
+        const walletAddr = store.state.user.address;
+        if (!store.state.user.connected || !walletAddr) {
+          showToast(L('请先连接并验证 TON 钱包后再购箱', 'Connect and verify TON wallet before purchasing'), 'amber');
+          tonConnect.openConnectModal(() => loadChests());
+          return;
+        }
+        buyBusy = true;
+        render();
+        try {
+          const order = await requestChestPurchaseIntent({
+            walletAddress: walletAddr,
+            skuId: selectedSkuId,
+            openMode,
+            referrerId: store.state.referral.referrerId,
+          });
+          await tonConnect.sendV15PresaleTx(order);
+          A9Haptic.success();
+          showToast(L(`已提交购箱交易（订单 ${order.orderId}），正在等待链上确认与 A9 发放…`, `Order ${order.orderId} signed, waiting for on-chain confirmation…`));
+          const settled = await pollOrderAfterTx(walletAddr, order.orderId);
+          if (settled?.status === 'COMPLETED') {
+            burstParticles(root);
+            showToast(L(`订单 ${order.orderId} 已完成，基础 A9 已发放！`, `Order ${order.orderId} completed! Base A9 credited.`));
+          }
+          await loadChests();
+        } catch (e) {
+          A9Haptic.error();
+          showToast(e?.message || L('购箱下单或钱包签名失败，请重试', 'Purchase or wallet signing failed'), 'error');
+        } finally {
+          buyBusy = false;
+          if (root.isConnected) render();
+        }
       };
     }
 
@@ -558,7 +661,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     });
     root.querySelectorAll('[data-open-chest]').forEach((b) => {
       b.onclick = async () => {
-        if (!config.isDemo || !store.fundsEnabled) {
+        if (!store.fundsEnabled) {
           A9Haptic.warning();
           showToast(L('当前真实模式处于只读验收阶段，宝箱开箱入账暂未开放', 'Live mode is read-only; chest opening is disabled'), 'amber');
           return;
@@ -587,6 +690,61 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
 }
 
 export function renderInternalRecords(root) {
+  if (!config.isDemo) {
+    const addr = store.state.user.address;
+    const paintLiveOrders = (orders, note = '') => {
+      const statusMap = {
+        PENDING: ['chip-gold', L('待付款', 'Pending')],
+        PAID_BROADCASTING: ['chip-gold', L('出账中', 'Sending')],
+        COMPLETED: ['chip-green', L('已完成', 'Completed')],
+        EXPIRED: ['chip-muted', L('已过期', 'Expired')],
+        REFUNDED: ['chip-muted', L('已退款', 'Refunded')],
+        NEEDS_REVIEW: ['chip-red', L('人工复核', 'Review')],
+      };
+      root.innerHTML = `
+        <div class="col-gap anim-page-enter">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">${icon('receipt', 15)} ${L('购箱小票与退款明细', 'Chest Receipts & Refunds')}</div>
+              <span class="chip chip-muted">${orders ? orders.length : '—'}</span>
+            </div>
+            ${note ? `<div class="num-xs text-muted" style="margin-bottom:8px;">${escapeHtml(note)}</div>` : ''}
+            ${!orders || orders.length === 0 ? `
+              <div class="empty-state"><div class="num-sm text-muted">${addr ? L('暂无真实订单记录', 'No live orders yet') : L('请先连接钱包后查看真实订单', 'Connect wallet to view live orders')}</div></div>
+            ` : `
+              <div class="col-gap">
+                ${orders.map((o) => {
+                  const [cls, txt] = statusMap[o.status] || ['chip-muted', o.status || '—'];
+                  const a9 = rawToA9(o.a9AmountRaw) || 0;
+                  const gram = Number(BigInt(String(o.tonNano || '0'))) / 1e9;
+                  const ts = o.createdAt ? new Date(Number(o.createdAt) * 1000).toLocaleString() : '—';
+                  return `
+                    <div class="list-row">
+                      <div>
+                        <div class="num-sm mono">${formatNum(a9, 2)} A9 <span class="num-xs text-muted">(-${formatNum(gram, 2)} GRAM)</span></div>
+                        <div class="num-xs text-muted mono">${escapeHtml(o.orderId || '')} · ${escapeHtml(ts)}</div>
+                      </div>
+                      <span class="chip ${cls}">${txt}</span>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            `}
+          </div>
+          <button class="btn btn-secondary" data-nav="/internal/market">${icon('arrowLeft', 15)} ${L('返回宝箱商城', 'Back to Chest Mall')}</button>
+        </div>
+      `;
+    };
+    if (!addr) {
+      paintLiveOrders([], L('连接并验证 TON 钱包后自动同步服务端小票', 'Connect and verify wallet to load receipts'));
+      return;
+    }
+    paintLiveOrders(null, L('正在读取真实订单明细…', 'Loading live orders…'));
+    fetchPresaleOrders(addr)
+      .then((orders) => { if (root.isConnected) paintLiveOrders(Array.isArray(orders) ? orders : []); })
+      .catch((e) => { if (root.isConnected) paintLiveOrders([], e?.message || L('订单读取失败，请重试', 'Failed to load orders')); });
+    return;
+  }
   const { records } = store.state.market;
   const badgeCls = (st) => st === '已成交' ? 'chip-green' : st === '退款中' ? 'chip-gold' : st === '已退款' ? 'chip-muted' : 'chip-gold';
 

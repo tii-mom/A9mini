@@ -118,7 +118,9 @@ export const config = Object.freeze({
   apiOverrideRejected: resolvedApi.apiOverrideRejected,
   apiOverrideError: resolvedApi.apiOverrideError,
   isDemo: resolvedMode === 'demo',
-  liveFundsEnabled: false,
+  // 真实资金签名总闸：仅允许由受信任部署配置 window.__A9_CONFIG__.liveFundsEnabled === true 显式开启，
+  // 绝不接受 URL 参数覆盖，默认严格保持 false（只读验收态）。
+  liveFundsEnabled: resolvedMode === 'live' && injected.liveFundsEnabled === true,
   stakeProtocolVersion: injected.stakeProtocolVersion === 'v16' ? 'v16' : 'v15',
   timeoutMs: Number(params.get('timeout')) > 0 ? Number(params.get('timeout')) : 15000,
   pollMs: Number(params.get('poll')) > 0 ? Number(params.get('poll')) : 15000

@@ -81,6 +81,79 @@ function timingSafeEqualStr(a, b) {
   return diff === 0;
 }
 
+function resolveTicketRoundRange(query = {}, stateStore = null) {
+  const ps = stateStore?.getProtocolState?.() || null;
+  let currentRoundId = Number(ps?.currentRoundId || 0);
+  if (!Number.isInteger(currentRoundId) || currentRoundId < 0) currentRoundId = 0;
+  if (currentRoundId === 0) {
+    const listed = stateStore?.listRounds?.() || [];
+    for (const r of listed) {
+      const id = Number(r?.roundId || 0);
+      if (Number.isInteger(id) && id > currentRoundId) currentRoundId = id;
+    }
+  }
+
+  const hasFrom = query.fromRound !== undefined && query.fromRound !== null && String(query.fromRound).trim() !== '';
+  const hasTo = query.toRound !== undefined && query.toRound !== null && String(query.toRound).trim() !== '';
+
+  let fromRound = null;
+  let toRound = null;
+  if (hasFrom || hasTo) {
+    fromRound = hasFrom ? Number(query.fromRound) : 1;
+    toRound = hasTo ? Number(query.toRound) : (currentRoundId > 0 ? currentRoundId : fromRound);
+    if (!Number.isInteger(fromRound) || fromRound < 1 || !Number.isInteger(toRound) || toRound < 1 || fromRound > toRound) {
+      return { error: 'fromRound and toRound must be positive integers with fromRound <= toRound' };
+    }
+    if (toRound - fromRound + 1 > 50) {
+      return { error: 'ticket round range cannot exceed 50 rounds per request' };
+    }
+  } else if (currentRoundId > 0) {
+    // 默认覆盖最近 24 轮（前 24 轮即全量 1..currentRoundId），避免第 7 轮后遗漏早期待领凭证
+    toRound = currentRoundId;
+    fromRound = Math.max(1, currentRoundId - 23);
+  }
+
+  const roundIds = [];
+  if (fromRound !== null && toRound !== null) {
+    for (let id = fromRound; id <= toRound; id += 1) roundIds.push(id);
+  }
+  return { fromRound, toRound, currentRoundId, roundIds };
+}
+
+async function checkRunnerHeartbeatGate(roles, env, runnerHeartbeatReader, nowSec) {
+  if (env?.A9_REQUIRE_RUNNER_HEARTBEAT !== '1') return { ok: true };
+  if (typeof runnerHeartbeatReader !== 'function') {
+    return { ok: false, reason: 'runner heartbeat reader unavailable' };
+  }
+  const maxStaleSec = Math.max(30, Number(env.A9_RUNNER_HEARTBEAT_MAX_STALE_SEC || 120));
+  let rows = [];
+  try {
+    rows = (await runnerHeartbeatReader()) || [];
+  } catch (e) {
+    return { ok: false, reason: e?.message || 'failed to query runner heartbeats' };
+  }
+  const matched = rows.filter((r) => roles.includes(String(r.role || '').toLowerCase()));
+  if (!matched.length) {
+    return { ok: false, reason: `no heartbeat recorded for roles: ${roles.join('/')}` };
+  }
+  let newestOkAt = 0;
+  for (const r of matched) {
+    const status = String(r.status ?? r.meta?.status ?? 'ok').toLowerCase();
+    if (status === 'error' || status === 'failed' || status === 'unhealthy') continue;
+    const ts = Number(r.lastSeenAt ?? r.last_seen_at ?? r.lastOkAt ?? r.last_ok_at ?? r.lastTickAt ?? 0);
+    if (Number.isFinite(ts) && ts > newestOkAt) newestOkAt = ts;
+  }
+  if (!newestOkAt || nowSec - newestOkAt > maxStaleSec) {
+    return {
+      ok: false,
+      reason: newestOkAt
+        ? `payout runner heartbeat stale (${Math.max(0, nowSec - newestOkAt)}s > ${maxStaleSec}s)`
+        : 'payout runner has no healthy heartbeat',
+    };
+  }
+  return { ok: true, lastSeenAt: newestOkAt };
+}
+
 export function createApiRouter({
   env = {},
   stateStore,
@@ -95,11 +168,26 @@ export function createApiRouter({
   publicKeyResolver = null,
   walletStateResolver = null,
   telegramGroupVerifier = null,
+  healthChecker = null,
+  runnerHeartbeatReader = null,
 }) {
   return async function handleRequest({ method, pathname, query = {}, body = null, headers = {}, nowSec = Math.floor(Date.now() / 1000) }) {
     const auth = createRequestAuth({ env, headers, identityStore, nowSec });
     try {
       if (method === 'GET' && pathname === '/api/health') {
+        if (typeof healthChecker === 'function') {
+          const checks = await healthChecker({ nowSec });
+          const healthy = checks?.ok !== false;
+          return ok(
+            {
+              service: 'a9mini-v15-worker',
+              status: healthy ? 'ok' : 'degraded',
+              version: '15.0.0',
+              checks,
+            },
+            healthy ? 200 : 503,
+          );
+        }
         return ok({ service: 'a9mini-v15-worker', status: 'ok', version: '15.0.0' });
       }
 
@@ -202,10 +290,16 @@ export function createApiRouter({
       const userMatch = method === 'GET' && pathname.match(/^\/api\/user\/(.+)$/);
       if (userMatch) {
         const wallet = decodeURIComponent(userMatch[1]);
+        const range = resolveTicketRoundRange(query, stateStore);
+        if (range.error) return err('BAD_REQUEST', range.error, 400);
         let onchain = { jettonWallet: null, a9BalanceRaw: null, balanceAvailable: false, tickets: [], ticketsAvailable: false, onchainAvailable: false };
         if (userReader) {
           try {
-            const read = await userReader(wallet);
+            const read = await userReader(wallet, {
+              fromRound: range.fromRound,
+              toRound: range.toRound,
+              roundIds: range.roundIds,
+            });
             if (read && typeof read === 'object') onchain = read;
           } catch (_) {
             // 链上查询异常时保留 null 与不可用标记，绝不返回余额 0（P0-G）。
@@ -224,12 +318,26 @@ export function createApiRouter({
         const presaleQuota = owner && presaleEngine ? await presaleEngine.getQuota(wallet, nowSec) : null;
         const rawTeam = owner && socialStore ? await socialStore.getTeamByWallet(wallet) : null;
         const team = sanitizeTeamView(rawTeam, viewerKey);
-        return ok({ walletAddress: wallet, ...onchain, promo, presaleQuota, team, privateDataVisible: owner });
+        return ok({
+          walletAddress: wallet,
+          ...onchain,
+          ticketRange: {
+            fromRound: range.fromRound,
+            toRound: range.toRound,
+            currentRoundId: range.currentRoundId,
+          },
+          promo,
+          presaleQuota,
+          team,
+          privateDataVisible: owner,
+        });
       }
 
       // Promo hot-wallet (0.06 GRAM user-covered gas)
       if (method === 'POST' && pathname === '/api/promo/intent') {
         if (!promoEngine) return err('PROMO_DISABLED', 'promo hot wallet not configured', 503);
+        const hb = await checkRunnerHeartbeatGate(['promo', 'payout_daemon', 'daemon'], env, runnerHeartbeatReader, nowSec);
+        if (!hb.ok) return err('PAYOUT_RUNNER_OFFLINE', `推广出账进程离线或心跳超时：${hb.reason}`, 503);
         const { walletAddress } = await auth.wallet(body?.walletAddress || null);
         return ok(await promoEngine.createClaimIntent(walletAddress, nowSec));
       }
@@ -261,6 +369,10 @@ export function createApiRouter({
       if (method === 'POST' && pathname === '/api/presale/intent') {
         if (!presaleEngine) return err('PRESALE_DISABLED', 'presale hot wallet not configured', 503);
         const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
+        if (presaleEngine.open) {
+          const hb = await checkRunnerHeartbeatGate(['presale', 'payout_daemon', 'daemon'], env, runnerHeartbeatReader, nowSec);
+          if (!hb.ok) return err('PAYOUT_RUNNER_OFFLINE', `出账签名进程离线或心跳超时：${hb.reason}`, 503);
+        }
         const skuId = body?.skuId ? String(body.skuId).trim() : null;
         const openMode = body?.openMode ? String(body.openMode).trim().toUpperCase() : null;
         const amount = body?.tonAmount ?? body?.gramAmount;

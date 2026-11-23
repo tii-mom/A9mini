@@ -2,6 +2,7 @@
 // A9 Protocol v15 — Offline ops self-test (zero external dependencies).
 import assert from 'node:assert/strict';
 import { formatTonAddress } from '../../worker/src/ton-address.mjs';
+import { spawnSync } from 'node:child_process';
 import { writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -178,6 +179,57 @@ test('validateDeployPreflight rejects malformed URI, invalid/wrong-network TON a
     try { unlinkSync(tmpWallets); } catch {}
     try { unlinkSync(tmpStubWallets); } catch {}
   }
+});
+
+test('W2: aggregateCandles rejects non-contiguous, duplicated, mismatched-step, or unaligned observation windows', () => {
+  const base = 1700000000;
+  const good = Array.from({ length: 24 }, (_, i) => ({
+    start: base + i * 3600,
+    end: base + (i + 1) * 3600,
+    twapUsdE8: 250000,
+  }));
+  const aligned = aggregateCandles(3, 232000, good, 24, { stakeCloseAt: base, observationSeconds: 86400 });
+  assert.equal(aligned.windowStart, base);
+  assert.equal(aligned.windowEnd, base + 86400);
+  assert.equal(aligned.stepSeconds, 3600);
+
+  // Gap between candle 4 and candle 5
+  const gapped = good.map((c, i) => (i >= 5 ? { ...c, start: c.start + 60, end: c.end + 60 } : c));
+  assert.throws(() => aggregateCandles(3, 232000, gapped, 24), /not contiguous/);
+
+  // Duplicated timestamp
+  const dup = good.map((c, i) => (i === 2 ? { ...good[1] } : c));
+  assert.throws(() => aggregateCandles(3, 232000, dup, 24), /not contiguous/);
+
+  // Mismatched duration
+  const badStep = good.map((c, i) => (i === 0 ? { ...c, end: c.start + 1800 } : c));
+  assert.throws(() => aggregateCandles(3, 232000, badStep, 24, { observationSeconds: 86400 }), /does not match expected step/);
+
+  // Observation window misalignment
+  assert.throws(() => aggregateCandles(3, 232000, good, 24, { stakeCloseAt: base + 3600, observationSeconds: 86400 }), /does not align with stakeCloseAt/);
+});
+
+test('W2: round-ops enforces explicit --round on open-round, blocks mainnet candle bypass, and rejects out-of-range --qualified', () => {
+  const roundOpsPath = new URL('./round-ops.mjs', import.meta.url).pathname;
+
+  // 1) open-round without --round must fail (no silent default to round 1)
+  const rNoRound = spawnSync(process.execPath, [roundOpsPath, '--action', 'open-round', '--profile', 'testnet', '--target', '232000'], { encoding: 'utf8' });
+  assert.notEqual(rNoRound.status, 0);
+  assert.match(rNoRound.stderr, /--round <id> is required/);
+
+  // 2) mainnet settle-round without --candles-file must fail
+  const rMainnetBypass = spawnSync(process.execPath, [
+    roundOpsPath, '--action', 'settle-round', '--profile', 'mainnet', '--round', '1', '--qualified', '18', '--candle-hash', '0x1234',
+  ], { encoding: 'utf8' });
+  assert.notEqual(rMainnetBypass.status, 0);
+  assert.match(rMainnetBypass.stderr, /mainnet settle-round requires --candles-file/);
+
+  // 3) testnet settle-round with out-of-range --qualified=25 must fail
+  const rBadQual = spawnSync(process.execPath, [
+    roundOpsPath, '--action', 'settle-round', '--profile', 'testnet', '--round', '1', '--qualified', '25', '--candle-hash', '0x1234',
+  ], { encoding: 'utf8' });
+  assert.notEqual(rBadQual.status, 0);
+  assert.match(rBadQual.stderr, /--qualified must be an integer in 0\.\.24/);
 });
 
 console.log(`All ${passed} v15 ops self-tests passed.`);

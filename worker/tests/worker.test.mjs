@@ -1321,4 +1321,504 @@ await test('W1-6: cf-worker production fail-closed/CORS x-idempotency-key & TonC
   assert.equal(v.state, 'PENDING');
 });
 
+await test('W2-1: createSqliteFileD1 persists across reconnect and createD1HttpClient handles batch/first/all/run', async () => {
+  const { createSqliteFileD1, createD1HttpClient } = await import('../src/d1-http-client.mjs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { unlinkSync, readFileSync } = await import('node:fs');
+  const dbPath = join(tmpdir(), `a9-w2-sqlite-${process.pid}-${Date.now()}.sqlite`);
+
+  try {
+    const db1 = createSqliteFileD1(dbPath);
+    db1.exec(readFileSync(new URL('../schema.sql', import.meta.url), 'utf8'));
+    await db1
+      .prepare('INSERT INTO chain_scan_cursors (wallet_address, last_lt, last_hash, updated_at) VALUES (?, ?, ?, ?)')
+      .bind('0:' + 'aa'.repeat(32), '9001', 'h9001', 1700000000)
+      .run();
+    db1.close();
+
+    // Reopen file to verify WAL persistence across crash/restart
+    const db2 = createSqliteFileD1(dbPath);
+    const row = await db2.prepare('SELECT * FROM chain_scan_cursors WHERE wallet_address = ?').bind('0:' + 'aa'.repeat(32)).first();
+    assert.equal(row?.last_lt, '9001');
+    assert.equal(row?.last_hash, 'h9001');
+    db2.close();
+
+    // Verify D1 REST HTTP client batch & query protocol
+    const requests = [];
+    const httpD1 = createD1HttpClient({
+      accountId: 'acc_test',
+      databaseId: 'db_test',
+      apiToken: 'tok_test',
+      fetchImpl: async (url, init) => {
+        const payload = JSON.parse(init.body);
+        requests.push({ url: String(url), payload });
+        const result = Array.isArray(payload?.batch)
+          ? payload.batch.map((_, i) => ({ success: true, results: [{ idx: i }], meta: { changes: 1 } }))
+          : [{ success: true, results: [{ ok: 1 }], meta: { changes: 1 } }];
+        return { ok: true, status: 200, json: async () => ({ success: true, result }) };
+      },
+    });
+    const probe = await httpD1.prepare('SELECT 1 AS ok').first();
+    assert.equal(probe.ok, 1);
+    const bRes = await httpD1.batch([
+      httpD1.prepare('UPDATE promo_balances SET updated_at = ? WHERE wallet_address = ?').bind(100, 'w1'),
+      httpD1.prepare('UPDATE promo_balances SET updated_at = ? WHERE wallet_address = ?').bind(101, 'w2'),
+    ]);
+    assert.equal(bRes.length, 2);
+    assert.equal(requests.length, 2);
+    assert.ok(requests[0].url.includes('/accounts/acc_test/d1/database/db_test/query'));
+  } finally {
+    for (const suffix of ['', '-wal', '-shm']) {
+      try { unlinkSync(dbPath + suffix); } catch {}
+    }
+  }
+});
+
+await test('W2-2: fetchInboundTransfersSince paginates >30 txs in ascending lt order and PresalePayoutRunner advances cursor safely', async () => {
+  const { PresalePayoutRunner } = await import('../src/presale-runner.mjs');
+  const HOT = 'kQDNHik_ofaZns7ki5yuMYHMHODiRSs_lcTG9R5p2iyJwt4X';
+  const BUYER = '0:' + '22'.repeat(32);
+
+  // Build 45 inbound txs (lt 1001..1045), served newest-first across 3 pages of size 20
+  const allTxs = Array.from({ length: 45 }, (_, idx) => {
+    const lt = 1045 - idx;
+    return {
+      transaction_id: { lt: String(lt), hash: `tx_${lt}` },
+      utime: 1700000000 + lt,
+      in_msg: {
+        source: BUYER,
+        destination: HOT,
+        value: '990000000',
+        message: `buy:ord_${lt}`,
+      },
+      out_msgs: [],
+    };
+  });
+
+  const tc = new TonCenterClient({
+    apiBase: 'https://mock.toncenter/api/v2',
+    apiKey: 'k',
+    fetchImpl: async (url) => {
+      const u = new URL(String(url));
+      const limit = Number(u.searchParams.get('limit') || 20);
+      const ltParam = u.searchParams.get('lt');
+      const startIdx = ltParam ? allTxs.findIndex((t) => t.transaction_id.lt === ltParam) : 0;
+      const page = startIdx >= 0 ? allTxs.slice(startIdx, startIdx + limit) : [];
+      return { ok: true, json: async () => ({ ok: true, result: page }) };
+    },
+  });
+
+  // 1) Initial full paginated scan gets all 45 txs in ascending lt order
+  const firstScan = await tc.fetchInboundTransfersSince(HOT, { pageSize: 20, maxPages: 10 });
+  assert.equal(firstScan.transfers.length, 45);
+  assert.equal(firstScan.transfers[0].lt, '1001');
+  assert.equal(firstScan.transfers[44].lt, '1045');
+  assert.deepEqual(firstScan.nextCursor, { lt: '1045', hash: 'tx_1045' });
+  assert.equal(firstScan.reachedCursor, true);
+
+  // 2) Incremental scan from cursor lt=1040 returns strictly lt 1041..1045 (5 new txs)
+  const incScan = await tc.fetchInboundTransfersSince(HOT, {
+    cursorLt: '1040',
+    cursorHash: 'tx_1040',
+    pageSize: 20,
+    maxPages: 10,
+  });
+  assert.deepEqual(incScan.transfers.map((t) => t.lt), ['1041', '1042', '1043', '1044', '1045']);
+
+  // 3) PresalePayoutRunner saves cursor in D1 on live tick and NEVER writes cursor on dry-run
+  const db = createSqliteD1(MIGRATIONS);
+  const presale = new D1PresaleStore({ db, hotWalletAddress: HOT, open: true });
+  const dryRunner = new PresalePayoutRunner({ tonCenter: tc, engine: presale, execute: false, logger: { log() {}, error() {} } });
+  await dryRunner.tick(1700002000);
+  assert.equal(await presale.repo.getScanCursor(HOT), null, 'dry-run must NOT persist scan cursor');
+
+  const liveRunner = new PresalePayoutRunner({
+    tonCenter: tc,
+    engine: presale,
+    execute: true,
+    a9Broadcaster: async () => ({ txHash: '0xmock' }),
+    tonRefundBroadcaster: async () => ({ txHash: '0xmock_refund' }),
+    logger: { log() {}, error() {} },
+  });
+  await liveRunner.tick(1700002001);
+  const savedCursor = await presale.repo.getScanCursor(HOT);
+  assert.equal(savedCursor?.lt, '1045');
+  assert.equal(savedCursor?.hash, 'tx_1045');
+});
+
+await test('W2-3: TonCenter v3 verifyOutboundPayout checks downstream A9/REFUND finality and crash recovery never marks null txHash as SENT', async () => {
+  const { PresaleHotWalletEngine, PAYOUT_STATUS } = await import('../src/presale-hotwallet.mjs');
+  const HOT = '0:' + '11'.repeat(32);
+  const BUYER = '0:' + '22'.repeat(32);
+  const MASTER = '0:' + '33'.repeat(32);
+
+  // 1) A9 jetton transfer v3 verification (even without txHash, found by queryId)
+  const tcA9 = new TonCenterClient({
+    apiBase: 'https://toncenter.com/api/v2',
+    apiKey: 'k',
+    fetchImpl: async (url) => {
+      const u = String(url);
+      assert.ok(u.includes('/api/v3/jetton/transfers'));
+      return {
+        ok: true,
+        json: async () => ({
+          jetton_transfers: [
+            {
+              query_id: '777',
+              destination: BUYER,
+              amount: '1000000000000',
+              transaction_hash: 'v3_a9_hash_1',
+              transaction_aborted: false,
+              trace_incomplete: false,
+            },
+          ],
+        }),
+      };
+    },
+  });
+  const okA9 = await tcA9.verifyOutboundPayout(HOT, {
+    kind: 'A9',
+    recipient: BUYER,
+    amount: '1000000000000',
+    queryId: '777',
+    txHash: null,
+    jettonMasterAddress: MASTER,
+  });
+  assert.equal(okA9.state, 'CONFIRMED');
+  assert.equal(okA9.txHash, 'v3_a9_hash_1');
+
+  // 2) REFUND v3 verification rejects bounced messages and confirms clean delivery
+  let bouncedFlag = true;
+  const tcRefund = new TonCenterClient({
+    apiBase: 'https://toncenter.com/api/v2',
+    apiKey: 'k',
+    fetchImpl: async (url) => {
+      assert.ok(String(url).includes('/api/v3/messages'));
+      return {
+        ok: true,
+        json: async () => ({
+          messages: [
+            {
+              destination: BUYER,
+              value: '990000000',
+              bounced: bouncedFlag,
+              hash: 'v3_refund_hash_1',
+              message_content: { decoded: { type: 'text_comment', comment: 'refund:888' } },
+            },
+          ],
+        }),
+      };
+    },
+  });
+  const bouncedRes = await tcRefund.verifyOutboundPayout(HOT, {
+    kind: 'REFUND',
+    recipient: BUYER,
+    amount: '990000000',
+    queryId: '888',
+  });
+  assert.equal(bouncedRes.state, 'FAILED');
+
+  bouncedFlag = false;
+  const okRefund = await tcRefund.verifyOutboundPayout(HOT, {
+    kind: 'REFUND',
+    recipient: BUYER,
+    amount: '990000000',
+    queryId: '888',
+  });
+  assert.equal(okRefund.state, 'CONFIRMED');
+
+  // 3) Crash recovery with ambiguous payout (txHash === null) and verifier returning PENDING MUST NOT mark SENT
+  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT, open: true });
+  const ord = await presale.createOrderIntent(BUYER, '5', 1000);
+  await presale.ingestInbound(
+    { txHash: 'in_crash_1', finality: 'finalized', to: HOT, from: BUYER, valueNano: ord.tonNano, memo: ord.memo },
+    1005,
+  );
+  await presale.queueConfirmedPayouts(1006);
+  // Simulate crash during broadcast -> ambiguous with null txHash
+  await presale.processPayouts(1010, {
+    a9Broadcaster: async () => { throw new Error('ETIMEDOUT socket hang up'); },
+  });
+  const afterCrash = (await presale.repo.listOpenPayouts())[0];
+  assert.equal(afterCrash.status, PAYOUT_STATUS.RETRY);
+  assert.equal(afterCrash.ambiguous, true);
+  assert.equal(afterCrash.txHash, null);
+
+  // Verifier returns PENDING after STALE_BROADCAST_SEC (within 15m grace window) -> must stay RETRY (NOT SENT!)
+  await presale.processPayouts(1010 + 180, {
+    verifier: async () => ({ state: 'PENDING' }),
+  });
+  const stillWaiting = (await presale.repo.listOpenPayouts())[0];
+  assert.equal(stillWaiting.status, PAYOUT_STATUS.RETRY);
+  assert.equal(stillWaiting.txHash, null);
+
+  // Verifier still PENDING after UNCONFIRMED_REVIEW_SEC (3600s) grace window -> escalates to NEEDS_REVIEW (NOT SENT!)
+  await presale.processPayouts(1010 + 3605, {
+    verifier: async () => ({ state: 'PENDING' }),
+  });
+  const escalated = await presale.repo.getPayout(afterCrash.payoutId);
+  assert.equal(escalated.status, PAYOUT_STATUS.NEEDS_REVIEW);
+});
+
+await test('W2-4: D1PromoStore + PromoPayoutRunner recoverable state machine & payout-daemon wallet isolation/heartbeat', async () => {
+  const { validateDaemonConfig, createPayoutDaemon } = await import('../src/payout-daemon.mjs');
+  const { createActonGramRefundBroadcaster } = await import('../src/acton-broadcaster.mjs');
+  const PROMO_HOT = '0:' + '44'.repeat(32);
+  const PRESALE_HOT = '0:' + '55'.repeat(32);
+  const USER = '0:' + '66'.repeat(32);
+  const MASTER = '0:' + '77'.repeat(32);
+
+  // 1) Hot wallet isolation fail-closed checks
+  assert.throws(
+    () => validateDaemonConfig({
+      A9_NETWORK: 'testnet',
+      A9_SQLITE_PATH: '/tmp/x.sqlite',
+      TONCENTER_API_BASE: 'https://mock',
+      A9_PROMO_HOT_WALLET_ADDRESS: PROMO_HOT,
+      A9_PRESALE_HOT_WALLET_ADDRESS: PROMO_HOT,
+    }),
+    /Hot wallet isolation violated/,
+  );
+  assert.throws(
+    () => validateDaemonConfig({
+      A9_NETWORK: 'testnet',
+      A9_SQLITE_PATH: '/tmp/x.sqlite',
+      TONCENTER_API_BASE: 'https://mock',
+      A9_JETTON_MASTER_ADDRESS: MASTER,
+      A9_PROMO_HOT_WALLET_ADDRESS: PROMO_HOT,
+      A9_PRESALE_HOT_WALLET_ADDRESS: PRESALE_HOT,
+      A9_PROMO_HOT_WALLET_NAME: 'sharedWallet',
+      A9_PRESALE_HOT_WALLET_NAME: 'sharedWallet',
+      OPS_EXECUTE: '1',
+      OPS_CONFIRM: 'YES',
+    }, { executeFlag: true }),
+    /Hot wallet isolation violated/,
+  );
+
+  // 2) createActonGramRefundBroadcaster parses GRAM_REFUND_TX cleanly and fails without hash
+  const refundB = createActonGramRefundBroadcaster({
+    network: 'testnet',
+    hotWalletName: 'presaleHot',
+    spawnImpl: () => ({ status: 0, stdout: 'GRAM_REFUND_TX=0xdeadbeef01\n', stderr: '' }),
+  });
+  const rOut = await refundB({ recipient: USER, tonNano: '990000000', queryId: '900' });
+  assert.equal(rOut.txHash, '0xdeadbeef01');
+
+  // 3) Full D1PromoStore + PromoPayoutRunner recoverable payout + crash/retry + daemon heartbeat
+  const db = createSqliteD1(MIGRATIONS);
+  const promo = new D1PromoStore({ db, hotWalletAddress: PROMO_HOT });
+  await promo.creditReward(USER, 12_000n * 1_000_000_000n, 1000);
+  const intent = await promo.createClaimIntent(USER, 1001);
+
+  let broadcastCount = 0;
+  const mockTc = {
+    async fetchInboundTransfersSince(addr) {
+      if (addr === PROMO_HOT) {
+        return {
+          transfers: [{
+            txHash: 'fee_tx_w2',
+            lt: '5001',
+            finality: 'finalized',
+            to: PROMO_HOT,
+            from: USER,
+            valueNano: '60000000',
+            memo: intent.memo,
+          }],
+          nextCursor: { lt: '5001', hash: 'fee_tx_w2' },
+          reachedCursor: true,
+          truncated: false,
+        };
+      }
+      return { transfers: [], nextCursor: null, reachedCursor: true, truncated: false };
+    },
+    async verifyOutboundPayout() {
+      return { state: 'CONFIRMED', txHash: '0xpromo_a9_tx_1' };
+    },
+  };
+
+  const daemon = createPayoutDaemon({
+    db,
+    env: {
+      A9_NETWORK: 'testnet',
+      A9_SQLITE_PATH: ':memory:',
+      TONCENTER_API_BASE: 'https://mock',
+      A9_JETTON_MASTER_ADDRESS: MASTER,
+      A9_PROMO_HOT_WALLET_ADDRESS: PROMO_HOT,
+      A9_PRESALE_HOT_WALLET_ADDRESS: PRESALE_HOT,
+      A9_PROMO_HOT_WALLET_NAME: 'promoHot',
+      A9_PRESALE_HOT_WALLET_NAME: 'presaleHot',
+      OPS_EXECUTE: '1',
+      OPS_CONFIRM: 'YES',
+      A9_RUNNER_ID: 'daemon-test-1',
+    },
+    executeFlag: true,
+    tonCenter: mockTc,
+    promoBroadcaster: async () => {
+      broadcastCount += 1;
+      return { txHash: '0xpromo_a9_tx_1' };
+    },
+    presaleA9Broadcaster: async () => ({ txHash: '0xunused' }),
+    presaleRefundBroadcaster: async () => ({ txHash: '0xunused_ref' }),
+    payoutVerifier: async () => ({ state: 'CONFIRMED', txHash: '0xpromo_a9_tx_1' }),
+    logger: { log() {}, error() {} },
+  });
+
+  // Tick 1: verifies 0.06 GRAM fee, enqueues promo_payouts, broadcasts once -> SENT, records heartbeat
+  await daemon.runOnce(1010);
+  assert.equal(broadcastCount, 1);
+  // Tick 2: verifies downstream CONFIRMED -> marks claim COMPLETED without re-broadcasting!
+  await daemon.runOnce(1020);
+  assert.equal(broadcastCount, 1);
+  const doneClaim = await promo.getClaim(intent.claimId);
+  assert.equal(doneClaim.status, CLAIM_STATUS.COMPLETED);
+  assert.equal(doneClaim.payoutTxHash, '0xpromo_a9_tx_1');
+
+  const hbRow = await db.prepare('SELECT * FROM runner_heartbeats WHERE runner_id = ?').bind('daemon-test-1').first();
+  assert.equal(hbRow?.role, 'payout_daemon');
+  assert.equal(Number(hbRow?.last_seen_at), 1020);
+});
+
+await test('W2-5: D1PredictionEngine.settleRoundBets is batched & CAS-safe against concurrent activateToPromo (no double-spend)', async () => {
+  const { D1PredictionEngine } = await import('../src/d1-growth-store.mjs');
+  const db = createSqliteD1(MIGRATIONS);
+  const promo = new D1PromoStore({ db, hotWalletAddress: '0:' + '11'.repeat(32) });
+  const pred = new D1PredictionEngine({ db, defaultPoolA9Raw: 60_000n * 1_000_000_000n });
+  const WALLET_RACE = '0:' + '88'.repeat(32);
+
+  // Give u_race an existing 1,000 A9 pending reward from an earlier round
+  await pred.creditPendingBonus('u_race', 1_000n * 1_000_000_000n, 1_000_000);
+  // Place 60 bets in round 2 (exceeds batchSize=25 -> exercises multi-batch chunking)
+  await pred.placeBet({ roundId: 2, userId: 'u_race', side: 'PASS' }, 1001);
+  for (let i = 1; i < 60; i += 1) {
+    await pred.placeBet({ roundId: 2, userId: `u_${String(i).padStart(2, '0')}`, side: 'PASS' }, 1001 + i);
+  }
+
+  // Inject concurrent activateToPromo right before the first 25-user (50-stmt) settle batch executes!
+  const origBatch = db.batch.bind(db);
+  let racedOnce = false;
+  db.batch = async (stmts) => {
+    if (!racedOnce && stmts.length === 50) {
+      racedOnce = true;
+      db.batch = origBatch; // allow activateToPromo's own batch to commit cleanly first
+      const act = await pred.activateToPromo('u_race', WALLET_RACE, promo, {
+        qualified: true,
+        nowMs: 1_005_000,
+        activationId: 'race_act_1',
+      });
+      assert.equal(act.activatedRaw, (1_000n * 1_000_000_000n).toString());
+    }
+    return origBatch(stmts);
+  };
+
+  const settled = await pred.settleRoundBets(2, true, 18, 60_000n * 1_000_000_000n, 1_010_000, { batchSize: 25 });
+  assert.equal(settled.winnersCount, 60);
+  assert.equal(racedOnce, true, 'race condition hook must have executed');
+
+  // u_race activated 1,000 A9 earlier; round 2 won 1,000 A9 (60,000 / 60).
+  // MUST have activatedRaw = 1,000 A9 and pendingActivationRaw = 1,000 A9 (NOT resurrected to 2,000 A9!)
+  const summary = await pred.getUserSummary('u_race', 2);
+  assert.equal(summary.activatedRaw, (1_000n * 1_000_000_000n).toString());
+  assert.equal(summary.pendingActivationRaw, (1_000n * 1_000_000_000n).toString());
+  assert.equal((await promo.getBalance(WALLET_RACE)).claimableRaw, (1_000n * 1_000_000_000n).toString());
+});
+
+await test('W2-6: /api/user/:wallet scans historical tickets beyond 6 rounds, /api/health probes D1, and stale runner heartbeat blocks intents', async () => {
+  const { default: cfWorker } = await import('../src/cf-worker.mjs');
+  const db = createSqliteD1(MIGRATIONS);
+  const HOT = '0:' + '44'.repeat(32);
+  const WALLET = '0:' + '99'.repeat(32);
+
+  // 1) /api/user/:wallet at currentRoundId=8 scans rounds 1..8 by default AND supports explicit ?fromRound=1&toRound=2
+  const seenRanges = [];
+  const router = createApiRouter({
+    env: {
+      A9_BOT_TOKEN: TEST_BOT_TOKEN,
+      A9_PRESALE_OPEN: '1',
+      A9_REQUIRE_RUNNER_HEARTBEAT: '1',
+      A9_RUNNER_HEARTBEAT_MAX_STALE_SEC: '120',
+    },
+    stateStore: {
+      getTiming: () => ({ observationSeconds: 86400 }),
+      getProtocolState: () => ({ dataAvailable: true, currentRoundId: 8, successCount: 5 }),
+      listRounds: () => [],
+      getRound: () => null,
+    },
+    presaleEngine: new D1PresaleStore({ db, hotWalletAddress: HOT, open: true }),
+    promoEngine: new D1PromoStore({ db, hotWalletAddress: HOT }),
+    identityStore: (() => {
+      const ids = new MemoryIdentityStore();
+      ids.bindVerifiedWallet('10001', WALLET, 1000);
+      return ids;
+    })(),
+    userReader: async (_wallet, opts) => {
+      seenRanges.push(opts);
+      return {
+        jettonWallet: 'EQ_JW',
+        a9BalanceRaw: '5000000000000',
+        balanceAvailable: true,
+        tickets: [{ roundId: 1, ticketAddress: 'EQ_T1', amountRaw: '1000000000000', rewardClaimedRaw: '0', principalDone: false, pending: false }],
+        ticketsAvailable: true,
+        onchainAvailable: true,
+      };
+    },
+    runnerHeartbeatReader: async () => {
+      const r = await db.prepare('SELECT runner_id, role, network, last_seen_at, meta_json FROM runner_heartbeats').all();
+      return r.results || [];
+    },
+  });
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const uDefault = await router({ method: 'GET', pathname: `/api/user/${encodeURIComponent(WALLET)}`, nowSec });
+  assert.equal(uDefault.status, 200);
+  assert.deepEqual(seenRanges[0].roundIds, [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(uDefault.body.data.tickets[0].roundId, 1);
+  assert.deepEqual(uDefault.body.data.ticketRange, { fromRound: 1, toRound: 8, currentRoundId: 8 });
+
+  const uPaged = await router({
+    method: 'GET',
+    pathname: `/api/user/${encodeURIComponent(WALLET)}`,
+    query: { fromRound: '1', toRound: '2' },
+    nowSec,
+  });
+  assert.equal(uPaged.status, 200);
+  assert.deepEqual(seenRanges[1].roundIds, [1, 2]);
+
+  // 2) Stale/missing heartbeat blocks POST /api/presale/intent with 503 PAYOUT_RUNNER_OFFLINE
+  const headers = await tgHeaders('10001', { authDate: nowSec });
+  const blocked = await router({
+    method: 'POST',
+    pathname: '/api/presale/intent',
+    headers,
+    body: { skuId: 'chest_bronze', openMode: 'BOOST' },
+    nowSec,
+  });
+  assert.equal(blocked.status, 503);
+  assert.equal(blocked.body.error.code, 'PAYOUT_RUNNER_OFFLINE');
+
+  // Insert fresh heartbeat -> intent succeeds
+  await db
+    .prepare('INSERT INTO runner_heartbeats (runner_id, role, network, last_seen_at, meta_json) VALUES (?, ?, ?, ?, ?)')
+    .bind('d1', 'payout_daemon', 'testnet', nowSec - 10, JSON.stringify({ status: 'ok' }))
+    .run();
+  const allowed = await router({
+    method: 'POST',
+    pathname: '/api/presale/intent',
+    headers,
+    body: { skuId: 'chest_bronze', openMode: 'BOOST' },
+    nowSec,
+  });
+  assert.equal(allowed.status, 200);
+  assert.equal(allowed.body.ok, true);
+
+  // 3) cf-worker /api/health returns live D1 probe & runnerHeartbeats
+  const hRes = await cfWorker.fetch(new Request('https://api.a9.lat/api/health'), { DB: db, A9_NETWORK: 'testnet' });
+  assert.equal(hRes.status, 200);
+  const hBody = await hRes.json();
+  assert.equal(hBody.data.status, 'ok');
+  assert.equal(hBody.data.checks.db.ok, true);
+  assert.equal(hBody.data.checks.runnerHeartbeats.length, 1);
+  assert.equal(hBody.data.checks.runnerHeartbeats[0].runnerId, 'd1');
+});
+
 console.log(`All ${passed} A9 v15 worker tests passed.`);

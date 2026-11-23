@@ -557,7 +557,92 @@ export class D1PredictionEngine {
     };
   }
 
-  async settleRoundBets(roundId, passed, actualQualified, poolA9Raw = this.defaultPoolA9Raw, nowMs = Date.now()) {
+  async _ensureUserStatsRow(uid, nowSec) {
+    await this.db
+      .prepare(
+        `INSERT OR IGNORE INTO prediction_rewards
+         (user_id, pending_activation_raw, activated_raw, pending_expires_at, total_settled, total_won, streak, updated_at)
+         VALUES (?, '0', '0', NULL, 0, 0, 0, ?)`,
+      )
+      .bind(uid, nowSec)
+      .run();
+  }
+
+  /**
+   * 单用户原子结算辅助：通过 NOT NULL 子查询守卫保证 prediction_bets 仍为 OPEN
+   * 且 prediction_rewards 的 pending_activation_raw/total_settled 快照未发生并发变更；
+   * 全程绝不触碰 activated_raw，彻底杜绝并发 activateToPromo 导致的已激活奖励复活双花。
+   */
+  _buildAtomicSettlePair(rId, item, curStats, expiresAt, nowSec) {
+    const nextPending = (curStats.pendingActivationRaw + item.deltaPending).toString();
+    const nextExpiresAt = item.deltaPending > 0n ? expiresAt : curStats.pendingExpiresAt;
+    const nextSettled = curStats.totalSettled + 1;
+    const nextWon = curStats.totalWon + (item.isWin ? 1 : 0);
+    const nextStreak = item.isWin ? curStats.streak + 1 : 0;
+    return [
+      this.db
+        .prepare(
+          `UPDATE prediction_rewards
+           SET pending_activation_raw = (
+                 SELECT ?
+                 FROM prediction_bets
+                 WHERE round_id = ? AND user_id = ? AND status = 'OPEN'
+                   AND EXISTS (
+                     SELECT 1 FROM prediction_rewards
+                     WHERE user_id = ? AND pending_activation_raw = ? AND total_settled = ?
+                   )
+               ),
+               pending_expires_at = ?,
+               total_settled = ?,
+               total_won = ?,
+               streak = ?,
+               updated_at = ?
+           WHERE user_id = ?`,
+        )
+        .bind(
+          nextPending,
+          rId,
+          item.userId,
+          item.userId,
+          curStats.pendingActivationRaw.toString(),
+          curStats.totalSettled,
+          nextExpiresAt,
+          nextSettled,
+          nextWon,
+          nextStreak,
+          nowSec,
+          item.userId,
+        ),
+      this.db
+        .prepare("UPDATE prediction_bets SET status = ?, reward_raw = ? WHERE round_id = ? AND user_id = ? AND status = 'OPEN'")
+        .bind(item.targetStatus, item.rewardRaw.toString(), rId, item.userId),
+    ];
+  }
+
+  async _settleSingleUserWithCas(rId, item, expiresAt, nowSec) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const betRow = await this.db
+        .prepare('SELECT status FROM prediction_bets WHERE round_id = ? AND user_id = ?')
+        .bind(rId, item.userId)
+        .first();
+      if (!betRow || String(betRow.status) !== 'OPEN') return false;
+
+      await this._ensureUserStatsRow(item.userId, nowSec);
+      const st = await this._getUserStatsRow(item.userId);
+      const pair = this._buildAtomicSettlePair(rId, item, st, expiresAt, nowSec);
+      try {
+        await this.db.batch(pair);
+        return true;
+      } catch (e) {
+        const msg = String(e?.message || e);
+        if (/NOT NULL|UNIQUE|constraint/i.test(msg)) continue;
+        throw e;
+      }
+    }
+    throw new GrowthError('SETTLE_CONFLICT', `concurrent settlement conflict for user ${item.userId}`);
+  }
+
+  async settleRoundBets(roundId, passed, actualQualified, poolA9Raw = this.defaultPoolA9Raw, nowMs = Date.now(), { batchSize = 25 } = {}) {
     const rId = Number(roundId);
     const already = await this.db
       .prepare('SELECT winning_side FROM prediction_rounds WHERE round_id = ?')
@@ -568,6 +653,7 @@ export class D1PredictionEngine {
     const winSide = passed ? 'PASS' : 'BURN';
     const pool = BigInt(poolA9Raw);
     const nowSec = Math.floor(nowMs / 1000);
+    const chunkSize = Math.max(1, Math.min(50, Number(batchSize) || 25));
 
     const betsRes = await this.db
       .prepare('SELECT * FROM prediction_bets WHERE round_id = ? ORDER BY created_at ASC, user_id ASC')
@@ -575,81 +661,108 @@ export class D1PredictionEngine {
       .all();
     const bets = betsRes?.results || [];
 
+    // 第一阶段：基于全量下注确定性计算权重、安慰奖配额与每人的目标结算项
     const winners = [];
+    const losers = [];
     let totalWeight = 0n;
     let firstLossRemaining = this.firstLossCapRaw;
     let firstLossBonusCount = 0;
     let firstLossBonusDistributed = 0n;
     const expiresAt = nowMs + VOUCHER_TTL_MS;
-    const stmts = [];
 
     for (const b of bets) {
-      const st = await this._getUserStatsRow(b.user_id);
-      const isFirstSettled = st.totalSettled === 0;
-      const nextSettled = st.totalSettled + 1;
       if (b.side === winSide) {
         const exactBoost = b.guess_slots !== null && Number(b.guess_slots) === Number(actualQualified) ? 5n : 0n;
         const inviteBoost = BigInt(await this.getInviteBoostCount(rId, b.user_id));
         const rawW = 10n + exactBoost + inviteBoost;
         const weight = rawW > 20n ? 20n : rawW;
-        winners.push({ bet: b, weight, st: { ...st, totalSettled: nextSettled, totalWon: st.totalWon + 1, streak: st.streak + 1 } });
+        winners.push({ bet: b, weight });
         totalWeight += weight;
-      } else if (isFirstSettled && this.firstLossBonusRaw > 0n && firstLossRemaining >= this.firstLossBonusRaw) {
-        firstLossRemaining -= this.firstLossBonusRaw;
-        firstLossBonusCount += 1;
-        firstLossBonusDistributed += this.firstLossBonusRaw;
-        stmts.push(
-          this.db
-            .prepare("UPDATE prediction_bets SET status = 'LOST_FIRST_BONUS', reward_raw = ? WHERE round_id = ? AND user_id = ?")
-            .bind(this.firstLossBonusRaw.toString(), rId, b.user_id),
-          this._upsertUserStatsStmt(
-            b.user_id,
-            {
-              ...st,
-              totalSettled: nextSettled,
-              streak: 0,
-              pendingActivationRaw: st.pendingActivationRaw + this.firstLossBonusRaw,
-              pendingExpiresAt: expiresAt,
-            },
-            nowSec,
-          ),
-        );
       } else {
-        stmts.push(
-          this.db
-            .prepare("UPDATE prediction_bets SET status = 'LOST', reward_raw = '0' WHERE round_id = ? AND user_id = ?")
-            .bind(rId, b.user_id),
-          this._upsertUserStatsStmt(b.user_id, { ...st, totalSettled: nextSettled, streak: 0 }, nowSec),
-        );
+        const alreadyBonus = String(b.status) === 'LOST_FIRST_BONUS';
+        const st = await this._getUserStatsRow(b.user_id);
+        const isFirstSettled = String(b.status) === 'OPEN' ? st.totalSettled === 0 : alreadyBonus;
+        if (isFirstSettled && this.firstLossBonusRaw > 0n && firstLossRemaining >= this.firstLossBonusRaw) {
+          firstLossRemaining -= this.firstLossBonusRaw;
+          firstLossBonusCount += 1;
+          firstLossBonusDistributed += this.firstLossBonusRaw;
+          losers.push({
+            userId: b.user_id,
+            status: String(b.status),
+            isWin: false,
+            targetStatus: 'LOST_FIRST_BONUS',
+            rewardRaw: this.firstLossBonusRaw,
+            deltaPending: this.firstLossBonusRaw,
+          });
+        } else {
+          losers.push({
+            userId: b.user_id,
+            status: String(b.status),
+            isWin: false,
+            targetStatus: 'LOST',
+            rewardRaw: 0n,
+            deltaPending: 0n,
+          });
+        }
       }
     }
 
     let distributed = 0n;
-    for (const { bet, weight, st } of winners) {
+    const pendingItems = [];
+    for (const item of losers) {
+      if (item.status === 'OPEN') pendingItems.push(item);
+    }
+    for (const { bet, weight } of winners) {
       const amt = totalWeight > 0n ? (pool * weight) / totalWeight : 0n;
       distributed += amt;
-      stmts.push(
-        this.db
-          .prepare("UPDATE prediction_bets SET status = 'WON_PENDING_ACTIVATION', reward_raw = ? WHERE round_id = ? AND user_id = ?")
-          .bind(amt.toString(), rId, bet.user_id),
-        this._upsertUserStatsStmt(
-          bet.user_id,
-          {
-            ...st,
-            pendingActivationRaw: st.pendingActivationRaw + amt,
-            pendingExpiresAt: expiresAt,
-          },
-          nowSec,
-        ),
-      );
+      if (String(bet.status) === 'OPEN') {
+        pendingItems.push({
+          userId: bet.user_id,
+          status: String(bet.status),
+          isWin: true,
+          targetStatus: 'WON_PENDING_ACTIVATION',
+          rewardRaw: amt,
+          deltaPending: amt,
+        });
+      }
     }
 
-    stmts.push(
-      this.db
-        .prepare('INSERT INTO prediction_rounds (round_id, winning_side, actual_qualified, settled_at) VALUES (?, ?, ?, ?)')
-        .bind(rId, winSide, Number(actualQualified), nowSec),
-    );
-    await this.db.batch(stmts);
+    // 第二阶段：分批（每批 <= 25 人 / <= 50 条语句）原子 CAS 落库；若批内发生并发冲突则自动降级为单人 CAS 重试
+    for (let i = 0; i < pendingItems.length; i += chunkSize) {
+      const slice = pendingItems.slice(i, i + chunkSize);
+      const ensureStmts = slice.map((item) =>
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO prediction_rewards
+             (user_id, pending_activation_raw, activated_raw, pending_expires_at, total_settled, total_won, streak, updated_at)
+             VALUES (?, '0', '0', NULL, 0, 0, 0, ?)`,
+          )
+          .bind(item.userId, nowSec),
+      );
+      if (ensureStmts.length) await this.db.batch(ensureStmts);
+
+      const batchStmts = [];
+      for (const item of slice) {
+        const st = await this._getUserStatsRow(item.userId);
+        const pair = this._buildAtomicSettlePair(rId, item, st, expiresAt, nowSec);
+        batchStmts.push(...pair);
+      }
+
+      try {
+        await this.db.batch(batchStmts);
+      } catch (e) {
+        const msg = String(e?.message || e);
+        if (!/NOT NULL|UNIQUE|constraint/i.test(msg)) throw e;
+        for (const item of slice) {
+          await this._settleSingleUserWithCas(rId, item, expiresAt, nowSec);
+        }
+      }
+    }
+
+    await this.db
+      .prepare('INSERT OR IGNORE INTO prediction_rounds (round_id, winning_side, actual_qualified, settled_at) VALUES (?, ?, ?, ?)')
+      .bind(rId, winSide, Number(actualQualified), nowSec)
+      .run();
 
     return {
       roundId: rId,
@@ -699,11 +812,25 @@ export class D1PredictionEngine {
     const amt = BigInt(amountRaw || 0n);
     if (!uid || amt <= 0n) return { userId: uid, pendingActivationRaw: '0' };
     const nowSec = Math.floor(nowMs / 1000);
-    const st = await this._getUserStatsRow(uid);
-    const nextPending = st.pendingActivationRaw + amt;
     const nextExp = nowMs + VOUCHER_TTL_MS;
-    await this._upsertUserStats(uid, { ...st, pendingActivationRaw: nextPending, pendingExpiresAt: nextExp }, nowSec);
-    return { userId: uid, pendingActivationRaw: nextPending.toString(), pendingExpiresAt: nextExp };
+    await this._ensureUserStatsRow(uid, nowSec);
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const st = await this._getUserStatsRow(uid);
+      const curStr = st.pendingActivationRaw.toString();
+      const nextPending = (st.pendingActivationRaw + amt).toString();
+      const res = await this.db
+        .prepare(
+          `UPDATE prediction_rewards
+           SET pending_activation_raw = ?, pending_expires_at = ?, updated_at = ?
+           WHERE user_id = ? AND pending_activation_raw = ?`,
+        )
+        .bind(nextPending, nextExp, nowSec, uid, curStr)
+        .run();
+      if (Number(res?.meta?.changes || 0) === 1) {
+        return { userId: uid, pendingActivationRaw: nextPending, pendingExpiresAt: nextExp };
+      }
+    }
+    throw new GrowthError('CREDIT_CONFLICT', 'concurrent pending bonus update conflict, please retry');
   }
 
   /**
@@ -1374,6 +1501,44 @@ export class D1PresaleRepo {
   async listOrdersByStatus(status) {
     const res = await this.db.prepare('SELECT * FROM presale_orders WHERE status = ? ORDER BY created_at ASC').bind(status).all();
     return (res?.results || []).map(rowToOrder);
+  }
+
+  async countOrdersByStatus(status) {
+    const row = await this.db.prepare('SELECT COUNT(*) AS cnt FROM presale_orders WHERE status = ?').bind(status).first();
+    return Number(row?.cnt || 0);
+  }
+
+  async getScanCursor(walletAddress) {
+    const key = addressKey(walletAddress);
+    try {
+      const row = await this.db
+        .prepare('SELECT last_lt, last_hash, updated_at FROM chain_scan_cursors WHERE wallet_address = ? LIMIT 1')
+        .bind(key)
+        .first();
+      return row ? { lt: String(row.last_lt), hash: String(row.last_hash), updatedAt: Number(row.updated_at || 0) } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async saveScanCursor(walletAddress, { lt, hash }, nowSec) {
+    if (!lt || !hash) return;
+    const key = addressKey(walletAddress);
+    try {
+      await this.db
+        .prepare(
+          `INSERT INTO chain_scan_cursors (wallet_address, last_lt, last_hash, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(wallet_address) DO UPDATE SET
+             last_lt = excluded.last_lt,
+             last_hash = excluded.last_hash,
+             updated_at = excluded.updated_at`,
+        )
+        .bind(key, String(lt), String(hash), nowSec)
+        .run();
+    } catch {
+      // 兼容尚未执行 0010 迁移的旧库
+    }
   }
 
   async getInbound(txHash) {

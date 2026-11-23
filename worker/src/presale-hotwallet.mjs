@@ -654,7 +654,14 @@ export class PresaleEngine {
         sendExcessesTo: this.hotWalletAddress,
       };
     }
-    return { payoutId: p.payoutId, orderId: p.orderId, queryId: p.queryId, recipient: p.recipient, tonNano: p.amount };
+    return {
+      payoutId: p.payoutId,
+      orderId: p.orderId,
+      queryId: p.queryId,
+      recipient: p.recipient,
+      tonNano: p.amount,
+      memo: `refund:${p.queryId}`,
+    };
   }
 
   async _markConfirmed(p, txHash, nowSec) {
@@ -722,8 +729,18 @@ export class PresaleEngine {
             continue;
           }
           if (v?.state === 'PENDING') {
-            await this.repo.markPayoutSent(p.payoutId, p.kind, p.orderId, p.inboundTxHash, v.txHash || p.txHash, nowSec);
-            s.waiting += 1;
+            // 仅当拿到了真实链上 txHash 时才推进到 SENT；若崩溃回写前丢失 txHash 且仍未查到，
+            // 绝不把无 hash 记录误标成 SENT（超期后转 NEEDS_REVIEW 人工核对）。
+            const resolvedHash = v.txHash || p.txHash || null;
+            if (resolvedHash) {
+              await this.repo.markPayoutSent(p.payoutId, p.kind, p.orderId, p.inboundTxHash, resolvedHash, nowSec);
+              s.waiting += 1;
+            } else if (age > UNCONFIRMED_REVIEW_SEC) {
+              await this._needsReview(p, 'uncertain broadcast unconfirmed past review threshold without txHash', nowSec);
+              s.review += 1;
+            } else {
+              s.waiting += 1;
+            }
             continue;
           }
           // NOT_FOUND / FAILED -> safe to retry as a fresh attempt.
@@ -888,6 +905,7 @@ export class MemoryPresaleRepo {
     this.inbound = new Map();
     this.payouts = new Map();
     this.credits = new Map();
+    this.cursors = new Map();
   }
 
   _reserves(o, nowSec) {
@@ -1111,10 +1129,27 @@ export class MemoryPresaleRepo {
   }
   async patchCredit(orderId, patch) { const c = this.credits.get(orderId); if (c) Object.assign(c, patch); }
 
+  async countOrdersByStatus(status) {
+    let n = 0;
+    for (const o of this.orders.values()) if (o.status === status) n += 1;
+    return n;
+  }
+
+  async getScanCursor(walletAddress) {
+    const key = addressKey(walletAddress);
+    const c = this.cursors.get(key);
+    return c ? { ...c } : null;
+  }
+
+  async saveScanCursor(walletAddress, { lt, hash }, nowSec) {
+    if (!lt || !hash) return;
+    this.cursors.set(addressKey(walletAddress), { lt: String(lt), hash: String(hash), updatedAt: Number(nowSec) });
+  }
+
   /** Deep snapshot for tests (dry-run must leave it unchanged). */
   snapshot() {
     const ser = (m) => JSON.stringify([...m.entries()], (_, v) => (typeof v === 'bigint' ? v.toString() : v));
-    return [this.orders, this.inbound, this.payouts, this.credits].map(ser).join('|');
+    return [this.orders, this.inbound, this.payouts, this.credits, this.cursors].map(ser).join('|');
   }
 }
 

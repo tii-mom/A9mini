@@ -11,13 +11,14 @@ import { uiMemory } from '../app.js';
 import { demoTxHash } from '../demo-data.js';
 import { A9Haptic } from '../tma.js';
 import { A9Audio } from '../audio.js';
-import { formatNum, showToast, copyText, mountSlider, renderCorridorRadar, bindCorridorRadarEvents, animateSlotCounter, launchCoinArc, burstParticles, openChoiceSheet, openModal, closeModal } from '../components.js';
+import { escapeHtml, formatNum, showToast, copyText, mountSlider, renderCorridorRadar, bindCorridorRadarEvents, animateSlotCounter, launchCoinArc, burstParticles, openChoiceSheet, openModal, closeModal } from '../components.js';
 import { renderOrigamiChestSvg } from '../paper-art.js';
 import { renderProofFlexPoster, renderStoryPoster, downloadPosterPng } from '../poster.js';
 import { openXShareSheet, triggerStoryShare } from '../share.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
+import { fetchUserPortfolio, rawToA9 } from '../data.js';
 
 const amountOrDash = (v, suffix = '') => (v === null || v === undefined ? L('未获取', 'Unavailable') : `${formatNum(v)}${suffix}`);
 
@@ -196,6 +197,11 @@ export function renderClaimPage(root) {
   const { user } = store.state;
   const claimable = config.isDemo ? user.a9Claimable : null;
 
+  if (!config.isDemo && store.fundsEnabled) {
+    renderLiveTicketClaimPage(root);
+    return;
+  }
+
   if (!config.isDemo || !store.fundsEnabled) {
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
@@ -340,6 +346,130 @@ export function renderClaimPage(root) {
     }
   };
   paint();
+}
+
+/**
+ * Live 实盘 StakeTicket 链上领奖页（仅在 config.liveFundsEnabled === true 时激活）。
+ * 从 /api/user/:wallet 读取近 24 轮全部 StakeTicket，支持逐张领奖与 pending 防重锁展示。
+ */
+function renderLiveTicketClaimPage(root) {
+  let portfolio = null;
+  let loadError = null;
+  let claimingAddr = null;
+
+  const paint = () => {
+    const { user } = store.state;
+    const tickets = Array.isArray(portfolio?.tickets) ? portfolio.tickets : [];
+    const range = portfolio?.ticketRange || null;
+
+    root.innerHTML = `
+      <div class="col-gap anim-page-enter">
+        <div class="card card-hero">
+          <div class="row-between" style="margin-bottom:6px;">
+            <span class="card-title">${icon('shieldCheck', 15, 'text-green')} ${L('链上 StakeTicket 领奖中心', 'On-Chain StakeTicket Claims')}</span>
+            <span class="chip chip-green">${L('实盘已开放', 'LIVE OPEN')}</span>
+          </div>
+          <div class="num-xs text-sec" style="line-height:1.5;">
+            ${range && range.fromRound && range.toRound
+              ? L(`当前已扫描第 ${range.fromRound} 至第 ${range.toRound} 轮链上质押凭证；每笔领奖需附带 0.22 GRAM 链上 Gas（余量原路退回）。`, `Scanned rounds ${range.fromRound}–${range.toRound}. Each claim attaches 0.22 GRAM gas (excess refunded).`)
+              : L('每笔 StakeTicket 领奖需附带 0.22 GRAM 链上 Gas（余量原路退回）。', 'Each StakeTicket claim attaches 0.22 GRAM gas (excess refunded).')}
+          </div>
+          ${loadError ? `<div class="num-xs text-red" style="margin-top:8px;">${escapeHtml(loadError)}</div>` : ''}
+        </div>
+
+        ${!user.connected
+          ? `<div class="card empty-state"><div class="num-sm text-sec">${L('请先连接非托管 TON 钱包读取链上质押凭证', 'Connect TON wallet to load on-chain StakeTickets')}</div><button class="btn btn-primary btn-sm" id="btn-live-claim-connect" style="margin-top:10px;">${L('连接钱包', 'Connect Wallet')}</button></div>`
+          : !portfolio
+            ? `<div class="card empty-state"><div class="num-sm text-muted">${L('正在读取链上 StakeTicket…', 'Loading on-chain StakeTickets…')}</div></div>`
+            : tickets.length === 0
+              ? `<div class="card empty-state"><div class="num-sm text-sec">${L('当前轮次范围内暂无可领 StakeTicket', 'No StakeTickets found in scanned rounds')}</div></div>`
+              : `<div class="col-gap">
+                  ${tickets.map((t) => {
+                    const amtA9 = rawToA9(t.amountRaw) ?? 0;
+                    const claimedA9 = rawToA9(t.rewardClaimedRaw) ?? 0;
+                    const isPending = Boolean(t.pending);
+                    const isBusy = claimingAddr === t.ticketAddress;
+                    const statusChip = isPending
+                      ? `<span class="chip chip-gold">${L('链上处理中', 'Pending')}</span>`
+                      : t.principalDone
+                        ? `<span class="chip chip-green">${L('本金已结 · 可检视后续解锁', 'Principal Done')}</span>`
+                        : `<span class="chip chip-cyan">${L('持有中', 'Active')}</span>`;
+                    return `
+                      <div class="card">
+                        <div class="row-between" style="margin-bottom:6px;">
+                          <strong>${L(`第 ${t.roundId} 轮 StakeTicket`, `Round #${t.roundId} StakeTicket`)}</strong>
+                          ${statusChip}
+                        </div>
+                        <div class="row-between num-xs text-sec">
+                          <span>${L('凭证本金', 'Principal')}</span>
+                          <b class="mono">${formatNum(amtA9, 2)} A9</b>
+                        </div>
+                        <div class="row-between num-xs text-sec" style="margin-top:4px;">
+                          <span>${L('已领奖励', 'Reward Claimed')}</span>
+                          <b class="mono text-green">${formatNum(claimedA9, 2)} A9</b>
+                        </div>
+                        <div class="num-xs text-muted mono" style="margin:6px 0 10px;word-break:break-all;">${escapeHtml(t.ticketAddress)}</div>
+                        <button class="btn ${isPending ? 'btn-secondary' : 'btn-primary'} btn-sm" data-claim-ticket="${escapeHtml(t.ticketAddress)}" type="button" style="width:100%;" ${isPending || isBusy ? 'disabled' : ''}>
+                          ${icon(isPending ? 'clock' : 'wallet', 13)} ${isPending
+                            ? L('凭证正在链上确认中（防重锁）', 'Claim Pending On-Chain')
+                            : isBusy
+                              ? L('等待钱包签名…', 'Awaiting Signature…')
+                              : L('发起链上领奖（附 0.22 GRAM Gas）', 'Claim On-Chain (0.22 GRAM Gas)')}
+                        </button>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>`}
+
+        <div class="grid-2">
+          <button class="btn btn-secondary" id="btn-live-claim-refresh" type="button">${icon('refresh', 14)} ${L('刷新凭证', 'Refresh')}</button>
+          <button class="btn btn-secondary" data-nav="/profile" type="button">${icon('arrowLeft', 14)} ${L('返回我的', 'Back to Me')}</button>
+        </div>
+      </div>
+    `;
+
+    const connBtn = root.querySelector('#btn-live-claim-connect');
+    if (connBtn) connBtn.onclick = () => tonConnect.openConnectModal(() => loadTickets());
+    const refBtn = root.querySelector('#btn-live-claim-refresh');
+    if (refBtn) refBtn.onclick = () => loadTickets();
+
+    root.querySelectorAll('[data-claim-ticket]').forEach((btn) => {
+      btn.onclick = async () => {
+        const ticketAddr = btn.dataset.claimTicket;
+        if (!ticketAddr || claimingAddr) return;
+        claimingAddr = ticketAddr;
+        paint();
+        try {
+          await tonConnect.sendV15TicketClaim(ticketAddr);
+          A9Haptic.success();
+          A9Audio.confirm();
+          showToast(L('已提交 StakeTicket 领奖交易，请等待链上确认到账', 'StakeTicket claim tx sent, awaiting on-chain confirmation'));
+          await loadTickets();
+        } catch (e) {
+          A9Haptic.error();
+          showToast(e?.message || L('发起领奖签名失败，请重试', 'Claim signature failed'), 'error');
+        } finally {
+          claimingAddr = null;
+          if (root.isConnected) paint();
+        }
+      };
+    });
+  };
+
+  const loadTickets = async () => {
+    const addr = store.state.user.address;
+    if (!addr) { paint(); return; }
+    try {
+      portfolio = await fetchUserPortfolio(addr);
+      loadError = null;
+    } catch (e) {
+      loadError = e?.message || L('读取链上凭证失败，请重试', 'Failed to read StakeTickets');
+    }
+    if (root.isConnected) paint();
+  };
+
+  paint();
+  loadTickets();
 }
 
 export function renderProofDetail(root, navigate, certId) {

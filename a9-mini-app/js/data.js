@@ -43,8 +43,16 @@ export const ENDPOINTS = Object.freeze({
   predictionActivate: '/api/prediction/activate',
   progressionMe: (roundId) => `/api/progression/me${roundId !== undefined && roundId !== null ? `?roundId=${encodeURIComponent(roundId)}` : ''}`,
   progressionClaim: '/api/progression/claim',
-  userProfile: (wallet) => `/api/user/${encodeURIComponent(wallet)}`,
+  userProfile: (wallet, { fromRound = null, toRound = null } = {}) => {
+    const qs = new URLSearchParams();
+    if (fromRound !== null && fromRound !== undefined) qs.set('fromRound', String(fromRound));
+    if (toRound !== null && toRound !== undefined) qs.set('toRound', String(toRound));
+    const q = qs.toString();
+    return `/api/user/${encodeURIComponent(wallet)}${q ? `?${q}` : ''}`;
+  },
   presaleIntent: '/api/presale/intent',
+  presaleQuota: (addr) => `/api/presale/quota/${encodeURIComponent(addr)}`,
+  presaleOrders: (addr) => `/api/presale/orders/${encodeURIComponent(addr)}`,
   warmupRegister: '/api/warmup/register',
   warmupLeaderboard: '/api/warmup/leaderboard',
   teamJoin: '/api/team/join',
@@ -78,13 +86,13 @@ export function serverNowMs() {
 }
 
 /** BAM ApiResponse<T> 信封：{ ok, data, ts } | { ok:false, error:{code,message} } */
-async function request(path, { timeoutMs = config.timeoutMs, method = 'GET', body: payload } = {}) {
+async function request(path, { timeoutMs = config.timeoutMs, method = 'GET', body: payload, headers: extraHeaders = null } = {}) {
   // apiBase 为空表示同源（本地 dev-server 已把 /api/* 代理到 BAM worker），不是配置缺失。
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
   try {
-    const init = { method, signal: controller.signal, credentials: 'same-origin', headers: {} };
+    const init = { method, signal: controller.signal, credentials: 'same-origin', headers: { ...(extraHeaders || {}) } };
     if (payload !== undefined) {
       init.headers['content-type'] = 'application/json';
       init.body = JSON.stringify(payload);
@@ -297,18 +305,42 @@ export function mapRoundView(snapshot) {
 const LIVE_FUNDS_DISABLED_MSG = '当前真实模式处于只读验收阶段，资金订单与钱包交易暂未开放';
 
 function assertFundsAllowedInMode() {
-  if (!config.isDemo) {
+  if (!config.isDemo && !config.liveFundsEnabled) {
     throw new ApiError('LIVE_FUNDS_DISABLED', LIVE_FUNDS_DISABLED_MSG);
   }
 }
 
-/** 请求生成推广奖励 0.06 TON 领奖单（live 只读阶段统一拦截，不发网络订单请求）。 */
+/** 请求生成推广奖励 0.06 GRAM 领奖单（live 只读阶段统一拦截，不发网络订单请求）。 */
 export async function requestPromoClaimIntent(walletAddress) {
   assertFundsAllowedInMode();
   return request(ENDPOINTS.promoIntent, {
     method: 'POST',
     body: { walletAddress }
   });
+}
+
+/** 查询当前钱包的推广可领余额（真实只读接口）。 */
+export async function fetchPromoBalance(walletAddress) {
+  if (!walletAddress) return null;
+  return request(ENDPOINTS.promoBalance(walletAddress));
+}
+
+/** 查询单笔推广领奖单状态（轮询热钱包自动出账进度）。 */
+export async function fetchPromoClaim(claimId) {
+  if (!claimId) return null;
+  return request(ENDPOINTS.promoClaim(claimId));
+}
+
+/** 查询当前钱包的宝箱商城/固定兑换额度（真实只读接口）。 */
+export async function fetchPresaleQuota(walletAddress) {
+  if (!walletAddress) return null;
+  return request(ENDPOINTS.presaleQuota(walletAddress));
+}
+
+/** 查询当前钱包的宝箱商城/固定兑换订单与退款明细（真实只读接口）。 */
+export async function fetchPresaleOrders(walletAddress) {
+  if (!walletAddress) return [];
+  return request(ENDPOINTS.presaleOrders(walletAddress));
 }
 
 /**
@@ -376,8 +408,8 @@ export async function submitPredictionBet({ roundId, userId, side, guessSlots, r
   return request(ENDPOINTS.predictionBet, { method: 'POST', body: payload });
 }
 
-/** 24H 生死预言局：激活待激活预言奖励到 promo_balances（live 只读阶段拦截） */
-export async function activatePredictionReward(userId, walletAddress) {
+/** 24H 生死预言局：激活待激活预言奖励到 promo_balances（live 只读阶段拦截，实盘态附带幂等键） */
+export async function activatePredictionReward(userId, walletAddress, activationId = null) {
   if (!userId) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 内打开或先连接 TON 钱包');
   if (!walletAddress) throw new ApiError('WALLET_REQUIRED', '请先连接 TON 钱包以激活奖励');
   if (config.isDemo) {
@@ -388,9 +420,11 @@ export async function activatePredictionReward(userId, walletAddress) {
     }
   }
   assertFundsAllowedInMode();
+  const idemKey = activationId || `act:${userId}:${Date.now()}`;
   return request(ENDPOINTS.predictionActivate, {
     method: 'POST',
-    body: { userId: String(userId), walletAddress: String(walletAddress) }
+    headers: { 'x-idempotency-key': idemKey },
+    body: { userId: String(userId), walletAddress: String(walletAddress), activationId: idemKey }
   });
 }
 
@@ -481,9 +515,9 @@ export async function submitStartAppAttribution({ startParam, referrerId = null 
   });
 }
 
-/** 读取用户统一持仓与额度（A9 JettonWallet / 质押凭证 / 推广 / 商行 / 商会）。 */
-export async function fetchUserPortfolio(walletAddress) {
-  return request(`/api/user/${encodeURIComponent(walletAddress)}`);
+/** 读取用户统一持仓与额度（A9 JettonWallet / 质押凭证 / 推广 / 商行 / 商会），支持可选历史轮次分页。 */
+export async function fetchUserPortfolio(walletAddress, { fromRound = null, toRound = null } = {}) {
+  return request(ENDPOINTS.userProfile(walletAddress, { fromRound, toRound }));
 }
 
 /**

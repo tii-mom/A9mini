@@ -5,7 +5,16 @@ import { portfolioPanel } from './wealthverse.js';
 
 import { store } from '../store.js';
 import { config } from '../config.js';
-import { joinTeam, bindTeamGroupTg, verifyTeamGroupTg, getEffectiveUserId } from '../data.js';
+import {
+  joinTeam,
+  bindTeamGroupTg,
+  verifyTeamGroupTg,
+  getEffectiveUserId,
+  fetchPromoBalance,
+  fetchPromoClaim,
+  requestPromoClaimIntent,
+  rawToA9,
+} from '../data.js';
 import { tonConnect } from '../tonconnect.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { escapeHtml, formatNum, showToast, copyText, animateSlotCounter, openChoiceSheet, renderProgressRing } from '../components.js';
@@ -424,21 +433,72 @@ export function renderInviteShare(root) {
   const addrTail = (user.shortAddress || 'A9USER').slice(-4);
   const inviteLink = `${window.location.origin}${window.location.pathname}?mode=${config.mode}&startapp=invite_${team.id || 'A9'}_${addrTail}`;
   let template = 'invite';
+  let livePromo = null;
+  let livePromoErr = null;
+  let promoClaimBusy = false;
+  let lastClaimStatus = null;
 
   const pitchText = L(
     `来 A9 广场查看轮次闯关与战队：${inviteLink}`,
     `Explore A9 Plaza, Round Quest and Squads: ${inviteLink}`
   );
 
+  const loadLivePromo = async () => {
+    if (config.isDemo) return;
+    const wallet = store.state.user.address;
+    if (!wallet) return;
+    try {
+      livePromo = await fetchPromoBalance(wallet);
+      livePromoErr = null;
+    } catch (e) {
+      livePromoErr = e?.message || L('暂无法读取推广余额', 'Promo balance unavailable');
+    }
+    if (root.isConnected) paint();
+  };
+
+  const pollPromoClaimStatus = async (claimId) => {
+    for (let i = 0; i < 10; i += 1) {
+      await new Promise((r) => setTimeout(r, 2500));
+      if (!root.isConnected) return null;
+      try {
+        const c = await fetchPromoClaim(claimId);
+        if (c) {
+          lastClaimStatus = c;
+          paint();
+          if (c.status === 'COMPLETED' || c.status === 'FAILED') return c;
+        }
+      } catch (_) {}
+    }
+    return null;
+  };
+
   const paint = () => {
+    const claimableA9 = livePromo ? (rawToA9(livePromo.claimableRaw) ?? 0) : null;
+    const totalClaimedA9 = livePromo ? (rawToA9(livePromo.totalClaimedRaw) ?? 0) : null;
+    const canLiveClaim = !config.isDemo && store.fundsEnabled;
+
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         <div class="card card-hero">
-          ${config.isDemo ? L('演示邀友奖励','Demo invite rewards') : L('邀友奖励等待核验','Invite rewards await verification')}
-          <button class="btn btn-secondary btn-sm" id="btn-claim-promo-hot" style="width:100%;margin-top:12px;">${icon(config.isDemo ? 'wallet' : 'lock', 14)} ${config.isDemo
+          <div class="row-between" style="margin-bottom:6px;">
+            <span class="card-title">${icon('wallet', 15, 'text-gold')} ${L('邀友与宝箱推广余额', 'Invite & Promo Balance')}</span>
+            <span class="chip ${config.isDemo ? 'chip-green' : canLiveClaim ? 'chip-green' : 'chip-gold'}">${config.isDemo ? 'DEMO' : canLiveClaim ? L('已开放', 'OPEN') : L('只读模式', 'READ-ONLY')}</span>
+          </div>
+          ${config.isDemo
+            ? `<div class="num-xs text-sec">${L('演示邀友奖励（不会发起真实钱包交易）', 'Demo invite rewards (no real wallet tx)')}</div>`
+            : livePromo
+              ? `<div class="metric-strip cols-2" style="margin:8px 0 4px;">
+                  <div class="metric-cell"><span class="num-xs text-muted">${L('当前可领 A9', 'Claimable A9')}</span><span class="num-md text-green mono">${formatNum(claimableA9, 2)} A9</span></div>
+                  <div class="metric-cell"><span class="num-xs text-muted">${L('累计已领 A9', 'Total Claimed')}</span><span class="num-md mono">${formatNum(totalClaimedA9, 2)} A9</span></div>
+                </div>`
+              : `<div class="num-xs text-sec">${escapeHtml(livePromoErr || (store.state.user.address ? L('正在读取真实推广余额…', 'Loading promo balance…') : L('连接并验证 TON 钱包后可查看可领余额', 'Connect and verify wallet to view claimable balance')))}</div>`}
+          ${lastClaimStatus ? `<div class="num-xs text-green mono" style="margin-top:6px;">${L('最近领奖单', 'Latest claim')}: ${escapeHtml(lastClaimStatus.claimId)} · ${escapeHtml(lastClaimStatus.status)}${lastClaimStatus.payoutTxHash ? ` · ${escapeHtml(lastClaimStatus.payoutTxHash.slice(0, 14))}…` : ''}</div>` : ''}
+          <button class="btn ${config.isDemo || canLiveClaim ? 'btn-primary' : 'btn-secondary'} btn-sm" id="btn-claim-promo-hot" style="width:100%;margin-top:12px;" ${promoClaimBusy ? 'disabled' : ''}>${icon(store.fundsEnabled ? 'wallet' : 'lock', 14)} ${config.isDemo
             ? L('领取邀友奖励（演示模拟 0.06 GRAM）', 'Claim Invite Rewards (Demo 0.06 GRAM)')
-            : L('真实模式只读 · 邀友领奖暂未开放', 'Read-Only Mode · Invite Claim Disabled')}</button>
-          ${!config.isDemo ? `<div class="num-xs text-muted" id="live-readonly-promo-notice" style="margin-top:6px;">${L('当前真实模式仅支持只读浏览与连接钱包，暂不创建 0.06 GRAM 付款单或发起签名。', 'Live mode is read-only; no 0.06 GRAM payment intent or signature will be created.')}</div>` : ''}
+            : canLiveClaim
+              ? (promoClaimBusy ? L('等待 0.06 GRAM 签名确认…', 'Waiting for 0.06 GRAM tx…') : L('领取推广 A9（付 0.06 GRAM 链上 Gas）', 'Claim Promo A9 (0.06 GRAM Gas)'))
+              : L('真实模式只读 · 邀友领奖暂未开放', 'Read-Only Mode · Invite Claim Disabled')}</button>
+          ${!config.isDemo && !canLiveClaim ? `<div class="num-xs text-muted" id="live-readonly-promo-notice" style="margin-top:6px;">${L('当前真实模式仅支持只读浏览与连接钱包，暂不创建 0.06 GRAM 付款单或发起签名。', 'Live mode is read-only; no 0.06 GRAM payment intent or signature will be created.')}</div>` : ''}
         </div>
 
         <div class="seg-tabs">
@@ -517,21 +577,50 @@ export function renderInviteShare(root) {
     const promoBtn = root.querySelector('#btn-claim-promo-hot');
     if (promoBtn) {
       promoBtn.onclick = async () => {
-        if (!config.isDemo || !store.fundsEnabled) {
+        if (!store.fundsEnabled) {
           A9Haptic.warning();
           showToast(L('当前真实模式处于只读验收阶段，推广领奖付款单与 0.06 GRAM 签名暂未开放', 'Live mode is read-only; promo payout intent and 0.06 GRAM signing are disabled'), 'amber');
           return;
         }
-        A9Haptic.success();
-        const res = store.claimPromoDemo();
-        if (res?.error) {
-          showToast(res.error, 'amber');
+        if (config.isDemo) {
+          A9Haptic.success();
+          const res = store.claimPromoDemo();
+          if (res?.error) {
+            showToast(res.error, 'amber');
+            return;
+          }
+          showToast(L(`[演示模式] 已模拟领取 ${formatNum(res.amountA9)} A9 (${res.txHash})`, `[Demo] Simulated ${formatNum(res.amountA9)} A9 promo claim`));
           return;
         }
-        showToast(L(`[演示模式] 已模拟领取 ${formatNum(res.amountA9)} A9 (${res.txHash})`, `[Demo] Simulated ${formatNum(res.amountA9)} A9 promo claim`));
+        const wallet = store.state.user.address;
+        if (!store.state.user.connected || !wallet) {
+          showToast(L('请先连接并验证 TON 钱包后再领取', 'Connect and verify TON wallet first'), 'amber');
+          tonConnect.openConnectModal(() => loadLivePromo());
+          return;
+        }
+        promoClaimBusy = true;
+        paint();
+        try {
+          const intent = await requestPromoClaimIntent(wallet);
+          await tonConnect.sendV15PromoFee(intent);
+          A9Haptic.success();
+          showToast(L(`已支付 0.06 GRAM 手续费（单号 ${intent.claimId}），热钱包正在自动发放 A9…`, `0.06 GRAM fee sent (claim ${intent.claimId}), awaiting automatic A9 payout…`));
+          const finalClaim = await pollPromoClaimStatus(intent.claimId);
+          if (finalClaim?.status === 'COMPLETED') {
+            showToast(L('推广 A9 已发放至你的链上钱包！', 'Promo A9 sent to your wallet!'));
+          }
+          await loadLivePromo();
+        } catch (e) {
+          A9Haptic.error();
+          showToast(e?.message || L('发起推广领奖失败，请重试', 'Promo claim failed'), 'error');
+        } finally {
+          promoClaimBusy = false;
+          if (root.isConnected) paint();
+        }
       };
     }
   };
 
   paint();
+  loadLivePromo();
 }

@@ -1,7 +1,9 @@
-// A9 Protocol v15 — Zero-contract promo hot-wallet TEP-74 A9 payout script (Acton 1.1.0).
-// Always sets sendExcessesTo = promoHotWallet so unused gas returns to the hot wallet (0 project gas).
+// A9 Protocol v15/v16 — Zero-contract promo/presale hot-wallet TEP-74 A9 payout script (Acton 1.1.0).
+// Always sets sendExcessesTo = hotWallet so unused gas returns to the hot wallet (0 project gas).
+import "@stdlib/strings"
 import "@acton/env"
 import "@acton/testing/assert"
+import "@acton/tlb/maybe"
 import "@acton/types/transaction"
 import "@acton/types/big_array"
 import "@acton/emulation/network"
@@ -28,11 +30,53 @@ fun reqStr(name: string): string {
     return v!;
 }
 
+fun assertTraceOk(trace: SendResultList) {
+    if (trace.size() == 0) { Assert.fail("promo payout trace is empty"); }
+    var i = 0;
+    while (i < trace.size()) {
+        val rawCell = trace.at(i).tx as cell;
+        println("  tx[{}] = 0x{:x}", i, rawCell.hash());
+        val tx = trace.at(i).tx.load();
+        val descr = tx.description.load();
+        if (descr is TlbTransOrd) {
+            if (descr.aborted) {
+                Assert.fail(format("tx[{}] aborted on-chain", i));
+            }
+            val c = descr.computePh;
+            if (c is TlbTrComputeVm) {
+                val exitCode = c.data.load().exitCode;
+                if (exitCode != 0 && exitCode != 1) {
+                    Assert.fail(format("tx[{}] failed compute exitCode={}", i, exitCode));
+                }
+            }
+            val act = descr.action;
+            if (!(act is TlbNone)) {
+                val actionPh = act.value.load();
+                if (!actionPh.success) {
+                    Assert.fail(format("tx[{}] failed action resultCode={}", i, actionPh.resultCode));
+                }
+            }
+        }
+        i += 1;
+    }
+}
+
 fun main() {
+    val network = env<string>("A9_NETWORK") ?? "testnet";
+    if (!network.equalTo("testnet") && !network.equalTo("mainnet")) {
+        Assert.fail("A9_NETWORK must be testnet or mainnet");
+    }
     if (!(env<bool>("OPS_EXECUTE") ?? false)) {
         println("DRY-RUN: promo_payout_v15 skipped.");
         return;
     }
+    if (!(env<string>("OPS_CONFIRM") ?? "").equalTo("YES")) {
+        Assert.fail("OPS_CONFIRM=YES required for A9 payout broadcast");
+    }
+    if (network.equalTo("mainnet") && !(env<string>("OPS_CONFIRM_MAINNET") ?? "").equalTo("YES")) {
+        Assert.fail("mainnet A9 payout requires OPS_CONFIRM_MAINNET=YES");
+    }
+
     val hotWallet = scripts.wallet(reqStr("A9_PROMO_HOT_WALLET_NAME"));
     val master = reqAddr("A9_JETTON_MASTER_ADDRESS");
     val recipient = reqAddr("A9_PAYOUT_RECIPIENT");
@@ -40,13 +84,19 @@ fun main() {
     val gasNano = (env<int>("A9_PROMO_TRANSFER_GAS_NANO") ?? 50000000) as coins;
     val qid = (env<int>("A9_QUERY_ID") ?? 1) as uint64;
 
+    val bal = scripts.fetchAccountBalance(hotWallet.address);
+    val minRequired = gasNano + ton("0.05");
+    if (bal < minRequired) {
+        Assert.fail(format("insufficient hot wallet balance ({} < {})", bal, minRequired));
+    }
+
     val hotJettonWallet = net.runGetMethod<address>(master, "get_wallet_address", [hotWallet.address]);
     val body = beginCell()
         .storeUint(OP_JETTON_TRANSFER, 32)
         .storeUint(qid, 64)
         .storeCoins(amountRaw)
         .storeAddress(recipient)
-        .storeAddress(hotWallet.address) // CRITICAL: excesses return to promoHotWallet
+        .storeAddress(hotWallet.address) // CRITICAL: excesses return to hotWallet
         .storeMaybeRef(null)
         .storeCoins(0)
         .storeUint(0, 1)
@@ -59,6 +109,7 @@ fun main() {
         body,
     })).waitForTrace();
     if (trace == null) { Assert.fail("promo payout trace unavailable"); }
+    assertTraceOk(trace!);
     val firstTx = trace!.at(0).tx as cell;
     println("PROMO_PAYOUT_TX=0x{:x}", firstTx.hash());
 }

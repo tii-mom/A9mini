@@ -271,10 +271,10 @@ class A9Store {
     this.notify();
   }
 
-  /* ---------------- 资金动作：仅 demo 模式允许模拟；live 模式严格只读禁用 ---------------- */
+  /* ---------------- 资金动作：demo 模式允许模拟；live 模式须显式开启 config.liveFundsEnabled ---------------- */
 
   get fundsEnabled() {
-    return Boolean(config.isDemo);
+    return Boolean(config.isDemo || config.liveFundsEnabled);
   }
 
   stakeTon(amount) {

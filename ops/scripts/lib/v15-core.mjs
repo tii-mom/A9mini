@@ -180,26 +180,106 @@ export function assertTargetInCorridor(roundId, twap24hUsdE8, targetPriceUsdE8, 
 }
 
 // Aggregate 24 hourly candles off-chain into single-tx SettleRound inputs
-export function aggregateCandles(roundId, targetPriceUsdE8, candles, expectedCount = 24) {
+export function aggregateCandles(roundId, targetPriceUsdE8, candles, expectedCount = 24, opts = {}) {
+  const rId = Number(roundId);
+  if (!Number.isInteger(rId) || rId < 1) {
+    throw new Error(`roundId must be a positive integer, got ${roundId}`);
+  }
+  if (!Number.isInteger(expectedCount) || expectedCount < 1) {
+    throw new Error(`expectedCount must be a positive integer, got ${expectedCount}`);
+  }
   if (!Array.isArray(candles) || candles.length !== expectedCount) {
     throw new Error(`expected ${expectedCount} candles, got ${candles?.length ?? 0}`);
   }
   const target = BigInt(targetPriceUsdE8);
+  if (target <= 0n) {
+    throw new Error('targetPriceUsdE8 must be > 0');
+  }
+
+  const observationSeconds = opts?.observationSeconds !== undefined && opts?.observationSeconds !== null
+    ? Number(opts.observationSeconds)
+    : null;
+  let expectedStep = opts?.stepSeconds !== undefined && opts?.stepSeconds !== null
+    ? Number(opts.stepSeconds)
+    : null;
+  if (observationSeconds !== null) {
+    if (!Number.isInteger(observationSeconds) || observationSeconds <= 0) {
+      throw new Error(`invalid observationSeconds: ${opts.observationSeconds}`);
+    }
+    if (observationSeconds % expectedCount !== 0) {
+      throw new Error(`observationSeconds (${observationSeconds}) must be divisible by expectedCount (${expectedCount})`);
+    }
+    const derivedStep = observationSeconds / expectedCount;
+    if (expectedStep !== null && expectedStep !== derivedStep) {
+      throw new Error(`stepSeconds (${expectedStep}) does not match observationSeconds / expectedCount (${derivedStep})`);
+    }
+    expectedStep = derivedStep;
+  }
+  if (expectedStep !== null && (!Number.isInteger(expectedStep) || expectedStep <= 0)) {
+    throw new Error(`invalid stepSeconds: ${expectedStep}`);
+  }
+
   let qualifiedCandles = 0;
+  let inferredStep = expectedStep;
   const canonical = candles.map((c, idx) => {
+    if (!c || typeof c !== 'object') throw new Error(`candle[${idx}] must be an object`);
+    const start = Number(c.start);
+    const end = Number(c.end);
+    if (!Number.isInteger(start) || start <= 0) {
+      throw new Error(`candle[${idx}].start must be a positive unix timestamp integer, got ${c.start}`);
+    }
+    if (!Number.isInteger(end) || end <= start) {
+      throw new Error(`candle[${idx}].end (${c.end}) must be an integer > start (${c.start})`);
+    }
+    const duration = end - start;
+    if (inferredStep === null) inferredStep = duration;
+    if (duration !== inferredStep) {
+      throw new Error(`candle[${idx}] duration (${duration}s) does not match expected step (${inferredStep}s)`);
+    }
     const price = BigInt(c.twapUsdE8);
     if (price <= 0n) throw new Error(`candle[${idx}] twapUsdE8 must be > 0`);
     if (price >= target) qualifiedCandles += 1;
-    return { index: idx, start: Number(c.start), end: Number(c.end), twapUsdE8: price.toString() };
+    return { index: idx, start, end, twapUsdE8: price.toString() };
   });
-  const payload = JSON.stringify({ version: 'a9-v15-candles', roundId, targetPriceUsdE8: target.toString(), candles: canonical });
+
+  // 严格校验时间轴连续单调，杜绝重复 K 线、倒序或漏时段
+  for (let i = 1; i < canonical.length; i += 1) {
+    if (canonical[i].start !== canonical[i - 1].end) {
+      throw new Error(
+        `candle[${i}] start (${canonical[i].start}) is not contiguous with candle[${i - 1}].end (${canonical[i - 1].end})`,
+      );
+    }
+  }
+
+  // 若调用方传入质押截止时间戳（观察窗起点），严格校验首尾对齐观察窗
+  if (opts?.stakeCloseAt !== undefined && opts?.stakeCloseAt !== null) {
+    const stakeCloseAt = Number(opts.stakeCloseAt);
+    if (!Number.isInteger(stakeCloseAt) || stakeCloseAt <= 0) {
+      throw new Error(`invalid stakeCloseAt: ${opts.stakeCloseAt}`);
+    }
+    if (canonical[0].start !== stakeCloseAt) {
+      throw new Error(`candle[0].start (${canonical[0].start}) does not align with stakeCloseAt (${stakeCloseAt})`);
+    }
+    if (observationSeconds !== null) {
+      const expectedEnd = stakeCloseAt + observationSeconds;
+      const actualEnd = canonical[canonical.length - 1].end;
+      if (actualEnd !== expectedEnd) {
+        throw new Error(`last candle end (${actualEnd}) does not align with stakeCloseAt + observationSeconds (${expectedEnd})`);
+      }
+    }
+  }
+
+  const payload = JSON.stringify({ version: 'a9-v15-candles', roundId: rId, targetPriceUsdE8: target.toString(), candles: canonical });
   const hashHex = createHash('sha256').update(payload).digest('hex');
   return {
-    roundId,
+    roundId: rId,
     qualifiedCandles,
     candleHashHex: `0x${hashHex}`,
     candleHashDec: BigInt(`0x${hashHex}`).toString(),
     canonicalJson: payload,
+    windowStart: canonical[0].start,
+    windowEnd: canonical[canonical.length - 1].end,
+    stepSeconds: inferredStep,
   };
 }
 
@@ -423,6 +503,20 @@ export function verifyActonWalletsReadOnly({
   return { ok: true, stdout };
 }
 
+export function parseActonDerivedAddresses(stdout = '') {
+  const pick = (label) => {
+    const re = new RegExp(`^${label}\\s*=\\s*(\\S+)`, 'm');
+    const m = String(stdout).match(re);
+    return m ? m[1] : null;
+  };
+  const jettonMaster = pick('JettonMaster');
+  const roundController = pick('RoundController');
+  const deployer = pick('Deployer');
+  const treasury = pick('Treasury');
+  if (!jettonMaster && !roundController && !deployer && !treasury) return null;
+  return { jettonMaster, roundController, deployer, treasury };
+}
+
 /**
  * Unified deployment preflight validator shared by BOTH --dry-run and --execute paths.
  * Checks: protocol root + 4 artifact SHA-256 hashes, network/supply conservation,
@@ -496,10 +590,13 @@ export function validateDeployPreflight({
 
   // Let Acton itself decide whether A9_DEPLOY_WALLET and A9_TREASURY_WALLET are resolvable
   // via the exact read-only deploy script path (OPS_EXECUTE=false, zero on-chain tx).
+  let derivedAddresses = null;
   if (missing.length === 0 && invalid.length === 0) {
     const actonCheck = verifyActonWalletsReadOnly({ protocol, params, protocolRoot, env, spawnImpl });
     if (!actonCheck.ok) {
       invalid.push(actonCheck.error);
+    } else {
+      derivedAddresses = parseActonDerivedAddresses(actonCheck.stdout);
     }
   }
 
@@ -524,6 +621,7 @@ export function validateDeployPreflight({
     params,
     protocolRoot,
     artifacts,
+    derivedAddresses,
     missing,
     invalid,
     warnings,

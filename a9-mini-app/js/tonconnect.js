@@ -12,12 +12,14 @@ import { demoWalletSendResult } from './demo-data.js';
 import { A9Haptic } from './tma.js';
 import { escapeHtml, showToast, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
-import { buildV15StakeTx, buildV15ClaimTx, buildV15PromoFeeTx, parseTonAddress } from './v15-tx.js';
+import { buildV15StakeTx, buildV15ClaimTx, buildV15PromoFeeTx, buildV15PresaleTx, parseTonAddress } from './v15-tx.js';
 import { A9TMA as TMA } from './tma.js';
 import { fetchMe, requestTonProofPayload, submitTonProof } from './data.js';
 
 /** 真实模式且在 Telegram 内：钱包归属需通过 ton_proof 由服务端验证。 */
 const proofFlowEnabled = () => !config.isDemo && Boolean(TMA.getRawInitData());
+/** 真实模式且生产配置已显式开启实盘资金总闸。 */
+const liveFundsReady = () => !config.isDemo && config.liveFundsEnabled === true;
 
 function canonicalWalletKey(addr) {
   const s = String(addr || '').trim();
@@ -240,7 +242,11 @@ class A9TonConnect {
         <div class="num-sm text-cyan" style="margin-top:6px;word-break:break-all;">${user.connected ? escapeHtml(user.address) : '尚未连接非托管 TON 钱包'}</div>
         ${!canSandbox && user.pendingSwitch ? `<div class="num-xs text-gold" style="margin-top:6px;">待生效换绑：将于 ${new Date(Number(user.pendingSwitch.effectiveAt) * 1000).toLocaleString()} 生效；可使用原钱包重签取消。</div>` : ''}
         ${!this.sdkReady ? `<div class="num-xs text-muted" style="margin-top:6px;">${escapeHtml(this.lastError || 'SDK 未就绪')}</div>` : ''}
-        ${canSandbox ? `<div class="num-xs text-gold" style="margin-top:6px;">当前为演示模式：沙盒连接与资金结果均由本地演示数据生成，不会触发真实钱包签名。</div>` : `<div class="num-xs text-muted" style="margin-top:6px;">当前为真实只读模式：仅支持连接钱包与只读数据查看，不会发起任何资金交易签名。</div>`}
+        ${canSandbox
+          ? `<div class="num-xs text-gold" style="margin-top:6px;">当前为演示模式：沙盒连接与资金结果均由本地演示数据生成，不会触发真实钱包签名。</div>`
+          : liveFundsReady()
+            ? `<div class="num-xs text-green" style="margin-top:6px;">当前为真实交易模式：支持连接钱包与按授权发起非托管 TON Connect 2.0 链上交易签名。</div>`
+            : `<div class="num-xs text-muted" style="margin-top:6px;">当前为真实只读模式：仅支持连接钱包与只读数据查看，不会发起任何资金交易签名。</div>`}
       </div>
       ${!this.sdkReady && !canSandbox ? `
         <div class="card row-between" style="border-color:var(--gold-border);">
@@ -324,17 +330,44 @@ class A9TonConnect {
 
   /**
    * 统一钱包交易发送入口（硬约束）：
-   * - live 模式：严格只读，无论钱包是否已连接一律抛出 LIVE_FUNDS_DISABLED，绝不调用 ui.sendTransaction。
    * - demo 模式：无论真实钱包是否已连接，仅由 demo-data.js 生成模拟回执，绝不弹出真实钱包签名。
+   * - live 只读态（liveFundsEnabled=false）：一律抛出 LIVE_FUNDS_DISABLED，绝不调用 ui.sendTransaction。
+   * - live 实盘态（liveFundsEnabled=true）：核验 SDK 与已连钱包后调用 TON Connect 2.0 sendTransaction。
    */
   async _dispatch(tx, action = 'demo_tx') {
-    if (!config.isDemo) {
+    if (config.isDemo) {
+      return demoWalletSendResult(action);
+    }
+    if (!liveFundsReady()) {
       throw createFundsDisabledError();
     }
-    return demoWalletSendResult(action);
+    if (!this.sdkReady || !this.ui || typeof this.ui.sendTransaction !== 'function') {
+      const err = new Error('TON Connect SDK 尚未就绪，请先刷新或重试加载钱包组件');
+      err.code = 'WALLET_SDK_NOT_READY';
+      throw err;
+    }
+    if (!store.state.user.connected) {
+      const err = new Error('请先连接非托管 TON 钱包后再发起交易签名');
+      err.code = 'WALLET_NOT_CONNECTED';
+      throw err;
+    }
+    try {
+      const res = await this.ui.sendTransaction(tx);
+      return {
+        simulated: false,
+        boc: res?.boc || null,
+        action,
+      };
+    } catch (e) {
+      const msg = String(e?.message || e || '');
+      const rejected = /reject|cancel|declin|user/i.test(msg);
+      const err = new Error(rejected ? '已在钱包中取消本次签名，未扣款' : (msg || '钱包交易签名失败，请重试'));
+      err.code = rejected ? 'USER_REJECTED' : (e?.code || 'WALLET_TX_FAILED');
+      throw err;
+    }
   }
 
-  /** 质押入口（live 模式强制禁用；demo 模式仅返回模拟回执）。 */
+  /** 旧版演示质押入口（仅 demo 模式允许；live 模式一律强制走 sendV15StakeA9）。 */
   async sendStakeTransaction(tonAmount, contractAddress = null, payloadBoc = null) {
     if (!config.isDemo) throw createFundsDisabledError();
     const targetAddr = contractAddress || 'EQD_DEMO_A9_POOL';
@@ -347,36 +380,60 @@ class A9TonConnect {
     }, 'demo_stake');
   }
 
-  /** v15 质押 A9（live 模式强制禁用；demo 模式仅返回模拟回执）。 */
-  async sendV15StakeA9({ userJettonWallet, roundController, userAddress, amountA9Raw, roundId, queryId = BigInt(Date.now()) }) {
-    if (!config.isDemo) throw createFundsDisabledError();
+  /** v15/v16 质押 A9 Jetton（demo 返回模拟回执；live 仅在 liveFundsEnabled=true 时真实签名）。 */
+  async sendV15StakeA9({ userJettonWallet, roundController, userAddress, amountA9Raw, roundId, queryId = BigInt(Date.now()), protocolVersion = null }) {
+    if (!config.isDemo && !liveFundsReady()) throw createFundsDisabledError();
     if (!userJettonWallet || !roundController || !userAddress) {
       const err = new Error('缺少 A9 钱包或 RoundController 地址，无法构造质押交易');
       err.code = 'STAKE_PARAMS_MISSING';
       throw err;
     }
+    const serverCfg = store.state.round?.protocolConfig || {};
+    const resolvedVersion = protocolVersion
+      || serverCfg.stakeProtocolVersion
+      || (serverCfg.protocolVersion === 'v16' ? 'v16' : config.stakeProtocolVersion);
     return await this._dispatch(buildV15StakeTx({
       userJettonWallet, roundController, userAddress, amountA9Raw, roundId, queryId,
-      protocolVersion: config.stakeProtocolVersion,
+      protocolVersion: resolvedVersion,
     }), 'demo_v15_stake');
   }
 
-  /** v15 领取本金 + 已解锁奖励（live 模式强制禁用；demo 模式仅返回模拟回执）。 */
+  /** v15/v16 领取本金 + 已解锁奖励（StakeTicket TicketClaim，附 0.22 GRAM Gas）。 */
   async sendV15TicketClaim(ticketAddress, queryId = BigInt(Date.now())) {
-    if (!config.isDemo) throw createFundsDisabledError();
-    const target = ticketAddress || 'EQD_DEMO_TICKET';
+    if (!config.isDemo && !liveFundsReady()) throw createFundsDisabledError();
+    const target = ticketAddress || (config.isDemo ? 'EQD_DEMO_TICKET' : '');
+    if (!target) {
+      const err = new Error('缺少 StakeTicket 凭证地址，无法发起领奖');
+      err.code = 'TICKET_ADDRESS_MISSING';
+      throw err;
+    }
     return await this._dispatch(buildV15ClaimTx(target, queryId), 'demo_v15_claim');
   }
 
-  /** v15 邀友奖励领取（live 模式强制禁用；demo 模式仅返回模拟回执）。 */
+  /** v15/v16 邀友奖励 0.06 GRAM 手续费转账（触发推广热钱包自动发 A9）。 */
   async sendV15PromoFee(intent) {
-    if (!config.isDemo) throw createFundsDisabledError();
+    if (!config.isDemo && !liveFundsReady()) throw createFundsDisabledError();
     if (!intent?.payTo || !intent?.memo) {
       const err = new Error('邀友奖励支付单无效，请重新获取');
       err.code = 'BAD_PROMO_INTENT';
       throw err;
     }
     return await this._dispatch(buildV15PromoFeeTx(intent), 'demo_v15_promo');
+  }
+
+  /** v15/v16 宝箱商城 / A9 固定兑换 GRAM 支付（memo = buy:<orderId>）。 */
+  async sendV15PresaleTx(order) {
+    if (!config.isDemo && !liveFundsReady()) throw createFundsDisabledError();
+    if (!order?.payTo || !order?.memo || !order?.tonNano) {
+      const err = new Error('宝箱商城付款单无效，请重新下单');
+      err.code = 'BAD_PRESALE_ORDER';
+      throw err;
+    }
+    return await this._dispatch(buildV15PresaleTx({
+      payTo: order.payTo,
+      tonNano: order.tonNano,
+      memo: order.memo,
+    }), 'demo_v15_presale');
   }
 }
 
