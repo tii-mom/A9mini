@@ -12,6 +12,7 @@
 //   - 群主专属归因按钮采用短 ID（invite_<teamId>_<captainTgUserId>），严格控制在 Telegram 64 字节上限内。
 
 import { formatUnits } from './money.mjs';
+import { CHEST_MALL_CATALOG, CHEST_MALL_NANO_TO_SKU } from './chest-engine.mjs';
 
 const TON_NANO = 1_000_000_000n;
 const A9_RAW = 1_000_000_000n;
@@ -351,14 +352,16 @@ export class TelegramBroadcaster {
           captainTgUserId: captainTgId,
           fallbackParam: 'market',
         });
+        const sku = CHEST_MALL_CATALOG[order.skuId || CHEST_MALL_NANO_TO_SKU[String(tonNano)] || ''];
+        const chestLabel = sku ? `${sku.zh}（${sku.priceGram} GRAM）` : `${gramText} GRAM 宝箱商城订单`;
         return {
           text: [
-            `战队大额兑换捷报 · ${t.name}`,
-            `成员 ${maskWallet(order.walletAddress)} 刚在 A9 兑换屋完成链上固定兑换：`,
-            `实付 ${gramText} GRAM → 已确认入账 ${a9Text} A9（固定报价 1 GRAM = 2,002 A9）`,
+            `战队大额开箱捷报 · ${t.name}`,
+            `成员 ${maskWallet(order.walletAddress)} 刚在宝箱商城购入【${chestLabel}】：`,
+            `实付 ${gramText} GRAM → 本金已确认入账 ${a9Text} A9（固定报价 1 GRAM = 2,002 A9）`,
             `链上成交可查，本队同步享有 12% 邀友奖励归因。`,
           ].join('\n'),
-          buttonText: '前往 A9 兑换屋查看额度',
+          buttonText: '前往宝箱商城查看档位',
           buttonUrl: url,
         };
       },
@@ -402,8 +405,8 @@ export class TelegramBroadcaster {
     });
   }
 
-  /** ④ 链上结算战报（通关派奖 / 未通关销毁 BURN） */
-  async broadcastRoundSettle({ roundId, round, passed, qualifiedCandles = 0, nowSec = Math.floor(Date.now() / 1000) }) {
+  /** ④ 链上结算战报（通关派奖 / 未通关销毁 BURN，附本群集体预言战绩） */
+  async broadcastRoundSettle({ roundId, round, passed, qualifiedCandles = 0, groupStatsResolver = null, nowSec = Math.floor(Date.now() / 1000) }) {
     const targets = await this._collectGlobalTargets();
     const poolStr = formatWholeNumber(round?.rewardBudgetRaw || '0');
     const photoUrl = this.publicOrigin
@@ -423,21 +426,74 @@ export class TelegramBroadcaster {
           captainTgUserId: captainTgId,
           fallbackParam: passed ? `round_${roundId}` : `burn_${roundId}`,
         });
+        let squadLine = '';
+        if (team && typeof groupStatsResolver === 'function') {
+          try {
+            const gs = await groupStatsResolver(team, roundId);
+            if (gs && Number(gs.participants) > 0) {
+              squadLine = `本群本轮共 ${gs.participants} 人参战 24H 预言，命中率 ${gs.winRatePct}%。`;
+            }
+          } catch {
+            squadLine = '';
+          }
+        }
+        const baseLines = passed
+          ? [
+              `第 #${roundId} 轮结算战报：通关派奖（${qualifiedCandles}/24 时段达标）`,
+              `本轮奖励池 ${poolStr} A9 已按权重结算开放领取，24H 预言擂台奖励同步发放至待激活金库。`,
+            ]
+          : [
+              `第 #${roundId} 轮结算战报：未达标 · 销毁 BURN（${qualifiedCandles}/24 时段）`,
+              `未满 16/24 达标线，合约已链上执行 100% 质押本金与半数奖池永久销毁 BURN；24H 预言擂台已同步结算。`,
+            ];
+        if (squadLine) baseLines.push(squadLine);
         return {
           photoUrl,
-          text: passed
-            ? [
-                `第 #${roundId} 轮结算战报：通关派奖（${qualifiedCandles}/24 时段达标）`,
-                `本轮奖励池 ${poolStr} A9 已按权重结算开放领取，24H 预言擂台奖励同步发放至待激活金库。`,
-              ].join('\n')
-            : [
-                `第 #${roundId} 轮结算战报：未达标 · 销毁 BURN（${qualifiedCandles}/24 时段）`,
-                `未满 16/24 达标线，合约已链上执行 100% 质押本金与半数奖池永久销毁 BURN；24H 预言擂台已同步结算。`,
-              ].join('\n'),
+          text: baseLines.join('\n'),
           buttonText: passed ? '查看通关结算与领取明细' : '查看链上销毁 BURN 战报',
           buttonUrl: url,
         };
       },
+    });
+  }
+
+  /** ⑤ 12% 宝箱商城返佣入账私聊群主/邀请人报喜 */
+  async notifyReferralCommission({ order, credit, nowSec = Math.floor(Date.now() / 1000) }) {
+    if (!this._canSend() || !credit?.referrer || !credit?.orderId) {
+      return { skipped: true, reason: 'DISABLED', sentCount: 0 };
+    }
+    let recipientTgId = null;
+    const ref = String(credit.referrer).trim();
+    if (/^\d{5,20}$/.test(ref)) {
+      recipientTgId = ref;
+    } else if (this.identityStore && typeof this.identityStore.getTelegramUserIdByWallet === 'function') {
+      try {
+        recipientTgId = await this.identityStore.getTelegramUserIdByWallet(ref);
+      } catch {
+        recipientTgId = null;
+      }
+    }
+    if (!recipientTgId) return { skipped: true, reason: 'NO_TG_RECIPIENT', sentCount: 0 };
+
+    const commText = formatGroupedUnits(BigInt(String(credit.amountRaw || '0')), 9);
+    const tonNano = order ? BigInt(String(order.tonNano || '0')) : 0n;
+    const sku = order ? CHEST_MALL_CATALOG[order.skuId || CHEST_MALL_NANO_TO_SKU[String(tonNano)] || ''] : null;
+    const itemText = sku ? `${sku.zh}（${sku.priceGram} GRAM）` : `${formatGroupedUnits(tonNano, 9)} GRAM 商城订单`;
+    const url = buildTeamDeepLink({ botHandle: this.botHandle, fallbackParam: 'market' });
+
+    return this._broadcastToTargets({
+      eventKey: `comm:${credit.orderId}`,
+      eventType: 'REFERRAL_COMMISSION',
+      targets: [{ chatId: String(recipientTgId), team: null }],
+      nowSec,
+      buildPayload: async () => ({
+        text: [
+          `返佣到账提醒：+ ${commText} A9`,
+          `你的战队成员/直邀好友刚在宝箱商城完成【${itemText}】，你的 12% 永久返佣已实时入账，随时可提现！`,
+        ].join('\n'),
+        buttonText: '打开金库查看返佣余额',
+        buttonUrl: url,
+      }),
     });
   }
 }

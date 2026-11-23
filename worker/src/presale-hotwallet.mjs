@@ -24,6 +24,7 @@
 import { addressKey } from './ton-address.mjs';
 import { parseDecimalUnits, MoneyError } from './money.mjs';
 import { randomHex } from './auth.mjs';
+import { CHEST_MALL_CATALOG, CHEST_MALL_NANO_TO_SKU } from './chest-engine.mjs';
 
 export const PRESALE_STATUS = Object.freeze({
   PENDING_PAYMENT: 'PENDING_PAYMENT',
@@ -74,7 +75,7 @@ export const RESERVING_STATUSES = Object.freeze([
 export const TON_NANO = 1_000_000_000n;
 export const A9_RAW = 1_000_000_000n;
 export const DUST_LIMIT_NANO = 100_000_000n;        // 0.1 GRAM
-export const PASSIVE_FREE_MIN_NANO = 1_000_000_000n; // 1.0 GRAM
+export const PASSIVE_FREE_MIN_NANO = 990_000_000n;  // 0.99 GRAM (covers Bronze Chest full passive refund)
 export const USER_FAULT_FEE_NANO = 50_000_000n;     // 0.05 GRAM
 export const REFERRAL_BPS = 12n;                     // 12% referral reward (percent)
 export const ORDER_TTL_SEC = 30 * 60;               // unpaid order holds its reservation for 30 min
@@ -127,6 +128,7 @@ export class PresaleEngine {
     open = false,
     promoEngine = null,
     socialStore = null,
+    chestEngine = null,
     broadcaster = null,
     orderTtlSec = ORDER_TTL_SEC,
     userFaultFeeNano = null, // published user-fault fee in GRAM nano; null = zero fee (full refund)
@@ -143,6 +145,7 @@ export class PresaleEngine {
     this.open = Boolean(open);
     this.promoEngine = promoEngine;
     this.socialStore = socialStore;
+    this.chestEngine = chestEngine;
     this.broadcaster = broadcaster;
     this.orderTtlSec = orderTtlSec;
     this.userFaultFeeNano = userFaultFeeNano === null || userFaultFeeNano === undefined || userFaultFeeNano === '' ? null : BigInt(userFaultFeeNano);
@@ -189,19 +192,48 @@ export class PresaleEngine {
     };
   }
 
-  /** Create an order and atomically reserve pool + wallet quota. Amount is parsed exactly. */
-  async createOrderIntent(walletAddress, tonAmount, nowSec = Math.floor(Date.now() / 1000), { referrerId = null, tgUserId = null } = {}) {
+  /** Create an order and atomically reserve pool + wallet quota. Supports 5 Chest Mall SKUs & INSTANT/BOOST openMode. */
+  async createOrderIntent(walletAddress, tonAmount, nowSec = Math.floor(Date.now() / 1000), { referrerId = null, tgUserId = null, skuId = null, openMode = 'INSTANT' } = {}) {
     if (!walletAddress) throw new PresaleError('BAD_WALLET', 'walletAddress required');
     if (!this.open) throw new PresaleError('PRESALE_CLOSED', 'presale is closed');
 
-    let tonNano;
-    try {
-      tonNano = parseDecimalUnits(tonAmount, 9);
-    } catch (e) {
-      throw new PresaleError('BAD_AMOUNT', e.message);
+    const normMode = String(openMode || 'INSTANT').toUpperCase();
+    if (normMode !== 'INSTANT' && normMode !== 'BOOST') {
+      throw new PresaleError('BAD_OPEN_MODE', 'openMode must be INSTANT or BOOST');
     }
-    if (tonNano < this.minOrderNano || tonNano > this.maxOrderNano) {
-      throw new PresaleError('BAD_AMOUNT', 'order must be within min/max GRAM limits');
+
+    let tonNano;
+    let resolvedSkuId = skuId ? String(skuId).trim() : null;
+    if (resolvedSkuId) {
+      const pack = CHEST_MALL_CATALOG[resolvedSkuId];
+      if (!pack) throw new PresaleError('UNKNOWN_SKU', `unknown chest SKU: ${resolvedSkuId}`);
+      tonNano = BigInt(pack.priceNano);
+      if (tonAmount !== undefined && tonAmount !== null && tonAmount !== '') {
+        let parsed;
+        try {
+          parsed = parseDecimalUnits(tonAmount, 9);
+        } catch (e) {
+          throw new PresaleError('BAD_AMOUNT', e.message);
+        }
+        if (parsed !== tonNano) {
+          throw new PresaleError('BAD_AMOUNT', 'tonAmount does not match chest SKU price');
+        }
+      }
+      if (tonNano > this.maxOrderNano) {
+        throw new PresaleError('BAD_AMOUNT', 'order exceeds max GRAM limit');
+      }
+    } else {
+      try {
+        tonNano = parseDecimalUnits(tonAmount, 9);
+      } catch (e) {
+        throw new PresaleError('BAD_AMOUNT', e.message);
+      }
+      const matchedSku = CHEST_MALL_NANO_TO_SKU[tonNano.toString()] || null;
+      if (matchedSku) {
+        resolvedSkuId = matchedSku;
+      } else if (tonNano < this.minOrderNano || tonNano > this.maxOrderNano) {
+        throw new PresaleError('BAD_AMOUNT', 'order must be within min/max GRAM limits');
+      }
     }
     const walletKey = addressKey(walletAddress);
     const a9AmountRaw = this.quoteA9Raw(tonNano);
@@ -215,6 +247,8 @@ export class PresaleEngine {
       walletKey,
       tgUserId: tgUserId ? String(tgUserId) : null,
       referrerId: cleanRef,
+      skuId: resolvedSkuId,
+      openMode: normMode,
       tonNano,
       a9AmountRaw,
       memo: `buy:${orderId}`,
@@ -258,6 +292,38 @@ export class PresaleEngine {
   async hasCompletedPurchase(walletAddress) {
     const rows = await this.repo.listOrdersByWallet(addressKey(walletAddress));
     return rows.some((o) => o.status === PRESALE_STATUS.COMPLETED);
+  }
+
+  /** True if any wallet in the provided list has at least one COMPLETED order. */
+  async hasCompletedPurchaseForAny(wallets = []) {
+    const seen = new Set();
+    for (const w of wallets || []) {
+      const clean = String(w || '').trim();
+      if (!clean) continue;
+      const k = addressKey(clean);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      if (await this.hasCompletedPurchase(clean)) return true;
+    }
+    return false;
+  }
+
+  /** Sum total COMPLETED GRAM nano volume across a deduplicated set of wallets. */
+  async sumCompletedVolumeNano(wallets = []) {
+    const seen = new Set();
+    let total = 0n;
+    for (const w of wallets || []) {
+      const clean = String(w || '').trim();
+      if (!clean) continue;
+      const k = addressKey(clean);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const rows = await this.repo.listOrdersByWallet(k);
+      for (const o of rows) {
+        if (o.status === PRESALE_STATUS.COMPLETED) total += BigInt(o.tonNano || 0n);
+      }
+    }
+    return total;
   }
 
   async backfillLegacyWalletKeys() {
@@ -574,7 +640,17 @@ export class PresaleEngine {
         if (amountRaw > 0n) credit = { orderId: order.orderId, referrer: order.referrerId, amountRaw: amountRaw.toString(), status: 'PENDING', createdAt: nowSec, updatedAt: nowSec };
       }
       await this.repo.completeA9(p.payoutId, p.orderId, txHash, credit, nowSec);
-      // 极简 TG 战队群捷报：纯内盘大额订单确认成交（COMPLETED）后异步触发，异常静默不阻塞发币主链路
+      // 宝箱商城助力膨胀模式：本金已链上确认，自动开启 24H 推广池膨胀宝箱（异常静默不阻塞主链路）
+      const matchedSku = order?.skuId || CHEST_MALL_NANO_TO_SKU[String(order?.tonNano ?? '')] || null;
+      if (order && order.openMode === 'BOOST' && matchedSku && this.chestEngine && typeof this.chestEngine.createShopBoostChest === 'function') {
+        try {
+          const ownerUid = order.tgUserId || order.walletKey || order.walletAddress;
+          await this.chestEngine.createShopBoostChest({ userId: ownerUid, walletAddress: order.walletAddress, skuId: matchedSku, orderId: order.orderId }, nowSec);
+        } catch (_) {
+          // 膨胀宝箱创建异常绝不影响链上本金确认
+        }
+      }
+      // 极简 TG 战队群捷报：大额订单（含 99.99 GRAM 钻石宝箱）确认成交后异步触发
       if (order && this.broadcaster && typeof this.broadcaster.broadcastWhaleExchange === 'function') {
         try {
           await this.broadcaster.broadcastWhaleExchange({ order, nowSec });
@@ -709,6 +785,14 @@ export class PresaleEngine {
       await promoEngine.creditReward(c.referrer, BigInt(c.amountRaw), nowSec);
       await this.repo.patchCredit(c.orderId, { status: 'CREDITED', updatedAt: nowSec });
       s.credited += 1;
+      if (this.broadcaster && typeof this.broadcaster.notifyReferralCommission === 'function') {
+        try {
+          const order = await this.repo.getOrder(c.orderId);
+          await this.broadcaster.notifyReferralCommission({ order, credit: c, nowSec });
+        } catch (_) {
+          // 私聊报喜异常绝不影响返佣入账
+        }
+      }
     }
     return s;
   }
@@ -720,8 +804,11 @@ export class PresaleEngine {
   formatOrder(o) {
     const status = normalizeOrderStatus(o.status, o.payoutTxHash);
     const tonNanoStr = BigInt(o.tonNano).toString();
+    const skuId = o.skuId || CHEST_MALL_NANO_TO_SKU[tonNanoStr] || null;
     return {
       orderId: o.orderId,
+      skuId,
+      openMode: o.openMode || 'INSTANT',
       walletAddress: o.walletAddress,
       referrerId: o.referrerId || null,
       tonNano: tonNanoStr,

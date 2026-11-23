@@ -3,6 +3,7 @@
 import { buildV15ConfigPayload, mapV15RoundDetail } from './v15-indexer.mjs';
 import { PromoError } from './promo-hotwallet.mjs';
 import { PresaleError } from './presale-hotwallet.mjs';
+import { ChestError, CHEST_MALL_CATALOG, FREE_CHEST_CHAIN, CAPTAIN_FOUNDING_BONUS_RAW, CAPTAIN_MIN_TG_MEMBERS } from './chest-engine.mjs';
 import { GrowthError, renderOgCardPng, renderOgCardSvg, renderOgLandingHtml } from './growth-engine.mjs';
 import { SocialError, parseStartAppParam, createTelegramBotGroupVerifier } from './social-store.mjs';
 import { AuthError, MemoryIdentityStore, allowedProofDomains, createRequestAuth, expectedChainId, verifyTonProof } from './auth.mjs';
@@ -36,6 +37,7 @@ function sanitizeTeamView(team, viewerWalletKey) {
     tgGroupHandle: team.tgGroupHandle || null,
     bindStatus: team.bindStatus,
     memberCount: Number(team.memberCount || 0),
+    tgMemberCount: Number(team.tgMemberCount || 0),
     role: isCaptain ? 'captain' : 'member',
     createdAt: team.createdAt,
     updatedAt: team.updatedAt,
@@ -78,6 +80,7 @@ export function createApiRouter({
   socialStore = null,
   predictionEngine = null,
   progressionEngine = null,
+  chestEngine = null,
   userReader = null,
   identityStore = new MemoryIdentityStore(),
   publicKeyResolver = null,
@@ -106,6 +109,13 @@ export function createApiRouter({
               open: presaleEngine.open,
             }
           : { enabled: false, address: null, rateA9PerTon: null, rateA9PerGram: null, open: false };
+        base.chestMall = {
+          enabled: Boolean(chestEngine),
+          skus: Object.values(CHEST_MALL_CATALOG),
+          freeTiers: FREE_CHEST_CHAIN,
+          captainFoundingBonusRaw: CAPTAIN_FOUNDING_BONUS_RAW.toString(),
+          captainMinTgMembers: CAPTAIN_MIN_TG_MEMBERS,
+        };
         return ok(base);
       }
 
@@ -242,14 +252,16 @@ export function createApiRouter({
       if (method === 'POST' && pathname === '/api/presale/intent') {
         if (!presaleEngine) return err('PRESALE_DISABLED', 'presale hot wallet not configured', 503);
         const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
+        const skuId = body?.skuId ? String(body.skuId).trim() : null;
+        const openMode = body?.openMode ? String(body.openMode).trim().toUpperCase() : null;
         const amount = body?.tonAmount ?? body?.gramAmount;
-        if (amount === undefined || amount === null || amount === '') {
-          return err('BAD_REQUEST', 'gramAmount required', 400);
+        if (!skuId && (amount === undefined || amount === null || amount === '')) {
+          return err('BAD_REQUEST', 'gramAmount or skuId required', 400);
         }
         const rawRef = String(body?.referrerId || '').trim() || null;
         if (socialStore && rawRef) await socialStore.bindReferral(walletAddress, rawRef, nowSec);
         const effectiveRef = socialStore ? await socialStore.getReferrer(walletAddress) : null;
-        return ok(await presaleEngine.createOrderIntent(walletAddress, amount, nowSec, { referrerId: effectiveRef, tgUserId: identity.telegramUserId }));
+        return ok(await presaleEngine.createOrderIntent(walletAddress, amount ?? null, nowSec, { referrerId: effectiveRef, tgUserId: identity.telegramUserId, skuId, openMode }));
       }
 
       const poMatch = method === 'GET' && pathname.match(/^\/api\/presale\/orders\/(.+)$/);
@@ -300,7 +312,20 @@ export function createApiRouter({
           },
           nowSec,
         );
-        return ok(sanitizeTeamView(team, binding.walletKey));
+        const view = sanitizeTeamView(team, binding.walletKey);
+        if (chestEngine) {
+          view.captainBonus = await chestEngine.grantCaptainFoundingBonus(
+            {
+              teamId: team.teamId,
+              captainUserId: identity.telegramUserId,
+              captainWallet: walletAddress,
+              tgMemberCount: team.tgMemberCount,
+              predictionEngine,
+            },
+            nowSec,
+          );
+        }
+        return ok(view);
       }
 
       if (method === 'POST' && pathname === '/api/referral/attribution') {
@@ -382,20 +407,130 @@ export function createApiRouter({
         const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
         if (body?.userId && String(body.userId) !== identity.telegramUserId) return err('FORBIDDEN', 'userId does not match the signed-in Telegram user', 403);
 
-        // Anti-sybil real-capital check (unchanged rule): >= 1 COMPLETED fixed-rate exchange order
-        // (payout confirmed on chain) OR >= 1 on-chain StakeTicket for the VERIFIED wallet.
+        // Anti-sybil real-capital check (3 qualifying paths):
+        // (1) Self >= 1 COMPLETED Chest Mall order, OR (2) >= 1 on-chain StakeTicket,
+        // OR (3) >= 1 direct invitee completed a real Chest Mall order (0 GRAM self-spend unlock).
         const hasCompletedPresale = presaleEngine ? await presaleEngine.hasCompletedPurchase(walletAddress) : false;
         let hasStakeTicket = false;
         if (!hasCompletedPresale && userReader) {
           const portfolio = await userReader(walletAddress);
           hasStakeTicket = Array.isArray(portfolio?.tickets) && portfolio.tickets.length > 0;
         }
+        let hasDirectPaidInvitee = false;
+        if (!hasCompletedPresale && !hasStakeTicket && socialStore && presaleEngine && typeof socialStore.listDirectReferees === 'function') {
+          const directReferees = await socialStore.listDirectReferees([identity.telegramUserId, walletAddress]);
+          if (directReferees.length > 0 && typeof presaleEngine.hasCompletedPurchaseForAny === 'function') {
+            hasDirectPaidInvitee = await presaleEngine.hasCompletedPurchaseForAny(directReferees);
+          }
+        }
         return ok(
           await predictionEngine.activateToPromo(identity.telegramUserId, walletAddress, promoEngine, {
-            qualified: hasCompletedPresale || hasStakeTicket,
+            qualified: hasCompletedPresale || hasStakeTicket || hasDirectPaidInvitee,
             nowMs: nowSec * 1000,
           }),
         );
+      }
+
+      // ---------------------------------------------------------------------
+      // Unified Chest Mall & Viral Social Assist Endpoints
+      // ---------------------------------------------------------------------
+      if (method === 'GET' && pathname === '/api/chests/me') {
+        if (!chestEngine) return err('CHEST_DISABLED', 'chest engine not configured', 503);
+        const id = await auth.telegram();
+        const lists = await chestEngine.listUserChests(id.telegramUserId);
+        return ok({
+          catalog: Object.values(CHEST_MALL_CATALOG),
+          freeTiers: FREE_CHEST_CHAIN,
+          ...lists,
+        });
+      }
+
+      if (method === 'POST' && pathname === '/api/chests/starter') {
+        if (!chestEngine) return err('CHEST_DISABLED', 'chest engine not configured', 503);
+        const id = await auth.telegram();
+        const binding = await identityStore.getBinding(id.telegramUserId, nowSec);
+        return ok(
+          await chestEngine.claimStarterBronzeChests(
+            { userId: id.telegramUserId, walletAddress: binding?.walletAddress || null },
+            nowSec,
+          ),
+        );
+      }
+
+      const chestAssistMatch = method === 'POST' && pathname.match(/^\/api\/chests\/([^/]+)\/assist$/);
+      if (chestAssistMatch) {
+        if (!chestEngine) return err('CHEST_DISABLED', 'chest engine not configured', 503);
+        const chestId = decodeURIComponent(chestAssistMatch[1]);
+        const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
+        let walletActive = false;
+        if (walletStateResolver) {
+          try {
+            const st = await walletStateResolver(walletAddress);
+            walletActive = st?.status === 'active';
+          } catch (_) {
+            walletActive = false;
+          }
+        }
+        return ok(
+          await chestEngine.assistChest(
+            {
+              chestId,
+              helperUserId: identity.telegramUserId,
+              helperWalletAddress: walletAddress,
+              walletActive,
+            },
+            nowSec,
+          ),
+        );
+      }
+
+      const chestOpenMatch = method === 'POST' && pathname.match(/^\/api\/chests\/([^/]+)\/open$/);
+      if (chestOpenMatch) {
+        if (!chestEngine) return err('CHEST_DISABLED', 'chest engine not configured', 503);
+        const chestId = decodeURIComponent(chestOpenMatch[1]);
+        const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
+        let teamVolumeNano = 0n;
+        let teamTgMemberCount = 0;
+        if (socialStore && presaleEngine) {
+          const wallets = new Set([walletAddress]);
+          if (typeof socialStore.listDirectReferees === 'function') {
+            const refs = await socialStore.listDirectReferees([identity.telegramUserId, walletAddress]);
+            for (const r of refs) wallets.add(r);
+          }
+          const myTeam = await socialStore.getTeamByWallet(walletAddress);
+          if (myTeam) {
+            if (myTeam.bindStatus === 'bound') teamTgMemberCount = Number(myTeam.tgMemberCount || 0);
+            if (typeof socialStore.listTeamMemberWallets === 'function') {
+              const members = await socialStore.listTeamMemberWallets(myTeam.teamId);
+              for (const m of members) wallets.add(m);
+            }
+          }
+          if (typeof presaleEngine.sumCompletedVolumeNano === 'function') {
+            teamVolumeNano = await presaleEngine.sumCompletedVolumeNano([...wallets]);
+          }
+        }
+        return ok(
+          await chestEngine.openChest(
+            {
+              chestId,
+              userId: identity.telegramUserId,
+              walletAddress,
+              teamVolumeNano,
+              teamTgMemberCount,
+              promoEngine,
+              predictionEngine,
+            },
+            nowSec,
+          ),
+        );
+      }
+
+      const chestGetMatch = method === 'GET' && pathname.match(/^\/api\/chests\/([^/]+)$/);
+      if (chestGetMatch) {
+        if (!chestEngine) return err('CHEST_DISABLED', 'chest engine not configured', 503);
+        const chest = await chestEngine.getChest(decodeURIComponent(chestGetMatch[1]));
+        if (!chest) return err('CHEST_NOT_FOUND', 'chest not found', 404);
+        return ok(chest);
       }
 
       // Phase 3: Handbook Stamp & Non-Financial Progression (strictly tied to verified Telegram user)
@@ -483,15 +618,30 @@ export function createApiRouter({
       }
 
       // Plan 3: Dynamic OG / Story PNG raster image (/c/img/:type/:id.png)
-      const ogPngMatch = method === 'GET' && pathname.match(/^\/c\/img\/(round|burn|proof|bet)\/([^/]+)\.png$/);
+      const ogPngMatch = method === 'GET' && pathname.match(/^\/c\/img\/(round|burn|proof|bet|chest)\/([^/]+)\.png$/);
       if (ogPngMatch) {
         const [, type, id] = ogPngMatch;
+        const ratio = query.ratio === '9x16' ? '9x16' : '16x9';
+        if (type === 'chest') {
+          const chest = chestEngine ? await chestEngine.getChest(id) : null;
+          const rewardStr = chest ? formatWholeA9FromRaw(chest.source === 'SHOP_BOOST' ? (BigInt(chest.baseA9Raw) + BigInt(chest.boostA9Raw)).toString() : chest.baseA9Raw) : null;
+          const pngBytes = await renderOgCardPng({
+            type: 'chest',
+            roundId: null,
+            hasData: Boolean(chest),
+            state: chest ? `${chest.currentAssists}/${chest.requiredAssists} ASSISTS` : 'CHEST ASSIST',
+            qualified: chest ? chest.currentAssists : null,
+            targetUsd: chest ? `${chest.labelEn}` : 'A9 CHEST',
+            budgetA9: rewardStr,
+            ratio,
+          });
+          return { status: 200, contentType: 'image/png', rawBody: pngBytes };
+        }
         const parsedId = Number(id);
         const curId = Number(stateStore.getProtocolState()?.currentRoundId || 0);
         const rId = Number.isInteger(parsedId) && parsedId > 0 ? parsedId : (curId > 0 ? curId : null);
         const item = rId ? stateStore.getRound(rId) : null;
         const detail = item ? mapV15RoundDetail(rId, item.round, item.candles, nowSec, stateStore.getTiming()) : null;
-        const ratio = query.ratio === '9x16' ? '9x16' : '16x9';
         const targetNum = detail?.targetPriceUsdE8 ? Number(detail.targetPriceUsdE8) : 0;
         const pngBytes = await renderOgCardPng({
           type,
@@ -507,9 +657,23 @@ export function createApiRouter({
       }
 
       // Backward-compatible SVG card (/c/img/:type/:id.svg)
-      const ogImgMatch = method === 'GET' && pathname.match(/^\/c\/img\/(round|burn|proof|bet)\/([^/]+)\.svg$/);
+      const ogImgMatch = method === 'GET' && pathname.match(/^\/c\/img\/(round|burn|proof|bet|chest)\/([^/]+)\.svg$/);
       if (ogImgMatch) {
         const [, type, id] = ogImgMatch;
+        if (type === 'chest') {
+          const chest = chestEngine ? await chestEngine.getChest(id) : null;
+          const rewardStr = chest ? formatWholeA9FromRaw(chest.source === 'SHOP_BOOST' ? (BigInt(chest.baseA9Raw) + BigInt(chest.boostA9Raw)).toString() : chest.baseA9Raw) : null;
+          const svg = renderOgCardSvg({
+            type: 'chest',
+            roundId: null,
+            hasData: Boolean(chest),
+            state: chest ? `${chest.currentAssists}/${chest.requiredAssists} ASSISTS` : 'CHEST ASSIST',
+            qualified: chest ? chest.currentAssists : null,
+            targetUsd: chest ? `${chest.labelEn}` : 'A9 CHEST',
+            budgetA9: rewardStr,
+          });
+          return { status: 200, contentType: 'image/svg+xml; charset=utf-8', rawBody: svg };
+        }
         const parsedId = Number(id);
         const curId = Number(stateStore.getProtocolState()?.currentRoundId || 0);
         const rId = Number.isInteger(parsedId) && parsedId > 0 ? parsedId : (curId > 0 ? curId : null);
@@ -528,18 +692,36 @@ export function createApiRouter({
         return { status: 200, contentType: 'image/svg+xml; charset=utf-8', rawBody: svg };
       }
 
-      const ogPageMatch = method === 'GET' && pathname.match(/^\/c\/(round|burn|proof|bet)\/([^/]+)$/);
+      const ogPageMatch = method === 'GET' && pathname.match(/^\/c\/(round|burn|proof|bet|chest)\/([^/]+)$/);
       if (ogPageMatch) {
         const [, type, id] = ogPageMatch;
+        const base = (env.A9_PUBLIC_ORIGIN || '').replace(/\/+$/, '');
+        const botHandle = env.A9_TG_BOT_HANDLE || 'A9ProtocolBot';
+        const ref = query.ref ? `_${String(query.ref).replace(/[^a-zA-Z0-9_-]/g, '')}` : '';
+        if (type === 'chest') {
+          const chest = chestEngine ? await chestEngine.getChest(id) : null;
+          const title = chest ? `A9 Chest Mall · ${chest.labelEn} (${chest.currentAssists}/${chest.requiredAssists} Assists)` : 'A9 Chest Mall · Help Open & Claim Bronze Chest #1';
+          const description = chest
+            ? `Connect TON wallet to assist (${chest.currentAssists}/${chest.requiredAssists}) and auto-claim your free Bronze Chest #1.`
+            : 'Connect TON wallet to assist your friend and unlock your free A9 Bronze Chest #1.';
+          const html = renderOgLandingHtml({
+            type: 'chest',
+            id,
+            title,
+            description,
+            imageUrl: `${base}/c/img/chest/${encodeURIComponent(id)}.png`,
+            tgDeepLink: `https://t.me/${botHandle}?startapp=chest_${encodeURIComponent(id)}${ref}`,
+            width: 1200,
+            height: 630,
+          });
+          return { status: 200, contentType: 'text/html; charset=utf-8', rawBody: html };
+        }
         const parsedId = Number(id);
         const curId = Number(stateStore.getProtocolState()?.currentRoundId || 0);
         const rId = Number.isInteger(parsedId) && parsedId > 0 ? parsedId : (curId > 0 ? curId : null);
         const item = rId ? stateStore.getRound(rId) : null;
         const detail = item ? mapV15RoundDetail(rId, item.round, item.candles, nowSec, stateStore.getTiming()) : null;
         const budgetA9 = formatWholeA9FromRaw(detail?.rewardBudgetRaw);
-        const base = (env.A9_PUBLIC_ORIGIN || '').replace(/\/+$/, '');
-        const botHandle = env.A9_TG_BOT_HANDLE || 'A9ProtocolBot';
-        const ref = query.ref ? `_${String(query.ref).replace(/[^a-zA-Z0-9_-]/g, '')}` : '';
         const roundLabel = rId ? `Round #${rId}` : 'Live Status';
         // 无真实链上数据源时，绝不输出硬编码的固定奖池数字（P0-G）。
         const description = detail
@@ -562,6 +744,7 @@ export function createApiRouter({
     } catch (e) {
       if (e instanceof AuthError) return err(e.code, e.message, e.status || 401);
       if (e instanceof SocialError) return err(e.code, e.message, e.code === 'NOT_CAPTAIN' ? 403 : 400);
+      if (e instanceof ChestError) return err(e.code, e.message, e.code === 'FORBIDDEN' ? 403 : 400);
       if (e instanceof PromoError || e instanceof PresaleError || e instanceof GrowthError) {
         return err(e.code, e.message, 400);
       }

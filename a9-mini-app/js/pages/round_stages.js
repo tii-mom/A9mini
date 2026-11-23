@@ -59,11 +59,11 @@ export function renderPendingVaultBanner(pred, round) {
         <span class="vault-step next">2/2 ${L('差 1 步激活提现', '1 Step to Unlock')}</span>
       </div>
       <p class="num-xs text-sec" style="margin:6px 0 10px;line-height:1.45;">
-        ${L('完成 1 笔 A9 兑换屋固定兑换（5 GRAM 起，1 GRAM = 2,002 A9）或链上参与即刻全额解锁，可与邀友奖励合并领取。', 'Complete 1 A9 Exchange swap (5+ GRAM at 1 GRAM = 2,002 A9) or on-chain stake to unlock in full. Combinable with invite rewards.')}
+        ${L('本人购任意宝箱（0.99 GRAM 起）、链上参与，或直邀 1 位好友购箱即可 0 元全额解锁。', 'Buy any chest (from 0.99 GRAM), stake on-chain, or invite 1 paid friend to unlock for 0 GRAM.')}
       </p>
       <div class="grid-2" style="gap:8px;">
-        <button class="btn btn-primary btn-sm" data-nav="/internal/market" type="button" style="width:100%;min-height:40px;white-space:nowrap;">${icon('swap', 14)} ${L('去兑换屋解锁', 'Exchange Unlock')}</button>
-        <button class="btn btn-secondary btn-sm" data-nav="/challenge/confirm" type="button" style="width:100%;min-height:40px;white-space:nowrap;">${icon('shieldCheck', 14)} ${L('或链上质押解锁', 'Stake On-Chain')}</button>
+        <button class="btn btn-primary btn-sm" data-nav="/internal/market" type="button" style="width:100%;min-height:40px;white-space:nowrap;">${icon('swap', 14)} ${L('去宝箱商城解锁', 'Chest Mall Unlock')}</button>
+        <button class="btn btn-secondary btn-sm" data-nav="/internal/market?tab=free" type="button" style="width:100%;min-height:40px;white-space:nowrap;">${icon('send', 14)} ${L('领免费宝箱', 'Free Chests')}</button>
       </div>
     </section>
   `;
@@ -141,8 +141,8 @@ export function renderVeteranShieldCard(round, user) {
         </div>
         <div class="shield-col burn">
           <small>${L('本轮未达标（销毁 BURN）', 'If Round Fails')}</small>
-          <strong class="mono text-red">-${formatNum(lockedA9)} A9</strong>
-          <span>${L('未解锁份额链上永久销毁', 'Locked balance burned')}</span>
+          <strong class="mono text-red">-${formatNum(nextSliceA9)} A9</strong>
+          <span>${sliceCount > 1 ? L(`销毁 1 份，余 ${sliceCount - 1} 份`, `Burns 1 slice, ${sliceCount - 1} left`) : L('销毁最后 1 份', 'Burns final slice')}</span>
         </div>
       </div>
       <button class="btn btn-secondary btn-sm" data-x-share="proof" type="button" style="width:100%;margin-top:10px;min-height:38px;">

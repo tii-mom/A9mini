@@ -114,6 +114,49 @@ function buildAngles(type, id, ctx = {}) {
     ];
   }
 
+  if (type === 'chest') {
+    const label = ctx.label || L('青铜宝箱 #1', 'Bronze Chest #1');
+    const isBoost = ctx.source === 'SHOP_BOOST';
+    const need = Math.max(0, Number(ctx.requiredAssists || 2) - Number(ctx.currentAssists || 0));
+    const rewardText = ctx.rewardText || '300 A9';
+    return [
+      {
+        key: 'gift',
+        label: L('顺手送福利', 'Free Gift'),
+        text: isBoost
+          ? L(
+              `我在 A9 宝箱商城刚开了一个【${label}】，帮我点一下连接钱包助力膨胀（还差 ${need} 人），你顺手也能 0 成本领 1 个青铜宝箱 #1！`,
+              `I just opened a [${label}] in A9 Chest Mall! Connect your TON wallet to boost it (${need} left) and auto-claim your free Bronze Chest #1.`
+            )
+          : L(
+              `TON 上发现个 0 成本宝箱玩法：帮我点一下开启【${label}】（${rewardText}，还差 ${need} 人助力），你点完直接顺手白领 1 个青铜宝箱 #1！`,
+              `Free TON chest drop: help me open [${label}] (${rewardText}, ${need} assist(s) left) and auto-claim your own Bronze Chest #1.`
+            )
+      },
+      {
+        key: 'banter',
+        label: L('群聊互动型', 'Group Banter'),
+        text: isBoost
+          ? L(
+              `兄弟们救个场！我的 A9【${label}】正在 24H 膨胀中，点一下帮我拉满额外 A9 暴涨，顺手白拿你的专属青铜宝箱，不花一分钱！`,
+              `Need a quick hand! My A9 [${label}] is in a 24H boost window—tap to help inflate the bonus and grab your free Bronze Chest.`
+            )
+          : L(
+              `谁有空顺手点一下？差 ${need} 个活跃 TON 钱包帮我开 A9【${label}】，点完系统直接送你 1 个同款青铜宝箱！`,
+              `Anyone with an active TON wallet? Need ${need} more assist(s) on my A9 [${label}]—you get a free Bronze Chest #1 right after.`
+            )
+      },
+      {
+        key: 'data',
+        label: L('规则透明型', 'Transparent'),
+        text: L(
+          `A9 协议宝箱助力：需连接链上活跃 TON 钱包助力（防刷且 0 扣款），帮我推进【${label}】进度并自动领取青铜宝箱 #1。`,
+          `A9 Protocol Chest Assist: connect an active TON wallet (0 transfer, anti-sybil verified) to help [${label}] and unlock Bronze Chest #1.`
+        )
+      }
+    ];
+  }
+
   if (type === 'bet') {
     const sideLabel = ctx.side === 'BURN' ? L('销毁空军 BURN', 'BURN') : L('通关多军 PASS', 'PASS');
     const slotNote = (ctx.guessSlots !== null && ctx.guessSlots !== undefined)

@@ -24,7 +24,7 @@ export const ROUTES = [
   { path: '/observation/records', title: () => L('24H 印章簿', '24H Stamp Log'),   shell: 'stack', tab: 'round',       ticker: false, render: renderObservationRecords },
   { path: '/warmup',              title: () => t('rt_warmup'),                     shell: 'stack', tab: 'challenge',   ticker: false, render: renderWarmupHome },
   { path: '/warmup/rank',         title: () => t('rt_warmup_rank'),                shell: 'stack', tab: 'challenge',   ticker: false, render: renderWarmupRank },
-  { path: '/internal/market',     title: () => L('A9 兑换屋', 'A9 Exchange'),      shell: 'stack', tab: 'challenge',   ticker: false, render: renderInternalMarket },
+  { path: '/internal/market',     title: () => L('宝箱商城', 'Chest Mall'),        shell: 'stack', tab: 'challenge',   ticker: false, render: renderInternalMarket },
   { path: '/internal/records',    title: () => t('rt_market_rec'),                 shell: 'stack', tab: 'challenge',   ticker: false, render: renderInternalRecords },
   { path: '/team',                title: () => L('A9 战队', 'A9 Squad'),           shell: 'tab',   tab: 'team',        ticker: false, render: renderTeamHome },
   { path: '/team/profile',        title: () => t('rt_team_profile'),               shell: 'stack', tab: 'team',        ticker: false, render: renderTeamProfile },
@@ -44,9 +44,12 @@ export const ROUTES = [
 ];
 
 export function matchRoute(rawPath) {
-  const clean = (rawPath || '/challenge').replace(/^#/, '') || '/challenge';
+  const rawClean = (rawPath || '/challenge').replace(/^#/, '') || '/challenge';
+  const qIdx = rawClean.indexOf('?');
+  const clean = qIdx >= 0 ? (rawClean.slice(0, qIdx) || '/challenge') : rawClean;
+  const query = qIdx >= 0 ? Object.fromEntries(new URLSearchParams(rawClean.slice(qIdx + 1)).entries()) : {};
   const exact = ROUTES.find(r => r.path === clean);
-  if (exact) return { route: exact, param: null };
+  if (exact) return { route: exact, param: null, query };
   const parts = clean.split('/').filter(Boolean);
   if (parts.length >= 2) {
     const prefix = '/' + parts.slice(0, -1).join('/');

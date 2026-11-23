@@ -1,10 +1,11 @@
-import { personalRanks, teamRanks } from '../demo-data.js';
-import { fetchWarmupRank } from '../data.js';
+import { personalRanks, teamRanks, DEMO_CHEST_SKUS, demoBuyChest } from '../demo-data.js';
+import { fetchWarmupRank, fetchMyChests, claimStarterChests, openChestById, rawToA9 } from '../data.js';
 /**
- * Warm-up & Internal Market Pages — Aligned Rules + Zero-Friction Drawers
- * - Warm-up: 8,000,000 A9 full number, 4-state distribution status, discreet cancel link
- * - Warm-up Rank: Personal Top 50 + Team Warm-up Board toggle + freeze note
- * - Internal Market: Inline TG-Binding Sheet if unbound + 4-state order records
+ * Warm-up & Chest Mall Pages — 2-Tab Unified Chest Mall (Paid Boost + Free 5-Tier Viral Chain)
+ * - Paid Chest Mall: 5 fixed SKUs (0.99 / 4.99 / 9.99 / 19.99 / 99.99 GRAM) at 1 GRAM = 2,002 A9
+ *   with Instant vs 24H Social Boost toggle (stoppable anytime, principal never held hostage).
+ * - Free Chests: Bronze #1/#2/#3 serial (300/300/400 A9) -> Silver (10k) -> Gold (100k) -> Platinum (200k) -> Diamond (1,000k).
+ * - Live mode stays strictly read-only on purchase/write actions.
  */
 
 import { store } from '../store.js';
@@ -12,10 +13,11 @@ import { config } from '../config.js';
 import { registerWarmup, getEffectiveUserId } from '../data.js';
 import { tonConnect } from '../tonconnect.js';
 import { A9Haptic, A9TMA } from '../tma.js';
-import { formatNum, formatTimer, showToast, copyText, burstParticles, openModal, closeModal } from '../components.js';
+import { escapeHtml, formatNum, formatTimer, showToast, copyText, burstParticles, openModal, closeModal } from '../components.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { SHOP_SCALLOP_AWNING } from '../paper-art.js';
+import { openXShareSheet, buildOgShareUrl } from '../share.js';
 
 export function renderWarmupHome(root, navigate) {
   const { user, round } = store.state;
@@ -217,215 +219,348 @@ export function renderWarmupRank(root) {
   paint();
 }
 
-export function renderInternalMarket(root, navigate) {
-  const { market, user } = store.state;
-  if (!config.isDemo) {
-    root.innerHTML = `
-      <div class="col-gap anim-page-enter">
-        <section class="card card-hero exchange-counter">
-          ${SHOP_SCALLOP_AWNING}
-          <div class="shop-counter-body">
-            <header class="counter-keeper">
-              <div class="counter-keeper-left">
-                <img src="./assets/boxheads/wealth/avatars/wlt-08.png" alt="">
-                <div>
-                  <h2>${L('A9 兑换屋 · 固定汇率兑换柜台', 'A9 Exchange · Fixed-Rate Counter')}</h2>
-                  <div class="num-xs text-muted">${L('1 GRAM = 2,002 A9 协议固定报价 · 单笔 5–200 GRAM', '1 GRAM = 2,002 A9 fixed quote · 5–200 GRAM per order')}</div>
-                </div>
-              </div>
-              <span class="chip chip-gold">${L('只读模式', 'READ-ONLY')}</span>
-            </header>
-            <div class="sub-tile" style="margin-bottom:12px;">
-              <div class="row-between num-xs"><span class="text-sec">${L('钱包可用额度', 'Wallet quota')}</span><b class="mono">${L('待核验', 'Pending')}</b></div>
-              <div class="row-between num-xs" style="margin-top:6px;"><span class="text-sec">${L('当前兑换报价', 'Swap rate')}</span><b class="mono">${L('待核验', 'Pending')}</b></div>
-            </div>
-            <p class="num-xs text-sec" style="margin:0 0 12px;line-height:1.5;">${L('真实模式下固定兑换入口暂未开放，不会发起下单或钱包签名。', 'Live fixed-rate swaps are currently disabled. No order or wallet signature will be triggered.')}</p>
-            <button class="btn btn-secondary" disabled id="btn-buy-market">${icon('lock', 15)} ${L('真实模式只读 · 暂未开放兑换', 'Live read-only · swap disabled')}</button>
-          </div>
-        </section>
-        <a class="btn btn-secondary" href="#/internal/records">${icon('receipt', 15)} ${L('查看兑换小票', 'Exchange Receipts')}</a>
-      </div>`;
-    return;
-  }
-  const unlocked = Number(market.unlockedQuotaTon) || 0;
-  const used = Number(market.usedQuotaTon) || 0;
-  const hardCap = Number(market.hardCapTon) || 1;
-  const availQuota = Math.max(0, unlocked - used);
-  const usedPct = Math.min(100, Math.round((used / hardCap) * 100));
-  const availPct = Math.min(100 - usedPct, Math.round((availQuota / hardCap) * 100));
-  let payTon = Math.min(100, availQuota || 100);
+export function renderInternalMarket(root, navigate, _param = null, query = {}) {
+  const { market } = store.state;
+  let activeTab = query?.tab === 'free' ? 'free' : 'mall';
+  let selectedSkuId = 'chest_bronze';
+  let openMode = 'BOOST';
+  let chestData = { freeChests: [], shopChests: [], loaded: false };
 
-  const openTgBindSheet = (afterBind) => {
-    openModal(`
-      <div class="sheet-handle"></div>
-      <div class="empty-state" style="padding:14px 6px;">
-        <div class="icon-badge gold" style="width:48px;height:48px;border-radius:14px;">${icon('send', 22)}</div>
-        <div style="font-size:17px;font-weight:700;margin-top:4px;">${L('需要绑定 Telegram 账号', 'Telegram Binding Required')}</div>
-        <div class="text-sec" style="font-size:12px;max-width:280px;">${L('A9 兑换屋与战队加成功能必须绑定 Telegram 身份，点击下方 1 秒完成绑定。', 'A9 Exchange & squad boost require Telegram binding. Complete in 1 tap.')}</div>
-        <button class="btn btn-primary" id="sheet-bind-tg-btn" style="margin-top:10px;">${icon('checkCircle', 16)} ${L('立即绑定 Telegram', 'Bind Telegram Now')}</button>
-        <button class="btn btn-secondary" id="sheet-bind-cancel">${L('稍后再说', 'Later')}</button>
-      </div>
-    `);
-    document.getElementById('sheet-bind-cancel').onclick = closeModal;
-    document.getElementById('sheet-bind-tg-btn').onclick = () => {
-      A9Haptic.success();
-      store.update(s => { s.user.tgBound = true; });
-      closeModal();
-      showToast(L('Telegram 账号已绑定，可立即兑换', 'Telegram bound! Ready to swap.'));
-      if (afterBind) afterBind();
-    };
+  const formatVolumeReq = (nanoStr) => {
+    try {
+      const g = Number(BigInt(String(nanoStr || '0')) / 1_000_000_000n);
+      return g > 0 ? `${formatNum(g)} GRAM` : null;
+    } catch { return null; }
+  };
+
+  const shareChestToTg = (chest) => {
+    const ogUrl = buildOgShareUrl('chest', chest.chestId);
+    const need = Math.max(0, Number(chest.requiredAssists || 2) - Number(chest.currentAssists || 0));
+    const isBoost = chest.source === 'SHOP_BOOST';
+    const label = L(chest.labelZh, chest.labelEn);
+    const text = isBoost
+      ? L(
+          `兄弟们帮个忙！我在 A9 宝箱商城买了【${label}】，正在 24H 膨胀中（还差 ${need} 人助力拉满），点一下连接钱包帮我膨胀，你顺手也能 0 成本领 1 个青铜宝箱 #1：`,
+          `Help boost my A9 [${label}] (${need} assist(s) left)! Connect your active TON wallet to boost and auto-claim your free Bronze Chest #1:`
+        )
+      : L(
+          `TON 上 0 成本宝箱福利：帮我点一下开启【${label}】（还差 ${need} 人助力），你点完直接顺手白领 1 个青铜宝箱 #1！`,
+          `Free TON chest drop: help me open [${label}] (${need} left) and auto-claim your own Bronze Chest #1:`
+        );
+    A9TMA.shareInvite(ogUrl, text);
+    showToast(L('已调起 Telegram 好友助力分享', 'Opened Telegram assist share'));
+  };
+
+  const shareChestToX = (chest) => {
+    const rewardA9 = rawToA9(chest.baseA9Raw) || 0;
+    openXShareSheet({
+      type: 'chest',
+      id: chest.chestId,
+      context: {
+        label: L(chest.labelZh, chest.labelEn),
+        source: chest.source,
+        currentAssists: chest.currentAssists,
+        requiredAssists: chest.requiredAssists,
+        rewardText: `${formatNum(rewardA9)} A9`
+      }
+    });
+  };
+
+  const loadChests = async () => {
+    try {
+      const res = await fetchMyChests();
+      if (res) {
+        chestData = {
+          freeChests: Array.isArray(res.freeChests) ? res.freeChests : [],
+          shopChests: Array.isArray(res.shopChests) ? res.shopChests : [],
+          loaded: true
+        };
+      }
+    } catch (_) {
+      chestData.loaded = true;
+    }
+    if (root.isConnected) render();
   };
 
   const render = () => {
-    const estA9 = Math.round(payTon * market.rateA9PerTon);
+    const skus = DEMO_CHEST_SKUS;
+    const sel = skus.find((s) => s.skuId === selectedSkuId) || skus[0];
+    const totalIfBoost = Number((sel.baseA9 + sel.maxBoostA9).toFixed(2));
+    const activeShopChests = (chestData.shopChests || []).filter((c) => c.status !== 'OPENED');
+
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
-        <div class="card card-hero exchange-counter ${market.soldOut ? 'card-glow-red' : ''}">
-          ${SHOP_SCALLOP_AWNING}
-          <div class="shop-counter-body">
-          <header class="counter-keeper">
-            <div class="counter-keeper-left">
-              <img src="./assets/boxheads/wealth/avatars/wlt-08.png" alt="">
-              <div>
-                <h2>${L('A9 兑换屋 · 固定汇率兑换柜台', 'A9 Exchange · Fixed-Rate Counter')}</h2>
-                <div class="num-xs text-muted mono">1 GRAM = ${formatNum(market.rateA9PerTon)} A9 · ${L('单笔 5–200 GRAM 协议固定报价', '5–200 GRAM fixed protocol quote')}</div>
-              </div>
-            </div>
-            <span class="chip ${market.soldOut ? 'chip-red' : !user.tgBound ? 'chip-amber' : 'chip-green'}">${market.soldOut ? L('已售罄', 'SOLD OUT') : !user.tgBound ? L('需绑定 TG', 'BIND TG') : L('演示开放', 'DEMO OPEN')}</span>
-          </header>
+        <div class="seg-tabs" id="chest-mall-tabs">
+          <button class="seg-tab ${activeTab === 'mall' ? 'active' : ''}" data-cm-tab="mall" type="button">${L('宝箱商城（购箱膨胀）', 'Chest Mall')}</button>
+          <button class="seg-tab ${activeTab === 'free' ? 'active' : ''}" data-cm-tab="free" type="button">${L('免费宝箱（助力领 A9）', 'Free Chests')}</button>
+        </div>
 
-          ${market.soldOut ? `
-            <div class="sub-tile" style="border-color:var(--red-border);margin-bottom:12px;">
-              <div class="row-start text-red" style="font-weight:800;font-size:12px;margin-bottom:4px;">${icon('shieldAlert', 15)} ${L('本轮兑换已售罄', 'Sold Out')}</div>
-              <div class="num-xs text-sec">${L('售罄触发被动退款（≥1 GRAM 免手续费原路退回；主动撤单扣 0.05 GRAM；≤0.1 GRAM 粉尘不退）。', 'Passive refunds ≥1 GRAM are free. Voluntary fee: 0.05 GRAM. Dust ≤0.1 GRAM non-refundable.')}</div>
+        ${activeTab === 'mall' ? `
+          <section class="card card-hero exchange-counter">
+            ${SHOP_SCALLOP_AWNING}
+            <div class="shop-counter-body">
+              <header class="counter-keeper">
+                <div class="counter-keeper-left">
+                  <img src="./assets/boxheads/wealth/avatars/wlt-08.png" alt="">
+                  <div>
+                    <h2>${L('A9 宝箱商城 · 固定本金 + 助力暴涨', 'A9 Chest Mall · Fixed Base + Boost')}</h2>
+                    <div class="num-xs text-muted mono">1 GRAM = 2,002 A9 · ${L('0.99 GRAM 起售 · 本金绝不扣押', 'From 0.99 GRAM · Base always yours')}</div>
+                  </div>
+                </div>
+                <span class="chip ${config.isDemo ? 'chip-green' : 'chip-gold'}">${config.isDemo ? L('演示开放', 'DEMO OPEN') : L('只读模式', 'READ-ONLY')}</span>
+              </header>
+
+              <div class="col-gap" style="gap:8px;margin-bottom:12px;">
+                ${skus.map((sku) => {
+                  const active = sku.skuId === sel.skuId;
+                  return `
+                    <button type="button" class="list-row clickable" data-pick-sku="${sku.skuId}" style="width:100%;text-align:left;padding:10px 12px;border-radius:12px;border:1.5px solid ${active ? 'var(--green)' : 'var(--border)'};background:${active ? 'var(--paper-tray)' : 'transparent'};">
+                      <div>
+                        <div style="font-weight:800;font-size:14px;">${L(sku.zh, sku.en)} <span class="chip chip-gold" style="margin-left:4px;">${sku.priceGram} GRAM</span></div>
+                        <div class="num-xs text-sec" style="margin-top:3px;">${L('基础', 'Base')} <b class="mono">${formatNum(sku.baseA9, 2)} A9</b> · ${L('助力最高', 'Boost up to')} <b class="mono text-green">+${sku.maxBoostPct}% (+${formatNum(sku.maxBoostA9, 2)} A9)</b></div>
+                      </div>
+                      <span class="chip ${active ? 'chip-green' : 'chip-muted'}">${active ? L('已选', 'Picked') : `${sku.requiredAssists}${L('人满', ' max')}`}</span>
+                    </button>
+                  `;
+                }).join('')}
+              </div>
+
+              <div class="seg-tabs" style="margin-bottom:10px;">
+                <button class="seg-tab ${openMode === 'BOOST' ? 'active' : ''}" data-open-mode="BOOST" type="button">${L(`助力膨胀开启（最高 +${sel.maxBoostPct}%）`, `Social Boost (+${sel.maxBoostPct}% max)`)}</button>
+                <button class="seg-tab ${openMode === 'INSTANT' ? 'active' : ''}" data-open-mode="INSTANT" type="button">${L('直接开启（固定本金）', 'Open Instantly')}</button>
+              </div>
+
+              <div class="sub-tile" style="margin-bottom:12px;">
+                <div class="row-between num-xs">
+                  <span class="text-sec">${L('固定必得基础 A9（1 GRAM = 2,002 A9）', 'Fixed base A9 (1 GRAM = 2,002 A9)')}</span>
+                  <b class="mono">${formatNum(sel.baseA9, 2)} A9</b>
+                </div>
+                <div class="row-between num-xs" style="margin-top:5px;">
+                  <span class="text-sec">${openMode === 'BOOST' ? L(`24H 助力膨胀增量（初始 +1%，${sel.requiredAssists} 人满 +${sel.maxBoostPct}%）`, `24H Boost (+1% start, +${sel.maxBoostPct}% at ${sel.requiredAssists} assists)`) : L('当前模式：不助力直接落袋', 'Instant mode: no boost window')}</span>
+                  <b class="mono ${openMode === 'BOOST' ? 'text-green' : 'text-muted'}">${openMode === 'BOOST' ? `最高 +${formatNum(sel.maxBoostA9, 2)} A9` : '0 A9'}</b>
+                </div>
+                <div class="row-between num-sm" style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);">
+                  <span style="font-weight:700;">${L('预计总获得', 'Est. Total')}</span>
+                  <b class="mono text-green">${formatNum(openMode === 'BOOST' ? totalIfBoost : sel.baseA9, 2)} A9</b>
+                </div>
+              </div>
+
+              <div class="num-xs text-muted" style="margin-bottom:10px;line-height:1.5;">
+                ${L('膨胀模式 24H 内随时可收手开箱；售罄自动触发 ≥0.99 GRAM 零手续费被动退款。', 'Stop & open anytime within 24H. Sold-out passive refunds >= 0.99 GRAM are 0-fee.')}
+              </div>
+
+              <button class="btn ${config.isDemo ? 'btn-primary' : 'btn-secondary'}" id="btn-buy-chest" type="button" ${!config.isDemo ? 'disabled' : ''}>
+                ${!config.isDemo
+                  ? `${icon('lock', 15)} ${L('真实模式只读 · 宝箱购箱暂未开放', 'Live Read-Only · Purchase Disabled')}`
+                  : `${icon('bolt', 16)} ${L(`演示购买 ${L(sel.zh, sel.en)}（${sel.priceGram} GRAM）`, `Demo Buy ${sel.en} (${sel.priceGram} GRAM)`)}`}
+              </button>
             </div>
+          </section>
+
+          ${activeShopChests.length > 0 ? `
+            <section class="card">
+              <div class="card-header">
+                <div class="card-title">${icon('flame', 15, 'text-gold')} ${L('我的 24H 膨胀中宝箱', 'My Active 24H Boost Chests')}</div>
+                <span class="chip chip-green">${activeShopChests.length}</span>
+              </div>
+              <div class="col-gap" style="gap:10px;">
+                ${activeShopChests.map((c) => {
+                  const boostA9 = rawToA9(c.boostA9Raw) || 0;
+                  const maxBoostA9 = rawToA9(c.maxBoostA9Raw) || 0;
+                  const pct = c.requiredAssists > 0 ? Math.min(100, Math.round((c.currentAssists / c.requiredAssists) * 100)) : 100;
+                  return `
+                    <div class="sub-tile">
+                      <div class="row-between">
+                        <strong>${escapeHtml(L(c.labelZh, c.labelEn))}</strong>
+                        <span class="chip chip-gold mono">${c.currentAssists}/${c.requiredAssists} ${L('助力', 'assists')}</span>
+                      </div>
+                      <div class="num-xs text-green mono" style="margin:6px 0 4px;font-weight:800;">
+                        ${L('当前已膨胀', 'Boosted')}: +${formatNum(boostA9, 2)} A9 / ${L('上限', 'Max')} +${formatNum(maxBoostA9, 2)} A9
+                      </div>
+                      <div class="progress-track" style="height:6px;margin-bottom:10px;"><div class="progress-fill" style="width:${pct}%"></div></div>
+                      <div class="grid-3" style="gap:6px;">
+                        <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;">${icon('send', 12)} ${L('群里拉助力', 'Share TG')}</button>
+                        <button class="btn btn-secondary btn-sm" data-share-x="${c.chestId}" type="button" style="width:100%;">${icon('xBrand', 12)} ${L('发 X 助力', 'Share X')}</button>
+                        <button class="btn btn-secondary btn-sm" data-open-chest="${c.chestId}" type="button" style="width:100%;">${icon('unlock', 12)} ${L('立即开箱', 'Open Now')}</button>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </section>
           ` : ''}
 
-          <label for="market-ton-input" class="counter-label">${L('1. 输入支付金额', '1. You Pay')}</label>
-          <div class="input-box">
-            <input id="market-ton-input" type="number" min="5" max="200" value="${payTon}" ${market.soldOut ? 'disabled' : ''} />
-            <div class="row-start" style="gap:6px;flex-shrink:0;">
-              <button class="chip chip-blue" id="btn-market-max" type="button" style="cursor:pointer;">MAX</button>
-              <span class="caps text-sec">GRAM</span>
-            </div>
-          </div>
-          <div class="grid-4" style="margin:9px 0 12px;">
-            ${[20, 50, 100, 200].map(v => `<button class="quick-btn ${payTon === v ? 'active' : ''}" aria-pressed="${payTon === v}" data-qton="${v}" type="button">${v} GRAM</button>`).join('')}
-          </div>
-
-          <div class="sub-tile row-between exchange-receipt">
-            <div class="row-start" style="gap:8px;">
-              <img src="./assets/paper-craft/ticket.png" alt="">
-              <div>
-                <div class="num-xs text-muted">${L('2. 预计获得（估算）', '2. Estimated Receive')}</div>
-                <div class="num-xs text-sec">${L('按当前汇率折算', 'At current fixed rate')}</div>
+          <div class="card" style="padding:14px 18px;">
+            <div class="list-row clickable" data-nav="/internal/records" style="padding:0;">
+              <div class="row-start">
+                <span class="icon-badge sky" style="width:36px;height:36px;border-radius:11px;">${icon('receipt', 15)}</span>
+                <div>
+                  <div style="font-weight:600;font-size:14px;">${L('购箱小票与退款明细', 'Chest Receipts & Refunds')}</div>
+                  <div class="num-xs text-muted">${L(`共 ${market.records.length} 笔订单`, `${market.records.length} orders`)}</div>
+                </div>
               </div>
+              <span class="text-muted">${icon('chevronRight', 16)}</span>
             </div>
-            <span class="num-lg text-green" id="market-est-a9">${formatNum(estA9)} A9</span>
           </div>
-
-          <div class="shop-terms-row">
-            <span>${L('3. 单笔 5–200 GRAM', '3. 5–200 GRAM/order')}</span>
-            <span>${L('可用额度', 'Avail')} <b class="mono" style="color:var(--ink);">${formatNum(availQuota)} GRAM</b></span>
-          </div>
-
-          <button class="btn ${config.isDemo ? 'btn-primary' : 'btn-secondary'}" id="btn-buy-market" ${(!config.isDemo || market.soldOut || availQuota <= 0) ? 'disabled' : ''}>
-            ${!config.isDemo
-              ? `${icon('lock', 15)} ${L('真实模式只读 · 暂未开放兑换', 'Live Read-Only · Disabled')}`
-              : market.soldOut
-                ? L('本轮已售罄', 'Sold Out')
-                : !user.tgBound
-                  ? `${icon('send', 15)} ${L('绑定 Telegram 并兑换', 'Bind TG & Swap')}`
-                  : `${icon('bolt', 16)} ${L(`确认兑换 ${formatNum(estA9)} A9`, `Swap ${formatNum(estA9)} A9`)}`}
-          </button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="row-between" style="margin-bottom:10px;">
-            <div class="card-title" style="font-size:14px;">${icon('wallet', 15, 'text-green')} ${L('个人额度', 'Personal Quota')}</div>
-            <span class="num-sm mono">${formatNum(market.unlockedQuotaTon)} <span class="text-muted">/ ${formatNum(market.hardCapTon)} GRAM</span></span>
-          </div>
-          <div class="progress-track" style="display:flex;height:7px;margin-bottom:12px;">
-            <div style="width:${usedPct}%;background:var(--text-muted);opacity:0.45;"></div>
-            <div style="width:${availPct}%;background:var(--green);"></div>
-          </div>
-          <div class="grid-4" style="gap:8px;">
-            <div class="sub-tile" style="padding:8px 6px;text-align:center;"><div class="num-xs text-muted">${L('基础', 'Base')}</div><div class="num-sm" style="margin-top:2px;">200</div></div>
-            <div class="sub-tile" style="padding:8px 6px;text-align:center;"><div class="num-xs text-muted">${L('团队', 'Team')}</div><div class="num-sm" style="margin-top:2px;">50</div></div>
-            <div class="sub-tile" style="padding:8px 6px;text-align:center;"><div class="num-xs text-muted">${L('规模', 'Scale')}</div><div class="num-sm" style="margin-top:2px;">150</div></div>
-            <div class="sub-tile" style="padding:8px 6px;text-align:center;"><div class="num-xs text-muted">${L('邀请', 'Invite')}</div><div class="num-sm text-green" style="margin-top:2px;">350</div></div>
-          </div>
-        </div>
-
-        <div class="card" style="padding:14px 18px;">
-          <div class="list-row clickable" data-nav="/internal/records" style="padding:0;">
-            <div class="row-start">
-              <span class="icon-badge sky" style="width:36px;height:36px;border-radius:11px;">${icon('receipt', 15)}</span>
-              <div>
-                <div style="font-weight:600;font-size:14px;">${L('兑换小票', 'Exchange Receipts')}</div>
-                <div class="num-xs text-muted">${L(`共 ${market.records.length} 笔订单 · 含成交与退款明细`, `${market.records.length} orders · fills & refunds`)}</div>
-              </div>
+        ` : `
+          <section class="card card-hero">
+            <div class="row-between" style="margin-bottom:6px;">
+              <span class="chip chip-gold">${L('0 GRAM 裂变宝箱 · 串行解锁', '0 GRAM Viral Chests · Serial Unlock')}</span>
+              <span class="chip chip-muted">${L('活跃钱包助力', 'Active Wallet Only')}</span>
             </div>
-            <span class="text-muted">${icon('chevronRight', 16)}</span>
+            <h2 style="margin:4px 0 6px;font-size:18px;font-weight:900;">${L('青铜 3 连开 → 白银 → 黄金 → 白金 → 钻石', 'Bronze x3 -> Silver -> Gold -> Platinum -> Diamond')}</h2>
+            <p class="num-xs text-sec" style="margin:0;line-height:1.5;">
+              ${L('只有打开上一个宝箱后才能激活下一个宝箱。好友通过 Telegram / X 连接链上活跃 TON 钱包助力开启，助力者顺手自动领取青铜宝箱 #1。', 'Open each chest to activate the next. Friends assist via active TON wallet and auto-claim their own Bronze Chest #1.')}
+            </p>
+            ${chestData.loaded && chestData.freeChests.length === 0 ? `
+              <button class="btn btn-primary" id="btn-claim-starter" type="button" style="margin-top:12px;">${icon('bolt', 15)} ${L('0 成本领取青铜宝箱 #1（300 A9）', 'Claim Free Bronze Chest #1 (300 A9)')}</button>
+            ` : ''}
+          </section>
+
+          <div class="col-gap" style="gap:10px;">
+            ${(chestData.freeChests || []).map((c) => {
+              const rewardA9 = rawToA9(c.baseA9Raw) || 0;
+              const pct = c.requiredAssists > 0 ? Math.min(100, Math.round((c.currentAssists / c.requiredAssists) * 100)) : 0;
+              const volReq = formatVolumeReq(c.minVolumeNano);
+              const isLocked = c.status === 'LOCKED';
+              const isOpened = c.status === 'OPENED';
+              const isReady = c.status === 'READY' || (!isLocked && !isOpened && c.currentAssists >= c.requiredAssists);
+              const badgeCls = isOpened ? 'chip-muted' : isReady ? 'chip-green' : isLocked ? 'chip-muted' : 'chip-gold';
+              const badgeTxt = isOpened ? L('已开启', 'Opened') : isReady ? L('可开箱', 'Ready') : isLocked ? L('待解锁', 'Locked') : L('助力中', 'Active');
+              return `
+                <section class="card" style="opacity:${isLocked ? '0.72' : '1'};">
+                  <div class="row-between" style="margin-bottom:6px;">
+                    <div>
+                      <strong style="font-size:15px;">${escapeHtml(L(c.labelZh, c.labelEn))}</strong>
+                      <span class="num-sm text-green mono" style="font-weight:900;margin-left:6px;">${formatNum(rewardA9)} A9</span>
+                    </div>
+                    <span class="chip ${badgeCls}">${badgeTxt}</span>
+                  </div>
+                  <div class="row-between num-xs text-sec" style="margin-bottom:5px;">
+                    <span>${L('活跃钱包助力', 'Active Wallet Assists')}: <b class="mono">${formatNum(c.currentAssists)} / ${formatNum(c.requiredAssists)}</b></span>
+                    <span>${c.tier === 'bronze' ? L('入待激活金库', 'Pending Vault') : L('入可提现推广余额', 'Claimable Promo')}</span>
+                  </div>
+                  <div class="progress-track" style="height:6px;margin-bottom:8px;"><div class="progress-fill" style="width:${pct}%"></div></div>
+                  ${(volReq || c.minTgMembers > 0) ? `
+                    <div class="num-xs text-muted" style="margin-bottom:8px;">
+                      ${L('附加门槛', 'Extra gates')}: ${volReq ? L(`直邀/战队真实购箱额 ≥ ${volReq}`, `Team volume >= ${volReq}`) : ''}${volReq && c.minTgMembers > 0 ? ' · ' : ''}${c.minTgMembers > 0 ? L(`已核验 TG 群 ≥ ${formatNum(c.minTgMembers)} 人`, `Verified TG group >= ${formatNum(c.minTgMembers)}`) : ''}
+                    </div>
+                  ` : ''}
+                  ${!isLocked && !isOpened ? `
+                    <div class="grid-3" style="gap:6px;">
+                      <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;">${icon('send', 12)} ${L('TG 拉助力', 'TG Share')}</button>
+                      <button class="btn btn-secondary btn-sm" data-share-x="${c.chestId}" type="button" style="width:100%;">${icon('xBrand', 12)} ${L('X 发卡片', 'X Share')}</button>
+                      <button class="btn ${isReady ? 'btn-primary' : 'btn-secondary'} btn-sm" data-open-chest="${c.chestId}" type="button" style="width:100%;">${icon('unlock', 12)} ${L('开箱', 'Open')}</button>
+                    </div>
+                  ` : ''}
+                </section>
+              `;
+            }).join('')}
           </div>
-        </div>
+        `}
       </div>
     `;
 
-    const inp = root.querySelector('#market-ton-input');
-    inp.oninput = (e) => {
-      payTon = Number(e.target.value) || 0;
-      root.querySelectorAll('[data-qton]').forEach(button => {
-        const selected = Number(button.dataset.qton) === payTon;
-        button.classList.toggle('active', selected);
-        button.setAttribute('aria-pressed', String(selected));
-      });
-      const a9 = payTon * market.rateA9PerTon;
-      root.querySelector('#market-est-a9').textContent = `${formatNum(a9)} A9`;
-      const btn = root.querySelector('#btn-buy-market');
-      if (btn && config.isDemo && !market.soldOut && user.tgBound) btn.innerHTML = `${icon('bolt', 16)} ${L(`确认兑换 ${formatNum(a9)} A9`, `Swap ${formatNum(a9)} A9`)}`;
-    };
-
-    const maxBtn = root.querySelector('#btn-market-max');
-    if (maxBtn) {
-      maxBtn.onclick = () => {
-        if (market.soldOut) return;
+    root.querySelectorAll('[data-cm-tab]').forEach((b) => {
+      b.onclick = () => {
         A9Haptic.light();
-        payTon = Math.min(market.maxOrderTon, availQuota);
+        activeTab = b.dataset.cmTab;
         render();
+      };
+    });
+
+    root.querySelectorAll('[data-pick-sku]').forEach((b) => {
+      b.onclick = () => {
+        A9Haptic.tick();
+        selectedSkuId = b.dataset.pickSku;
+        render();
+      };
+    });
+
+    root.querySelectorAll('[data-open-mode]').forEach((b) => {
+      b.onclick = () => {
+        A9Haptic.tick();
+        openMode = b.dataset.openMode;
+        render();
+      };
+    });
+
+    const buyBtn = root.querySelector('#btn-buy-chest');
+    if (buyBtn) {
+      buyBtn.onclick = () => {
+        if (!config.isDemo || !store.fundsEnabled) {
+          A9Haptic.warning();
+          showToast(L('当前真实模式处于只读验收阶段，购箱下单暂未开放', 'Live mode is read-only; purchase disabled'), 'amber');
+          return;
+        }
+        const res = demoBuyChest(store.state, selectedSkuId, openMode);
+        if (res.error) {
+          A9Haptic.error();
+          showToast(res.error, 'error');
+          return;
+        }
+        A9Haptic.success();
+        burstParticles(buyBtn);
+        showToast(openMode === 'BOOST'
+          ? L(`购箱成功 · 本金 ${formatNum(res.receivedA9, 2)} A9 已到账，24H 膨胀已开启！`, `Purchased! ${formatNum(res.receivedA9, 2)} A9 credited + 24H boost started!`)
+          : L(`直接开箱成功 · +${formatNum(res.receivedA9, 2)} A9`, `Opened! +${formatNum(res.receivedA9, 2)} A9`));
+        loadChests();
       };
     }
 
-    root.querySelectorAll('[data-qton]').forEach(b => {
-      b.onclick = () => { A9Haptic.light(); payTon = Number(b.dataset.qton); render(); };
-    });
+    const starterBtn = root.querySelector('#btn-claim-starter');
+    if (starterBtn) {
+      starterBtn.onclick = async () => {
+        starterBtn.disabled = true;
+        try {
+          await claimStarterChests();
+          A9Haptic.success();
+          showToast(L('已激活青铜宝箱 #1，快去邀请 2 位好友助力开箱！', 'Bronze Chest #1 activated! Invite 2 friends to open.'));
+          await loadChests();
+        } catch (e) {
+          A9Haptic.error();
+          showToast(e?.message || L('领取失败，请重试', 'Claim failed'), 'error');
+          starterBtn.disabled = false;
+        }
+      };
+    }
 
-    const buyBtn = root.querySelector('#btn-buy-market');
-    buyBtn.onclick = async () => {
-      if (!config.isDemo || !store.fundsEnabled) {
-        A9Haptic.warning();
-        showToast(L('当前真实模式处于只读验收阶段，兑换屋下单与钱包签名暂未开放', 'Live mode is read-only; exchange orders and wallet signing are disabled'), 'amber');
-        return;
-      }
-      if (!user.tgBound) {
-        openTgBindSheet(render);
-        return;
-      }
-      const res = store.buyInternalMarket(payTon);
-      if (res.error) {
-        A9Haptic.error();
-        showToast(res.error, 'error');
-      } else {
-        A9Haptic.success();
-        burstParticles(buyBtn);
-        showToast(L(`兑换成功 · +${formatNum(res.receivedA9)} A9`, `Swapped · +${formatNum(res.receivedA9)} A9`));
-        render();
-      }
-    };
+    const allChests = [...(chestData.freeChests || []), ...(chestData.shopChests || [])];
+    root.querySelectorAll('[data-share-tg]').forEach((b) => {
+      b.onclick = () => {
+        const found = allChests.find((c) => c.chestId === b.dataset.shareTg);
+        if (found) shareChestToTg(found);
+      };
+    });
+    root.querySelectorAll('[data-share-x]').forEach((b) => {
+      b.onclick = () => {
+        const found = allChests.find((c) => c.chestId === b.dataset.shareX);
+        if (found) shareChestToX(found);
+      };
+    });
+    root.querySelectorAll('[data-open-chest]').forEach((b) => {
+      b.onclick = async () => {
+        const cid = b.dataset.openChest;
+        b.disabled = true;
+        try {
+          const res = await openChestById(cid, store.state, store.state.user.address);
+          const gotA9 = rawToA9(res?.rewardA9Raw) || 0;
+          A9Haptic.success();
+          burstParticles(b);
+          const nextMsg = res?.nextUnlocked ? L(`，已解锁下一档「${res.nextUnlocked.labelZh}」`, `, unlocked ${res.nextUnlocked.labelEn}`) : '';
+          showToast(L(`开箱成功！+${formatNum(gotA9, 2)} A9${nextMsg}`, `Opened! +${formatNum(gotA9, 2)} A9${nextMsg}`));
+          await loadChests();
+        } catch (e) {
+          A9Haptic.error();
+          showToast(e?.message || L('暂未满足开箱条件', 'Open requirements not yet met'), 'amber');
+          b.disabled = false;
+        }
+      };
+    });
   };
 
   render();
+  loadChests();
 }
 
 export function renderInternalRecords(root) {

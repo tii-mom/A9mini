@@ -7,6 +7,7 @@ import { PromoHotWalletEngine } from './promo-hotwallet.mjs';
 import { PresaleHotWalletEngine } from './presale-hotwallet.mjs';
 import { SocialStore } from './social-store.mjs';
 import { PredictionEngine, ProgressionEngine } from './growth-engine.mjs';
+import { ChestEngine } from './chest-engine.mjs';
 import { TonCenterClient } from './toncenter.mjs';
 import { PromoPayoutRunner } from './promo-runner.mjs';
 import { PresalePayoutRunner } from './presale-runner.mjs';
@@ -54,6 +55,7 @@ const predictionEngine = new PredictionEngine({
   firstLossCapRaw: process.env.A9_PRED_FIRST_LOSS_CAP_RAW,
 });
 const progressionEngine = new ProgressionEngine();
+const chestEngine = new ChestEngine();
 const broadcaster = new TelegramBroadcaster({
   enabled: process.env.A9_BROADCAST_ENABLED === '1',
   botToken: process.env.A9_BOT_TOKEN || '',
@@ -78,6 +80,7 @@ const presaleEngine = presaleHotAddr
       userFaultFeeNano: process.env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
       promoEngine,
       socialStore,
+      chestEngine,
       broadcaster,
     })
   : null;
@@ -188,7 +191,7 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
   }
 }
 
-const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, userReader, identityStore, publicKeyResolver, walletStateResolver });
+const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, chestEngine, userReader, identityStore, publicKeyResolver, walletStateResolver });
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${host}:${port}`);

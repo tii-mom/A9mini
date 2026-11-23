@@ -6,6 +6,8 @@ import { PromoHotWalletEngine } from './promo-hotwallet.mjs';
 import { PresaleHotWalletEngine } from './presale-hotwallet.mjs';
 import { SocialStore } from './social-store.mjs';
 import { PredictionEngine, ProgressionEngine } from './growth-engine.mjs';
+import { ChestEngine } from './chest-engine.mjs';
+import { D1ChestEngine } from './d1-chest-store.mjs';
 import { D1PromoStore } from './d1-promo-store.mjs';
 import { D1SocialStore, D1PredictionEngine, D1ProgressionEngine, D1PresaleStore } from './d1-growth-store.mjs';
 import { D1IdentityStore, MemoryIdentityStore } from './auth.mjs';
@@ -23,6 +25,7 @@ function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}
 
 // Module-scoped fallbacks for ephemeral preview/dev environments without D1 bindings
 const memSocialStore = new SocialStore();
+const memChestEngine = new ChestEngine();
 const memPredictionEngine = new PredictionEngine();
 const memProgressionEngine = new ProgressionEngine();
 const memIdentityStore = new MemoryIdentityStore();
@@ -96,6 +99,7 @@ export default {
     };
     const predictionEngine = hasD1 ? new D1PredictionEngine({ db: env.DB, ...predOpts }) : memPredictionEngine;
     const progressionEngine = hasD1 ? new D1ProgressionEngine({ db: env.DB }) : memProgressionEngine;
+    const chestEngine = hasD1 ? new D1ChestEngine({ db: env.DB }) : memChestEngine;
     const broadcaster = buildBroadcaster(env, { socialStore, identityStore, hasD1 });
 
     const promoEngine = env.A9_PROMO_HOT_WALLET_ADDRESS
@@ -124,6 +128,7 @@ export default {
       userFaultFeeNano: env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
       promoEngine,
       socialStore,
+      chestEngine,
       broadcaster,
     };
     const presaleEngine = presaleHotAddr
@@ -146,6 +151,7 @@ export default {
       socialStore,
       predictionEngine,
       progressionEngine,
+      chestEngine,
       userReader,
       identityStore,
       publicKeyResolver: tc ? (addr) => tc.fetchWalletPublicKey(addr) : null,

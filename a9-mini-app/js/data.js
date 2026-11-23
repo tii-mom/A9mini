@@ -15,7 +15,12 @@ import {
   demoPredictionBet,
   demoPredictionActivate,
   demoProgressionUser,
-  demoProgressionClaim
+  demoProgressionClaim,
+  demoChestsMe,
+  demoClaimStarterChests,
+  demoGetChest,
+  demoAssistChest,
+  demoOpenChest
 } from './demo-data.js';
 import { A9TMA } from './tma.js';
 
@@ -46,6 +51,11 @@ export const ENDPOINTS = Object.freeze({
   teamBindTg: '/api/team/bind-tg',
   teamVerifyTg: '/api/team/verify-tg',
   referralAttribution: '/api/referral/attribution',
+  chestsMe: '/api/chests/me',
+  chestsStarter: '/api/chests/starter',
+  chestDetail: (id) => `/api/chests/${encodeURIComponent(id)}`,
+  chestAssist: (id) => `/api/chests/${encodeURIComponent(id)}/assist`,
+  chestOpen: (id) => `/api/chests/${encodeURIComponent(id)}/open`,
   me: '/api/me',
   tonProofPayload: '/api/auth/ton-proof/payload',
   tonProofVerify: '/api/auth/ton-proof/verify'
@@ -485,4 +495,51 @@ export function estimateRewardA9(amountTon, view = currentView) {
 
 export function fetchWarmupRank(roundId) {
   return request(ENDPOINTS.warmupLeaderboard + '?roundId=' + encodeURIComponent(roundId));
+}
+
+/** 宝箱商城：读取当前用户的免费宝箱链与商城膨胀宝箱 */
+export async function fetchMyChests() {
+  if (config.isDemo) return demoChestsMe();
+  if (!A9TMA.getRawInitData()) return null;
+  return request(ENDPOINTS.chestsMe);
+}
+
+/** 宝箱商城：首次领取青铜宝箱 #1（激活免费宝箱链） */
+export async function claimStarterChests() {
+  if (config.isDemo) return demoClaimStarterChests();
+  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开');
+  return request(ENDPOINTS.chestsStarter, { method: 'POST', body: {} });
+}
+
+/** 宝箱助力落地页：公开读取指定宝箱进度 */
+export async function fetchChestById(chestId) {
+  if (config.isDemo) return demoGetChest(chestId);
+  return request(ENDPOINTS.chestDetail(chestId));
+}
+
+/** 宝箱助力：连接已激活 TON 钱包为好友助力，顺手自动领青铜宝箱 #1 */
+export async function assistChestById(chestId, walletAddress = null) {
+  if (config.isDemo) {
+    try { return demoAssistChest(chestId); } catch (e) { throw new ApiError('DEMO_ASSIST_ERR', e.message); }
+  }
+  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开后助力');
+  return request(ENDPOINTS.chestAssist(chestId), { method: 'POST', body: { walletAddress: walletAddress || null } });
+}
+
+/** 宝箱开箱：领取免费宝箱奖励或商城膨胀增量 A9 */
+export async function openChestById(chestId, stateForDemo = null, walletAddress = null) {
+  if (config.isDemo) {
+    try { return demoOpenChest(stateForDemo, chestId); } catch (e) { throw new ApiError('DEMO_OPEN_ERR', e.message); }
+  }
+  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开后开箱');
+  return request(ENDPOINTS.chestOpen(chestId), { method: 'POST', body: { walletAddress: walletAddress || null } });
+}
+
+/** 宝箱商城下单（live 只读阶段统一拦截，不发网络订单请求） */
+export async function requestChestPurchaseIntent({ walletAddress, skuId, openMode = 'BOOST', referrerId = null }) {
+  assertFundsAllowedInMode();
+  return request(ENDPOINTS.presaleIntent, {
+    method: 'POST',
+    body: withReferrer({ walletAddress, skuId, openMode }, referrerId)
+  });
 }

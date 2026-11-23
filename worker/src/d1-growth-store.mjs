@@ -36,6 +36,17 @@ export class D1SocialStore {
     return row ? String(row.referrer_id) : null;
   }
 
+  async listDirectReferees(referrerKeys = []) {
+    const keys = Array.from(new Set((referrerKeys || []).map((k) => String(k || '').trim()).filter(Boolean)));
+    if (!keys.length) return [];
+    const ph = keys.map(() => '?').join(', ');
+    const res = await this.db
+      .prepare(`SELECT DISTINCT subject_key FROM referrals WHERE referrer_id IN (${ph})`)
+      .bind(...keys)
+      .all();
+    return (res?.results || []).map((r) => String(r.subject_key));
+  }
+
   async bindReferral(subjectKey, referrerId, nowSec = Math.floor(Date.now() / 1000), { aliases = [] } = {}) {
     const subj = String(subjectKey || '').trim();
     const ref = String(referrerId || '').trim();
@@ -284,9 +295,10 @@ export class D1SocialStore {
     }
 
     const nextHandle = check.groupHandle ? String(check.groupHandle) : (cur.tg_group_handle || null);
+    const nextTgMembers = Number.isFinite(Number(check.tgMemberCount)) ? Number(check.tgMemberCount) : Number(cur.tg_member_count || 0);
     await this.db
-      .prepare("UPDATE team_groups SET tg_chat_id = ?, tg_group_handle = ?, bind_status = 'bound', updated_at = ? WHERE team_id = ?")
-      .bind(canonicalChatId, nextHandle, nowSec, teamId)
+      .prepare("UPDATE team_groups SET tg_chat_id = ?, tg_group_handle = ?, bind_status = 'bound', tg_member_count = ?, updated_at = ? WHERE team_id = ?")
+      .bind(canonicalChatId, nextHandle, nextTgMembers, nowSec, teamId)
       .run();
 
     return {
@@ -297,6 +309,7 @@ export class D1SocialStore {
       tgChatId: canonicalChatId,
       bindStatus: 'bound',
       memberCount: Number(cur.member_count || 1),
+      tgMemberCount: nextTgMembers,
       createdAt: Number(cur.created_at),
       updatedAt: nowSec,
     };
@@ -350,9 +363,18 @@ export class D1SocialStore {
       tgChatId: t.tg_chat_id || null,
       bindStatus: t.bind_status,
       memberCount: Number(t.member_count),
+      tgMemberCount: Number(t.tg_member_count || 0),
       createdAt: Number(t.created_at),
       updatedAt: Number(t.updated_at),
     };
+  }
+
+  async listTeamMemberWallets(teamId) {
+    const res = await this.db
+      .prepare('SELECT wallet_address FROM team_members WHERE team_id = ?')
+      .bind(String(teamId))
+      .all();
+    return (res?.results || []).map((r) => String(r.wallet_address));
   }
 
   /** 返回全部已通过四重真实核验（bind_status = 'bound' 且具备真实 tg_chat_id）的战队群。 */
@@ -368,6 +390,7 @@ export class D1SocialStore {
       tgChatId: t.tg_chat_id || null,
       bindStatus: t.bind_status,
       memberCount: Number(t.member_count),
+      tgMemberCount: Number(t.tg_member_count || 0),
       createdAt: Number(t.created_at),
       updatedAt: Number(t.updated_at),
     }));
@@ -595,6 +618,18 @@ export class D1PredictionEngine {
       firstLossBonusCount,
       firstLossBonusDistributedRaw: firstLossBonusDistributed.toString(),
     };
+  }
+
+  async creditPendingBonus(userId, amountRaw, nowMs = Date.now()) {
+    const uid = String(userId || '').trim();
+    const amt = BigInt(amountRaw || 0n);
+    if (!uid || amt <= 0n) return { userId: uid, pendingActivationRaw: '0' };
+    const nowSec = Math.floor(nowMs / 1000);
+    const st = await this._getUserStatsRow(uid);
+    const nextPending = st.pendingActivationRaw + amt;
+    const nextExp = nowMs + VOUCHER_TTL_MS;
+    await this._upsertUserStats(uid, { ...st, pendingActivationRaw: nextPending, pendingExpiresAt: nextExp }, nowSec);
+    return { userId: uid, pendingActivationRaw: nextPending.toString(), pendingExpiresAt: nextExp };
   }
 
   async activateToPromo(userId, walletAddress, promoEngine, { qualified = false, nowMs = Date.now() } = {}) {
@@ -977,6 +1012,8 @@ function rowToOrder(r) {
     walletKey: r.wallet_key || addressKey(r.wallet_address),
     tgUserId: r.tg_user_id || null,
     referrerId: r.referrer_id || null,
+    skuId: r.sku_id || null,
+    openMode: r.open_mode || 'INSTANT',
     tonNano: BigInt(r.ton_nano || '0'),
     a9AmountRaw: BigInt(r.a9_amount_raw || '0'),
     memo: r.memo,
@@ -1076,9 +1113,9 @@ export class D1PresaleRepo {
     const res = await this.db
       .prepare(
         `INSERT INTO presale_orders
-           (order_id, wallet_address, wallet_key, tg_user_id, referrer_id, ton_nano, a9_amount_raw, memo, status,
+           (order_id, wallet_address, wallet_key, tg_user_id, referrer_id, sku_id, open_mode, ton_nano, a9_amount_raw, memo, status,
             refund_ton_nano, expires_at, created_at, updated_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', '0', ?, ?, ?
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', '0', ?, ?, ?
          WHERE (SELECT COALESCE(SUM(CAST(a9_amount_raw AS INTEGER)), 0) FROM presale_orders WHERE ${RESERVING_SQL})
                  + CAST(? AS INTEGER) <= CAST(? AS INTEGER)
            AND (SELECT COALESCE(SUM(CAST(ton_nano AS INTEGER)), 0) FROM presale_orders
@@ -1086,7 +1123,7 @@ export class D1PresaleRepo {
                  + CAST(? AS INTEGER) <= CAST(? AS INTEGER)`,
       )
       .bind(
-        o.orderId, o.walletAddress, o.walletKey, o.tgUserId, o.referrerId, o.tonNano.toString(), o.a9AmountRaw.toString(), o.memo,
+        o.orderId, o.walletAddress, o.walletKey, o.tgUserId, o.referrerId, o.skuId || null, o.openMode || 'INSTANT', o.tonNano.toString(), o.a9AmountRaw.toString(), o.memo,
         o.expiresAt, o.createdAt, o.updatedAt,
         nowSec, o.a9AmountRaw.toString(), BigInt(capA9Raw).toString(),
         o.walletKey, ...aliases, nowSec, o.tonNano.toString(), BigInt(userQuotaNano).toString(),

@@ -79,6 +79,18 @@ export const A9TMA = {
 
     const parts = rawParam.split('_');
     const type = sanitizeToken(parts[0], 16).toLowerCase();
+    if (type === 'chest') {
+      let chestId = '';
+      let ref = '';
+      if (parts[1] === 'ch' && parts[2]) {
+        chestId = sanitizeToken(`ch_${parts[2]}`, 48);
+        ref = sanitizeToken(parts.slice(3).join('_'), 64);
+      } else {
+        chestId = sanitizeToken(parts[1], 48);
+        ref = sanitizeToken(parts.slice(2).join('_'), 64);
+      }
+      return { raw: safeRaw, type: 'chest', id: chestId, ref, route: '/internal/market', scrollTarget: null, chestId };
+    }
     const id = sanitizeToken(parts[1], 48);
     const ref = sanitizeToken(parts.slice(2).join('_'), 64);
 
