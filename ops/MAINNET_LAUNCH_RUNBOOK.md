@@ -14,7 +14,7 @@
 | 4 | 5 个独立主网钱包 | `deployer`、`treasury`、`keeper/opener`、`presaleHotWallet`、`promoHotWallet`（**严禁复用或混用**） | 本机执行 `acton wallet new <name>`；助记词离线冷备 |
 | 5 | 团队多签/硬件地址 | `A9_TEAM_WALLET_ADDRESS`（主网部署 `RoundController` 时永久固化） | 硬件钱包或 TON Multisig 主网地址 |
 | 6 | 管理与 D1 Token | `A9_ADMIN_TOKEN`（Secret）与 `CLOUDFLARE_API_TOKEN`（仅 `Account: D1: Edit` 权限） | `openssl rand -hex 32` 与 Cloudflare Dashboard API Tokens |
-| 7 | 代币元数据 JSON | `A9_METADATA_URI`（如 `https://app.<domain>/a9.json`） | 上传符合 TEP-64 的 `a9.json`（精度 9、名称、Logo）至正式前端静态域 |
+| 7 | 代币元数据 JSON | `A9_METADATA_URI`（如 `https://app.a9.lat/a9.json`） | 上传符合 TEP-64 的 `a9.json`（精度 9、名称、Logo）至正式前端静态域 |
 
 建议主网启动 GRAM 储备：
 - `deployer`：`>= 5 GRAM`（部署合约 Gas）
@@ -57,7 +57,7 @@ export A9_TREASURY_WALLET="<mainnet_treasury_wallet_name>"
 export A9_KEEPER_ADDRESS="<mainnet_keeper_addr>"
 export A9_ROUND_OPENER_ADDRESS="<mainnet_opener_addr>"
 export A9_TEAM_WALLET_ADDRESS="<mainnet_team_multisig_addr>"
-export A9_METADATA_URI="https://app.<domain>/a9.json"
+export A9_METADATA_URI="https://app.a9.lat/a9.json"
 
 # 1) 只读干跑预检（零链上消息，派生并核对合约地址与钱包余额）
 node scripts/deploy-v15.mjs --protocol v16 --profile mainnet --strict --dry-run
@@ -76,10 +76,10 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
 - `A9_NETWORK = "mainnet"`
 - `A9_PROTOCOL_VERSION = "v16"`
 - `TONCENTER_API_BASE = "https://toncenter.com/api/v2"`
-- `A9_PUBLIC_ORIGIN = "https://app.<domain>"`
+- `A9_PUBLIC_ORIGIN = "https://app.a9.lat"`
 - `A9_TG_BOT_HANDLE = "<BotUsername>"`
-- `A9_ALLOWED_ORIGINS = "https://app.<domain>"`
-- `A9_TON_PROOF_DOMAINS = "app.<domain>"`
+- `A9_ALLOWED_ORIGINS = "https://app.a9.lat,https://a9.lat"`
+- `A9_TON_PROOF_DOMAINS = "app.a9.lat"`
 - `A9_REQUIRE_RUNNER_HEARTBEAT = "1"`
 - `A9_BROADCAST_WHALE_MIN_GRAM = "50"`（先保留默认 50，待放量后按需调优）
 - `A9_JETTON_MASTER_ADDRESS` / `A9_ROUND_CONTROLLER_ADDRESS` / `A9_PROMO_HOT_WALLET_ADDRESS` / `A9_PRESALE_HOT_WALLET_ADDRESS`（两个热钱包地址必须严格不同）

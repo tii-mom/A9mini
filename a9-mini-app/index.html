@@ -7,7 +7,7 @@
   <meta name="description" content="A9 (Asset 9-Figure) — Redefining token distribution &amp; unlocking on TON. A bold on-chain crypto experiment." />
   <meta property="og:title" content="A9 · 财富大冒险 (A9 Wealth Quest)" />
   <meta property="og:description" content="A9 (Asset 9-Figure) — Redefining token distribution &amp; unlocking on TON. A bold on-chain crypto experiment." />
-  <meta property="og:image" content="https://a9.lat/assets/token/a9-token-2048.png" />
+  <meta property="og:image" content="https://app.a9.lat/assets/token/a9-token-2048.png" />
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:site" content="@A9_Ton" />
   <link rel="icon" type="image/svg+xml" href="./assets/token/a9-token.svg" />
@@ -44,6 +44,16 @@
     <div id="sim-drawer" class="sim-drawer hidden"></div>
   </div>
 
+  <script>
+    if (window.location.origin === 'https://app.a9.lat') {
+      window.__A9_CONFIG__ = {
+        ...window.__A9_CONFIG__,
+        mode: 'live',
+        apiBase: 'https://api.a9.lat',
+        liveFundsEnabled: false,
+      };
+    }
+  </script>
   <script type="module" src="./js/app.js"></script>
 </body>
 </html>
