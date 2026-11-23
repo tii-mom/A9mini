@@ -155,7 +155,8 @@ await test('Direct paid invitee unlocks referrer vault (0 GRAM self-spend) & Cap
 
   await identityStore.bindVerifiedWallet('1001', W_OWNER, 1000);
   await identityStore.bindVerifiedWallet('2001', W_H1, 1000);
-  social.bindReferral('2001', '1001', 1005, { aliases: [W_H1] });
+  // 模拟真实场景：好友 2001 先通过 TG 深链归因（仅绑定 TG ID，未带钱包别名），后连接钱包购箱
+  social.bindReferral('2001', '1001', 1005);
   pred.creditPendingBonus('1001', 500_000_000_000n, 1005 * 1000);
 
   // Direct invitee 2001 completes a 0.99 GRAM Bronze Chest purchase -> 1001 unlocks vault for free!

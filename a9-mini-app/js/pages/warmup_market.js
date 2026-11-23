@@ -269,13 +269,11 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
   const loadChests = async () => {
     try {
       const res = await fetchMyChests();
-      if (res) {
-        chestData = {
-          freeChests: Array.isArray(res.freeChests) ? res.freeChests : [],
-          shopChests: Array.isArray(res.shopChests) ? res.shopChests : [],
-          loaded: true
-        };
-      }
+      chestData = {
+        freeChests: Array.isArray(res?.freeChests) ? res.freeChests : [],
+        shopChests: Array.isArray(res?.shopChests) ? res.shopChests : [],
+        loaded: true
+      };
     } catch (_) {
       chestData.loaded = true;
     }
@@ -412,9 +410,11 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
             <p class="num-xs text-sec" style="margin:0;line-height:1.5;">
               ${L('只有打开上一个宝箱后才能激活下一个宝箱。好友通过 Telegram / X 连接链上活跃 TON 钱包助力开启，助力者顺手自动领取青铜宝箱 #1。', 'Open each chest to activate the next. Friends assist via active TON wallet and auto-claim their own Bronze Chest #1.')}
             </p>
-            ${chestData.loaded && chestData.freeChests.length === 0 ? `
-              <button class="btn btn-primary" id="btn-claim-starter" type="button" style="margin-top:12px;">${icon('bolt', 15)} ${L('0 成本领取青铜宝箱 #1（300 A9）', 'Claim Free Bronze Chest #1 (300 A9)')}</button>
-            ` : ''}
+            ${chestData.loaded && chestData.freeChests.length === 0 ? (
+              (!config.isDemo && !A9TMA.getRawInitData())
+                ? `<div class="sub-tile" style="margin-top:10px;"><div class="num-xs text-sec">${L('请在 Telegram 小程序内打开以同步并领取你的免费青铜宝箱 #1。', 'Open inside Telegram Mini App to sync and claim your free Bronze Chest #1.')}</div></div>`
+                : `<button class="btn btn-primary" id="btn-claim-starter" type="button" style="margin-top:12px;">${icon('bolt', 15)} ${L('0 成本领取青铜宝箱 #1（300 A9）', 'Claim Free Bronze Chest #1 (300 A9)')}</button>`
+            ) : ''}
           </section>
 
           <div class="col-gap" style="gap:10px;">

@@ -215,22 +215,30 @@ export class D1ChestEngine {
     const nextStatus = nextAssists >= chest.requiredAssists ? 'READY' : chest.status;
 
     try {
-      await this.db.batch([
+      const out = await this.db.batch([
         this.db
           .prepare(
             `INSERT INTO chest_assists (chest_id, owner_user_id, helper_user_id, helper_wallet_key, assist_day, boost_delta_raw, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+             SELECT ?, ?, ?, ?, ?, ?, ?
+             WHERE EXISTS (
+               SELECT 1 FROM user_chests
+               WHERE chest_id = ? AND current_assists = ? AND current_assists < required_assists AND status IN ('ACTIVE', 'READY')
+             )`,
           )
-          .bind(cId, chest.ownerUserId, hUid, hKey, today, boostDelta.toString(), nowSec),
+          .bind(cId, chest.ownerUserId, hUid, hKey, today, boostDelta.toString(), nowSec, cId, chest.currentAssists),
         this.db
           .prepare(
             `UPDATE user_chests
              SET current_assists = ?, boost_a9_raw = ?, status = ?, updated_at = ?
-             WHERE chest_id = ? AND current_assists = ? AND status IN ('ACTIVE', 'READY')`,
+             WHERE chest_id = ? AND current_assists = ? AND current_assists < required_assists AND status IN ('ACTIVE', 'READY')`,
           )
           .bind(nextAssists, nextBoostStr, nextStatus, nowSec, cId, chest.currentAssists),
       ]);
+      if (changes(out?.[0]) !== 1 || changes(out?.[1]) !== 1) {
+        throw new ChestError('CONCURRENT_ASSIST', '宝箱助力状态刚更新，请重试');
+      }
     } catch (e) {
+      if (e instanceof ChestError) throw e;
       if (/UNIQUE|constraint/i.test(String(e?.message || e))) {
         throw new ChestError('ALREADY_ASSISTED', '你已经助力过该宝箱或已达助力限制');
       }

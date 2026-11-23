@@ -55,8 +55,8 @@ export function matchRoute(rawPath) {
     const prefix = '/' + parts.slice(0, -1).join('/');
     const param = parts[parts.length - 1];
     const hit = ROUTES.find(r => r.path === prefix);
-    if (hit) return { route: hit, param };
+    if (hit) return { route: hit, param, query };
   }
-  if (clean === '/') return { route: ROUTES[0], param: null };
-  return { route: { path: '/404', title: () => '404', shell: 'stack', tab: 'challenge', ticker: false, render: renderNotFoundPage }, param: null };
+  if (clean === '/') return { route: ROUTES[0], param: null, query };
+  return { route: { path: '/404', title: () => '404', shell: 'stack', tab: 'challenge', ticker: false, render: renderNotFoundPage }, param: null, query };
 }

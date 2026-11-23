@@ -37,7 +37,15 @@ export class D1SocialStore {
   }
 
   async listDirectReferees(referrerKeys = []) {
-    const keys = Array.from(new Set((referrerKeys || []).map((k) => String(k || '').trim()).filter(Boolean)));
+    const expanded = new Set();
+    for (const k of referrerKeys || []) {
+      const clean = String(k || '').trim();
+      if (!clean) continue;
+      expanded.add(clean);
+      expanded.add(addressKey(clean));
+      for (const a of addressAliases(clean)) expanded.add(a);
+    }
+    const keys = Array.from(expanded);
     if (!keys.length) return [];
     const ph = keys.map(() => '?').join(', ');
     const res = await this.db

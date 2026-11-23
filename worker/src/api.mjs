@@ -259,8 +259,8 @@ export function createApiRouter({
           return err('BAD_REQUEST', 'gramAmount or skuId required', 400);
         }
         const rawRef = String(body?.referrerId || '').trim() || null;
-        if (socialStore && rawRef) await socialStore.bindReferral(walletAddress, rawRef, nowSec);
-        const effectiveRef = socialStore ? await socialStore.getReferrer(walletAddress) : null;
+        if (socialStore && rawRef) await socialStore.bindReferral(walletAddress, rawRef, nowSec, { aliases: [identity.telegramUserId] });
+        const effectiveRef = socialStore ? ((await socialStore.getReferrer(walletAddress)) || (await socialStore.getReferrer(identity.telegramUserId))) : null;
         return ok(await presaleEngine.createOrderIntent(walletAddress, amount ?? null, nowSec, { referrerId: effectiveRef, tgUserId: identity.telegramUserId, skuId, openMode }));
       }
 
@@ -419,8 +419,15 @@ export function createApiRouter({
         let hasDirectPaidInvitee = false;
         if (!hasCompletedPresale && !hasStakeTicket && socialStore && presaleEngine && typeof socialStore.listDirectReferees === 'function') {
           const directReferees = await socialStore.listDirectReferees([identity.telegramUserId, walletAddress]);
-          if (directReferees.length > 0 && typeof presaleEngine.hasCompletedPurchaseForAny === 'function') {
-            hasDirectPaidInvitee = await presaleEngine.hasCompletedPurchaseForAny(directReferees);
+          const candidateWallets = new Set(directReferees);
+          for (const ref of directReferees) {
+            if (/^\d{5,20}$/.test(String(ref)) && identityStore && typeof identityStore.getBinding === 'function') {
+              const b = await identityStore.getBinding(String(ref), nowSec);
+              if (b?.walletAddress) candidateWallets.add(b.walletAddress);
+            }
+          }
+          if (candidateWallets.size > 0 && typeof presaleEngine.hasCompletedPurchaseForAny === 'function') {
+            hasDirectPaidInvitee = await presaleEngine.hasCompletedPurchaseForAny([...candidateWallets]);
           }
         }
         return ok(
@@ -495,7 +502,13 @@ export function createApiRouter({
           const wallets = new Set([walletAddress]);
           if (typeof socialStore.listDirectReferees === 'function') {
             const refs = await socialStore.listDirectReferees([identity.telegramUserId, walletAddress]);
-            for (const r of refs) wallets.add(r);
+            for (const r of refs) {
+              wallets.add(r);
+              if (/^\d{5,20}$/.test(String(r)) && identityStore && typeof identityStore.getBinding === 'function') {
+                const b = await identityStore.getBinding(String(r), nowSec);
+                if (b?.walletAddress) wallets.add(b.walletAddress);
+              }
+            }
           }
           const myTeam = await socialStore.getTeamByWallet(walletAddress);
           if (myTeam) {
