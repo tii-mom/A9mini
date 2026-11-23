@@ -136,7 +136,7 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
    - `0.99 GRAM` 青铜箱购箱 → 买家链上 A9 `JettonWallet` 实测到账 `1,981.98 A9`、`presale_orders` 为 `COMPLETED`、`presale_payouts` 为 `CONFIRMED`、`user_chests` 生成对应 `SHOP_BOOST` 膨胀箱、`presale_referral_credits` 记账推荐人 12% 佣金并入 `promo_balances`；
    - **宝箱开箱入账对账**：实测免费青铜宝箱 #1（`chest_assists` 满 2 位活跃钱包助力）与商城膨胀箱调用 `POST /api/chests/:id/open` 返回 `200`（非 `403 CHEST_OPEN_DISABLED`），核对 `user_chests.status = 'OPENED'`、`chest_open_credits` 留痕、免费青铜箱精确入账 `prediction_rewards.pending_activation_raw`（且青铜 #2 转为 `ACTIVE`）、商城膨胀箱增量精确入账 `promo_balances.claimable_raw`；
    - `0.99 GRAM` 过期单晚付 → 实测 `gram_refund_v15.tolk` 原路全额退回 `0.99 GRAM`，`presale_orders` 为 `REFUNDED`、`presale_payouts` 为 `CONFIRMED`；
-   - **推广 0.06 GRAM 领币与最终到账对账**：推荐人/开箱领取人付 `0.06 GRAM` 发起领取 → 核对 `promo_claims` 与 `promo_payouts` 终局 `CONFIRMED` 且带真实链上 `tx_hash`、`promo_balances.claimable_raw` 精确扣减且 `total_claimed_raw` 等额增加、**领取人主网 A9 `JettonWallet` 实测收到对应全部 A9 余额**、且 `promoHotWallet` GRAM 净增加（项目方 0 Gas 支出）。
+   - **推广 0.06 GRAM 领币与最终到账对账**：推荐人/开箱领取人付 `0.06 GRAM` 发起领取 → 核对 `promo_claims.status = 'COMPLETED'`（带真实链上入账 `fee_tx_hash` 与出账 `payout_tx_hash`）、`promo_payouts.status = 'CONFIRMED'`（且 `promo_payouts.tx_hash === promo_claims.payout_tx_hash`）、`promo_balances.claimable_raw` 精确扣减且 `total_claimed_raw` 等额增加、**领取人主网 A9 `JettonWallet` 实测收到对应全部 A9 余额**、且 `promoHotWallet` GRAM 净增加（项目方 0 Gas 支出）。
 3. **第二步（账实对平后开启 TG 播报）**：核验 D1 真实表 `presale_orders`、`presale_payouts`、`presale_referral_credits`、`user_chests`、`chest_assists`、`chest_open_credits`、`prediction_rewards`、`promo_balances`、`promo_claims`、`promo_payouts`、`runner_heartbeats` 与链上余额 100% 一致后，再将 `A9_BROADCAST_ENABLED = "1"`（`A9_BROADCAST_WHALE_MIN_GRAM` 先保持 `"50"`）部署并正式放量。
 
 ---

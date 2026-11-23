@@ -115,20 +115,31 @@ def pick_focus_round(rounds):
     return rounds[0] if isinstance(rounds[0], dict) else None
 
 
+def _parse_positive_round_id(value):
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, str) and value.strip().isdigit():
+        parsed = int(value.strip())
+        return parsed if parsed > 0 else None
+    return None
+
+
 async def current_round_summary():
-    """从实时协议接口读取焦点轮摘要，显式区分未开轮（unopened）、接口故障（unavailable）与已开轮（active）。"""
+    """从实时协议接口读取焦点轮摘要，显式区分未开轮（unopened）、接口故障/数据异常（unavailable）与已开轮（active）。"""
+    unavailable = {
+        "status": "unavailable",
+        "round": PENDING,
+        "state": PENDING,
+        "target": PENDING,
+        "twap": PENDING,
+        "qualified": PENDING,
+    }
     rounds = await fetch_json("/api/rounds")
     if rounds is None or not isinstance(rounds, list):
-        return {
-            "status": "unavailable",
-            "round": PENDING,
-            "state": PENDING,
-            "target": PENDING,
-            "twap": PENDING,
-            "qualified": PENDING,
-        }
-    r = pick_focus_round(rounds)
-    if not r or r.get("state") == "UNOPENED" or not r.get("roundId"):
+        return unavailable
+    if not rounds:
         return {
             "status": "unopened",
             "round": PENDING,
@@ -137,14 +148,30 @@ async def current_round_summary():
             "twap": PENDING,
             "qualified": PENDING,
         }
+    r = pick_focus_round(rounds)
+    if not isinstance(r, dict):
+        return unavailable
+    raw_state = r.get("state")
+    if raw_state == "UNOPENED":
+        return {
+            "status": "unopened",
+            "round": PENDING,
+            "state": STATE_LABELS["UNOPENED"],
+            "target": PENDING,
+            "twap": PENDING,
+            "qualified": PENDING,
+        }
+    round_id = _parse_positive_round_id(r.get("roundId"))
+    if round_id is None or not isinstance(raw_state, str) or not raw_state.strip():
+        return unavailable
     q = r.get("qualifiedCandles")
     raw_twap = r.get("priceUsdE8") if r.get("priceValid") is not False else None
     if raw_twap is None:
         raw_twap = r.get("twap24hUsdE8")
     return {
         "status": "active",
-        "round": f"#{r.get('roundId')}",
-        "state": STATE_LABELS.get(r.get("state"), r.get("state") or PENDING),
+        "round": f"#{round_id}",
+        "state": STATE_LABELS.get(raw_state, raw_state),
         "target": usd_e8(r.get("targetPriceUsdE8")),
         "twap": usd_e8(raw_twap),
         "qualified": f"{q}/24" if isinstance(q, int) else PENDING,
@@ -169,7 +196,7 @@ async def render_start():
     if s["status"] == "unavailable":
         return (
             "<b>A9 · 财富大冒险</b>\n"
-            "协议状态接口暂不可达，当前轮次与行情数据待核验，请稍后重试或在小程序内刷新查看。\n\n"
+            "协议状态接口暂不可达或返回数据异常，当前轮次与行情数据待核验，请稍后重试或在小程序内刷新查看。\n\n"
             "你仍可直接打开小程序查看规则、免费宝箱与宝箱商城入口。参与有风险，结果以链上结算为准。"
         )
     return (
@@ -184,6 +211,14 @@ async def render_start():
 
 async def render_round():
     s = await current_round_summary()
+    if s["status"] == "unavailable":
+        return (
+            f"<b>轮次 {_esc(s['round'])} 实时状态</b>\n"
+            f"• 阶段：{_esc(s['state'])}\n"
+            f"• 目标价：<code>{_esc(s['target'])}</code>\n"
+            f"• 达标时段：<code>{_esc(s['qualified'])}</code>（需 ≥ 16/24）\n"
+            "协议状态接口暂不可达或返回数据异常，当前数据待核验，请稍后重试。"
+        )
     return (
         f"<b>轮次 {_esc(s['round'])} 实时状态</b>\n"
         f"• 阶段：{_esc(s['state'])}\n"
