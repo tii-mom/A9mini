@@ -12,12 +12,14 @@ function deriveV3Base(v2Base) {
 }
 
 export class TonCenterClient {
-  constructor({ apiBase, v3ApiBase = null, apiKey = '', testnet = false, fetchImpl = globalThis.fetch, minIntervalMs = null, maxRetries = 3, timeoutMs = 8000 } = {}) {
+  constructor({ apiBase, v3ApiBase = null, apiKey = '', testnet = false, preferV3Inbound = null, fetchImpl = globalThis.fetch, minIntervalMs = null, maxRetries = 3, timeoutMs = 8000 } = {}) {
     if (!apiBase) throw new Error('TONCENTER_API_BASE is required');
     this.apiBase = apiBase.replace(/\/+$/, '');
     this.v3ApiBase = v3ApiBase ? String(v3ApiBase).replace(/\/+$/, '') : deriveV3Base(this.apiBase);
     this.apiKey = apiKey;
     this.testnet = Boolean(testnet) || /testnet/i.test(this.apiBase);
+    // 真实 TonCenter 节点优先使用基于索引库的 v3 /transactions 扫链，避免 v2 archival=false 命中剪枝块报 HTTP 500 并提供真实 mc_block_seqno 终局性
+    this.preferV3Inbound = preferV3Inbound !== null ? Boolean(preferV3Inbound) : /toncenter\.com/i.test(this.apiBase);
     // Cloudflare workerd 禁止将 globalThis.fetch 挂载到实例上以 this.fetch(...) 方式调用（会触发 Illegal invocation）
     this.fetch = fetchImpl === globalThis.fetch && typeof globalThis.fetch === 'function'
       ? (...args) => globalThis.fetch(...args)
@@ -51,6 +53,10 @@ export class TonCenterClient {
       if (res.ok) return await res.json();
       if ((res.status === 429 || res.status === 503) && attempt < this.maxRetries) {
         await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+        continue;
+      }
+      if ((res.status === 500 || res.status === 502 || res.status === 504 || res.status === 542) && attempt < this.maxRetries) {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
         continue;
       }
       throw new Error(`TonCenter HTTP ${res.status} on ${pathLabel}`);
@@ -246,16 +252,165 @@ export class TonCenterClient {
     return out;
   }
 
+  _normalizeV3InboundTx(tx, hotWalletAddress, { requireMasterchainFinality = true } = {}) {
+    const inMsg = tx?.in_msg;
+    if (!inMsg || !inMsg.source || !tx?.hash || !tx?.lt) return null;
+    if (inMsg.bounced === true) return null;
+    if (tx?.description?.aborted === true) return null;
+    const val = BigInt(inMsg.value || '0');
+    if (val <= 0n) return null;
+
+    const mcSeqno = Number(tx.mc_block_seqno || 0);
+    const hasMcFinality = Number.isFinite(mcSeqno) && mcSeqno > 0;
+    if (requireMasterchainFinality && !hasMcFinality) return null;
+
+    let memo = '';
+    const decoded = inMsg.message_content?.decoded;
+    if (decoded && typeof decoded.comment === 'string') {
+      memo = decoded.comment.trim();
+    } else if (typeof inMsg.comment === 'string') {
+      memo = inMsg.comment.trim();
+    }
+    return {
+      txHash: String(tx.hash),
+      lt: String(tx.lt),
+      utime: Number(tx.now || 0),
+      to: hotWalletAddress,
+      from: String(inMsg.source),
+      valueNano: val.toString(),
+      memo,
+      finality: hasMcFinality ? 'finalized' : 'unconfirmed',
+      mcBlockSeqno: hasMcFinality ? mcSeqno : null,
+    };
+  }
+
+  async _fetchInboundTransfersSinceV3(
+    hotWalletAddress,
+    { cursorLt = null, cursorHash = null, pageSize = 50, maxPages = 20, requireMasterchainFinality = true } = {},
+  ) {
+    const stopLt = cursorLt ? BigInt(cursorLt) : null;
+    const seenHashes = new Set();
+    const collected = [];
+    let newestCursor = null;
+    let reachedCursor = stopLt === null;
+    let truncated = false;
+
+    if (stopLt !== null) {
+      // 有持久游标时：必须使用 TonCenter v3 的 start_lt + sort=asc 范围增量查询。
+      // 既彻底规避 offset 漂移漏单，又绕开 TonCenter v3 无边界 limit=50&sort=desc 的陈旧索引视图。
+      let currentStartLt = stopLt;
+      reachedCursor = true;
+      for (let page = 0; page < maxPages; page += 1) {
+        const params = new URLSearchParams({
+          account: hotWalletAddress,
+          limit: String(pageSize),
+          start_lt: currentStartLt.toString(),
+          sort: 'asc',
+        });
+        const body = await this._requestV3(`/transactions?${params.toString()}`, { method: 'GET' });
+        const rows = Array.isArray(body?.transactions) ? body.transactions : [];
+        if (!rows.length) break;
+
+        let lastRowLt = null;
+        let hitUnconfirmed = false;
+        for (const tx of rows) {
+          const hash = tx?.hash ? String(tx.hash) : null;
+          const ltStr = tx?.lt ? String(tx.lt) : null;
+          if (!hash || !ltStr) continue;
+          const ltBig = BigInt(ltStr);
+          lastRowLt = ltBig;
+
+          // 按 lt 升序消费：一旦遇到尚未进入主链终局块的交易即停止推进，下个 tick 再确认
+          const mcSeqno = Number(tx.mc_block_seqno || 0);
+          if (requireMasterchainFinality && (!Number.isFinite(mcSeqno) || mcSeqno <= 0)) {
+            hitUnconfirmed = true;
+            break;
+          }
+          if (ltBig < stopLt || (ltBig === stopLt && (!cursorHash || hash === cursorHash))) {
+            continue;
+          }
+          newestCursor = { lt: ltStr, hash };
+          if (seenHashes.has(hash)) continue;
+          seenHashes.add(hash);
+
+          const norm = this._normalizeV3InboundTx(tx, hotWalletAddress, { requireMasterchainFinality });
+          if (norm) collected.push(norm);
+        }
+
+        if (hitUnconfirmed || rows.length < pageSize || lastRowLt === null) break;
+        const nextStart = lastRowLt + 1n;
+        if (nextStart <= currentStartLt) break;
+        currentStartLt = nextStart;
+        if (page === maxPages - 1) truncated = true;
+      }
+
+      return {
+        transfers: collected,
+        nextCursor: newestCursor,
+        reachedCursor,
+        truncated,
+      };
+    }
+
+    // 无游标冷启动：拉取最新一页（限定 limit<=30 避免 TonCenter v3 大窗口缓存陈旧），按 lt 升序返回
+    const coldLimit = Math.min(pageSize, 30);
+    const params = new URLSearchParams({
+      account: hotWalletAddress,
+      limit: String(coldLimit),
+      sort: 'desc',
+    });
+    const body = await this._requestV3(`/transactions?${params.toString()}`, { method: 'GET' });
+    const rows = Array.isArray(body?.transactions) ? body.transactions : [];
+    for (const tx of rows) {
+      const hash = tx?.hash ? String(tx.hash) : null;
+      const ltStr = tx?.lt ? String(tx.lt) : null;
+      if (!hash || !ltStr) continue;
+      const mcSeqno = Number(tx.mc_block_seqno || 0);
+      if (!newestCursor && (!requireMasterchainFinality || mcSeqno > 0)) {
+        newestCursor = { lt: ltStr, hash };
+      }
+      if (seenHashes.has(hash)) continue;
+      seenHashes.add(hash);
+      const norm = this._normalizeV3InboundTx(tx, hotWalletAddress, { requireMasterchainFinality });
+      if (norm) collected.push(norm);
+    }
+
+    collected.sort((a, b) => {
+      const la = a.lt ? BigInt(a.lt) : 0n;
+      const lb = b.lt ? BigInt(b.lt) : 0n;
+      if (la < lb) return -1;
+      if (la > lb) return 1;
+      return (a.utime || 0) - (b.utime || 0);
+    });
+
+    return {
+      transfers: collected,
+      nextCursor: newestCursor,
+      reachedCursor: true,
+      truncated: false,
+    };
+  }
+
   /**
    * 基于持久化 (lt, hash) 游标向后分页补扫全部增量入账，彻底突破 30 笔窗口上限。
-   * - 按 lt 升序（由旧到新）返回增量 transfers，保证消费顺序确定；
-   * - 仅在检测到新交易时返回 nextCursor = { lt, hash }，供调用方全部安全落库后再推进游标；
-   * - 自动去重翻页边界记录（TonCenter 分页包含上一页最后一条）。
+   * - 真实 TonCenter 优先走索引库 v3 /transactions（抗剪枝块 500 并自带 mc_block_seqno 主链终局）；
+   * - 非 TonCenter 或自定义端点先走 v2 /getTransactions，遇 HTTP 5xx 自动降级到 v3 /transactions；
+   * - 按 lt 升序（由旧到新）返回增量 transfers，保证消费顺序确定。
    */
   async fetchInboundTransfersSince(
     hotWalletAddress,
     { cursorLt = null, cursorHash = null, pageSize = 50, maxPages = 20, requireMasterchainFinality = false } = {},
   ) {
+    if (this.preferV3Inbound) {
+      return this._fetchInboundTransfersSinceV3(hotWalletAddress, {
+        cursorLt,
+        cursorHash,
+        pageSize,
+        maxPages,
+        requireMasterchainFinality: true,
+      });
+    }
+
     const stopLt = cursorLt ? BigInt(cursorLt) : null;
     const seenHashes = new Set();
     const collected = [];
@@ -265,52 +420,65 @@ export class TonCenterClient {
     let reachedCursor = stopLt === null;
     let truncated = false;
 
-    for (let page = 0; page < maxPages; page += 1) {
-      const params = { address: hotWalletAddress, limit: String(pageSize), archival: 'false' };
-      if (pageLt && pageHash) {
-        params.lt = pageLt;
-        params.hash = pageHash;
-      }
-      const q = new URLSearchParams(params);
-      const body = await this._request(`/getTransactions?${q.toString()}`, { method: 'GET' });
-      const rows = body?.ok && Array.isArray(body.result) ? body.result : [];
-      if (!rows.length) {
-        reachedCursor = true;
-        break;
-      }
-
-      let hitBoundary = false;
-      for (const tx of rows) {
-        const hash = tx?.transaction_id?.hash;
-        const ltStr = tx?.transaction_id?.lt ? String(tx.transaction_id.lt) : null;
-        if (!hash || !ltStr) continue;
-        if (!newestCursor) newestCursor = { lt: ltStr, hash };
-
-        if (stopLt !== null && (BigInt(ltStr) < stopLt || (BigInt(ltStr) === stopLt && (!cursorHash || hash === cursorHash)))) {
-          hitBoundary = true;
+    try {
+      for (let page = 0; page < maxPages; page += 1) {
+        const params = { address: hotWalletAddress, limit: String(pageSize), archival: 'false' };
+        if (pageLt && pageHash) {
+          params.lt = pageLt;
+          params.hash = pageHash;
+        }
+        const q = new URLSearchParams(params);
+        const body = await this._request(`/getTransactions?${q.toString()}`, { method: 'GET' });
+        const rows = body?.ok && Array.isArray(body.result) ? body.result : [];
+        if (!rows.length) {
           reachedCursor = true;
           break;
         }
-        if (seenHashes.has(hash)) continue;
-        seenHashes.add(hash);
 
-        const norm = this._normalizeInboundTx(tx, hotWalletAddress, { requireMasterchainFinality });
-        if (norm) collected.push(norm);
-      }
+        let hitBoundary = false;
+        for (const tx of rows) {
+          const hash = tx?.transaction_id?.hash;
+          const ltStr = tx?.transaction_id?.lt ? String(tx.transaction_id.lt) : null;
+          if (!hash || !ltStr) continue;
+          if (!newestCursor) newestCursor = { lt: ltStr, hash };
 
-      if (hitBoundary || rows.length < pageSize) {
-        reachedCursor = true;
-        break;
+          if (stopLt !== null && (BigInt(ltStr) < stopLt || (BigInt(ltStr) === stopLt && (!cursorHash || hash === cursorHash)))) {
+            hitBoundary = true;
+            reachedCursor = true;
+            break;
+          }
+          if (seenHashes.has(hash)) continue;
+          seenHashes.add(hash);
+
+          const norm = this._normalizeInboundTx(tx, hotWalletAddress, { requireMasterchainFinality });
+          if (norm) collected.push(norm);
+        }
+
+        if (hitBoundary || rows.length < pageSize) {
+          reachedCursor = true;
+          break;
+        }
+        const oldest = rows[rows.length - 1];
+        const nextLt = oldest?.transaction_id?.lt ? String(oldest.transaction_id.lt) : null;
+        const nextHash = oldest?.transaction_id?.hash || null;
+        if (!nextLt || !nextHash || (nextLt === pageLt && nextHash === pageHash)) {
+          break;
+        }
+        pageLt = nextLt;
+        pageHash = nextHash;
+        if (page === maxPages - 1) truncated = !reachedCursor;
       }
-      const oldest = rows[rows.length - 1];
-      const nextLt = oldest?.transaction_id?.lt ? String(oldest.transaction_id.lt) : null;
-      const nextHash = oldest?.transaction_id?.hash || null;
-      if (!nextLt || !nextHash || (nextLt === pageLt && nextHash === pageHash)) {
-        break;
+    } catch (e) {
+      if (this.v3ApiBase && /HTTP 5\d\d/.test(String(e?.message || ''))) {
+        return this._fetchInboundTransfersSinceV3(hotWalletAddress, {
+          cursorLt,
+          cursorHash,
+          pageSize,
+          maxPages,
+          requireMasterchainFinality: true,
+        });
       }
-      pageLt = nextLt;
-      pageHash = nextHash;
-      if (page === maxPages - 1) truncated = !reachedCursor;
+      throw e;
     }
 
     // 按逻辑时间 lt 升序返回（老交易先入账）
@@ -337,18 +505,26 @@ export class TonCenterClient {
    * - kind === 'REFUND'：查询 v3 /messages，按 (destination, value >= amount, memo/txHash, !bounced, !aborted)
    *   核验 GRAM 原路退款真实落地。
    */
-  async verifyOutboundPayout(hotWalletAddress, payout, { jettonMasterAddress = null, limit = 100 } = {}) {
+  async verifyOutboundPayout(hotWalletAddress, payout, { jettonMasterAddress = null, limit = 50, startUtime = null } = {}) {
     if (!hotWalletAddress || !payout) return { state: 'PENDING' };
     const kind = String(payout.kind || 'A9').toUpperCase();
     const targetRecipientKey = addressKey(payout.recipient);
     const targetAmount = BigInt(payout.amount || payout.jettonAmountRaw || payout.tonNano || 0);
     const targetQueryId = payout.queryId !== undefined && payout.queryId !== null ? String(payout.queryId) : null;
+    const createdAtNum = Number(payout.createdAt ?? payout.created_at ?? 0);
+    const effectiveStartUtime = startUtime !== null
+      ? Math.max(0, Math.floor(Number(startUtime)))
+      : (createdAtNum > 1_000_000_000
+          ? Math.max(0, Math.floor(createdAtNum) - 300)
+          : Math.max(0, Math.floor(Date.now() / 1000) - 3600));
 
     if (kind === 'A9') {
       if (!targetQueryId) return { state: 'PENDING', reason: 'MISSING_QUERY_ID' };
       const params = new URLSearchParams({
         owner_address: hotWalletAddress,
         direction: 'out',
+        start_utime: String(effectiveStartUtime),
+        sort: 'desc',
         limit: String(limit),
       });
       if (jettonMasterAddress) params.set('jetton_master', jettonMasterAddress);
@@ -380,8 +556,11 @@ export class TonCenterClient {
       const params = new URLSearchParams({
         source: hotWalletAddress,
         direction: 'out',
+        start_utime: String(effectiveStartUtime),
+        sort: 'desc',
         limit: String(limit),
       });
+      if (payout.recipient) params.set('destination', payout.recipient);
       let body;
       try {
         body = await this._requestV3(`/messages?${params.toString()}`, { method: 'GET' });
@@ -396,7 +575,7 @@ export class TonCenterClient {
         if (destKey !== targetRecipientKey) continue;
         const val = BigInt(m.value || 0);
         const comment = String(m.message_content?.decoded?.comment ?? m.comment ?? '').trim();
-        const txHash = m.in_msg_tx_hash || m.tx_hash || m.hash || null;
+        const txHash = m.in_msg_tx_hash || m.out_msg_tx_hash || m.tx_hash || m.hash || null;
         const normHash = txHash ? String(txHash).replace(/^0x/i, '').toLowerCase() : null;
         const memoHit = Boolean(expectedMemo && comment === expectedMemo);
         const hashHit = Boolean(targetHash && normHash && (normHash === targetHash));
@@ -406,6 +585,10 @@ export class TonCenterClient {
         }
         if (m.trace_incomplete === true) {
           return { state: 'PENDING', txHash: txHash || payout.txHash || null, reason: 'TRACE_INCOMPLETE' };
+        }
+        // TonCenter v3 真实消息对象显式给出 in_msg_tx_hash: null 表示尚未在收款方账户落地
+        if (Object.prototype.hasOwnProperty.call(m, 'in_msg_tx_hash') && m.in_msg_tx_hash === null) {
+          return { state: 'PENDING', txHash: txHash || payout.txHash || null, reason: 'IN_MSG_NOT_DELIVERED' };
         }
         if (val >= targetAmount) {
           return { state: 'CONFIRMED', txHash: txHash || payout.txHash || null };

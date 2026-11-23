@@ -21,13 +21,18 @@ async function runActonScript({ network, scriptRelPath, cwd, env, spawnImpl }) {
     }
     return String(res.stdout || '');
   }
-  const res = await execFileAsync('acton', ['script', '--net', network, scriptRelPath], {
-    cwd,
-    env,
-    encoding: 'utf8',
-    timeout: 60000,
-  });
-  return String(res.stdout || '');
+  try {
+    const res = await execFileAsync('acton', ['script', '--net', network, scriptRelPath], {
+      cwd,
+      env,
+      encoding: 'utf8',
+      timeout: 120000,
+    });
+    return String(res.stdout || '');
+  } catch (err) {
+    const detail = String(err?.stderr || err?.stdout || err?.message || err).trim();
+    throw new Error(`acton script failed (${scriptRelPath}): ${detail}`);
+  }
 }
 
 export function createActonPromoBroadcaster({
@@ -37,6 +42,7 @@ export function createActonPromoBroadcaster({
   transferGasNano = process.env.A9_PROMO_TRANSFER_GAS_NANO || '50000000',
   projectRoot = DEFAULT_V15_ROOT,
   scriptPath = '../ops/tolk/promo_payout_v15.tolk',
+  baseEnv = process.env,
   spawnImpl = null,
 } = {}) {
   if (!jettonMasterAddress) throw new Error('A9_JETTON_MASTER_ADDRESS is required for live promo broadcaster');
@@ -45,7 +51,7 @@ export function createActonPromoBroadcaster({
   return async function broadcastPromoPayout(payoutInstruction) {
     const queryId = payoutInstruction.queryId ? String(payoutInstruction.queryId) : String(Date.now());
     const env = {
-      ...process.env,
+      ...baseEnv,
       OPS_EXECUTE: 'true',
       A9_NETWORK: network,
       A9_PROMO_HOT_WALLET_NAME: hotWalletName,
@@ -74,6 +80,7 @@ export function createActonGramRefundBroadcaster({
   hotWalletName = process.env.A9_PRESALE_HOT_WALLET_NAME || '',
   projectRoot = DEFAULT_V15_ROOT,
   scriptPath = '../ops/tolk/gram_refund_v15.tolk',
+  baseEnv = process.env,
   spawnImpl = null,
 } = {}) {
   if (!hotWalletName) throw new Error('A9_PRESALE_HOT_WALLET_NAME is required for live GRAM refund broadcaster');
@@ -86,7 +93,7 @@ export function createActonGramRefundBroadcaster({
     }
     const memo = instruction.memo || (instruction.queryId ? `refund:${instruction.queryId}` : '');
     const env = {
-      ...process.env,
+      ...baseEnv,
       OPS_EXECUTE: 'true',
       A9_NETWORK: network,
       A9_PRESALE_HOT_WALLET_NAME: hotWalletName,

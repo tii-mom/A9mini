@@ -115,14 +115,22 @@ fun main() {
     }
 
     val body = memo.calculateLength() > 0 ? buildCommentCell(memo) : beginCell().endCell();
-    val trace = net.send(hotWallet.address, createMessage({
+    val sent = net.send(hotWallet.address, createMessage({
         bounce: false,
         value: refundNano,
         dest: recipient,
         body,
-    })).waitForTrace();
-    if (trace == null) { Assert.fail("gram refund trace unavailable"); }
-    assertTraceOk(trace!);
-    val firstTx = trace!.at(0).tx as cell;
+    }));
+    val trace = sent.waitForTrace(false, 18, 2500);
+    if (trace != null) {
+        assertTraceOk(trace!);
+        val firstTx = trace!.at(0).tx as cell;
+        println("GRAM_REFUND_TX=0x{:x}", firstTx.hash());
+        return;
+    }
+    val first = sent.waitForFirstTransaction(false, 10, 2500);
+    if (first == null) { Assert.fail("gram refund transaction unavailable"); }
+    val firstTx = first!.tx as cell;
+    println("  tx[0] = 0x{:x}", firstTx.hash());
     println("GRAM_REFUND_TX=0x{:x}", firstTx.hash());
 }

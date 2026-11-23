@@ -139,9 +139,15 @@ fun main() {
         Assert.fail(format("insufficient signer balance ({} < {})", signerBal, minBal));
     }
 
-    val trace = net.send(signer.address, msg!).waitForTrace();
-    if (trace == null) { Assert.fail("trace unavailable"); }
-    assertTraceOk(trace!);
+    val sent = net.send(signer.address, msg!);
+    val trace = sent.waitForTrace(false, 12, 2500);
+    if (trace != null) {
+        assertTraceOk(trace!);
+    } else {
+        val first = sent.waitForFirstTransaction(false, 15, 2500);
+        if (first == null) { Assert.fail("round op transaction unavailable"); }
+        println("  tx[0] = 0x{:x}", (first!.tx as cell).hash());
+    }
     val st = net.runGetMethod<ProtocolStateView>(rc, "get_protocol_state");
     println("State after op: round={} wins={} poolRemaining={} carry={} endAt={}",
         st.currentRoundId, st.successCount, st.poolRemainingRaw, st.carryRaw, st.endAt);

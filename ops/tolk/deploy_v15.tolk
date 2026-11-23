@@ -33,7 +33,7 @@ fun reqStr(name: string): string {
 }
 
 fun sendAndVerify(from: address, msg: OutMessage, label: string) {
-    val trace = net.send(from, msg).waitForTrace();
+    val trace = net.send(from, msg).waitForTrace(false, 25, 3000);
     if (trace == null || trace!.size() == 0) {
         Assert.fail(format("{}: trace unavailable; check explorer before retry", label));
     }

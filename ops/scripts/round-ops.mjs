@@ -66,8 +66,9 @@ if (args.action === 'open-round') {
   if (args.candlesFile) {
     if (!args.target) throw new Error('--target <usd_e8> is required with --candles-file');
     const candles = JSON.parse(readFileSync(args.candlesFile, 'utf8'));
+    const canEnforceObs = p.timing.observationSeconds % p.timing.candleCount === 0;
     const agg = aggregateCandles(args.round, args.target, candles, p.timing.candleCount, {
-      observationSeconds: p.timing.observationSeconds,
+      ...(canEnforceObs ? { observationSeconds: p.timing.observationSeconds } : {}),
       ...(args.stakeCloseAt !== undefined ? { stakeCloseAt: args.stakeCloseAt } : {}),
     });
     qualified = agg.qualifiedCandles;

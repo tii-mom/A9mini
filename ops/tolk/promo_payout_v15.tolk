@@ -30,33 +30,37 @@ fun reqStr(name: string): string {
     return v!;
 }
 
+fun assertSingleTxOk(item: SendResult, idx: int) {
+    val rawCell = item.tx as cell;
+    println("  tx[{}] = 0x{:x}", idx, rawCell.hash());
+    val tx = item.tx.load();
+    val descr = tx.description.load();
+    if (descr is TlbTransOrd) {
+        if (descr.aborted) {
+            Assert.fail(format("tx[{}] aborted on-chain", idx));
+        }
+        val c = descr.computePh;
+        if (c is TlbTrComputeVm) {
+            val exitCode = c.data.load().exitCode;
+            if (exitCode != 0 && exitCode != 1) {
+                Assert.fail(format("tx[{}] failed compute exitCode={}", idx, exitCode));
+            }
+        }
+        val act = descr.action;
+        if (!(act is TlbNone)) {
+            val actionPh = act.value.load();
+            if (!actionPh.success) {
+                Assert.fail(format("tx[{}] failed action resultCode={}", idx, actionPh.resultCode));
+            }
+        }
+    }
+}
+
 fun assertTraceOk(trace: SendResultList) {
     if (trace.size() == 0) { Assert.fail("promo payout trace is empty"); }
     var i = 0;
     while (i < trace.size()) {
-        val rawCell = trace.at(i).tx as cell;
-        println("  tx[{}] = 0x{:x}", i, rawCell.hash());
-        val tx = trace.at(i).tx.load();
-        val descr = tx.description.load();
-        if (descr is TlbTransOrd) {
-            if (descr.aborted) {
-                Assert.fail(format("tx[{}] aborted on-chain", i));
-            }
-            val c = descr.computePh;
-            if (c is TlbTrComputeVm) {
-                val exitCode = c.data.load().exitCode;
-                if (exitCode != 0 && exitCode != 1) {
-                    Assert.fail(format("tx[{}] failed compute exitCode={}", i, exitCode));
-                }
-            }
-            val act = descr.action;
-            if (!(act is TlbNone)) {
-                val actionPh = act.value.load();
-                if (!actionPh.success) {
-                    Assert.fail(format("tx[{}] failed action resultCode={}", i, actionPh.resultCode));
-                }
-            }
-        }
+        assertSingleTxOk(trace.at(i), i);
         i += 1;
     }
 }
@@ -102,14 +106,23 @@ fun main() {
         .storeUint(0, 1)
         .endCell();
 
-    val trace = net.send(hotWallet.address, createMessage({
+    val sent = net.send(hotWallet.address, createMessage({
         bounce: true,
         value: gasNano,
         dest: hotJettonWallet,
         body,
-    })).waitForTrace();
-    if (trace == null) { Assert.fail("promo payout trace unavailable"); }
-    assertTraceOk(trace!);
-    val firstTx = trace!.at(0).tx as cell;
+    }));
+    val trace = sent.waitForTrace(false, 18, 2500);
+    if (trace != null) {
+        assertTraceOk(trace!);
+        val firstTx = trace!.at(0).tx as cell;
+        println("PROMO_PAYOUT_TX=0x{:x}", firstTx.hash());
+        return;
+    }
+    // 多跳 Jetton trace 索引较慢时回退至确认根钱包交易，并由 payout-daemon 通过 TonCenter v3 核验最终下游到账
+    val first = sent.waitForFirstTransaction(false, 10, 2500);
+    if (first == null) { Assert.fail("promo payout transaction unavailable"); }
+    assertSingleTxOk(first!, 0);
+    val firstTx = first!.tx as cell;
     println("PROMO_PAYOUT_TX=0x{:x}", firstTx.hash());
 }

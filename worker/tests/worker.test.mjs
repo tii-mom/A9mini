@@ -1821,4 +1821,171 @@ await test('W2-6: /api/user/:wallet scans historical tickets beyond 6 rounds, /a
   assert.equal(hBody.data.checks.runnerHeartbeats[0].runnerId, 'd1');
 });
 
+await test('W2-7: TonCenter v3 start_lt+mc_block_seqno scan, v2 500->v3 fallback, start_utime verifier, baseEnv & daemon fault isolation', async () => {
+  const { createPayoutDaemon } = await import('../src/payout-daemon.mjs');
+  const { createActonPromoBroadcaster, createActonGramRefundBroadcaster } = await import('../src/acton-broadcaster.mjs');
+  const HOT = '0:' + 'aa'.repeat(32);
+  const PROMO = '0:' + 'bb'.repeat(32);
+  const BUYER = '0:' + 'cc'.repeat(32);
+  const MASTER = '0:' + 'dd'.repeat(32);
+
+  // 1) Real toncenter.com domain defaults to v3 start_lt + sort=asc & stops cursor at mc_block_seqno=0
+  const v3Urls = [];
+  const tcV3 = new TonCenterClient({
+    apiBase: 'https://testnet.toncenter.com/api/v2',
+    apiKey: 'k',
+    fetchImpl: async (url) => {
+      const u = String(url);
+      v3Urls.push(u);
+      assert.ok(u.includes('/api/v3/transactions'));
+      assert.ok(u.includes('start_lt=100'));
+      assert.ok(u.includes('sort=asc'));
+      return {
+        ok: true,
+        json: async () => ({
+          transactions: [
+            { lt: '100', hash: 'h100', mc_block_seqno: 9001, in_msg: { source: BUYER, value: '990000000', message_content: { decoded: { comment: 'buy:old' } } } },
+            { lt: '101', hash: 'h101', mc_block_seqno: 9002, in_msg: { source: BUYER, value: '990000000', message_content: { decoded: { comment: 'buy:ok' } } } },
+            { lt: '102', hash: 'h102', mc_block_seqno: 0, in_msg: { source: BUYER, value: '990000000', message_content: { decoded: { comment: 'buy:unconfirmed' } } } },
+          ],
+        }),
+      };
+    },
+  });
+  const scanRes = await tcV3.fetchInboundTransfersSince(HOT, { cursorLt: '100', cursorHash: 'h100' });
+  assert.equal(scanRes.transfers.length, 1);
+  assert.equal(scanRes.transfers[0].memo, 'buy:ok');
+  assert.deepEqual(scanRes.nextCursor, { lt: '101', hash: 'h101' });
+
+  // 2) Non-toncenter v2 HTTP 500 falls back automatically to v3 /transactions
+  let v2Tried = 0;
+  let v3FallbackTried = 0;
+  const tcFallback = new TonCenterClient({
+    apiBase: 'https://custom-rpc.example/api/v2',
+    apiKey: 'k',
+    maxRetries: 1,
+    fetchImpl: async (url) => {
+      const u = String(url);
+      if (u.includes('/getTransactions')) {
+        v2Tried += 1;
+        return { ok: false, status: 500, json: async () => ({ ok: false, error: 'LITE_SERVER_UNKNOWN' }) };
+      }
+      if (u.includes('/api/v3/transactions')) {
+        v3FallbackTried += 1;
+        return {
+          ok: true,
+          json: async () => ({
+            transactions: [
+              { lt: '205', hash: 'h205', mc_block_seqno: 9900, in_msg: { source: BUYER, value: '990000000', message_content: { decoded: { comment: 'buy:fb' } } } },
+            ],
+          }),
+        };
+      }
+      throw new Error(`unexpected url ${u}`);
+    },
+  });
+  const fbRes = await tcFallback.fetchInboundTransfersSince(HOT, { cursorLt: '200', cursorHash: 'h200' });
+  assert.ok(v2Tried >= 1);
+  assert.equal(v3FallbackTried, 1);
+  assert.equal(fbRes.transfers.length, 1);
+  assert.equal(fbRes.transfers[0].memo, 'buy:fb');
+
+  // 3) verifyOutboundPayout attaches start_utime + sort=desc, and holds REFUND PENDING when in_msg_tx_hash is null
+  let seenRefundUrl = '';
+  const tcVerify = new TonCenterClient({
+    apiBase: 'https://testnet.toncenter.com/api/v2',
+    apiKey: 'k',
+    fetchImpl: async (url) => {
+      seenRefundUrl = String(url);
+      return {
+        ok: true,
+        json: async () => ({
+          messages: [
+            {
+              destination: BUYER,
+              value: '990000000',
+              bounced: false,
+              in_msg_tx_hash: null,
+              out_msg_tx_hash: 'out_only_1',
+              message_content: { decoded: { comment: 'refund:42' } },
+            },
+          ],
+        }),
+      };
+    },
+  });
+  const pendingRefund = await tcVerify.verifyOutboundPayout(HOT, {
+    kind: 'REFUND',
+    recipient: BUYER,
+    amount: '990000000',
+    queryId: '42',
+    createdAt: 1795432000,
+  });
+  assert.ok(seenRefundUrl.includes('start_utime=1795431700'));
+  assert.ok(seenRefundUrl.includes('sort=desc'));
+  assert.equal(pendingRefund.state, 'PENDING');
+  assert.equal(pendingRefund.reason, 'IN_MSG_NOT_DELIVERED');
+
+  // 4) Broadcasters propagate baseEnv (including OPS_CONFIRM & OPS_CONFIRM_MAINNET)
+  const capturedEnvs = [];
+  const fakeSpawn = (_cmd, _args, opts) => {
+    capturedEnvs.push(opts.env);
+    return { status: 0, stdout: 'PROMO_PAYOUT_TX=0xdeadbeef\nGRAM_REFUND_TX=0xcafebabe\n', stderr: '' };
+  };
+  const promoBc = createActonPromoBroadcaster({
+    network: 'mainnet',
+    hotWalletName: 'promoHot',
+    jettonMasterAddress: MASTER,
+    baseEnv: { OPS_CONFIRM: 'YES', OPS_CONFIRM_MAINNET: 'YES', CUSTOM_SENTINEL: 'ok' },
+    spawnImpl: fakeSpawn,
+  });
+  await promoBc({ recipient: BUYER, jettonAmountRaw: '1000', queryId: '7' });
+  const refundBc = createActonGramRefundBroadcaster({
+    network: 'mainnet',
+    hotWalletName: 'presaleHot',
+    baseEnv: { OPS_CONFIRM: 'YES', OPS_CONFIRM_MAINNET: 'YES', CUSTOM_SENTINEL: 'ok' },
+    spawnImpl: fakeSpawn,
+  });
+  await refundBc({ recipient: BUYER, tonNano: '990000000', queryId: '8' });
+  assert.equal(capturedEnvs[0].OPS_CONFIRM, 'YES');
+  assert.equal(capturedEnvs[0].OPS_CONFIRM_MAINNET, 'YES');
+  assert.equal(capturedEnvs[0].CUSTOM_SENTINEL, 'ok');
+  assert.equal(capturedEnvs[1].OPS_CONFIRM, 'YES');
+  assert.equal(capturedEnvs[1].OPS_CONFIRM_MAINNET, 'YES');
+
+  // 5) payout-daemon isolates presaleRunner error so promoRunner still ticks and heartbeat logs status='degraded'
+  const db = createSqliteD1(MIGRATIONS);
+  let promoTicked = 0;
+  const daemon = createPayoutDaemon({
+    db,
+    env: {
+      A9_NETWORK: 'testnet',
+      A9_SQLITE_PATH: '/tmp/unused.sqlite',
+      TONCENTER_API_BASE: 'https://testnet.toncenter.com/api/v2',
+      A9_PROMO_HOT_WALLET_ADDRESS: PROMO,
+      A9_PRESALE_HOT_WALLET_ADDRESS: HOT,
+      A9_RUNNER_ID: 'iso-daemon',
+    },
+    executeFlag: false,
+    tonCenter: {
+      fetchInboundTransfersSince: async (addr) => {
+        if (addr === HOT) throw new Error('simulated presale rpc outage');
+        promoTicked += 1;
+        return { transfers: [], nextCursor: null, reachedCursor: true, truncated: false };
+      },
+    },
+    logger: { log() {}, error() {} },
+  });
+  // Force uncaught throw from presaleRunner.tick directly to exercise daemon-level isolation
+  daemon.presaleRunner.tick = async () => { throw new Error('boom presale'); };
+  const tickOut = await daemon.runOnce(1795432500);
+  assert.equal(promoTicked, 1);
+  assert.equal(tickOut.errors.length, 1);
+  assert.ok(tickOut.errors[0].includes('boom presale'));
+  const hb = await db.prepare('SELECT meta_json FROM runner_heartbeats WHERE runner_id = ?').bind('iso-daemon').first();
+  const meta = JSON.parse(hb.meta_json);
+  assert.equal(meta.status, 'degraded');
+  assert.ok(meta.lastError.includes('boom presale'));
+});
+
 console.log(`All ${passed} A9 v15 worker tests passed.`);

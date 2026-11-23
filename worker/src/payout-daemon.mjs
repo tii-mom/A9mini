@@ -192,6 +192,7 @@ export function createPayoutDaemon({
         jettonMasterAddress: cfg.jettonMasterAddress,
         transferGasNano: env.A9_PROMO_TRANSFER_GAS_NANO || '50000000',
         projectRoot,
+        baseEnv: env,
       })
     : null);
 
@@ -202,6 +203,7 @@ export function createPayoutDaemon({
         jettonMasterAddress: cfg.jettonMasterAddress,
         transferGasNano: env.A9_PROMO_TRANSFER_GAS_NANO || '50000000',
         projectRoot,
+        baseEnv: env,
       })
     : null);
 
@@ -210,6 +212,7 @@ export function createPayoutDaemon({
         network: cfg.network,
         hotWalletName: cfg.presaleWalletName,
         projectRoot,
+        baseEnv: env,
       })
     : null);
 
@@ -246,29 +249,42 @@ export function createPayoutDaemon({
   };
 
   async function runOnce(nowSec = Math.floor(Date.now() / 1000)) {
-    const out = { nowSec, executeLive: cfg.executeLive, presale: null, promo: null };
-    try {
-      if (presaleRunner) out.presale = await presaleRunner.tick(nowSec);
-      if (promoRunner) out.promo = await promoRunner.tick(nowSec);
-      state.lastTickAt = nowSec;
-      state.ticks += 1;
-      state.lastSummary = out;
-      state.lastError = null;
-      await recordRunnerHeartbeat(ledger, {
-        runnerId: cfg.runnerId,
-        role: 'payout_daemon',
-        network: cfg.network,
-        nowSec,
-        meta: {
-          executeLive: cfg.executeLive,
-          presaleErrors: out.presale?.errors?.length || 0,
-          promoErrors: out.promo?.errors?.length || 0,
-        },
-      });
-    } catch (e) {
-      state.lastError = e?.message || String(e);
-      throw e;
+    const out = { nowSec, executeLive: cfg.executeLive, presale: null, promo: null, errors: [] };
+    if (presaleRunner) {
+      try {
+        out.presale = await presaleRunner.tick(nowSec);
+      } catch (e) {
+        const msg = e?.message || String(e);
+        out.errors.push(`presale: ${msg}`);
+        logger.error('[payout-daemon] presale tick error:', msg);
+      }
     }
+    if (promoRunner) {
+      try {
+        out.promo = await promoRunner.tick(nowSec);
+      } catch (e) {
+        const msg = e?.message || String(e);
+        out.errors.push(`promo: ${msg}`);
+        logger.error('[payout-daemon] promo tick error:', msg);
+      }
+    }
+    state.lastTickAt = nowSec;
+    state.ticks += 1;
+    state.lastSummary = out;
+    state.lastError = out.errors.length ? out.errors.join(' | ') : null;
+    await recordRunnerHeartbeat(ledger, {
+      runnerId: cfg.runnerId,
+      role: 'payout_daemon',
+      network: cfg.network,
+      nowSec,
+      meta: {
+        status: out.errors.length === 0 ? 'ok' : 'degraded',
+        executeLive: cfg.executeLive,
+        presaleErrors: (out.presale?.errors?.length || 0) + (out.presale ? 0 : (presaleRunner ? 1 : 0)),
+        promoErrors: (out.promo?.errors?.length || 0) + (out.promo ? 0 : (promoRunner ? 1 : 0)),
+        lastError: state.lastError,
+      },
+    });
     return out;
   }
 
