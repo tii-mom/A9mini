@@ -22,6 +22,11 @@ A9_PROMO_HOT_WALLET_ADDRESS = "kQDNHik_ofaZns7ki5yuMYHMHODiRSs_lcTG9R5p2iyJwt4X"
 [env.testnet.triggers]
 crons = ["*/1 * * * *"]
 
+[env.production]
+routes = [
+  { pattern = "api.a9.lat", custom_domain = true }
+]
+
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "a9mini-v15-prod"
