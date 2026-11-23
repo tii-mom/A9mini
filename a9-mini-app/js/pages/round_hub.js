@@ -293,9 +293,10 @@ function bindPredictionCardEvents(root, navigate) {
       const bet = prediction.currentBet;
       const ogUrl = buildOgShareUrl('bet', roundId);
       const sideText = bet.side === 'BURN' ? L('销毁 BURN', 'BURN') : L('通关 PASS', 'PASS');
+      const oppText = bet.side === 'BURN' ? L('通关 PASS', 'PASS') : L('销毁 BURN', 'BURN');
       const text = L(
-        `我在 A9 第 ${roundId} 轮 24H 预言擂台选了「${sideText}」${bet.guessSlots !== null && bet.guessSlots !== undefined ? `（精准 ${bet.guessSlots} 段）` : ''}，0 GRAM 免费参与，来一起猜：`,
-        `I locked ${sideText} on A9 Round #${roundId} 24H Prediction (0 GRAM entry). Join the guess:`
+        `这轮 A9 第 ${roundId} 轮 24H 我押了【${sideText}】${bet.guessSlots !== null && bet.guessSlots !== undefined ? `（精准 ${bet.guessSlots} 段）` : ''}，不服的来押【${oppText}】对赌！0 GRAM 进场，新人首轮猜错还保底领 500 A9：`,
+        `I locked [${sideText}] on A9 Round #${roundId} 24H! Think it's [${oppText}]? 0 GRAM entry with a 500 A9 rookie floor:`
       );
       A9TMA.shareInvite(ogUrl, text);
       showToast(L('已调起 Telegram 群分享', 'Opened Telegram group share'));

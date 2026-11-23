@@ -369,10 +369,10 @@ export function city() {
   }
 
   const gates = [
-    ['/internal/market', 'market', L('A9 兑换屋', 'Exchange'), L('兑换 A9', 'Swap A9')],
-    ['/rewards',         'vault',  L('奖金金库', 'Vault'),     L('连胜解锁', 'Vesting')],
-    ['/leaderboard',     'trophy', L('财富榜', 'Rich List'),   L('全网榜单', 'Top Ranks')],
-    ['/rules',           'rules',  L('闯关指南', 'Guide'),     L('常见问题', 'FAQ Guide')],
+    ['/internal/market',          'market', L('宝箱商城', 'Chest Mall'),  L('0.99 GRAM起', 'From 0.99G')],
+    ['/internal/market?tab=free', 'trophy', L('免费宝箱', 'Free Chests'), L('助力领 A9', 'Assist A9')],
+    ['/rewards',                  'vault',  L('奖金金库', 'Vault'),       L('连胜解锁', 'Vesting')],
+    ['/rules',                    'rules',  L('闯关指南', 'Guide'),       L('常见问题', 'FAQ Guide')],
   ];
 
   const showPredRatio = config.isDemo || (pred?.loaded && Number(pred.total) > 0);

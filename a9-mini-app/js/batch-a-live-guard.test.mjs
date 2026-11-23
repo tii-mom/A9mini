@@ -185,7 +185,7 @@ test('Live mode blocks all wallet sends and fund order requests even with connec
     `
       const { store } = await import(JS_URL + '/store.js');
       const { tonConnect } = await import(JS_URL + '/tonconnect.js');
-      const { requestPromoClaimIntent, requestPresaleIntent, activatePredictionReward } = await import(JS_URL + '/data.js');
+      const { requestPromoClaimIntent, requestPresaleIntent, activatePredictionReward, requestChestPurchaseIntent, openChestById } = await import(JS_URL + '/data.js');
 
       store.update((s) => {
         s.round.stakingEnabled = true;
@@ -212,6 +212,8 @@ test('Live mode blocks all wallet sends and fund order requests even with connec
       await tryCall('sendV15PromoFee', () => tonConnect.sendV15PromoFee({ payTo: 'EQ_PROMO', feeRequiredNano: '60000000', memo: 'claim:abc123' }));
       await tryCall('requestPromoClaimIntent', () => requestPromoClaimIntent('0:' + '11'.repeat(32)));
       await tryCall('requestPresaleIntent', () => requestPresaleIntent('0:' + '11'.repeat(32), 10));
+      await tryCall('requestChestPurchaseIntent', () => requestChestPurchaseIntent({ walletAddress: '0:' + '11'.repeat(32), skuId: 'chest_bronze', openMode: 'BOOST' }));
+      await tryCall('openChestById', () => openChestById('ch_live_test', null, '0:' + '11'.repeat(32)));
       await tryCall('activatePredictionReward', () => activatePredictionReward('123', '0:' + '11'.repeat(32)));
 
       console.log(JSON.stringify({
@@ -281,4 +283,62 @@ test('Telegram deep-link parser sanitizes untrusted start_param values', () => {
   assert.equal(/[<>"'$]/.test(out.id), false);
   assert.equal(/[<>"'$]/.test(out.ref), false);
   assert.equal(/[<>"'$]/.test(out.route), false);
+});
+
+test('Live mode allows Plaza & Chest Mall read-only view when /api/config is healthy and /api/rounds is empty (no fake round data)', () => {
+  const out = runScenario(
+    {
+      href: 'https://a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat' },
+    },
+    `
+      globalThis.fetch = async (target) => {
+        const u = String(target);
+        if (u.endsWith('/api/config')) {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                ok: true,
+                data: {
+                  protocolVersion: 'v15',
+                  network: 'mainnet',
+                  presaleHotWallet: { enabled: true, open: false },
+                  poolState: { dataAvailable: false, currentRoundId: null, poolRemainingRaw: null },
+                  chestMall: { enabled: true, skus: [] },
+                },
+                ts: Date.now(),
+              };
+            },
+          };
+        }
+        if (u.endsWith('/api/rounds')) {
+          return { ok: true, status: 200, async json() { return { ok: true, data: [], ts: Date.now() }; } };
+        }
+        throw new Error('unexpected fetch: ' + u);
+      };
+      const { loadSnapshot, mapRoundView } = await import(JS_URL + '/data.js');
+      const snap = await loadSnapshot();
+      const view = mapRoundView(snap);
+      console.log(JSON.stringify({
+        hasConfig: Boolean(snap.config?.chestMall?.enabled),
+        detail: snap.detail,
+        stage: view.stage,
+        currentRound: view.currentRound,
+        targetPrice: view.targetPrice,
+        twap24h: view.twap24h,
+        rewardBudgetA9: view.rewardBudgetA9,
+        poolAvailable: view.poolState?.dataAvailable,
+      }));
+    `,
+  );
+  assert.equal(out.hasConfig, true);
+  assert.equal(out.detail, null);
+  assert.equal(out.stage, null);
+  assert.equal(out.currentRound, null);
+  assert.equal(out.targetPrice, null);
+  assert.equal(out.twap24h, null);
+  assert.equal(out.rewardBudgetA9, null);
+  assert.equal(out.poolAvailable, false);
 });

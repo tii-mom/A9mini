@@ -7,6 +7,7 @@ import { PromoHotWalletEngine } from './promo-hotwallet.mjs';
 import { PresaleHotWalletEngine } from './presale-hotwallet.mjs';
 import { SocialStore } from './social-store.mjs';
 import { PredictionEngine, ProgressionEngine } from './growth-engine.mjs';
+import { ChestEngine } from './chest-engine.mjs';
 import { TonCenterClient } from './toncenter.mjs';
 import { PromoPayoutRunner } from './promo-runner.mjs';
 import { PresalePayoutRunner } from './presale-runner.mjs';
@@ -54,6 +55,7 @@ const predictionEngine = new PredictionEngine({
   firstLossCapRaw: process.env.A9_PRED_FIRST_LOSS_CAP_RAW,
 });
 const progressionEngine = new ProgressionEngine();
+const chestEngine = new ChestEngine();
 const broadcaster = new TelegramBroadcaster({
   enabled: process.env.A9_BROADCAST_ENABLED === '1',
   botToken: process.env.A9_BOT_TOKEN || '',
@@ -78,6 +80,8 @@ const presaleEngine = presaleHotAddr
       userFaultFeeNano: process.env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
       promoEngine,
       socialStore,
+      identityStore,
+      chestEngine,
       broadcaster,
     })
   : null;
@@ -164,15 +168,20 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
   }
 
   if (presaleEngine) {
-    let presaleBroadcaster = sharedBroadcaster;
-    if (executeLive && jmAddr && process.env.A9_PRESALE_HOT_WALLET_NAME && process.env.A9_PRESALE_HOT_WALLET_NAME !== (process.env.A9_PROMO_HOT_WALLET_NAME || 'promoHotWallet')) {
+    // 预售发币热钱包严禁静默复用推广热钱包：必须显式配置独立的 A9_PRESALE_HOT_WALLET_NAME
+    let presaleBroadcaster = null;
+    const promoWalletName = process.env.A9_PROMO_HOT_WALLET_NAME || 'promoHotWallet';
+    const presaleWalletName = String(process.env.A9_PRESALE_HOT_WALLET_NAME || '').trim();
+    if (executeLive && jmAddr && presaleWalletName && presaleWalletName !== promoWalletName) {
       const { createActonPromoBroadcaster } = await import('./acton-broadcaster.mjs');
       presaleBroadcaster = createActonPromoBroadcaster({
         network: process.env.A9_NETWORK || 'testnet',
-        hotWalletName: process.env.A9_PRESALE_HOT_WALLET_NAME,
+        hotWalletName: presaleWalletName,
         jettonMasterAddress: jmAddr,
         transferGasNano: process.env.A9_PROMO_TRANSFER_GAS_NANO || '50000000',
       });
+    } else if (executeLive && presaleWalletName === promoWalletName) {
+      console.error('[presale-runner] refused to start live broadcast: A9_PRESALE_HOT_WALLET_NAME must be distinct from A9_PROMO_HOT_WALLET_NAME');
     }
     const presaleRunner = new PresalePayoutRunner({
       engine: presaleEngine,
@@ -188,7 +197,7 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
   }
 }
 
-const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, userReader, identityStore, publicKeyResolver, walletStateResolver });
+const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, chestEngine, userReader, identityStore, publicKeyResolver, walletStateResolver });
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${host}:${port}`);

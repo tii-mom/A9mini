@@ -72,7 +72,9 @@ CREATE TABLE IF NOT EXISTS presale_orders (
   tg_user_id TEXT,
   refund_reason TEXT,
   last_error TEXT,
-  expires_at INTEGER NOT NULL DEFAULT 0
+  expires_at INTEGER NOT NULL DEFAULT 0,
+  sku_id TEXT,
+  open_mode TEXT NOT NULL DEFAULT 'INSTANT'
 );
 
 CREATE TABLE IF NOT EXISTS warmup_registrations (
@@ -94,6 +96,7 @@ CREATE TABLE IF NOT EXISTS team_groups (
   tg_chat_id TEXT,
   bind_status TEXT NOT NULL DEFAULT 'unbound', -- unbound | verifying | bound | expired
   member_count INTEGER NOT NULL DEFAULT 1,
+  tg_member_count INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -262,7 +265,7 @@ CREATE INDEX IF NOT EXISTS idx_tg_broadcast_events_created
   ON tg_broadcast_events(created_at DESC);
 
 -- ---------------------------------------------------------------------------
--- Batch 1: Atomic prediction activation ledger (idempotent retries + rollback)
+-- Batch 1: Atomic prediction activation ledger (migration 0008)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS prediction_activations (
   activation_id TEXT PRIMARY KEY,
@@ -277,3 +280,69 @@ CREATE INDEX IF NOT EXISTS idx_prediction_activations_user
   ON prediction_activations(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prediction_activations_wallet
   ON prediction_activations(wallet_key, created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Chest Mall & Viral Social Assist System (migration 0009)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_chests (
+  chest_id TEXT PRIMARY KEY,
+  owner_user_id TEXT NOT NULL,
+  owner_wallet_key TEXT,
+  source TEXT NOT NULL,
+  tier TEXT NOT NULL,
+  slot_index INTEGER NOT NULL DEFAULT 1,
+  order_id TEXT UNIQUE,
+  base_a9_raw TEXT NOT NULL DEFAULT '0',
+  boost_a9_raw TEXT NOT NULL DEFAULT '0',
+  max_boost_a9_raw TEXT NOT NULL DEFAULT '0',
+  required_assists INTEGER NOT NULL DEFAULT 2,
+  current_assists INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'LOCKED',
+  expires_at INTEGER,
+  opened_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_chests_owner
+  ON user_chests(owner_user_id, source, created_at ASC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_chests_free_slot
+  ON user_chests(owner_user_id, tier, slot_index) WHERE source = 'FREE_TIER';
+
+CREATE TABLE IF NOT EXISTS chest_assists (
+  chest_id TEXT NOT NULL,
+  owner_user_id TEXT NOT NULL,
+  helper_user_id TEXT NOT NULL,
+  helper_wallet_key TEXT NOT NULL,
+  assist_day TEXT NOT NULL,
+  boost_delta_raw TEXT NOT NULL DEFAULT '0',
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (chest_id, helper_wallet_key)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chest_assists_chest_user
+  ON chest_assists(chest_id, helper_user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chest_assists_owner_helper_wallet
+  ON chest_assists(owner_user_id, helper_wallet_key);
+CREATE INDEX IF NOT EXISTS idx_chest_assists_helper_day
+  ON chest_assists(helper_wallet_key, assist_day);
+
+CREATE TABLE IF NOT EXISTS captain_founding_bonuses (
+  team_id TEXT PRIMARY KEY,
+  captain_user_id TEXT NOT NULL,
+  captain_wallet_key TEXT NOT NULL,
+  tg_member_count INTEGER NOT NULL,
+  amount_raw TEXT NOT NULL,
+  grant_token TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'CREDITED_PENDING',
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chest_open_credits (
+  chest_id TEXT PRIMARY KEY,
+  recipient_key TEXT NOT NULL,
+  destination TEXT NOT NULL,
+  amount_raw TEXT NOT NULL,
+  open_token TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL
+);

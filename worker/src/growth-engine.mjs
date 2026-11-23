@@ -204,6 +204,20 @@ export class PredictionEngine {
   }
 
   /**
+   * Credit pending activation bonus into the user's 48h vault (used by free bronze chests
+   * and captain >=50 TG member founding bonus). Enforces the exact same anti-sybil activation.
+   */
+  creditPendingBonus(userId, amountRaw, nowMs = Date.now()) {
+    const uid = String(userId || '').trim();
+    const amt = BigInt(amountRaw || 0n);
+    if (!uid || amt <= 0n) return { userId: uid, pendingActivationRaw: '0' };
+    const st = this._getOrCreateStats(uid);
+    st.pendingActivationRaw += amt;
+    st.pendingExpiresAt = nowMs + VOUCHER_TTL_MS;
+    return { userId: uid, pendingActivationRaw: st.pendingActivationRaw.toString(), pendingExpiresAt: st.pendingExpiresAt };
+  }
+
+  /**
    * Anti-sybil activation: requires qualified === true (at least 1 PAID_A9 presale order OR
    * 1 real on-chain StakeTicket) and non-expired voucher. Moves pending rewards into promoEngine.
    */
@@ -610,6 +624,7 @@ export function renderOgCardSvg({
     burn: verified ? `A9 ROUND ${roundLabel} · 100% BURN MONUMENT` : `A9 ROUND ${roundLabel} · DATA PENDING`,
     proof: verified ? `A9 ROUND ${roundLabel} · ON-CHAIN STAKE PROOF` : `A9 ROUND ${roundLabel} · DATA PENDING`,
     bet: verified ? `A9 ROUND ${roundLabel} · 24H PASS vs BURN` : `A9 ROUND ${roundLabel} · DATA PENDING`,
+    chest: verified ? `A9 CHEST ${roundLabel} · BOOST & OPEN` : `A9 CHEST · BOOST & OPEN`,
   };
   const title = titleMap[type] || titleMap.round;
   const poolPart = budgetA9 ? `Pool ${budgetA9} A9` : 'Pool Pending Verification';
@@ -858,6 +873,7 @@ export async function renderOgCardPng({
     burn: `ROUND ${roundLabel} BURN`,
     proof: `ROUND ${roundLabel} PROOF`,
     bet: `ROUND ${roundLabel} BET`,
+    chest: `A9 CHEST ${roundLabel}`,
   };
   const headline = verified ? (headlineMap[type] || headlineMap.round) : `ROUND ${roundLabel}`;
   const qualNum = verified && Number.isInteger(qualified) ? qualified : null;

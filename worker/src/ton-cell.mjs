@@ -102,9 +102,15 @@ export function cellFromBits(bitStr, refs = [], exotic = false) {
   return new Cell({ bits, data, refs, exotic });
 }
 
+const MAX_BOC_BYTES = 65536;
+
 /** Parse a bag-of-cells (base64 / base64url / Uint8Array). Returns root cells. */
 export function parseBoc(input) {
+  if (typeof input === 'string' && input.length > Math.ceil((MAX_BOC_BYTES * 4) / 3) + 16) {
+    throw new CellError('BoC input exceeds maximum allowed size');
+  }
   const b = input instanceof Uint8Array ? input : b64ToBytes(input);
+  if (b.length < 10 || b.length > MAX_BOC_BYTES) throw new CellError('BoC size out of bounds');
   const magic = hex(b.subarray(0, 4));
   if (magic !== 'b5ee9c72') throw new CellError(`unsupported BoC magic ${magic}`);
   const flags = b[4];
@@ -114,6 +120,7 @@ export function parseBoc(input) {
   if (size < 1 || size > 4 || offBytes < 1 || offBytes > 8) throw new CellError('bad BoC header');
   let p = 6;
   const rd = (n) => {
+    if (p + n > b.length) throw new CellError('truncated BoC');
     let v = 0;
     for (let i = 0; i < n; i += 1) v = v * 256 + b[p + i];
     p += n;
@@ -124,10 +131,18 @@ export function parseBoc(input) {
   const absent = rd(size);
   rd(offBytes); // tot_cells_size
   if (absent !== 0) throw new CellError('absent cells not supported');
-  if (cellCount > 4096) throw new CellError('BoC too large');
+  if (cellCount === 0 || cellCount > 4096) throw new CellError('BoC too large');
+  if (rootCount === 0 || rootCount > cellCount) throw new CellError('bad BoC root count');
   const roots = [];
-  for (let i = 0; i < rootCount; i += 1) roots.push(rd(size));
-  if (hasIdx) p += cellCount * offBytes;
+  for (let i = 0; i < rootCount; i += 1) {
+    const rIdx = rd(size);
+    if (rIdx >= cellCount) throw new CellError('BoC root index out of range');
+    roots.push(rIdx);
+  }
+  if (hasIdx) {
+    if (p + cellCount * offBytes > b.length) throw new CellError('truncated BoC index');
+    p += cellCount * offBytes;
+  }
   const raw = [];
   for (let i = 0; i < cellCount; i += 1) {
     if (p + 2 > b.length) throw new CellError('truncated BoC');
@@ -140,6 +155,7 @@ export function parseBoc(input) {
     if (level !== 0) throw new CellError('cells with level > 0 not supported');
     if (nref > 4) throw new CellError('bad ref count');
     const nbytes = Math.ceil(d2 / 2);
+    if (p + nbytes > b.length) throw new CellError('truncated BoC cell data');
     const data = b.slice(p, p + nbytes);
     p += nbytes;
     let bits = nbytes * 8;

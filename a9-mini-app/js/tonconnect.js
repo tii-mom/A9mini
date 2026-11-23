@@ -25,7 +25,7 @@ function canonicalWalletKey(addr) {
   try {
     const p = parseTonAddress(s);
     const hex = Array.from(p.hash, (b) => b.toString(16).padStart(2, '0')).join('');
-    return `${p.wc}:${hex}`;
+    return `${p.workchain}:${hex}`;
   } catch (_) {
     return s;
   }

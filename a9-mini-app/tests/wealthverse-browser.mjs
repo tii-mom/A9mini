@@ -98,11 +98,11 @@ async function mobile(width, height, locale, theme) {
   assert.match(await page.locator('.star-reading').innerText(), /尚未开始|Upcoming/);
   await visit(page,'/internal/market');
   assert.equal(await page.locator('.sticker-pack-card').count(), 0);
-  await page.locator('[data-qton="50"]').click();
-  assert.equal(await page.locator('#market-ton-input').inputValue(),'50');
-  assert.match(await page.locator('#market-est-a9').innerText(), /100,100 A9/);
-  await page.locator('#market-ton-input').fill('51');
-  assert.equal(await page.locator('[data-qton][aria-pressed=true]').count(),0);
+  await page.locator('[data-pick-sku="chest_gold"]').click();
+  await page.locator('[data-open-mode="INSTANT"]').click();
+  assert.match(await page.locator('#app-main').innerText(), /19,999\.98 A9/);
+  await page.locator('[data-cm-tab="free"]').click();
+  assert.match(await page.locator('#app-main').innerText(), /青铜宝箱 #1|Bronze Chest #1/);
   await visit(page,'/team');
   assert.equal(await page.locator('.guild-member').count(),3);
   await visit(page,'/profile');

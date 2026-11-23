@@ -37,6 +37,25 @@ export class D1SocialStore {
     return row ? String(row.referrer_id) : null;
   }
 
+  async listDirectReferees(referrerKeys = []) {
+    const expanded = new Set();
+    for (const k of referrerKeys || []) {
+      const clean = String(k || '').trim();
+      if (!clean) continue;
+      expanded.add(clean);
+      expanded.add(addressKey(clean));
+      for (const a of addressAliases(clean)) expanded.add(a);
+    }
+    const keys = Array.from(expanded);
+    if (!keys.length) return [];
+    const ph = keys.map(() => '?').join(', ');
+    const res = await this.db
+      .prepare(`SELECT DISTINCT subject_key FROM referrals WHERE referrer_id IN (${ph})`)
+      .bind(...keys)
+      .all();
+    return (res?.results || []).map((r) => String(r.subject_key));
+  }
+
   async bindReferral(subjectKey, referrerId, nowSec = Math.floor(Date.now() / 1000), { aliases = [] } = {}) {
     const subj = String(subjectKey || '').trim();
     const ref = String(referrerId || '').trim();
@@ -285,9 +304,10 @@ export class D1SocialStore {
     }
 
     const nextHandle = check.groupHandle ? String(check.groupHandle) : (cur.tg_group_handle || null);
+    const nextTgMembers = Number.isFinite(Number(check.tgMemberCount)) ? Number(check.tgMemberCount) : Number(cur.tg_member_count || 0);
     await this.db
-      .prepare("UPDATE team_groups SET tg_chat_id = ?, tg_group_handle = ?, bind_status = 'bound', updated_at = ? WHERE team_id = ?")
-      .bind(canonicalChatId, nextHandle, nowSec, teamId)
+      .prepare("UPDATE team_groups SET tg_chat_id = ?, tg_group_handle = ?, bind_status = 'bound', tg_member_count = ?, updated_at = ? WHERE team_id = ?")
+      .bind(canonicalChatId, nextHandle, nextTgMembers, nowSec, teamId)
       .run();
 
     return {
@@ -298,6 +318,7 @@ export class D1SocialStore {
       tgChatId: canonicalChatId,
       bindStatus: 'bound',
       memberCount: Number(cur.member_count || 1),
+      tgMemberCount: nextTgMembers,
       createdAt: Number(cur.created_at),
       updatedAt: nowSec,
     };
@@ -354,9 +375,18 @@ export class D1SocialStore {
       tgChatId: t.tg_chat_id || null,
       bindStatus: t.bind_status,
       memberCount: Number(t.member_count),
+      tgMemberCount: Number(t.tg_member_count || 0),
       createdAt: Number(t.created_at),
       updatedAt: Number(t.updated_at),
     };
+  }
+
+  async listTeamMemberWallets(teamId) {
+    const res = await this.db
+      .prepare('SELECT wallet_address FROM team_members WHERE team_id = ?')
+      .bind(String(teamId))
+      .all();
+    return (res?.results || []).map((r) => String(r.wallet_address));
   }
 
   /** 返回全部已通过四重真实核验（bind_status = 'bound' 且具备真实 tg_chat_id）的战队群。 */
@@ -372,6 +402,7 @@ export class D1SocialStore {
       tgChatId: t.tg_chat_id || null,
       bindStatus: t.bind_status,
       memberCount: Number(t.member_count),
+      tgMemberCount: Number(t.tg_member_count || 0),
       createdAt: Number(t.created_at),
       updatedAt: Number(t.updated_at),
     }));
@@ -632,6 +663,18 @@ export class D1PredictionEngine {
       .prepare(`SELECT wallet_address, claimable_raw, total_claimed_raw FROM promo_balances WHERE wallet_address IN (${ph}) LIMIT 1`)
       .bind(...aliases)
       .first();
+  }
+
+  async creditPendingBonus(userId, amountRaw, nowMs = Date.now()) {
+    const uid = String(userId || '').trim();
+    const amt = BigInt(amountRaw || 0n);
+    if (!uid || amt <= 0n) return { userId: uid, pendingActivationRaw: '0' };
+    const nowSec = Math.floor(nowMs / 1000);
+    const st = await this._getUserStatsRow(uid);
+    const nextPending = st.pendingActivationRaw + amt;
+    const nextExp = nowMs + VOUCHER_TTL_MS;
+    await this._upsertUserStats(uid, { ...st, pendingActivationRaw: nextPending, pendingExpiresAt: nextExp }, nowSec);
+    return { userId: uid, pendingActivationRaw: nextPending.toString(), pendingExpiresAt: nextExp };
   }
 
   /**
@@ -1089,6 +1132,8 @@ function rowToOrder(r) {
     walletKey: r.wallet_key || addressKey(r.wallet_address),
     tgUserId: r.tg_user_id || null,
     referrerId: r.referrer_id || null,
+    skuId: r.sku_id || null,
+    openMode: r.open_mode || 'INSTANT',
     tonNano: BigInt(r.ton_nano || '0'),
     a9AmountRaw: BigInt(r.a9_amount_raw || '0'),
     memo: r.memo,
@@ -1185,26 +1230,53 @@ export class D1PresaleRepo {
     // 同时覆盖新行（wallet_key）与尚未回填的历史友好地址行（EQ/UQ/kQ/0Q/raw 全部规范形式），保持单语句原子性。
     const aliases = addressAliases(o.walletAddress);
     const aliasPlaceholders = aliases.map(() => '?').join(', ');
-    const res = await this.db
-      .prepare(
-        `INSERT INTO presale_orders
-           (order_id, wallet_address, wallet_key, tg_user_id, referrer_id, ton_nano, a9_amount_raw, memo, status,
-            refund_ton_nano, expires_at, created_at, updated_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', '0', ?, ?, ?
-         WHERE (SELECT COALESCE(SUM(CAST(a9_amount_raw AS INTEGER)), 0) FROM presale_orders WHERE ${RESERVING_SQL})
+    const whereClause = `WHERE (SELECT COALESCE(SUM(CAST(a9_amount_raw AS INTEGER)), 0) FROM presale_orders WHERE ${RESERVING_SQL})
                  + CAST(? AS INTEGER) <= CAST(? AS INTEGER)
            AND (SELECT COALESCE(SUM(CAST(ton_nano AS INTEGER)), 0) FROM presale_orders
                  WHERE (wallet_key = ? OR (wallet_key IS NULL AND wallet_address IN (${aliasPlaceholders}))) AND ${RESERVING_SQL})
-                 + CAST(? AS INTEGER) <= CAST(? AS INTEGER)`,
-      )
-      .bind(
-        o.orderId, o.walletAddress, o.walletKey, o.tgUserId, o.referrerId, o.tonNano.toString(), o.a9AmountRaw.toString(), o.memo,
-        o.expiresAt, o.createdAt, o.updatedAt,
-        nowSec, o.a9AmountRaw.toString(), BigInt(capA9Raw).toString(),
-        o.walletKey, ...aliases, nowSec, o.tonNano.toString(), BigInt(userQuotaNano).toString(),
-      )
-      .run();
-    return changes(res) === 1;
+                 + CAST(? AS INTEGER) <= CAST(? AS INTEGER)`;
+    const tailArgs = [
+      nowSec, o.a9AmountRaw.toString(), BigInt(capA9Raw).toString(),
+      o.walletKey, ...aliases, nowSec, o.tonNano.toString(), BigInt(userQuotaNano).toString(),
+    ];
+    try {
+      const res = await this.db
+        .prepare(
+          `INSERT INTO presale_orders
+             (order_id, wallet_address, wallet_key, tg_user_id, referrer_id, sku_id, open_mode, ton_nano, a9_amount_raw, memo, status,
+              refund_ton_nano, expires_at, created_at, updated_at)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', '0', ?, ?, ?
+           ${whereClause}`,
+        )
+        .bind(
+          o.orderId, o.walletAddress, o.walletKey, o.tgUserId, o.referrerId, o.skuId || null, o.openMode || 'INSTANT', o.tonNano.toString(), o.a9AmountRaw.toString(), o.memo,
+          o.expiresAt, o.createdAt, o.updatedAt,
+          ...tailArgs,
+        )
+        .run();
+      return changes(res) === 1;
+    } catch (e) {
+      // 兼容尚未执行 0009 迁移的旧库（SQLite INSERT 报 "has no column named sku_id"，D1/SELECT 报 "no such column: sku_id"）
+      const errText = `${e?.message || ''} ${e?.cause?.message || ''}`;
+      if (!o.skuId && (o.openMode || 'INSTANT') === 'INSTANT' && /(no such column|has no column named)[\s:]+["'`]?(sku_id|open_mode)["'`]?/i.test(errText)) {
+        const res = await this.db
+          .prepare(
+            `INSERT INTO presale_orders
+               (order_id, wallet_address, wallet_key, tg_user_id, referrer_id, ton_nano, a9_amount_raw, memo, status,
+                refund_ton_nano, expires_at, created_at, updated_at)
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', '0', ?, ?, ?
+             ${whereClause}`,
+          )
+          .bind(
+            o.orderId, o.walletAddress, o.walletKey, o.tgUserId, o.referrerId, o.tonNano.toString(), o.a9AmountRaw.toString(), o.memo,
+            o.expiresAt, o.createdAt, o.updatedAt,
+            ...tailArgs,
+          )
+          .run();
+        return changes(res) === 1;
+      }
+      throw e;
+    }
   }
 
   async getOrder(id) {

@@ -6,11 +6,11 @@ import { tickDemoPrice } from './demo-data.js';
 
 import { store } from './store.js';
 import { config } from './config.js';
-import { loadSnapshot, mapRoundView, submitStartAppAttribution } from './data.js';
+import { loadSnapshot, mapRoundView, submitStartAppAttribution, fetchChestById, assistChestById, rawToA9 } from './data.js';
 import { A9TMA, A9Haptic } from './tma.js';
 import { A9Audio, bindKineticSurfaces, cleanupKineticSurfaces } from './audio.js';
 import { matchRoute } from './router.js';
-import { escapeHtml, formatTimer, showToast, cleanupActiveInteractions, buildSparklineSvgPath, syncRadarInPlace, syncSlidingSegTabs } from './components.js';
+import { escapeHtml, formatNum, formatTimer, showToast, cleanupActiveInteractions, buildSparklineSvgPath, syncRadarInPlace, syncSlidingSegTabs, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
 import { t, L, initAutoLanguage } from './i18n.js';
 import { tonConnect } from './tonconnect.js';
@@ -261,7 +261,7 @@ export function renderCurrentRoute() {
   cleanupActiveInteractions();
   cleanupKineticSurfaces();
   const currentHash = window.location.hash || '#/challenge';
-  const { route, param } = matchRoute(currentHash);
+  const { route, param, query } = matchRoute(currentHash);
   document.body.dataset.gameRoute = route.path;
   paintScene(document.getElementById('realm-banner'), dataReady ? route.path : null);
   renderHeader(route);
@@ -274,7 +274,7 @@ export function renderCurrentRoute() {
     return;
   }
   const prevPath = lastRenderedPath;
-  route.render(mainEl, navigate, param);
+  route.render(mainEl, navigate, param, query);
   if (prevPath && route.path !== prevPath) {
     if (route.shell === 'stack') A9Audio.pageTurn();
     if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -590,6 +590,71 @@ if (!config.isDemo && startParsed?.raw && A9TMA.getRawInitData()) {
     .catch(() => {});
 }
 
+/** 单屏宝箱社交助力弹窗（startapp=chest_<chestId> 落地闭环） */
+async function openChestAssistModal(chestId) {
+  if (!chestId) return;
+  let chest = null;
+  try {
+    chest = await fetchChestById(chestId);
+  } catch (_) {
+    chest = null;
+  }
+  const label = chest ? L(chest.labelZh, chest.labelEn) : L('好友的 A9 宝箱', "Friend's A9 Chest");
+  const cur = chest ? Number(chest.currentAssists || 0) : 0;
+  const req = chest ? Number(chest.requiredAssists || 2) : 2;
+  const isBoost = chest?.source === 'SHOP_BOOST';
+  const rewardA9 = chest ? (rawToA9(isBoost ? chest.maxBoostA9Raw : chest.baseA9Raw) || 0) : 300;
+  const connected = Boolean(store.state.user?.connected);
+
+  openModal(`
+    <div class="sheet-handle"></div>
+    <div class="row-between" style="margin-bottom:8px;">
+      <div class="card-title">${icon('bolt', 15, 'text-gold')} ${L('好友宝箱助力邀请', 'Friend Chest Assist')}</div>
+      <button class="icon-btn" id="chest-assist-close" aria-label="Close">${icon('x', 15)}</button>
+    </div>
+    <div class="sub-tile" style="margin-bottom:12px;">
+      <div class="row-between">
+        <strong>${escapeHtml(label)}</strong>
+        <span class="chip chip-gold mono">${cur}/${req} ${L('助力', 'assists')}</span>
+      </div>
+      <div class="num-xs text-sec" style="margin-top:6px;line-height:1.5;">
+        ${isBoost
+          ? L(`帮好友助力膨胀（最高额外 +${formatNum(rewardA9, 2)} A9），你顺手 0 成本自动领 1 个青铜宝箱 #1（300 A9）！`, `Help boost this chest (up to +${formatNum(rewardA9, 2)} A9) and auto-claim your free Bronze Chest #1 (300 A9)!`)
+          : L(`帮好友点一下开启【${label}】（${formatNum(rewardA9)} A9），你顺手 0 成本自动领 1 个青铜宝箱 #1（300 A9）！`, `Help open [${label}] (${formatNum(rewardA9)} A9) and auto-claim your own Bronze Chest #1 (300 A9)!`)}
+      </div>
+    </div>
+    <div class="num-xs text-muted" style="margin-bottom:12px;">
+      ${L('防刷规则：仅需连接链上已激活 TON 钱包（0 扣款），助力后自动激活你的青铜宝箱 #1。', 'Anti-sybil: requires an active TON wallet (0 transfer). Auto-unlocks your Bronze Chest #1.')}
+    </div>
+    <button class="btn btn-primary" id="btn-do-chest-assist" type="button">
+      ${icon(connected ? 'checkCircle' : 'wallet', 15)} ${connected ? L('一键助力并领取我的青铜宝箱 #1', 'Assist & Claim My Bronze Chest #1') : L('连接 TON 钱包并助力', 'Connect TON Wallet to Assist')}
+    </button>
+  `);
+
+  document.getElementById('chest-assist-close').onclick = closeModal;
+  const btn = document.getElementById('btn-do-chest-assist');
+  btn.onclick = async () => {
+    if (!store.state.user?.connected) {
+      tonConnect.openConnectModal(() => openChestAssistModal(chestId));
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const res = await assistChestById(chestId, store.state.user.address);
+      A9Haptic.success();
+      closeModal();
+      showToast(res?.helperGrantedStarter
+        ? L('助力成功！已为你激活免费青铜宝箱 #1，快去拉 2 人开箱！', 'Assisted! Your free Bronze Chest #1 is now active!')
+        : L('助力成功！', 'Assist recorded!'));
+      navigate('/internal/market?tab=free');
+    } catch (e) {
+      A9Haptic.error();
+      showToast(e?.message || L('助力失败，请确认已连接链上活跃钱包', 'Assist failed; active wallet required'), 'amber');
+      btn.disabled = false;
+    }
+  };
+}
+
 renderCurrentRoute();
 
 if (startParsed?.route) {
@@ -599,6 +664,10 @@ if (startParsed?.route) {
 }
 
 window.addEventListener('hashchange', renderCurrentRoute);
-syncData({ forceRender: true });
+syncData({ forceRender: true }).then(() => {
+  if (startParsed?.type === 'chest' && startParsed?.chestId) {
+    openChestAssistModal(startParsed.chestId);
+  }
+});
 if (!config.isDemo) setInterval(() => syncData(), config.pollMs);
 startDisplayLoop();

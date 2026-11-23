@@ -42,28 +42,39 @@ function send(res, code, body, type = 'text/plain; charset=utf-8', headers = {})
 async function proxyApi(req, res, urlPath) {
   const target = `${API_BASE}${urlPath}`;
   try {
+    const forwardHeaders = { accept: req.headers.accept || 'application/json' };
+    for (const h of ['content-type', 'authorization', 'x-telegram-init-data', 'x-a9-admin-token', 'x-idempotency-key']) {
+      if (req.headers[h]) forwardHeaders[h] = req.headers[h];
+    }
+    let body;
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      const chunks = [];
+      for await (const ch of req) chunks.push(ch);
+      body = Buffer.concat(chunks);
+    }
     const upstream = await fetch(target, {
       method: req.method,
-      headers: { accept: 'application/json' },
+      headers: forwardHeaders,
+      ...(body !== undefined ? { body } : {}),
       signal: AbortSignal.timeout(15000)
     });
-    const text = await upstream.text();
+    const raw = Buffer.from(await upstream.arrayBuffer());
     res.writeHead(upstream.status, {
       'Content-Type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
       'Cache-Control': 'no-store'
     });
-    res.end(text);
+    res.end(raw);
   } catch (e) {
     send(res, 502, JSON.stringify({
       ok: false,
-      error: { code: 'PROXY_UNREACHABLE', message: `BAM API 不可达：${API_BASE}（${e.message}）` }
+      error: { code: 'PROXY_UNREACHABLE', message: `Worker API 不可达：${API_BASE}（${e.message}）` }
     }), 'application/json; charset=utf-8');
   }
 }
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host}`);
-  if (url.pathname.startsWith('/api/')) {
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/c/')) {
     await proxyApi(req, res, url.pathname + url.search);
     return;
   }
