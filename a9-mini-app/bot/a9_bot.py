@@ -55,6 +55,7 @@ STATE_LABELS = {
     "UNOPENED": "未开启",
 }
 ROUTE_MAP = {
+    "market": "market",
     "claim": "claim",
     "position": "profile",
     "team": "team",
@@ -139,6 +140,15 @@ def _esc(value):
 
 async def render_start():
     s = await current_round_summary()
+    if s["round"] == PENDING:
+        return (
+            "<b>A9 · 财富大冒险</b>\n"
+            "首轮链上闯关蓄水筹备中，免费青铜宝箱与宝箱商城入口已就绪。\n\n"
+            "• 免费宝箱：0 成本领取青铜宝箱 #1，好友连接活跃 TON 钱包助力开启\n"
+            "• 宝箱商城：0.99 GRAM 起固定汇率兑换（1 GRAM = 2,002 A9），可选 24H 助力膨胀\n"
+            "• 战队群主：绑定 ≥50 人真实 TG 群可享 5,000 A9 创世金库与 12% 永久返佣\n\n"
+            "点击下方按钮打开小程序。参与有风险，一切规则与结果以链上及协议公示为准。"
+        )
     return (
         "<b>A9 · 财富大冒险</b>\n"
         "基于 TON 区块链智能合约。以下数据来自协议接口，缺失时显示“待核验”。\n\n"
@@ -197,6 +207,7 @@ def build_bot():
         primary_url = build_mini_app_url(start_payload)
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("打开 A9 · 财富大冒险", web_app=WebAppInfo(url=primary_url))],
+            [InlineKeyboardButton("免费领青铜宝箱 / 宝箱商城", web_app=WebAppInfo(url=build_mini_app_url("market")))],
             [InlineKeyboardButton("查看我的领取状态", web_app=WebAppInfo(url=build_mini_app_url("claim")))],
         ])
         await msg.reply_text(await render_start(), parse_mode="HTML", reply_markup=kb)

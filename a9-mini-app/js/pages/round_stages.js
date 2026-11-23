@@ -27,7 +27,7 @@ function priceOrDash(v) {
 }
 
 /**
- * 第一刀 ①：待提现奖金金库高亮条（真实二步进度 + 48h 作废倒计时 + 直连 A9 兑换屋 5 GRAM 起）
+ * 第一刀 ①：待提现奖金金库高亮条（真实二步进度 + 48h 作废倒计时 + 直连宝箱商城 0.99 GRAM 起）
  */
 export function renderPendingVaultBanner(pred, round) {
   const p = pred || {};
@@ -215,11 +215,11 @@ export function renderPredictionCard(round, pred, user) {
         <span class="num-md text-green mono">${formatNum(pendingA9)} A9${usdEst !== null ? ` <span class="num-xs text-sec">(${L('约', '~')} $${formatNum(usdEst, 2)})</span>` : ''}</span>
       </div>
       <div class="num-xs text-muted" style="margin-bottom:6px;">${expRemSec !== null ? `<span id="pred-exp-cd" class="mono text-red">${L('距过期', 'Expires')} ${formatTimer(expRemSec)}</span>` : L('48 小时内未激活将自动作废回流奖池', 'Expires in 48H if unactivated')}</div>
-      <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('完成 1 笔 A9 兑换屋兑换（5 GRAM 起）或链上质押即可全额激活，可与邀友奖励合并走 0.06 GRAM 领取。', 'Complete 1 A9 Exchange swap (5+ GRAM) or on-chain stake to unlock. Combinable with invite rewards (0.06 GRAM gas).')}</div>
+      <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('本人购任意宝箱（0.99 GRAM 起）、链上参与，或直邀 1 位好友购箱即可 0 元全额激活，可与邀友奖励合并走 0.06 GRAM 领取。', 'Buy any chest (from 0.99 GRAM), stake on-chain, or invite 1 paid friend to unlock for 0 GRAM. Combinable with invite rewards (0.06 GRAM gas).')}</div>
       <div class="col-gap" style="gap:8px;">
         <button class="btn btn-primary btn-sm" id="btn-pred-activate" type="button" style="width:100%;min-height:40px;">${icon('bolt', 14)} ${L('立即激活奖励', 'Activate Reward')}</button>
         <div class="grid-2">
-          <button class="btn btn-secondary btn-sm" data-nav="/internal/market" type="button" style="width:100%;">${icon('swap', 13)} ${L('去兑换屋 (5 GRAM 起)', 'Exchange (5 GRAM+)')}</button>
+          <button class="btn btn-secondary btn-sm" data-nav="/internal/market" type="button" style="width:100%;">${icon('swap', 13)} ${L('去宝箱商城 (0.99 GRAM 起)', 'Chest Mall (0.99+)')}</button>
           <button class="btn btn-secondary btn-sm" data-nav="/challenge/confirm" type="button" style="width:100%;">${icon('shieldCheck', 13)} ${L('链上质押', 'Stake')}</button>
         </div>
       </div>

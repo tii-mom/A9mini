@@ -514,3 +514,66 @@ test('P1-5: /market alias route exists, share.js uses protocolConfig.botHandle, 
   assert.ok(out.lastFetch.url.endsWith('/api/warmup/cancel'));
   assert.equal(out.lastFetch.method, 'POST');
 });
+
+test('Phase 0: liveRound(/round) preserves staking gate across read-only, closed window, and open participation', () => {
+  const domStub = `
+      const stubEl = () => ({
+        addEventListener() {},
+        classList: { add() {}, remove() {}, toggle() {} },
+        querySelector: () => ({ onclick: null, style: {}, classList: { add() {}, remove() {}, toggle() {} }, textContent: '' }),
+        querySelectorAll: () => [],
+        set innerHTML(_v) {},
+        style: {},
+        dataset: {},
+      });
+      globalThis.window.addEventListener = () => {};
+      globalThis.window.scrollTo = () => {};
+      globalThis.document.getElementById = () => stubEl();
+      globalThis.document.body = { dataset: {}, appendChild() {}, classList: { add() {}, remove() {}, toggle() {} } };
+      globalThis.requestAnimationFrame = () => 0;
+      globalThis.setInterval = () => 0;
+  `;
+  // 1) Read-only live mode (liveFundsEnabled=false): button stays disabled even during participation
+  const readOnly = runScenario(
+    {
+      href: 'https://a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat', liveFundsEnabled: false },
+    },
+    `
+      ${domStub}
+      const { liveRound } = await import(JS_URL + '/pages/wealthverse.js');
+      const html = liveRound({ currentRound: 1, stage: 'participation', stakeOpenAt: 1700000000, stakeCloseAt: 1700086400, candles: [] });
+      console.log(JSON.stringify({
+        hasStakeHref: html.includes('href="#/challenge/confirm"'),
+        hasDisabledBtn: html.includes('disabled>'),
+      }));
+    `,
+  );
+  assert.equal(readOnly.hasStakeHref, false);
+  assert.equal(readOnly.hasDisabledBtn, true);
+
+  // 2) liveFundsEnabled=true: opens #/challenge/confirm ONLY during participation, stays disabled during observation
+  const liveEnabled = runScenario(
+    {
+      href: 'https://a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat', liveFundsEnabled: true },
+    },
+    `
+      ${domStub}
+      const { liveRound } = await import(JS_URL + '/pages/wealthverse.js');
+      const htmlPart = liveRound({ currentRound: 1, stage: 'participation', stakeOpenAt: 1700000000, stakeCloseAt: 1700086400, candles: [] });
+      const htmlObs = liveRound({ currentRound: 1, stage: 'observation', stakeOpenAt: 1700000000, stakeCloseAt: 1700086400, candles: [] });
+      console.log(JSON.stringify({
+        partHasStakeHref: htmlPart.includes('href="#/challenge/confirm"'),
+        partHasDisabledBtn: htmlPart.includes('disabled>'),
+        obsHasStakeHref: htmlObs.includes('href="#/challenge/confirm"'),
+        obsHasDisabledBtn: htmlObs.includes('disabled>'),
+      }));
+    `,
+  );
+  assert.equal(liveEnabled.partHasStakeHref, true);
+  assert.equal(liveEnabled.partHasDisabledBtn, false);
+  assert.equal(liveEnabled.obsHasStakeHref, false);
+  assert.equal(liveEnabled.obsHasDisabledBtn, true);
+});
+

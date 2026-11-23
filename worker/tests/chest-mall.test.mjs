@@ -483,4 +483,42 @@ await test('Cloudflare workerd strict globalThis.fetch receiver guard (TonCenter
   }
 });
 
+await test('Chest OG PNG (16x9 & 9x16) and SVG render real chest progress without DATA PENDING or ROUND PENDING', async () => {
+  const chest = new ChestEngine();
+  const starter = await chest.claimStarterBronzeChests({ userId: '7001', walletAddress: W_OWNER }, 5000);
+  const b1 = starter.chests[0];
+  await chest.assistChest({ chestId: b1.chestId, helperUserId: '7002', helperWalletAddress: W_H1, walletActive: true }, 5005);
+
+  const router = createApiRouter({
+    env: { A9_BOT_TOKEN: BOT_TOKEN, A9_PUBLIC_ORIGIN: 'https://app.a9.test' },
+    stateStore: emptyStateStore,
+    chestEngine: chest,
+  });
+
+  // 1) Existing chest SVG: must show label, assist count, reward A9, and proportional green bars (1/2 => 12 green bars)
+  const svgRes = await router({ method: 'GET', pathname: `/c/img/chest/${b1.chestId}.svg`, nowSec: 5010 });
+  assert.equal(svgRes.status, 200);
+  assert.match(svgRes.rawBody, /A9 CHEST · Bronze Chest #1/);
+  assert.match(svgRes.rawBody, /1\/2 ASSISTS · 300 A9 Reward/);
+  assert.doesNotMatch(svgRes.rawBody, /DATA PENDING|ROUND PENDING|16 \/ 24 HOURLY/);
+  assert.equal((svgRes.rawBody.match(/fill="#2DA069"/g) || []).length, 12);
+
+  // 2) Existing chest PNG (landscape 1200x630 & story 1080x1920): valid PNG header + distinct raster output from missing chest
+  const pngLand = await router({ method: 'GET', pathname: `/c/img/chest/${b1.chestId}.png`, nowSec: 5010 });
+  const pngStory = await router({ method: 'GET', pathname: `/c/img/chest/${b1.chestId}.png`, query: { ratio: '9x16' }, nowSec: 5010 });
+  const pngMissing = await router({ method: 'GET', pathname: '/c/img/chest/nonexistent_id.png', nowSec: 5010 });
+  for (const res of [pngLand, pngStory, pngMissing]) {
+    assert.equal(res.status, 200);
+    assert.equal(res.contentType, 'image/png');
+    assert.deepEqual(Array.from(res.rawBody.subarray(0, 8)), [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  }
+  assert.notEqual(Buffer.from(pngLand.rawBody).toString('base64'), Buffer.from(pngMissing.rawBody).toString('base64'));
+
+  // 3) Missing chest SVG still renders friendly fallback without ROUND PENDING / DATA PENDING
+  const svgMissing = await router({ method: 'GET', pathname: '/c/img/chest/nonexistent_id.svg', nowSec: 5010 });
+  assert.equal(svgMissing.status, 200);
+  assert.match(svgMissing.rawBody, /A9 CHEST · BOOST &amp; OPEN/);
+  assert.doesNotMatch(svgMissing.rawBody, /DATA PENDING|ROUND PENDING/);
+});
+
 console.log(`All ${passed} A9 v15 Chest Mall & Viral Assist tests passed.`);

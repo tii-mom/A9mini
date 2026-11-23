@@ -25,23 +25,39 @@ import { triggerStoryShare, buildTmaDeepLink, getShareRef } from '../share.js';
 
 export function renderTeamHome(root, navigate) {
   if (!config.isDemo) {
-    root.innerHTML=`<form class="card col-gap"><label>${L('战队编号','Squad ID')} <input name="guild" required maxlength="64"></label><button class="btn btn-primary">${L('申请加入','Join squad')}</button><output></output></form>`;
-    portfolioPanel(root,true);
-    const form=root.querySelector('form');
-    form.onsubmit=async event=>{
+    root.innerHTML = `
+      <div class="col-gap anim-page-enter">
+        <div class="card card-hero" style="border-color:var(--gold-border);">
+          <div class="row-between" style="margin-bottom:6px;">
+            <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('群主创世金库 & 12% 永久返佣', 'Captain Vault & 12% Referral')}</span>
+            <span class="chip chip-gold">+5,000 A9</span>
+          </div>
+          <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('绑定 ≥50 人真实 TG 群立领 5,000 A9 创世金库；分享招募海报，成员每购任意宝箱即享 12% 返佣实时私聊提醒。', 'Verify a 50+ member TG group for 5,000 A9 founding vault. Share invite poster to earn 12% live commission on every chest purchase.')}</div>
+          <div class="grid-2" style="gap:8px;">
+            <button class="btn btn-primary btn-sm" data-nav="/team/bind-tg" type="button" style="width:100%;min-height:40px;">${icon('send', 13)} ${L('绑群领 5,000 A9', 'Link TG Group')}</button>
+            <button class="btn btn-secondary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:40px;">${icon('qr', 13)} ${L('生成招募海报', 'Invite Poster')}</button>
+          </div>
+        </div>
+        <form class="card col-gap" id="live-join-team-form"><label>${L('战队编号','Squad ID')} <input name="guild" required maxlength="64"></label><button class="btn btn-primary">${L('申请加入','Join squad')}</button><output></output></form>
+      </div>
+    `;
+    portfolioPanel(root.firstElementChild, true);
+    const form = root.querySelector('#live-join-team-form');
+    form.onsubmit = async event => {
       event.preventDefault();
-      const wallet=store.state.user.address;
-      if(!wallet){tonConnect.openConnectModal(()=>renderTeamHome(root,navigate));return;}
-      const button=form.querySelector('button');
-      button.disabled=true;
+      const wallet = store.state.user.address;
+      if (!wallet) { tonConnect.openConnectModal(() => renderTeamHome(root, navigate)); return; }
+      const button = form.querySelector('button');
+      button.disabled = true;
       try {
-        await joinTeam({teamId:form.elements.guild.value.trim(),walletAddress:wallet,userId:getEffectiveUserId(store.state.user),referrerId:store.state.referral.referrerId});
-        renderTeamHome(root,navigate);
+        await joinTeam({ teamId: form.elements.guild.value.trim(), walletAddress: wallet, userId: getEffectiveUserId(store.state.user), referrerId: store.state.referral.referrerId });
+        renderTeamHome(root, navigate);
       } catch {
-        form.querySelector('output').textContent=L('加入失败，请核对战队编号后重试','Join failed. Check the squad ID and retry.');
-        button.disabled=false;
+        form.querySelector('output').textContent = L('加入失败，请核对战队编号后重试', 'Join failed. Check the squad ID and retry.');
+        button.disabled = false;
       }
-    };return;
+    };
+    return;
   }
   const { team } = store.state;
   const role = team.role;

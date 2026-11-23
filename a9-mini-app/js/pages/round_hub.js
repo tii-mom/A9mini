@@ -356,13 +356,13 @@ function bindPredictionCardEvents(root, navigate) {
       } catch (e) {
         A9Haptic.error();
         if (e?.code === 'ACTIVATION_REQUIREMENT_UNMET') {
-          showToast(L('请先完成至少 1 笔兑换屋兑换或链上参与后再激活', 'Complete 1 exchange swap or on-chain entry before activating'), 'amber');
+          showToast(L('请先在宝箱商城购任意宝箱（0.99 GRAM 起）、链上参与，或直邀 1 位好友购箱后再激活', 'Buy any chest (0.99+ GRAM), stake on-chain, or invite 1 paid friend before activating'), 'amber');
           actBtn.disabled = false;
         } else if (e?.code === 'VOUCHER_EXPIRED') {
           showToast(L('待激活预言券已过期并回流奖池', 'Pending prediction voucher has expired and returned to the pool'), 'amber');
           await syncPredictionState(root, navigate);
         } else {
-          showToast(e?.message || L('激活失败，请先完成 1 笔兑换屋兑换或链上参与', 'Activation failed; complete 1 exchange swap or entry first'), 'error');
+          showToast(e?.message || L('激活失败，请先购任意宝箱（0.99 GRAM 起）、链上参与或直邀 1 位好友购箱', 'Activation failed; buy any chest (0.99+ GRAM), stake, or invite 1 paid friend first'), 'error');
           actBtn.disabled = false;
         }
       }

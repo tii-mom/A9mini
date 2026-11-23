@@ -821,6 +821,7 @@ export function createApiRouter({
             hasData: Boolean(chest),
             state: chest ? `${chest.currentAssists}/${chest.requiredAssists} ASSISTS` : 'CHEST ASSIST',
             qualified: chest ? chest.currentAssists : null,
+            totalSlots: chest ? chest.requiredAssists : 2,
             targetUsd: chest ? `${chest.labelEn}` : 'A9 CHEST',
             budgetA9: rewardStr,
             ratio,
@@ -859,6 +860,7 @@ export function createApiRouter({
             hasData: Boolean(chest),
             state: chest ? `${chest.currentAssists}/${chest.requiredAssists} ASSISTS` : 'CHEST ASSIST',
             qualified: chest ? chest.currentAssists : null,
+            totalSlots: chest ? chest.requiredAssists : 2,
             targetUsd: chest ? `${chest.labelEn}` : 'A9 CHEST',
             budgetA9: rewardStr,
           });

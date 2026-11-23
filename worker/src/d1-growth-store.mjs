@@ -849,7 +849,7 @@ export class D1PredictionEngine {
     if (qualified !== true) {
       throw new GrowthError(
         'ACTIVATION_REQUIREMENT_UNMET',
-        '请先完成至少 1 笔 A9 兑换屋兑换或链上质押后再激活',
+        '请先在宝箱商城购任意宝箱（0.99 GRAM 起）、链上质押，或直邀 1 位好友购箱后再激活',
       );
     }
     if (!promoEngine || promoEngine.db !== this.db) {

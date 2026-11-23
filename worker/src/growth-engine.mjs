@@ -226,7 +226,7 @@ export class PredictionEngine {
     if (qualified !== true) {
       throw new GrowthError(
         'ACTIVATION_REQUIREMENT_UNMET',
-        '请先完成至少 1 笔 A9 兑换屋兑换或链上质押后再激活',
+        '请先在宝箱商城购任意宝箱（0.99 GRAM 起）、链上质押，或直邀 1 位好友购箱后再激活',
       );
     }
 
@@ -614,30 +614,44 @@ export function renderOgCardSvg({
   budgetA9 = null,
   subtitle = '',
 }) {
-  const verified = Boolean(hasData && roundId);
-  const isBurn = verified && (type === 'burn' || state === 'FAILED_PERMANENT');
+  const isChest = type === 'chest';
+  const verified = isChest ? Boolean(hasData) : Boolean(hasData && roundId);
+  const isBurn = !isChest && verified && (type === 'burn' || state === 'FAILED_PERMANENT');
   const accent = isBurn ? '#D94860' : '#E8453C';
   const qualNum = verified && Number.isInteger(qualified) ? qualified : null;
+  const safeTotal = Math.max(1, Number(totalSlots) || (isChest ? 2 : 24));
   const roundLabel = roundId ? `#${roundId}` : 'PENDING';
+  const chestLabel = String(targetUsd || 'A9 CHEST').trim() || 'A9 CHEST';
   const titleMap = {
     round: verified ? `A9 ROUND ${roundLabel} · ${qualNum ?? '—'}/${totalSlots} SLOTS` : `A9 ROUND ${roundLabel} · DATA PENDING`,
     burn: verified ? `A9 ROUND ${roundLabel} · 100% BURN MONUMENT` : `A9 ROUND ${roundLabel} · DATA PENDING`,
     proof: verified ? `A9 ROUND ${roundLabel} · ON-CHAIN STAKE PROOF` : `A9 ROUND ${roundLabel} · DATA PENDING`,
     bet: verified ? `A9 ROUND ${roundLabel} · 24H PASS vs BURN` : `A9 ROUND ${roundLabel} · DATA PENDING`,
-    chest: verified ? `A9 CHEST ${roundLabel} · BOOST & OPEN` : `A9 CHEST · BOOST & OPEN`,
+    chest: verified ? `A9 CHEST · ${chestLabel}` : 'A9 CHEST · BOOST & OPEN',
   };
   const title = titleMap[type] || titleMap.round;
   const poolPart = budgetA9 ? `Pool ${budgetA9} A9` : 'Pool Pending Verification';
-  const sub = subtitle || (!verified
-    ? 'On-Chain Data Pending Verification · TON TEP-74'
-    : (isBurn ? 'Principal & Pool Burned On-Chain · Witnessed on TON' : `Target ${targetUsd || '—'} · ${poolPart} · Up to 15x`));
+  const chestSub = verified
+    ? `${state || `${qualNum ?? 0}/${safeTotal} ASSISTS`} · ${budgetA9 ? `${budgetA9} A9 Reward` : 'Free Chest Assist'}`
+    : 'Connect Active TON Wallet to Assist & Claim Bronze Chest #1';
+  const sub = subtitle || (isChest
+    ? chestSub
+    : (!verified
+        ? 'On-Chain Data Pending Verification · TON TEP-74'
+        : (isBurn ? 'Principal & Pool Burned On-Chain · Witnessed on TON' : `Target ${targetUsd || '—'} · ${poolPart} · Up to 15x`)));
 
+  const filledBars = qualNum === null
+    ? 0
+    : (isChest ? Math.min(24, Math.round((qualNum / safeTotal) * 24)) : Math.min(24, qualNum));
   const bars = [];
   for (let i = 0; i < 24; i += 1) {
     const x = 60 + i * 45;
-    const fill = qualNum !== null && i < qualNum ? '#2DA069' : (isBurn ? '#D94860' : '#E4DDD0');
+    const fill = i < filledBars ? '#2DA069' : (isBurn ? '#D94860' : '#E4DDD0');
     bars.push(`<rect x="${x}" y="380" width="32" height="92" rx="8" fill="${fill}" />`);
   }
+  const footerText = isChest
+    ? 'ACTIVE TON WALLET ASSIST · 0 TRANSFER · AUTO-CLAIM BRONZE #1'
+    : '16 / 24 HOURLY SLOTS TO PASS · 100% ON-CHAIN TON TEP-74';
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
   <rect width="1200" height="630" fill="#F5F0E6"/>
@@ -647,7 +661,7 @@ export function renderOgCardSvg({
   <text x="60" y="210" fill="#2B2523" font-family="sans-serif" font-size="56" font-weight="700">${escapeXml(title)}</text>
   <text x="60" y="276" fill="#675E58" font-family="monospace" font-size="28">${escapeXml(sub)}</text>
   ${bars.join('\n  ')}
-  <text x="60" y="546" fill="#9A8F86" font-family="monospace" font-size="24">16 / 24 HOURLY SLOTS TO PASS · 100% ON-CHAIN TON TEP-74</text>
+  <text x="60" y="546" fill="#9A8F86" font-family="monospace" font-size="24">${escapeXml(footerText)}</text>
 </svg>`;
 }
 
@@ -806,8 +820,9 @@ export async function renderOgCardPng({
   const stride = 1 + width * 3;
   const raw = new Uint8Array(height * stride);
 
-  const verified = Boolean(hasData && roundId);
-  const isBurn = verified && (type === 'burn' || state === 'FAILED_PERMANENT');
+  const isChest = type === 'chest';
+  const verified = isChest ? Boolean(hasData) : Boolean(hasData && roundId);
+  const isBurn = !isChest && verified && (type === 'burn' || state === 'FAILED_PERMANENT');
   const accent = isBurn ? [0xd9, 0x48, 0x60] : [0xe8, 0x45, 0x3c];
   const green = [0x2d, 0xa0, 0x69];
   const mutedBar = isBurn ? [0xf2, 0xd4, 0xd9] : [0xe4, 0xdd, 0xd0];
@@ -868,29 +883,45 @@ export async function renderOgCardPng({
   fillRect(width - pad - bw, pad, bw, height - pad * 2, accent);
 
   const roundLabel = roundId ? `#${roundId}` : 'PENDING';
+  const chestLabel = String(targetUsd || 'A9 CHEST').replace(/[^0-9A-Za-z #./:-]/g, '').trim() || 'A9 CHEST';
+  const chestState = String(state || 'CHEST ASSIST').replace(/[^0-9A-Za-z #./:-]/g, '').trim() || 'CHEST ASSIST';
   const headlineMap = {
     round: `ROUND ${roundLabel}`,
     burn: `ROUND ${roundLabel} BURN`,
     proof: `ROUND ${roundLabel} PROOF`,
     bet: `ROUND ${roundLabel} BET`,
-    chest: `A9 CHEST ${roundLabel}`,
+    chest: chestLabel,
   };
-  const headline = verified ? (headlineMap[type] || headlineMap.round) : `ROUND ${roundLabel}`;
+  const headline = isChest
+    ? (verified ? chestLabel : 'A9 CHEST')
+    : (verified ? (headlineMap[type] || headlineMap.round) : `ROUND ${roundLabel}`);
   const qualNum = verified && Number.isInteger(qualified) ? qualified : null;
-  const slotText = verified && qualNum !== null ? `${qualNum}/${totalSlots} SLOTS` : 'DATA PENDING';
+  const safeTotal = Math.max(1, Number(totalSlots) || (isChest ? 2 : 24));
+  const filledBars = qualNum === null
+    ? 0
+    : (isChest ? Math.min(24, Math.round((qualNum / safeTotal) * 24)) : Math.min(24, qualNum));
+  const slotText = isChest
+    ? (verified ? chestState : 'BOOST AND OPEN')
+    : (verified && qualNum !== null ? `${qualNum}/${totalSlots} SLOTS` : 'DATA PENDING');
   const cleanTarget = verified ? (String(targetUsd || '--').replace(/[^0-9.$-]/g, '') || '--') : '--';
   const cleanBudget = verified && budgetA9 ? String(budgetA9).replace(/[^0-9A-Za-z]/g, '') : null;
-  const poolLine = cleanBudget ? `POOL ${cleanBudget} A9  UP TO 15X` : 'ON-CHAIN DATA PENDING';
-  const landscapeMeta = !verified
-    ? 'ON-CHAIN DATA PENDING VERIFICATION'
-    : (isBurn ? '100% BURN MONUMENT  ON-CHAIN TON' : `TARGET ${cleanTarget}${cleanBudget ? `  POOL ${cleanBudget} A9` : '  POOL PENDING'}`);
+  const poolLine = isChest
+    ? (cleanBudget ? `REWARD ${cleanBudget} A9  FREE BRONZE #1` : 'ASSIST TO CLAIM BRONZE #1')
+    : (cleanBudget ? `POOL ${cleanBudget} A9  UP TO 15X` : 'ON-CHAIN DATA PENDING');
+  const landscapeMeta = isChest
+    ? (verified
+        ? `${cleanBudget ? `REWARD ${cleanBudget} A9  ` : ''}ASSIST AND CLAIM FREE BRONZE #1`
+        : 'CONNECT ACTIVE TON WALLET TO ASSIST')
+    : (!verified
+        ? 'ON-CHAIN DATA PENDING VERIFICATION'
+        : (isBurn ? '100% BURN MONUMENT  ON-CHAIN TON' : `TARGET ${cleanTarget}${cleanBudget ? `  POOL ${cleanBudget} A9` : '  POOL PENDING'}`));
 
   if (portrait) {
     // 1080x1920 TG Story vertical layout
     drawText('A9 PROTOCOL // TON', 96, 160, 6, accent);
-    drawText(headline, 96, 300, 12, white);
-    drawText(slotText, 96, 450, 14, isBurn ? accent : green);
-    drawText(!verified ? 'PENDING VERIFICATION' : (isBurn ? '100% BURN MONUMENT' : `TARGET ${cleanTarget}`), 96, 610, 6, silver);
+    drawText(headline, 96, 300, isChest ? 10 : 12, white);
+    drawText(slotText, 96, 450, isChest ? 10 : 14, isBurn ? accent : green);
+    drawText(isChest ? 'A9 CHEST MALL' : (!verified ? 'PENDING VERIFICATION' : (isBurn ? '100% BURN MONUMENT' : `TARGET ${cleanTarget}`)), 96, 610, 6, silver);
     drawText(poolLine, 96, 690, 5, silver);
 
     // 24H crystal grid: 6 columns x 4 rows
@@ -902,26 +933,26 @@ export async function renderOgCardPng({
     for (let i = 0; i < 24; i += 1) {
       const col = i % 6;
       const row = Math.floor(i / 6);
-      const fill = qualNum !== null && i < qualNum ? green : mutedBar;
+      const fill = i < filledBars ? green : mutedBar;
       fillRect(gridX + col * (cellW + gap), gridY + row * (cellH + gap), cellW, cellH, fill);
     }
 
-    drawText('16/24 HOURLY SLOTS TO PASS', 96, 1560, 5, silver);
+    drawText(isChest ? 'ACTIVE WALLET ASSIST  0 TRANSFER' : '16/24 HOURLY SLOTS TO PASS', 96, 1560, 5, silver);
     drawText('100% ON-CHAIN TON TEP-74', 96, 1640, 5, accent);
   } else {
     // 1200x630 X / Telegram OG landscape layout
     drawText('A9 PROTOCOL // TON', 64, 72, 4, accent);
-    drawText(`${headline}  ${slotText}`, 64, 150, 8, white);
+    drawText(`${headline}  ${slotText}`, 64, 150, isChest ? 6 : 8, white);
     drawText(landscapeMeta, 64, 250, 4, silver);
 
     // 24 slot bars across 1072px
     for (let i = 0; i < 24; i += 1) {
       const bx = 64 + i * 45;
-      const fill = qualNum !== null && i < qualNum ? green : mutedBar;
+      const fill = i < filledBars ? green : mutedBar;
       fillRect(bx, 340, 32, 128, fill);
     }
 
-    drawText('16/24 HOURLY SLOTS TO PASS  100% ON-CHAIN TEP-74', 64, 526, 3, silver);
+    drawText(isChest ? 'ACTIVE TON WALLET ASSIST  0 TRANSFER  FREE BRONZE #1' : '16/24 HOURLY SLOTS TO PASS  100% ON-CHAIN TEP-74', 64, 526, 3, silver);
   }
 
   // 3. Encode PNG

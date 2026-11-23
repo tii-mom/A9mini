@@ -25,12 +25,29 @@
 
 ---
 
-## 1. 波次 1：主网合约部署（不开轮）与只读全站上线
+## 1. 波次 1：拆分执行（波次 1A 前端/基础设施只读上线 → 波次 1B 主网铸币与 82 亿注资）
 
-**设计说明**：一次性用 `deploy-v15.mjs --protocol v16 --profile mainnet` 完成 `v16`（含 W3 失败恢复）全部 4 个合约的部署与 82 亿注资，但在波次 3 前**不执行 `open-round`**（未开轮的 `RoundController` 拒绝一切质押并原路/托管退回，零闯关资金暴露）；三把开关全关（`A9_PRESALE_OPEN=0`、`A9_CHEST_OPEN_ENABLED=0`、`A9_BROADCAST_ENABLED=0`），前端 `window.__A9_CONFIG__.liveFundsEnabled = false`。
+**拆分原则**：严禁将“前端静态站只读上线”与“主网不可逆铸币弃权 / 82 亿注资”捆绑在同一步。先在**零主网铸币、零资金暴露**前提下完成前端静态站、域名、Bot 与 D1 只读链路验收（波次 1A），再经业主单独书面授权执行主网 4 合约部署、铸币弃权与 82 亿注资（波次 1B，仍不开轮）。
 
-### 1.1 一次性 4 步幂等部署 `v16` 主网合约（支持任意步骤中断续跑）
-先验证 `v16/ci/artifacts.sha256`（4/4）与 Acton 单元测试全部通过，导出主网必填部署变量（`A9_DEPLOY_WALLET`、`A9_TREASURY_WALLET`、`A9_KEEPER_ADDRESS`、`A9_ROUND_OPENER_ADDRESS`、`A9_TEAM_WALLET_ADDRESS`、`A9_METADATA_URI`），再执行干跑预检：
+### 1A. 前端静态站只读上线与基础设施预演（零链上铸币/注资）
+1. **发布静态前端与元数据**：部署 `a9-mini-app/` 至 `https://app.<domain>`，确认 `window.__A9_CONFIG__.liveFundsEnabled = false`、`tonconnect-manifest.json` 与 `A9_METADATA_URI`（TEP-64 代币元数据 JSON 及官方 Logo）公网 HTTPS 可达；
+2. **生产 D1 迁移（0001..0010）**：
+```bash
+cd /Users/yu1/Desktop/A9mini/worker
+npx wrangler d1 migrations apply a9mini-v15-prod --remote --env production
+```
+   验收项：10 份迁移全部成功、28 张表与 23 个索引就绪、`PRAGMA integrity_check = ok`。
+3. **注入生产 Worker Secrets（严禁写入 wrangler.toml）**：
+```bash
+cd /Users/yu1/Desktop/A9mini/worker
+npx wrangler secret put A9_BOT_TOKEN --env production
+npx wrangler secret put A9_ADMIN_TOKEN --env production
+npx wrangler secret put TONCENTER_API_KEY --env production
+```
+4. **前端只读验收**：在移动端 `390×844` 打开正式 Telegram Mini App，确认广场/闯关/宝箱商城（`#/internal/market` 与 `#/market`）/战队/我的零报错、零 Emoji、数字完整不缩写、所有资金按钮只读禁用，且 `tonconnect-manifest.json` 握手正常。
+
+### 1B. 主网 4 合约部署、铸币弃权与 82 亿注资（暂不开轮）
+先验证 `v16/ci/artifacts.sha256`（4/4）与 Acton 单元测试全部通过，导出主网必填部署变量（`A9_DEPLOY_WALLET`、`A9_TREASURY_WALLET`、`A9_KEEPER_ADDRESS`、`A9_ROUND_OPENER_ADDRESS`、`A9_TEAM_WALLET_ADDRESS`、`A9_METADATA_URI`），先只读干跑预检，再由业主单独书面授权执行：
 ```bash
 cd /Users/yu1/Desktop/A9mini/ops
 export A9_DEPLOY_WALLET="<mainnet_deployer_wallet_name>"
@@ -43,7 +60,7 @@ export A9_METADATA_URI="https://app.<domain>/meta/a9-jetton.json"
 # 1) 只读干跑预检（零链上消息，派生并核对合约地址与钱包余额）
 node scripts/deploy-v15.mjs --protocol v16 --profile mainnet --strict --dry-run
 
-# 2) 业主书面授权后执行真实主网部署（部署后暂不开轮）
+# 2) 业主书面授权后执行真实主网铸币、弃权与 82 亿注资（部署后暂不开轮）
 OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
   node scripts/deploy-v15.mjs --protocol v16 --profile mainnet --strict --execute
 ```
@@ -52,23 +69,8 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
 - `RoundController` JettonWallet 余额精确为 `8,200,000,000 A9`，`currentRoundId === 0`，`teamWallet` 为正确的多签/硬件主网地址；
 - `treasury` 留存 `1,800,000,000 A9` 供后续划拨至独立预售热钱包、推广热钱包与 STON.fi 流动池。
 
-### 1.2 生产 D1 迁移（0001..0010）
-```bash
-cd /Users/yu1/Desktop/A9mini/worker
-npx wrangler d1 migrations apply a9mini-v15-prod --remote --env production
-```
-验收项：10 份迁移全部成功、28 张表与 23 个索引就绪、`PRAGMA integrity_check = ok`。
-
-### 1.3 注入生产 Worker Secrets（严禁写入 wrangler.toml）
-```bash
-cd /Users/yu1/Desktop/A9mini/worker
-npx wrangler secret put A9_BOT_TOKEN --env production
-npx wrangler secret put A9_ADMIN_TOKEN --env production
-npx wrangler secret put TONCENTER_API_KEY --env production
-```
-
-### 1.4 配置正式主网 `[env.production.vars]` 并部署（三开关保持 `"0"`）
-确认全部必填变量非空（尤其 `A9_TON_PROOF_DOMAINS` 与两枚独立热钱包地址，缺任一项均触发 fail-closed 503）：
+### 1C. 回填主网合约地址并部署只读 Worker（三开关保持 `"0"`）
+确认 `[env.production.vars]` 全部必填变量非空（尤其 `A9_TON_PROOF_DOMAINS` 与两枚独立热钱包地址，缺任一项均触发 fail-closed 503）：
 - `A9_NETWORK = "mainnet"`
 - `A9_PROTOCOL_VERSION = "v16"`
 - `TONCENTER_API_BASE = "https://toncenter.com/api/v2"`
@@ -77,6 +79,7 @@ npx wrangler secret put TONCENTER_API_KEY --env production
 - `A9_ALLOWED_ORIGINS = "https://app.<domain>"`
 - `A9_TON_PROOF_DOMAINS = "app.<domain>"`
 - `A9_REQUIRE_RUNNER_HEARTBEAT = "1"`
+- `A9_BROADCAST_WHALE_MIN_GRAM = "50"`（先保留默认 50，待放量后按需调优）
 - `A9_JETTON_MASTER_ADDRESS` / `A9_ROUND_CONTROLLER_ADDRESS` / `A9_PROMO_HOT_WALLET_ADDRESS` / `A9_PRESALE_HOT_WALLET_ADDRESS`（两个热钱包地址必须严格不同）
 - `A9_PRESALE_OPEN = "0"`、`A9_CHEST_OPEN_ENABLED = "0"`、`A9_BROADCAST_ENABLED = "0"`
 
@@ -85,11 +88,11 @@ cd /Users/yu1/Desktop/A9mini/worker
 npx wrangler deploy --env production
 ```
 
-### 1.5 波次 1 必过验收项
+### 1D. 波次 1 必过验收项
 1. `GET https://api.<domain>/api/health` 返回 `200`，`checks.db.ok === true`；
 2. `GET https://api.<domain>/api/config` 返回 `network: "mainnet"`、`protocolVersion: "v16"`、`presaleHotWallet.open: false`、5 档宝箱精确 SKU、无伪造数据；
 3. 使用已鉴权且已绑定钱包的会话调用 `POST /api/presale/intent`（带 `skuId: "chest_bronze"`）返回 `400 PRESALE_CLOSED`（匿名请求先返回 `401`）；调用 `POST /api/chests/:id/open` 返回 `403 CHEST_OPEN_DISABLED`；
-4. 移动端 `390×844` 打开正式 Telegram Mini App：广场/闯关/宝箱商城（`#/internal/market` 与 `#/market`）/战队/我的零报错、零 Emoji、数字完整不缩写、所有资金操作按钮只读禁用。
+4. 移动端 `390×844` 打开正式 Telegram Mini App，完成 Telegram `initData` 与 `ton_proof` 验签绑定，全站只读无报错。
 
 ---
 
@@ -125,13 +128,14 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
 ```
 确认 `GET https://api.<domain>/api/health` 中 `data.checks.runnerHeartbeats[i]` 显示 `network: "mainnet"` 且 `meta.status: "ok"`、`meta.executeLive: true`。
 
-### 2.2 小额真钱冒烟验证（放量前必做）
-1. 仅开启 `A9_PRESALE_OPEN = "1"`，前端部署配置开启 `window.__A9_CONFIG__.liveFundsEnabled = true`；
-2. 使用团队自有主网小号实测 3 笔真实小额闭环：
+### 2.2 小额真钱冒烟验证与分步开闸（放量前必做）
+1. **第一步（开购箱 + 开箱入账，保持群播报关闭）**：将 Worker 变量置为 `A9_PRESALE_OPEN = "1"`、`A9_CHEST_OPEN_ENABLED = "1"`、`A9_BROADCAST_ENABLED = "0"` 并部署；前端部署配置开启 `window.__A9_CONFIG__.liveFundsEnabled = true`；
+2. 使用团队自有主网小号实测 4 笔真实小额闭环：
    - `0.99 GRAM` 青铜箱购箱 → 实测到账 `1,981.98 A9` + 膨胀箱生成 + 推荐人 12% 佣金记账；
+   - **宝箱开箱入账**：实测免费青铜宝箱 #1（2 位活跃钱包助力）与商城膨胀箱点击 `POST /api/chests/:id/open` 正常入账（不再返回 `403 CHEST_OPEN_DISABLED`）；
    - `0.99 GRAM` 过期单晚付 → 实测 `gram_refund_v15.tolk` 全额退回 `0.99 GRAM`；
    - 推荐人付 `0.06 GRAM` 领取刚获得的返佣 → 实测 `promoHotWallet` GRAM 净增加（项目方 0 Gas 支出）。
-3. 核验 D1 `presale_orders`、`presale_payouts`、`promo_payouts`、`runner_heartbeats` 账实 100% 一致后正式放量。
+3. **第二步（账实对平后开启 TG 播报）**：核验 D1 `presale_orders`、`presale_payouts`、`promo_payouts`、`chest_records`、`runner_heartbeats` 账实 100% 一致后，再将 `A9_BROADCAST_ENABLED = "1"`（`A9_BROADCAST_WHALE_MIN_GRAM` 先保持 `"50"`）部署并正式放量。
 
 ---
 
@@ -140,6 +144,7 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
 **前置门禁**：
 - STON.fi 主网 A9/GRAM 初始流动性池已建立并产生稳定 24H TWAP 行情；
 - 再次核对 `RoundController` JettonWallet 余额精确为 `8,200,000,000 A9` 且 `teamWallet` 为正确多签/硬件地址；
+- **波次 3 前前端必过验收项（v16 托管退款入口）**：在 Live 态 `/claim` 页面挂接已就绪的 `buildV16ClaimFailedRefundTx`（`0x52540005`），确保极端低 Gas 失败退回场景下用户可一键自助拉取托管退款，并通过单测与测试网实测验收；
 
 ### 3.1 轮次日常运维（主网强制严格 K 线对齐）
 ```bash
