@@ -12,7 +12,7 @@ import { demoWalletSendResult } from './demo-data.js';
 import { A9Haptic } from './tma.js';
 import { escapeHtml, showToast, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
-import { buildV15StakeTx, buildV15ClaimTx, buildV15PromoFeeTx, buildV15PresaleTx, parseTonAddress } from './v15-tx.js';
+import { buildV15StakeTx, buildV15ClaimTx, buildV15PromoFeeTx, buildV15PresaleTx, buildV16ClaimFailedRefundTx, parseTonAddress } from './v15-tx.js';
 import { A9TMA as TMA } from './tma.js';
 import { fetchMe, requestTonProofPayload, submitTonProof } from './data.js';
 
@@ -408,6 +408,19 @@ class A9TonConnect {
       throw err;
     }
     return await this._dispatch(buildV15ClaimTx(target, queryId), 'demo_v15_claim');
+  }
+
+  /** v16 拉取 W3 托管失败退款（RoundController ClaimFailedRefund 0x52540005，附 0.15 GRAM Gas）。 */
+  async sendV16ClaimFailedRefund(roundController = null, queryId = BigInt(Date.now())) {
+    if (!config.isDemo && !liveFundsReady()) throw createFundsDisabledError();
+    const serverRc = store.state.round?.protocolConfig?.contracts?.roundController || '';
+    const target = roundController || serverRc || (config.isDemo ? 'EQD_DEMO_V16_RC' : '');
+    if (!target) {
+      const err = new Error('缺少 v16 RoundController 合约地址，无法发起托管退款提取');
+      err.code = 'ROUND_CONTROLLER_MISSING';
+      throw err;
+    }
+    return await this._dispatch(buildV16ClaimFailedRefundTx(target, queryId), 'demo_v16_claim_failed_refund');
   }
 
   /** v15/v16 邀友奖励 0.06 GRAM 手续费转账（触发推广热钱包自动发 A9）。 */

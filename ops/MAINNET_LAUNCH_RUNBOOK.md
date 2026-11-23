@@ -32,7 +32,7 @@
 ### 1A. 前端静态站只读上线与生产基础设施预演（零链上铸币/注资）
 > **生产写操作红线**：本步中的**远程生产 D1 迁移（`--remote`）**与**生产 Worker Secrets 注入（`wrangler secret put`）**均直接写入生产 Cloudflare 环境，**必须由业主单独书面授权后方可执行**；未获单独授权前仅可进行本地只读预演与静态资产核对。
 
-1. **发布静态前端与元数据**：部署 `a9-mini-app/` 至 `https://app.<domain>`，确认 `window.__A9_CONFIG__.liveFundsEnabled = false`、`tonconnect-manifest.json` 与 `A9_METADATA_URI`（TEP-64 代币元数据 JSON 及官方 Logo）公网 HTTPS 可达；
+1. **发布静态前端与元数据（含官网分域对齐）**：若独立官网（`a9-official-web/`）占根域 `https://a9.lat`，推荐 Mini App 部署至 `https://app.a9.lat` 并同步更新 `tonconnect-manifest.json` 的 `url`、`A9_PUBLIC_ORIGIN` 与 `A9_TON_PROOF_DOMAINS`，同时确保根域或静态域上的 `a9.json`、`tonconnect-manifest.json` 与 `assets/token/a9-token-2048.png` 返回 `HTTP 200` 且带 `Access-Control-Allow-Origin: *`（`a9-mini-app/_headers` 已内置）；确认 `window.__A9_CONFIG__.liveFundsEnabled = false`；
 2. **生产 D1 迁移（0001..0010，写生产库 · 须单独授权）**：
 ```bash
 cd /Users/yu1/Desktop/A9mini/worker
@@ -146,7 +146,7 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
 **前置门禁**：
 - STON.fi 主网 A9/GRAM 初始流动性池已建立并产生稳定 24H TWAP 行情；
 - 再次核对 `RoundController` JettonWallet 余额精确为 `8,200,000,000 A9` 且 `teamWallet` 为正确多签/硬件地址；
-- **波次 3 前前端必过验收项（v16 托管退款入口）**：在 Live 态 `/claim` 页面挂接已就绪的 `buildV16ClaimFailedRefundTx`（`0x52540005`），确保极端低 Gas 失败退回场景下用户可一键自助拉取托管退款，并通过单测与测试网实测验收；
+- **波次 3 前前端必过验收项（v16 托管退款入口）**：Live 态 `/claim` 页面、TonConnect 发送层（`sendV16ClaimFailedRefund`）与 Worker `get_failed_refund` 查询均已挂接并通过本地单测；开轮前仅需在测试网补一次低 Gas 失败退回实测验收；
 
 ### 3.1 轮次日常运维（主网强制严格 K 线对齐）
 ```bash

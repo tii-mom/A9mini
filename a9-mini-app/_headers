@@ -1,0 +1,15 @@
+# Cloudflare Pages static headers for TON wallets, TonConnect 2.0 & TEP-64 token metadata
+
+/a9.json
+  Access-Control-Allow-Origin: *
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=300
+
+/tonconnect-manifest.json
+  Access-Control-Allow-Origin: *
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=300
+
+/assets/token/*
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=86400

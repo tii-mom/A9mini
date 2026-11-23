@@ -577,3 +577,62 @@ test('Phase 0: liveRound(/round) preserves staking gate across read-only, closed
   assert.equal(liveEnabled.obsHasDisabledBtn, true);
 });
 
+test('W3: sendV16ClaimFailedRefund enforces liveFundsEnabled gate and live /claim renders v16 escrowed refund card', () => {
+  // 1) Read-only live mode blocks sendV16ClaimFailedRefund
+  const blocked = runScenario(
+    {
+      href: 'https://a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat', liveFundsEnabled: false },
+      sdkConnected: true,
+    },
+    `
+      const { tonConnect } = await import(JS_URL + '/tonconnect.js');
+      tonConnect.init();
+      let code = null;
+      try {
+        await tonConnect.sendV16ClaimFailedRefund('kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18');
+      } catch (e) { code = e?.code || null; }
+      console.log(JSON.stringify({ code, txCount: sdkCalls.sendTransaction }));
+    `,
+  );
+  assert.equal(blocked.code, 'LIVE_FUNDS_DISABLED');
+  assert.equal(blocked.txCount, 0);
+
+  // 2) liveFundsEnabled=true dispatches 0.15 GRAM (150000000) ClaimFailedRefund tx to RoundController
+  const enabled = runScenario(
+    {
+      href: 'https://a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat', liveFundsEnabled: true },
+      sdkConnected: true,
+    },
+    `
+      const { store } = await import(JS_URL + '/store.js');
+      const { tonConnect } = await import(JS_URL + '/tonconnect.js');
+      const RC = 'kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18';
+      store.update((s) => {
+        s.round.protocolConfig = { protocolVersion: 'v16', contracts: { roundController: RC } };
+      });
+      tonConnect.init();
+      const res = await tonConnect.sendV16ClaimFailedRefund();
+      console.log(JSON.stringify({
+        simulated: res.simulated,
+        txCount: sdkCalls.sendTransaction,
+        to: sdkCalls.lastTx?.messages?.[0]?.address,
+        amount: sdkCalls.lastTx?.messages?.[0]?.amount,
+        hasPayload: Boolean(sdkCalls.lastTx?.messages?.[0]?.payload),
+      }));
+    `,
+  );
+  assert.equal(enabled.simulated, false);
+  assert.equal(enabled.txCount, 1);
+  assert.equal(enabled.to, 'kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18');
+  assert.equal(enabled.amount, '150000000');
+  assert.equal(enabled.hasPayload, true);
+
+  // 3) profile.js live /claim page renders v16 escrowed refund card & binds #btn-claim-failed-refund
+  const profileSrc = readFileSync(join(JS_DIR, 'pages', 'profile.js'), 'utf8');
+  assert.match(profileSrc, /id="live-failed-refund-card"/);
+  assert.match(profileSrc, /id="btn-claim-failed-refund"/);
+  assert.match(profileSrc, /sendV16ClaimFailedRefund/);
+});
+

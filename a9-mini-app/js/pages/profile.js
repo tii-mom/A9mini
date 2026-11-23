@@ -356,11 +356,20 @@ function renderLiveTicketClaimPage(root) {
   let portfolio = null;
   let loadError = null;
   let claimingAddr = null;
+  let claimingRefund = false;
+
+  const parseRawBigInt = (v) => {
+    if (v === null || v === undefined || v === '') return 0n;
+    try { return BigInt(String(v)); } catch { return 0n; }
+  };
 
   const paint = () => {
-    const { user } = store.state;
+    const { user, round } = store.state;
     const tickets = Array.isArray(portfolio?.tickets) ? portfolio.tickets : [];
     const range = portfolio?.ticketRange || null;
+    const failedRefundBig = parseRawBigInt(portfolio?.failedRefundRaw);
+    const failedRefundA9 = failedRefundBig > 0n ? (rawToA9(portfolio.failedRefundRaw) ?? 0) : 0;
+    const roundControllerAddr = round?.protocolConfig?.contracts?.roundController || '';
 
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
@@ -376,6 +385,29 @@ function renderLiveTicketClaimPage(root) {
           </div>
           ${loadError ? `<div class="num-xs text-red" style="margin-top:8px;">${escapeHtml(loadError)}</div>` : ''}
         </div>
+
+        ${user.connected && failedRefundBig > 0n ? `
+          <div class="card" id="live-failed-refund-card" style="border-color:var(--gold-border);">
+            <div class="row-between" style="margin-bottom:6px;">
+              <strong>${icon('shieldAlert', 14, 'text-gold')} ${L('v16 托管退款待提取', 'v16 Escrowed Refund Available')}</strong>
+              <span class="chip chip-gold">${L('可自助拉取', 'CLAIMABLE')}</span>
+            </div>
+            <div class="row-between num-xs text-sec">
+              <span>${L('托管待退本金', 'Escrowed Amount')}</span>
+              <b class="mono text-green">${formatNum(failedRefundA9, 2)} A9</b>
+            </div>
+            <div class="num-xs text-muted" style="margin:6px 0 10px;line-height:1.5;">
+              ${L('检测到极端低 Gas 或退回异常导致的合约托管退款，可一键发起 ClaimFailedRefund（附 0.15 GRAM Gas，余量原路退回）。', 'Escrowed low-gas or bounced refund detected on RoundController. Pull it via ClaimFailedRefund (0.15 GRAM gas, excess refunded).')}
+            </div>
+            <button class="btn btn-primary btn-sm" id="btn-claim-failed-refund" type="button" style="width:100%;" ${claimingRefund || !roundControllerAddr ? 'disabled' : ''}>
+              ${icon('wallet', 13)} ${claimingRefund
+                ? L('等待钱包签名…', 'Awaiting Signature…')
+                : !roundControllerAddr
+                  ? L('缺少主合约地址，请刷新配置', 'RoundController Address Missing')
+                  : L('一键提取托管退款（附 0.15 GRAM Gas）', 'Claim Escrowed Refund (0.15 GRAM Gas)')}
+            </button>
+          </div>
+        ` : ''}
 
         ${!user.connected
           ? `<div class="card empty-state"><div class="num-sm text-sec">${L('请先连接非托管 TON 钱包读取链上质押凭证', 'Connect TON wallet to load on-chain StakeTickets')}</div><button class="btn btn-primary btn-sm" id="btn-live-claim-connect" style="margin-top:10px;">${L('连接钱包', 'Connect Wallet')}</button></div>`
@@ -433,6 +465,28 @@ function renderLiveTicketClaimPage(root) {
     if (connBtn) connBtn.onclick = () => tonConnect.openConnectModal(() => loadTickets());
     const refBtn = root.querySelector('#btn-live-claim-refresh');
     if (refBtn) refBtn.onclick = () => loadTickets();
+
+    const failedRefundBtn = root.querySelector('#btn-claim-failed-refund');
+    if (failedRefundBtn) {
+      failedRefundBtn.onclick = async () => {
+        if (!roundControllerAddr || claimingRefund) return;
+        claimingRefund = true;
+        paint();
+        try {
+          await tonConnect.sendV16ClaimFailedRefund(roundControllerAddr);
+          A9Haptic.success();
+          A9Audio.confirm();
+          showToast(L('已提交 v16 托管退款提取交易，请等待链上确认到账', 'v16 escrowed refund claim tx sent, awaiting confirmation'));
+          await loadTickets();
+        } catch (e) {
+          A9Haptic.error();
+          showToast(e?.message || L('发起托管退款签名失败，请重试', 'Escrowed refund signature failed'), 'error');
+        } finally {
+          claimingRefund = false;
+          if (root.isConnected) paint();
+        }
+      };
+    }
 
     root.querySelectorAll('[data-claim-ticket]').forEach((btn) => {
       btn.onclick = async () => {

@@ -2441,4 +2441,53 @@ await test('W2-9: Final audit fixes (v3 cold/asc cursor advancement without dead
   assert.ok(retryUrl.includes('start_utime=1795449700'), 'retry attempt > 1 should anchor start_utime to updatedAt - 300');
 });
 
+await test('W3-1: TonCenterClient.fetchUserFailedRefund & fetchUserPortfolio(includeFailedRefund: true) read v16 escrow and never fake 0 on error', async () => {
+  const { TonCenterClient, encodeAddressSliceBoc } = await import('../src/toncenter.mjs');
+  const rawAddr = '0:' + '22'.repeat(32);
+  const rcAddr = '0:' + '33'.repeat(32);
+  const jmAddr = '0:' + '44'.repeat(32);
+  const boc = encodeAddressSliceBoc(rawAddr);
+
+  let failRefundMethod = false;
+  const tc = new TonCenterClient({
+    apiBase: 'http://mock-v16-refund.local',
+    minIntervalMs: 0,
+    fetchImpl: async (_url, opts) => {
+      const req = JSON.parse(opts.body);
+      if (req.method === 'get_wallet_address') {
+        return { ok: true, json: async () => ({ ok: true, result: { exit_code: 0, stack: [['cell', { bytes: boc }]] } }) };
+      }
+      if (req.method === 'get_wallet_data') {
+        return { ok: true, json: async () => ({ ok: true, result: { exit_code: 0, stack: [['num', '0x3b9aca00']] } }) };
+      }
+      if (req.method === 'get_failed_refund') {
+        if (failRefundMethod) {
+          return { ok: true, json: async () => ({ ok: true, result: { exit_code: 11, stack: [] } }) };
+        }
+        return { ok: true, json: async () => ({ ok: true, result: { exit_code: 0, stack: [['num', '0x174876e800']] } }) }; // 100 A9
+      }
+      throw new Error(`unexpected method ${req.method}`);
+    },
+  });
+
+  const pfOk = await tc.fetchUserPortfolio(rawAddr, {
+    jettonMasterAddress: jmAddr,
+    roundControllerAddress: rcAddr,
+    roundIds: [],
+    includeFailedRefund: true,
+  });
+  assert.equal(pfOk.failedRefundRaw, '100000000000');
+  assert.equal(pfOk.failedRefundAvailable, true);
+
+  failRefundMethod = true;
+  const pfFail = await tc.fetchUserPortfolio(rawAddr, {
+    jettonMasterAddress: jmAddr,
+    roundControllerAddress: rcAddr,
+    roundIds: [],
+    includeFailedRefund: true,
+  });
+  assert.equal(pfFail.failedRefundRaw, null);
+  assert.equal(pfFail.failedRefundAvailable, false);
+});
+
 console.log(`All ${passed} A9 v15 worker tests passed.`);
