@@ -78,6 +78,8 @@ export function parseStartAppParam(rawParam) {
 export function createTelegramBotGroupVerifier(botToken, fetchImpl = globalThis.fetch) {
   const token = String(botToken || '').trim();
   if (!token || typeof fetchImpl !== 'function') return null;
+  // 保持 globalThis 作为默认 fetch 的 receiver，避免 Cloudflare workerd 抛出 Illegal invocation
+  const doFetch = fetchImpl === globalThis.fetch ? (...args) => globalThis.fetch(...args) : fetchImpl;
   const baseUrl = `https://api.telegram.org/bot${token}`;
 
   return async function verifyWithTelegram({ tgGroupHandle, tgChatId, telegramUserId }) {
@@ -85,7 +87,7 @@ export function createTelegramBotGroupVerifier(botToken, fetchImpl = globalThis.
     if (!chatRef) {
       return { botInGroup: false, operatorIsAdmin: false, chatId: null, reason: 'MISSING_CHAT_REF' };
     }
-    const chatRes = await fetchImpl(`${baseUrl}/getChat?chat_id=${encodeURIComponent(chatRef)}`);
+    const chatRes = await doFetch(`${baseUrl}/getChat?chat_id=${encodeURIComponent(chatRef)}`);
     const chatJson = await chatRes.json().catch(() => null);
     if (!chatJson?.ok || !chatJson?.result?.id) {
       return { botInGroup: false, operatorIsAdmin: false, chatId: null, reason: 'CHAT_NOT_ACCESSIBLE' };
@@ -98,7 +100,7 @@ export function createTelegramBotGroupVerifier(botToken, fetchImpl = globalThis.
     const canonicalHandle = chat.username ? `@${chat.username}` : (tgGroupHandle || null);
 
     // 核验操作者在目标群内的管理员权限
-    const memRes = await fetchImpl(
+    const memRes = await doFetch(
       `${baseUrl}/getChatMember?chat_id=${encodeURIComponent(canonicalChatId)}&user_id=${encodeURIComponent(String(telegramUserId))}`,
     );
     const memJson = await memRes.json().catch(() => null);
@@ -109,7 +111,7 @@ export function createTelegramBotGroupVerifier(botToken, fetchImpl = globalThis.
     const operatorIsAdmin = status === 'creator' || status === 'administrator';
     let tgMemberCount = 0;
     try {
-      const cntRes = await fetchImpl(`${baseUrl}/getChatMemberCount?chat_id=${encodeURIComponent(canonicalChatId)}`);
+      const cntRes = await doFetch(`${baseUrl}/getChatMemberCount?chat_id=${encodeURIComponent(canonicalChatId)}`);
       const cntJson = await cntRes.json().catch(() => null);
       if (cntJson?.ok && Number.isFinite(Number(cntJson.result))) {
         tgMemberCount = Number(cntJson.result);

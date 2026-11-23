@@ -132,9 +132,13 @@ export async function loadSnapshot() {
       request(ENDPOINTS.config),
       request(ENDPOINTS.rounds)
     ]);
+    if (!protocolConfig || !Array.isArray(rounds)) {
+      throw new ApiError('BAD_RESPONSE', '接口返回配置或轮次格式错误');
+    }
     const focus = pickFocusRound(rounds);
-    if (!focus) throw new ApiError('EMPTY_DATA', '接口未返回轮次数据');
-    const detail = await request(ENDPOINTS.round(focus.roundId));
+    // 轮次尚未开启（/api/config 正常、/api/rounds 为空）时允许进入只读广场与宝箱商城；
+    // detail 置 null，由各页面明确显示“等待核验”，绝不伪造任何轮次或价格数据。
+    const detail = focus ? await request(ENDPOINTS.round(focus.roundId)) : null;
     const snapshot = {
       source: 'api',
       label: '实时数据',

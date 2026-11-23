@@ -284,3 +284,61 @@ test('Telegram deep-link parser sanitizes untrusted start_param values', () => {
   assert.equal(/[<>"'$]/.test(out.ref), false);
   assert.equal(/[<>"'$]/.test(out.route), false);
 });
+
+test('Live mode allows Plaza & Chest Mall read-only view when /api/config is healthy and /api/rounds is empty (no fake round data)', () => {
+  const out = runScenario(
+    {
+      href: 'https://a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat' },
+    },
+    `
+      globalThis.fetch = async (target) => {
+        const u = String(target);
+        if (u.endsWith('/api/config')) {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                ok: true,
+                data: {
+                  protocolVersion: 'v15',
+                  network: 'mainnet',
+                  presaleHotWallet: { enabled: true, open: false },
+                  poolState: { dataAvailable: false, currentRoundId: null, poolRemainingRaw: null },
+                  chestMall: { enabled: true, skus: [] },
+                },
+                ts: Date.now(),
+              };
+            },
+          };
+        }
+        if (u.endsWith('/api/rounds')) {
+          return { ok: true, status: 200, async json() { return { ok: true, data: [], ts: Date.now() }; } };
+        }
+        throw new Error('unexpected fetch: ' + u);
+      };
+      const { loadSnapshot, mapRoundView } = await import(JS_URL + '/data.js');
+      const snap = await loadSnapshot();
+      const view = mapRoundView(snap);
+      console.log(JSON.stringify({
+        hasConfig: Boolean(snap.config?.chestMall?.enabled),
+        detail: snap.detail,
+        stage: view.stage,
+        currentRound: view.currentRound,
+        targetPrice: view.targetPrice,
+        twap24h: view.twap24h,
+        rewardBudgetA9: view.rewardBudgetA9,
+        poolAvailable: view.poolState?.dataAvailable,
+      }));
+    `,
+  );
+  assert.equal(out.hasConfig, true);
+  assert.equal(out.detail, null);
+  assert.equal(out.stage, null);
+  assert.equal(out.currentRound, null);
+  assert.equal(out.targetPrice, null);
+  assert.equal(out.twap24h, null);
+  assert.equal(out.rewardBudgetA9, null);
+  assert.equal(out.poolAvailable, false);
+});

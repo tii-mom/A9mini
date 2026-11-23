@@ -150,7 +150,10 @@ export class TelegramBroadcaster {
     this.socialStore = socialStore;
     this.identityStore = identityStore;
     this.dedupLog = dedupLog || new MemoryBroadcastLog();
-    this.fetchImpl = fetchImpl;
+    // Cloudflare workerd 禁止以 this.fetchImpl(...) 形式调用默认 globalThis.fetch（会触发 Illegal invocation）
+    this.fetchImpl = fetchImpl === globalThis.fetch && typeof globalThis.fetch === 'function'
+      ? (...args) => globalThis.fetch(...args)
+      : fetchImpl;
     this.delayMs = Number.isFinite(Number(delayMs)) ? Math.max(0, Number(delayMs)) : 100;
     this.logger = logger;
   }

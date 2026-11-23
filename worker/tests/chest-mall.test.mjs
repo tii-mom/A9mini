@@ -7,7 +7,7 @@ import { D1PromoStore } from '../src/d1-promo-store.mjs';
 import { PresaleHotWalletEngine, PASSIVE_FREE_MIN_NANO } from '../src/presale-hotwallet.mjs';
 import { PromoHotWalletEngine } from '../src/promo-hotwallet.mjs';
 import { PredictionEngine } from '../src/growth-engine.mjs';
-import { SocialStore, parseStartAppParam } from '../src/social-store.mjs';
+import { SocialStore, parseStartAppParam, createTelegramBotGroupVerifier } from '../src/social-store.mjs';
 import { TelegramBroadcaster } from '../src/tg-broadcaster.mjs';
 import { TonCenterClient } from '../src/toncenter.mjs';
 import { createApiRouter } from '../src/api.mjs';
@@ -442,6 +442,45 @@ await test('Legacy 0001..0004 SQLite DB (without 0009 sku_id/open_mode): plain o
   assert.equal(okOrd.tonNano, '15000000000');
   assert.equal('skuId' in okOrd, false);
   await assert.rejects(legacyPresale.createOrderIntent(W_OWNER, '10', 4001), { code: 'OVER_QUOTA' });
+});
+
+await test('Cloudflare workerd strict globalThis.fetch receiver guard (TonCenterClient / TelegramBroadcaster / group verifier)', async () => {
+  const origFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async function strictWorkerdFetch(url) {
+    if (this !== globalThis) throw new TypeError('Illegal invocation: function called with incorrect `this` reference.');
+    calls.push(String(url));
+    if (String(url).includes('/getAddressInformation')) {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { state: 'active', code: 'te6cckEBAQEA' } }) };
+    }
+    if (String(url).includes('/getChat?')) {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { id: -1001, type: 'supergroup', username: 'a9test' } }) };
+    }
+    if (String(url).includes('/getChatMember?')) {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { status: 'creator' } }) };
+    }
+    if (String(url).includes('/getChatMemberCount?')) {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: 108 }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ ok: true, result: { message_id: 1 } }) };
+  };
+  try {
+    const tc = new TonCenterClient({ apiBase: 'https://toncenter.test/api/v2', apiKey: 'k', minIntervalMs: 0, maxRetries: 0 });
+    const st = await tc.fetchWalletAccountState(W_H1);
+    assert.equal(st.state, 'active');
+
+    const verifier = createTelegramBotGroupVerifier(BOT_TOKEN);
+    const vg = await verifier({ tgGroupHandle: '@a9test', telegramUserId: '1001' });
+    assert.equal(vg.botInGroup, true);
+    assert.equal(vg.operatorIsAdmin, true);
+    assert.equal(vg.tgMemberCount, 108);
+
+    const bc = new TelegramBroadcaster({ enabled: true, botToken: BOT_TOKEN, delayMs: 0 });
+    await bc._sendTelegram({ chatId: '1001', text: 'workerd receiver ok' });
+    assert.equal(calls.length, 5);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
 });
 
 console.log(`All ${passed} A9 v15 Chest Mall & Viral Assist tests passed.`);

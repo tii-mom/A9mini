@@ -7,7 +7,10 @@ export class TonCenterClient {
     if (!apiBase) throw new Error('TONCENTER_API_BASE is required');
     this.apiBase = apiBase.replace(/\/+$/, '');
     this.apiKey = apiKey;
-    this.fetch = fetchImpl;
+    // Cloudflare workerd 禁止将 globalThis.fetch 挂载到实例上以 this.fetch(...) 方式调用（会触发 Illegal invocation）
+    this.fetch = fetchImpl === globalThis.fetch && typeof globalThis.fetch === 'function'
+      ? (...args) => globalThis.fetch(...args)
+      : fetchImpl;
     this.minIntervalMs = minIntervalMs ?? (apiKey ? 0 : 1100);
     this.maxRetries = maxRetries;
     this._lastReqAt = 0;
