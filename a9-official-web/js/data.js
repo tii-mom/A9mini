@@ -198,7 +198,7 @@ export const I18N = {
     evoDesc: '悬停感受实体卡面倾角，点击翻转查看各等级解锁条件与权益。',
 
     footerSummary: '基于 TON 的链上价格挑战。',
-    footerMeta: 'A9 Protocol · TON · 10,000,000,000 Fixed Supply · GRAM',
+    footerMeta: 'A9 Protocol · TON · 10,000,000,000 Fixed Supply',
     backToTop: '回到顶部 ↑',
     modalClose: '关闭',
     modalTitlePrefix: '第 ',
@@ -330,7 +330,7 @@ export const I18N = {
     evoDesc: 'Hover for tactile 3D tilt, click any card to flip for unlock criteria.',
 
     footerSummary: 'An on-chain price challenge on TON.',
-    footerMeta: 'A9 Protocol · TON · 10,000,000,000 Fixed Supply · GRAM',
+    footerMeta: 'A9 Protocol · TON · 10,000,000,000 Fixed Supply',
     backToTop: 'Back to Top ↑',
     modalClose: 'Close',
     modalTitlePrefix: 'Round ',
