@@ -1,6 +1,13 @@
 // A9 Protocol v15 — Cloudflare D1 Persistence Adapters for Social, Prediction & Presale.
 // Matches worker/schema.sql tables and mirrors the in-memory engine interfaces 1:1.
-import { rewardForWarmupRank, SocialError } from './social-store.mjs';
+import {
+  rewardForWarmupRank,
+  SocialError,
+  DEFAULT_WARMUP_ROUND_CONFIG,
+  WARMUP_INTENT_A9_ESTIMATE,
+  normalizeWarmupIntentTier,
+  maskWarmupUser,
+} from './social-store.mjs';
 import {
   GrowthError,
   VOUCHER_TTL_MS,
@@ -447,6 +454,420 @@ export class D1SocialStore {
       createdAt: Number(r.created_at),
       updatedAt: Number(r.updated_at),
     };
+  }
+
+  _formatReservationRow(r) {
+    if (!r) return null;
+    return {
+      roundId: Number(r.round_id),
+      tgUserId: String(r.tg_user_id),
+      walletAddress: r.wallet_address || null,
+      walletKey: r.wallet_key || null,
+      walletActive: Number(r.wallet_active || 0) === 1,
+      referrerTgId: r.referrer_tg_id || null,
+      intentTier: r.intent_tier || null,
+      remindEnabled: Number(r.remind_enabled ?? 1) === 1,
+      remindedAt: r.reminded_at === null || r.reminded_at === undefined ? null : Number(r.reminded_at),
+      rawInvites: Number(r.raw_invites || 0),
+      validInvites: Number(r.valid_invites || 0),
+      status: String(r.status),
+      createdAt: Number(r.created_at),
+      updatedAt: Number(r.updated_at),
+    };
+  }
+
+  async getWarmupRoundConfig(roundId) {
+    const rId = Number(roundId || 1);
+    try {
+      const r = await this.db.prepare('SELECT * FROM warmup_rounds WHERE round_id = ? LIMIT 1').bind(rId).first();
+      if (!r) return { roundId: rId, ...DEFAULT_WARMUP_ROUND_CONFIG };
+      return {
+        roundId: Number(r.round_id),
+        status: String(r.status || 'OPEN'),
+        plannedOpenAt: r.planned_open_at === null || r.planned_open_at === undefined ? null : Number(r.planned_open_at),
+        targetUsers: Number(r.target_users || DEFAULT_WARMUP_ROUND_CONFIG.targetUsers),
+        chestBaseA9Raw: String(r.chest_base_a9_raw || DEFAULT_WARMUP_ROUND_CONFIG.chestBaseA9Raw),
+        chestStepA9Raw: String(r.chest_step_a9_raw || DEFAULT_WARMUP_ROUND_CONFIG.chestStepA9Raw),
+        chestMinInvites: Number(r.chest_min_invites || DEFAULT_WARMUP_ROUND_CONFIG.chestMinInvites),
+        chestMaxInvites: Number(r.chest_max_invites || DEFAULT_WARMUP_ROUND_CONFIG.chestMaxInvites),
+        createdAt: Number(r.created_at || 0),
+        updatedAt: Number(r.updated_at || 0),
+      };
+    } catch (e) {
+      if (/no such table/i.test(String(e?.message || e))) return { roundId: rId, ...DEFAULT_WARMUP_ROUND_CONFIG };
+      throw e;
+    }
+  }
+
+  async upsertWarmupRoundConfig(
+    {
+      roundId,
+      status = undefined,
+      plannedOpenAt = undefined,
+      targetUsers = undefined,
+      chestBaseA9Raw = undefined,
+      chestStepA9Raw = undefined,
+      chestMinInvites = undefined,
+      chestMaxInvites = undefined,
+    },
+    nowSec = Math.floor(Date.now() / 1000),
+  ) {
+    const rId = Number(roundId);
+    if (!Number.isInteger(rId) || rId < 1) throw new SocialError('BAD_REQUEST', 'roundId must be a positive integer');
+    const cur = await this.getWarmupRoundConfig(rId);
+    const nextStatus = status !== undefined ? String(status).trim().toUpperCase() : cur.status;
+    if (!['OPEN', 'PAUSED', 'CLOSED'].includes(nextStatus)) throw new SocialError('BAD_REQUEST', 'invalid warmup round status');
+    const nextTarget = targetUsers !== undefined ? Math.max(1, Number(targetUsers)) : cur.targetUsers;
+    const nextMin = chestMinInvites !== undefined ? Math.max(1, Number(chestMinInvites)) : cur.chestMinInvites;
+    const nextMax = chestMaxInvites !== undefined ? Math.max(nextMin, Number(chestMaxInvites)) : Math.max(nextMin, cur.chestMaxInvites);
+    const nextPlanned = plannedOpenAt === undefined ? cur.plannedOpenAt : (plannedOpenAt === null ? null : Number(plannedOpenAt));
+    const nextBase = chestBaseA9Raw !== undefined ? String(BigInt(String(chestBaseA9Raw))) : cur.chestBaseA9Raw;
+    const nextStep = chestStepA9Raw !== undefined ? String(BigInt(String(chestStepA9Raw))) : cur.chestStepA9Raw;
+
+    await this.db
+      .prepare(
+        `INSERT INTO warmup_rounds
+         (round_id, status, planned_open_at, target_users, chest_base_a9_raw, chest_step_a9_raw, chest_min_invites, chest_max_invites, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(round_id) DO UPDATE SET
+           status = excluded.status,
+           planned_open_at = excluded.planned_open_at,
+           target_users = excluded.target_users,
+           chest_base_a9_raw = excluded.chest_base_a9_raw,
+           chest_step_a9_raw = excluded.chest_step_a9_raw,
+           chest_min_invites = excluded.chest_min_invites,
+           chest_max_invites = excluded.chest_max_invites,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(rId, nextStatus, nextPlanned, nextTarget, nextBase, nextStep, nextMin, nextMax, cur.createdAt || nowSec, nowSec)
+      .run();
+    return this.getWarmupRoundConfig(rId);
+  }
+
+  async _findActiveReservationRowByRef(roundId, refId) {
+    const rId = Number(roundId);
+    const clean = String(refId || '').trim();
+    if (!clean) return null;
+    const direct = await this.db
+      .prepare("SELECT * FROM warmup_reservations WHERE round_id = ? AND tg_user_id = ? AND status = 'ACTIVE' LIMIT 1")
+      .bind(rId, clean)
+      .first();
+    if (direct) return direct;
+    const refKey = addressKey(clean);
+    if (!refKey) return null;
+    return this.db
+      .prepare("SELECT * FROM warmup_reservations WHERE round_id = ? AND wallet_key = ? AND status = 'ACTIVE' LIMIT 1")
+      .bind(rId, refKey)
+      .first();
+  }
+
+  async _recomputeReferrerInvites(roundId, refId, nowSec) {
+    const rId = Number(roundId);
+    const refRow = await this._findActiveReservationRowByRef(rId, refId);
+    if (!refRow) return null;
+    const refUid = String(refRow.tg_user_id);
+    const refWallet = refRow.wallet_address ? String(refRow.wallet_address) : null;
+    const refKey = refRow.wallet_key ? String(refRow.wallet_key) : null;
+    const candidates = Array.from(new Set([refUid, refWallet, refKey].filter(Boolean)));
+    const ph = candidates.map(() => '?').join(', ');
+    const agg = await this.db
+      .prepare(
+        `SELECT
+           COUNT(*) AS raw_cnt,
+           SUM(CASE WHEN wallet_key IS NOT NULL AND wallet_active = 1 THEN 1 ELSE 0 END) AS valid_cnt
+         FROM warmup_reservations
+         WHERE round_id = ? AND status = 'ACTIVE' AND tg_user_id != ? AND referrer_tg_id IN (${ph})`,
+      )
+      .bind(rId, refUid, ...candidates)
+      .first();
+    const rawInvites = Number(agg?.raw_cnt || 0);
+    const validInvites = Number(agg?.valid_cnt || 0);
+    await this.db
+      .prepare('UPDATE warmup_reservations SET raw_invites = ?, valid_invites = ?, updated_at = ? WHERE round_id = ? AND tg_user_id = ?')
+      .bind(rawInvites, validInvites, nowSec, rId, refUid)
+      .run();
+    return { tgUserId: refUid, rawInvites, validInvites };
+  }
+
+  async reserveWarmup(
+    { roundId = 1, tgUserId, walletAddress = null, walletActive = false, referrerId = null, intentTier = undefined, remindEnabled = undefined },
+    nowSec = Math.floor(Date.now() / 1000),
+  ) {
+    const rId = Number(roundId);
+    const uid = String(tgUserId || '').trim();
+    if (!uid || !Number.isInteger(rId) || rId < 1) throw new SocialError('BAD_REQUEST', 'valid roundId and tgUserId required');
+    const cfg = await this.getWarmupRoundConfig(rId);
+    if (cfg.status !== 'OPEN') throw new SocialError('WARMUP_CLOSED', '本轮预热预约当前未开放');
+
+    const normIntent = normalizeWarmupIntentTier(intentTier);
+    const cleanWallet = walletAddress ? String(walletAddress).trim() : null;
+    const wKey = cleanWallet ? addressKey(cleanWallet) : null;
+    if (wKey) {
+      const conflict = await this.db
+        .prepare('SELECT tg_user_id FROM warmup_reservations WHERE round_id = ? AND wallet_key = ? AND tg_user_id != ? LIMIT 1')
+        .bind(rId, wKey, uid)
+        .first();
+      if (conflict) throw new SocialError('WALLET_ALREADY_RESERVED', '该 TON 钱包已在本轮完成预热预约');
+    }
+
+    const rawRef = String(referrerId || '').trim() || null;
+    if (rawRef && rawRef !== uid) {
+      await this.bindReferral(uid, rawRef, nowSec, { aliases: cleanWallet ? [cleanWallet] : [] });
+    }
+    const storedRef = (await this.getReferrer(uid)) || (cleanWallet ? await this.getReferrer(cleanWallet) : null) || rawRef;
+    const effectiveRef = storedRef && storedRef !== uid && (!wKey || addressKey(storedRef) !== wKey) ? storedRef : null;
+
+    const existing = await this.db
+      .prepare('SELECT * FROM warmup_reservations WHERE round_id = ? AND tg_user_id = ? LIMIT 1')
+      .bind(rId, uid)
+      .first();
+    const isNewSignup = !existing;
+
+    const nextWallet = cleanWallet || existing?.wallet_address || null;
+    const nextWalletKey = wKey || existing?.wallet_key || null;
+    const nextWalletActive = (Number(existing?.wallet_active || 0) === 1 || (Boolean(cleanWallet) && Boolean(walletActive))) ? 1 : 0;
+    const nextRef = existing?.referrer_tg_id || effectiveRef || null;
+    const nextIntent = normIntent !== undefined ? normIntent : (existing?.intent_tier ?? null);
+    const nextRemind = remindEnabled !== undefined ? (remindEnabled ? 1 : 0) : Number(existing?.remind_enabled ?? 1);
+
+    try {
+      await this.db
+        .prepare(
+          `INSERT INTO warmup_reservations
+           (round_id, tg_user_id, wallet_address, wallet_key, wallet_active, referrer_tg_id, intent_tier, remind_enabled, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
+           ON CONFLICT(round_id, tg_user_id) DO UPDATE SET
+             wallet_address = excluded.wallet_address,
+             wallet_key = excluded.wallet_key,
+             wallet_active = excluded.wallet_active,
+             referrer_tg_id = COALESCE(warmup_reservations.referrer_tg_id, excluded.referrer_tg_id),
+             intent_tier = excluded.intent_tier,
+             remind_enabled = excluded.remind_enabled,
+             status = 'ACTIVE',
+             updated_at = excluded.updated_at`,
+        )
+        .bind(rId, uid, nextWallet, nextWalletKey, nextWalletActive, nextRef, nextIntent, nextRemind, existing ? Number(existing.created_at) : nowSec, nowSec)
+        .run();
+    } catch (e) {
+      if (/UNIQUE|constraint/i.test(String(e?.message || e))) {
+        throw new SocialError('WALLET_ALREADY_RESERVED', '该 TON 钱包已在本轮完成预热预约');
+      }
+      throw e;
+    }
+
+    // 权威 COUNT(*) 重算：同时更新本人（若为推荐人恢复 ACTIVE）及上级推荐人的有效计数，彻底杜绝并发双计与取消漂移
+    await this._recomputeReferrerInvites(rId, uid, nowSec);
+    let referrerUpdated = null;
+    if (nextRef) {
+      const updated = await this._recomputeReferrerInvites(rId, nextRef, nowSec);
+      if (updated && updated.tgUserId !== uid) referrerUpdated = updated;
+    }
+
+    const saved = await this.db.prepare('SELECT * FROM warmup_reservations WHERE round_id = ? AND tg_user_id = ? LIMIT 1').bind(rId, uid).first();
+    return { reservation: this._formatReservationRow(saved), referrerUpdated, isNewSignup };
+  }
+
+  async syncWarmupWalletForUser({ tgUserId, walletAddress, walletActive = false, roundIds = null }, nowSec = Math.floor(Date.now() / 1000)) {
+    const uid = String(tgUserId || '').trim();
+    const cleanWallet = String(walletAddress || '').trim();
+    if (!uid || !cleanWallet) return [];
+    const wKey = addressKey(cleanWallet);
+    const allowed = Array.isArray(roundIds) ? new Set(roundIds.map(Number)) : null;
+    let rows = [];
+    try {
+      const res = await this.db
+        .prepare("SELECT * FROM warmup_reservations WHERE tg_user_id = ? AND status = 'ACTIVE'")
+        .bind(uid)
+        .all();
+      rows = res?.results || [];
+    } catch (e) {
+      if (/no such table/i.test(String(e?.message || e))) return [];
+      throw e;
+    }
+    const updates = [];
+    for (const r of rows) {
+      const rId = Number(r.round_id);
+      if (allowed && !allowed.has(rId)) continue;
+      const conflict = await this.db
+        .prepare('SELECT 1 AS hit FROM warmup_reservations WHERE round_id = ? AND wallet_key = ? AND tg_user_id != ? LIMIT 1')
+        .bind(rId, wKey, uid)
+        .first();
+      if (conflict?.hit) continue;
+      const nextActive = (Number(r.wallet_active || 0) === 1 || walletActive) ? 1 : 0;
+      try {
+        await this.db
+          .prepare('UPDATE warmup_reservations SET wallet_address = ?, wallet_key = ?, wallet_active = ?, updated_at = ? WHERE round_id = ? AND tg_user_id = ?')
+          .bind(cleanWallet, wKey, nextActive, nowSec, rId, uid)
+          .run();
+      } catch (e) {
+        if (/UNIQUE|constraint/i.test(String(e?.message || e))) continue;
+        throw e;
+      }
+      let referrerUpdated = null;
+      if (r.referrer_tg_id) {
+        const updated = await this._recomputeReferrerInvites(rId, r.referrer_tg_id, nowSec);
+        if (updated && updated.tgUserId !== uid) referrerUpdated = updated;
+      }
+      const fresh = await this.db.prepare('SELECT * FROM warmup_reservations WHERE round_id = ? AND tg_user_id = ? LIMIT 1').bind(rId, uid).first();
+      updates.push({ roundId: rId, reservation: this._formatReservationRow(fresh), referrerUpdated });
+    }
+    return updates;
+  }
+
+  async cancelWarmupReservation({ roundId = 1, tgUserId }, nowSec = Math.floor(Date.now() / 1000)) {
+    const rId = Number(roundId);
+    const uid = String(tgUserId || '').trim();
+    const existing = await this.db.prepare('SELECT * FROM warmup_reservations WHERE round_id = ? AND tg_user_id = ? LIMIT 1').bind(rId, uid).first();
+    if (!existing) return null;
+    await this.db
+      .prepare("UPDATE warmup_reservations SET status = 'CANCELLED', updated_at = ? WHERE round_id = ? AND tg_user_id = ?")
+      .bind(nowSec, rId, uid)
+      .run();
+    let referrerUpdated = null;
+    if (existing.referrer_tg_id) {
+      const updated = await this._recomputeReferrerInvites(rId, existing.referrer_tg_id, nowSec);
+      if (updated && updated.tgUserId !== uid) referrerUpdated = updated;
+    }
+    return { ...this._formatReservationRow(existing), status: 'CANCELLED', updatedAt: nowSec, referrerUpdated };
+  }
+
+  async getWarmupReservation(roundId, tgUserId) {
+    const row = await this.db
+      .prepare('SELECT * FROM warmup_reservations WHERE round_id = ? AND tg_user_id = ? LIMIT 1')
+      .bind(Number(roundId), String(tgUserId || '').trim())
+      .first();
+    return this._formatReservationRow(row);
+  }
+
+  async getWarmupRoundStats(roundId) {
+    const rId = Number(roundId);
+    const row = await this.db
+      .prepare(
+        `SELECT
+           COUNT(*) AS total_registered,
+           SUM(CASE WHEN wallet_key IS NOT NULL THEN 1 ELSE 0 END) AS wallet_bound,
+           SUM(CASE WHEN wallet_active = 1 THEN 1 ELSE 0 END) AS active_wallet,
+           SUM(CASE WHEN remind_enabled = 1 THEN 1 ELSE 0 END) AS remind_enabled
+         FROM warmup_reservations
+         WHERE round_id = ? AND status = 'ACTIVE'`,
+      )
+      .bind(rId)
+      .first();
+    return {
+      roundId: rId,
+      totalRegistered: Number(row?.total_registered || 0),
+      walletBoundCount: Number(row?.wallet_bound || 0),
+      activeWalletCount: Number(row?.active_wallet || 0),
+      remindEnabledCount: Number(row?.remind_enabled || 0),
+    };
+  }
+
+  async getWarmupLeaderboardV2(roundId = 1, limit = 50) {
+    const res = await this.db
+      .prepare(
+        `SELECT tg_user_id, wallet_address, wallet_key, valid_invites, raw_invites
+         FROM warmup_reservations
+         WHERE round_id = ? AND status = 'ACTIVE'
+         ORDER BY valid_invites DESC, raw_invites DESC, created_at ASC LIMIT ?`,
+      )
+      .bind(Number(roundId), Number(limit))
+      .all();
+    return (res?.results || []).map((r, i) => ({
+      rank: i + 1,
+      label: maskWarmupUser(r.tg_user_id, r.wallet_address),
+      walletAddress: maskWarmupUser(r.tg_user_id, r.wallet_address),
+      validInvites: Number(r.valid_invites || 0),
+      rawInvites: Number(r.raw_invites || 0),
+      walletBound: Boolean(r.wallet_key),
+    }));
+  }
+
+  async getWarmupAdminSummary(roundId, { readyWalletSet = null, actualOnchainStakers = null } = {}) {
+    const rId = Number(roundId);
+    const config = await this.getWarmupRoundConfig(rId);
+    const res = await this.db
+      .prepare('SELECT * FROM warmup_reservations WHERE round_id = ? ORDER BY valid_invites DESC, raw_invites DESC, created_at ASC')
+      .bind(rId)
+      .all();
+    const rows = res?.results || [];
+    const intentBreakdown = { '1000': 0, '5000': 0, '20000_plus': 0, watching: 0, unset: 0 };
+    let totalActive = 0;
+    let totalCancelled = 0;
+    let walletBoundCount = 0;
+    let activeWalletCount = 0;
+    let remindEnabledCount = 0;
+    let remindedCount = 0;
+    let readyCapitalCount = 0;
+    let estimatedIntentA9Min = 0;
+    const topInviters = [];
+
+    for (const r of rows) {
+      if (String(r.status) !== 'ACTIVE') {
+        totalCancelled += 1;
+        continue;
+      }
+      totalActive += 1;
+      if (r.wallet_key) walletBoundCount += 1;
+      if (Number(r.wallet_active || 0) === 1) activeWalletCount += 1;
+      if (Number(r.remind_enabled ?? 1) === 1) remindEnabledCount += 1;
+      if (r.reminded_at) remindedCount += 1;
+      if (readyWalletSet && r.wallet_key && readyWalletSet.has(String(r.wallet_key))) readyCapitalCount += 1;
+      const tier = r.intent_tier ? String(r.intent_tier) : null;
+      if (tier && Object.prototype.hasOwnProperty.call(intentBreakdown, tier)) {
+        intentBreakdown[tier] += 1;
+        estimatedIntentA9Min += WARMUP_INTENT_A9_ESTIMATE[tier] || 0;
+      } else {
+        intentBreakdown.unset += 1;
+      }
+      if ((Number(r.raw_invites || 0) > 0 || Number(r.valid_invites || 0) > 0) && topInviters.length < 20) {
+        topInviters.push({
+          rank: topInviters.length + 1,
+          tgUserId: String(r.tg_user_id),
+          walletAddress: r.wallet_address || null,
+          validInvites: Number(r.valid_invites || 0),
+          rawInvites: Number(r.raw_invites || 0),
+          intentTier: tier,
+        });
+      }
+    }
+    const stakers = actualOnchainStakers === null || actualOnchainStakers === undefined ? null : Number(actualOnchainStakers);
+    const conversionRatePct = stakers !== null && totalActive > 0 ? Number(((stakers / totalActive) * 100).toFixed(2)) : null;
+    return {
+      roundId: rId,
+      config,
+      totalActive,
+      totalCancelled,
+      walletBoundCount,
+      activeWalletCount,
+      readyCapitalCount,
+      remindEnabledCount,
+      remindedCount,
+      intentBreakdown,
+      estimatedIntentA9Min,
+      topInviters,
+      actualOnchainStakers: stakers,
+      conversionRatePct,
+    };
+  }
+
+  async listPendingWarmupReminders(roundId, limit = 25) {
+    const res = await this.db
+      .prepare(
+        `SELECT * FROM warmup_reservations
+         WHERE round_id = ? AND status = 'ACTIVE' AND remind_enabled = 1 AND reminded_at IS NULL
+         ORDER BY created_at ASC LIMIT ?`,
+      )
+      .bind(Number(roundId), Number(limit))
+      .all();
+    return (res?.results || []).map((r) => this._formatReservationRow(r));
+  }
+
+  async markWarmupReminded(roundId, tgUserId, nowSec = Math.floor(Date.now() / 1000)) {
+    const res = await this.db
+      .prepare('UPDATE warmup_reservations SET reminded_at = ?, updated_at = ? WHERE round_id = ? AND tg_user_id = ? AND reminded_at IS NULL')
+      .bind(nowSec, nowSec, Number(roundId), String(tgUserId || '').trim())
+      .run();
+    return Number(res?.meta?.changes ?? res?.changes ?? 0) === 1;
   }
 }
 

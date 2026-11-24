@@ -192,7 +192,9 @@ export class TelegramBroadcaster {
     });
     const json = await res.json().catch(() => null);
     if (!res.ok || !json?.ok) {
-      throw new Error(`Telegram API error (${res.status}): ${json?.description || 'unknown'}`);
+      const err = new Error(`Telegram API error (${res.status}): ${json?.description || 'unknown'}`);
+      err.status = res.status;
+      throw err;
     }
     return json.result;
   }
@@ -255,6 +257,7 @@ export class TelegramBroadcaster {
     // 事件 ①：新轮开启（入场期 2.0x 早鸟黄金窗口）
     if (status === 1 && stakeCloseAt > nowSec) {
       results.push(await this.broadcastRoundOpen({ roundId: rId, round, nowSec }));
+      results.push(await this.sendWarmupOpeningReminders({ roundId: rId, round, nowSec }));
     }
 
     // 事件 ③：24H 观察期最后 4 小时冲刺/焦灼警报
@@ -498,5 +501,65 @@ export class TelegramBroadcaster {
         buttonUrl: url,
       }),
     });
+  }
+
+  /** ⑥ 新轮开启时向已开启提醒的预热预约用户批量发送私聊通知（按人回写 reminded_at 防重发，400/403 永久失败自动跳过防队头阻塞） */
+  async sendWarmupOpeningReminders({ roundId, round = null, limit = 25, nowSec = Math.floor(Date.now() / 1000) }) {
+    if (!this._canSend()) return { skipped: true, reason: 'DISABLED', sentCount: 0 };
+    if (!this.socialStore || typeof this.socialStore.listPendingWarmupReminders !== 'function') {
+      return { skipped: true, reason: 'NO_SOCIAL_STORE', sentCount: 0 };
+    }
+    const rId = Math.floor(Number(roundId));
+    if (!Number.isInteger(rId) || rId < 1) return { skipped: true, reason: 'INVALID_ROUND_ID', sentCount: 0 };
+    const pending = await this.socialStore.listPendingWarmupReminders(rId, limit);
+    if (!pending || !pending.length) {
+      return { skipped: true, reason: 'NO_PENDING_REMINDERS', sentCount: 0 };
+    }
+    const targetUsd = formatUsdFromE8(round?.targetPriceUsdE8);
+    const hasBudget = Boolean(round?.rewardBudgetRaw && /^\d+$/.test(String(round.rewardBudgetRaw)) && BigInt(String(round.rewardBudgetRaw)) > 0n);
+    const poolPart = hasBudget ? ` · 本轮奖励池 ${formatWholeNumber(round.rewardBudgetRaw)} A9` : '';
+    const url = buildTeamDeepLink({ botHandle: this.botHandle, fallbackParam: `round_${rId}` });
+
+    let sentCount = 0;
+    let failedPermanentCount = 0;
+    for (let i = 0; i < pending.length; i += 1) {
+      const rec = pending[i];
+      if (!rec?.tgUserId || !/^\d{1,20}$/.test(String(rec.tgUserId))) continue;
+      if (i > 0 && this.delayMs > 0) await sleep(this.delayMs);
+      try {
+        await this._sendTelegram({
+          chatId: String(rec.tgUserId),
+          text: [
+            `你预约的第 #${rId} 轮已正式开启！`,
+            `前段 2.0x 早鸟权重窗口开放中（2.0x / 1.4x / 1.0x）· 目标底价 ${targetUsd}${poolPart}`,
+            `本轮最低质押 1,000 A9；参与闯关或购箱即可激活你预热宝箱中的待解锁 A9 奖励。`,
+          ].join('\n'),
+          buttonText: `立即进入第 #${rId} 轮（抢 2.0x 早鸟）`,
+          buttonUrl: url,
+        });
+        if (typeof this.socialStore.markWarmupReminded === 'function') {
+          await this.socialStore.markWarmupReminded(rId, rec.tgUserId, nowSec);
+        }
+        sentCount += 1;
+      } catch (e) {
+        const st = Number(e?.status || 0);
+        if (st === 400 || st === 403) {
+          failedPermanentCount += 1;
+          if (typeof this.socialStore.markWarmupReminded === 'function') {
+            await this.socialStore.markWarmupReminded(rId, rec.tgUserId, nowSec);
+          }
+        }
+        this.logger?.error?.(`[tg-broadcaster] warmup reminder r${rId} -> ${rec.tgUserId} failed:`, e?.message || e);
+      }
+    }
+    return {
+      skipped: false,
+      eventType: 'WARMUP_OPEN_REMINDER',
+      roundId: rId,
+      sentCount,
+      failedPermanentCount,
+      attempted: pending.length,
+      hasMore: pending.length >= limit,
+    };
   }
 }

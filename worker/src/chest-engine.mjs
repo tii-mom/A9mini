@@ -28,6 +28,14 @@ export const SHOP_BOOST_TTL_SEC = 24 * 3600;
 export const MAX_DAILY_ASSISTS_PER_WALLET = 3;
 export const CAPTAIN_FOUNDING_BONUS_RAW = 5_000n * A9_RAW; // 5,000 A9
 export const CAPTAIN_MIN_TG_MEMBERS = 50;
+export const WARMUP_CHEST_BASE_A9_RAW = 300n * A9_RAW; // 300 A9 at min valid invites
+export const WARMUP_CHEST_STEP_A9_RAW = 200n * A9_RAW; // +200 A9 per extra valid invite
+export const WARMUP_CHEST_MIN_INVITES = 2;
+export const WARMUP_CHEST_MAX_INVITES = 5;
+export const CHEST_DELIVERY_GAS_GRAM = '0.06';
+export const CHEST_DELIVERY_GAS_NANO = '60000000';
+export const CHEST_REFUND_GAS_GRAM = '0.03';
+export const CHEST_REFUND_GAS_NANO = '30000000';
 
 export class ChestError extends Error {
   constructor(code, message) {
@@ -44,6 +52,10 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     en: 'Bronze Chest',
     priceGram: '0.99',
     priceNano: '990000000',
+    deliveryFeeGram: '0.06',
+    deliveryFeeNano: '60000000',
+    totalPayGram: '1.05',
+    totalPayNano: '1050000000',
     baseA9: '1981.98',
     baseA9Raw: '1981980000000',
     requiredAssists: 2,
@@ -58,6 +70,10 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     en: 'Silver Chest',
     priceGram: '4.99',
     priceNano: '4990000000',
+    deliveryFeeGram: '0.06',
+    deliveryFeeNano: '60000000',
+    totalPayGram: '5.05',
+    totalPayNano: '5050000000',
     baseA9: '9989.98',
     baseA9Raw: '9989980000000',
     requiredAssists: 3,
@@ -72,6 +88,10 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     en: 'Gold Chest',
     priceGram: '9.99',
     priceNano: '9990000000',
+    deliveryFeeGram: '0.06',
+    deliveryFeeNano: '60000000',
+    totalPayGram: '10.05',
+    totalPayNano: '10050000000',
     baseA9: '19999.98',
     baseA9Raw: '19999980000000',
     requiredAssists: 4,
@@ -86,6 +106,10 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     en: 'Platinum Chest',
     priceGram: '19.99',
     priceNano: '19990000000',
+    deliveryFeeGram: '0.06',
+    deliveryFeeNano: '60000000',
+    totalPayGram: '20.05',
+    totalPayNano: '20050000000',
     baseA9: '40019.98',
     baseA9Raw: '40019980000000',
     requiredAssists: 5,
@@ -100,6 +124,10 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     en: 'Diamond Chest',
     priceGram: '99.99',
     priceNano: '99990000000',
+    deliveryFeeGram: '0.06',
+    deliveryFeeNano: '60000000',
+    totalPayGram: '100.05',
+    totalPayNano: '100050000000',
     baseA9: '200179.98',
     baseA9Raw: '200179980000000',
     requiredAssists: 6,
@@ -213,6 +241,51 @@ export function nextFreeChestSpec(tier, slotIndex = 1) {
   return idx >= 0 && idx + 1 < FREE_CHEST_CHAIN.length ? FREE_CHEST_CHAIN[idx + 1] : null;
 }
 
+export const CHEST_HOLDING_TIERS = Object.freeze(['bronze', 'silver', 'gold', 'platinum', 'diamond']);
+
+/**
+ * 统一统计用户累计持有的 5 种宝箱数量（用于图鉴「宝箱持有」系列解锁）：
+ * - FREE_TIER（免费助力链）：仅已开启（OPENED）计入
+ * - SHOP_BOOST（商城膨胀箱）：非 CANCELLED 计入，按 orderId 去重
+ * - completedShopOrders（含 INSTANT 直接开箱与 BOOST 已成交商城订单）：按 orderId 去重补齐
+ */
+export function summarizeUserChestHoldings({ freeChests = [], shopChests = [], completedShopOrders = [] } = {}) {
+  const counts = { bronze: 0, silver: 0, gold: 0, platinum: 0, diamond: 0 };
+  const seenOrderIds = new Set();
+
+  for (const c of Array.isArray(freeChests) ? freeChests : []) {
+    const t = String(c?.tier || '').toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(counts, t) && c?.status === 'OPENED') {
+      counts[t] += 1;
+    }
+  }
+
+  for (const c of Array.isArray(shopChests) ? shopChests : []) {
+    if (c?.status === 'CANCELLED') continue;
+    const t = String(c?.tier || '').toLowerCase();
+    if (c?.orderId) seenOrderIds.add(String(c.orderId));
+    if (Object.prototype.hasOwnProperty.call(counts, t)) {
+      counts[t] += 1;
+    }
+  }
+
+  for (const o of Array.isArray(completedShopOrders) ? completedShopOrders : []) {
+    if (o?.status !== 'COMPLETED') continue;
+    const oid = o?.orderId ? String(o.orderId) : null;
+    if (oid && seenOrderIds.has(oid)) continue;
+    const skuId = o?.skuId || CHEST_MALL_NANO_TO_SKU[String(o?.tonNano ?? '')] || null;
+    const tier = String(o?.tier || (skuId ? CHEST_MALL_CATALOG[skuId]?.tier : '') || '').toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(counts, tier)) {
+      if (oid) seenOrderIds.add(oid);
+      counts[tier] += 1;
+    }
+  }
+
+  const distinctTypes = CHEST_HOLDING_TIERS.filter((k) => counts[k] > 0).length;
+  const total = CHEST_HOLDING_TIERS.reduce((sum, k) => sum + counts[k], 0);
+  return { ...counts, distinctTypes, total };
+}
+
 export function computeShopBoostForAssists(pack, assistsCount) {
   const base = BigInt(pack.baseA9Raw);
   const maxBoost = BigInt(pack.maxBoostA9Raw);
@@ -224,20 +297,39 @@ export function computeShopBoostForAssists(pack, assistsCount) {
   return initBoost + (remaining * BigInt(clamped)) / BigInt(req);
 }
 
+export function computeWarmupChestReward(validInvites, cfg = {}) {
+  const minInv = Math.max(1, Math.floor(Number(cfg.minInvites ?? WARMUP_CHEST_MIN_INVITES) || WARMUP_CHEST_MIN_INVITES));
+  const maxInv = Math.max(minInv, Math.floor(Number(cfg.maxInvites ?? WARMUP_CHEST_MAX_INVITES) || WARMUP_CHEST_MAX_INVITES));
+  const base = BigInt(String(cfg.baseA9Raw ?? WARMUP_CHEST_BASE_A9_RAW));
+  const step = BigInt(String(cfg.stepA9Raw ?? WARMUP_CHEST_STEP_A9_RAW));
+  const maxBoost = BigInt(maxInv - minInv) * step;
+  const cur = Math.max(0, Math.floor(Number(validInvites || 0) || 0));
+  if (cur <= minInv) {
+    return { baseA9Raw: base, boostA9Raw: 0n, maxBoostA9Raw: maxBoost, totalA9Raw: cur >= minInv ? base : 0n, minInvites: minInv, maxInvites: maxInv };
+  }
+  const extra = Math.min(cur - minInv, maxInv - minInv);
+  const boost = BigInt(extra) * step;
+  return { baseA9Raw: base, boostA9Raw: boost, maxBoostA9Raw: maxBoost, totalA9Raw: base + boost, minInvites: minInv, maxInvites: maxInv };
+}
+
 export function formatChestRecord(c) {
   if (!c) return null;
+  const isWarmup = c.source === 'WARMUP_ROUND';
+  const slot = Number(c.slotIndex || 1);
   const spec = c.source === 'FREE_TIER'
     ? findFreeChestSpec(c.tier, c.slotIndex)
-    : Object.values(CHEST_MALL_CATALOG).find((p) => p.tier === c.tier) || null;
+    : isWarmup
+      ? null
+      : Object.values(CHEST_MALL_CATALOG).find((p) => p.tier === c.tier) || null;
   return {
     chestId: c.chestId,
     ownerUserId: c.ownerUserId,
     ownerWalletKey: c.ownerWalletKey || null,
     source: c.source,
     tier: c.tier,
-    slotIndex: Number(c.slotIndex || 1),
-    labelZh: spec?.zh || c.tier,
-    labelEn: spec?.en || c.tier,
+    slotIndex: slot,
+    labelZh: isWarmup ? `第 ${slot} 轮早鸟预热宝箱` : (spec?.zh || c.tier),
+    labelEn: isWarmup ? `R${slot} Early Bird Warm-up Chest` : (spec?.en || c.tier),
     orderId: c.orderId || null,
     baseA9Raw: String(c.baseA9Raw || '0'),
     boostA9Raw: String(c.boostA9Raw || '0'),
@@ -335,6 +427,83 @@ export class ChestEngine {
     return formatChestRecord(this.chests.get(String(chestId || '').trim()));
   }
 
+  async ensureWarmupRoundChest({ userId, roundId, walletAddress = null, validInvites = 0, config = {} }, nowSec = Math.floor(Date.now() / 1000)) {
+    const uid = String(userId || '').trim();
+    const rId = Number(roundId);
+    if (!uid || !Number.isInteger(rId) || rId < 1) throw new ChestError('BAD_REQUEST', 'valid userId and roundId required');
+    const reward = computeWarmupChestReward(validInvites, config);
+    for (const c of this.chests.values()) {
+      if (c.ownerUserId === uid && c.source === 'WARMUP_ROUND' && Number(c.slotIndex) === rId) {
+        if (walletAddress && !c.ownerWalletKey) c.ownerWalletKey = addressKey(walletAddress);
+        if (c.status !== 'OPENED') {
+          c.currentAssists = Math.max(0, Number(validInvites || 0));
+          c.boostA9Raw = reward.boostA9Raw.toString();
+          c.status = c.currentAssists >= c.requiredAssists ? 'READY' : 'ACTIVE';
+          c.updatedAt = nowSec;
+        }
+        return { created: false, chest: formatChestRecord(c) };
+      }
+    }
+    const cur = Math.max(0, Number(validInvites || 0));
+    const rec = {
+      chestId: `ch_${randomHex(6)}`,
+      ownerUserId: uid,
+      ownerWalletKey: walletAddress ? addressKey(walletAddress) : null,
+      source: 'WARMUP_ROUND',
+      tier: 'warmup',
+      slotIndex: rId,
+      orderId: null,
+      baseA9Raw: reward.baseA9Raw.toString(),
+      boostA9Raw: reward.boostA9Raw.toString(),
+      maxBoostA9Raw: reward.maxBoostA9Raw.toString(),
+      requiredAssists: reward.minInvites,
+      currentAssists: cur,
+      status: cur >= reward.minInvites ? 'READY' : 'ACTIVE',
+      expiresAt: null,
+      openedAt: null,
+      createdAt: nowSec,
+      updatedAt: nowSec,
+    };
+    this.chests.set(rec.chestId, rec);
+    return { created: true, chest: formatChestRecord(rec) };
+  }
+
+  async syncWarmupChestProgress({ userId, roundId, validInvites = 0, walletAddress = null, config = {} }, nowSec = Math.floor(Date.now() / 1000)) {
+    const uid = String(userId || '').trim();
+    const rId = Number(roundId);
+    if (!uid || !Number.isInteger(rId) || rId < 1) return null;
+    for (const c of this.chests.values()) {
+      if (c.ownerUserId === uid && c.source === 'WARMUP_ROUND' && Number(c.slotIndex) === rId) {
+        if (walletAddress && !c.ownerWalletKey) c.ownerWalletKey = addressKey(walletAddress);
+        if (c.status !== 'OPENED') {
+          const reward = computeWarmupChestReward(validInvites, {
+            baseA9Raw: config.baseA9Raw ?? c.baseA9Raw,
+            stepA9Raw: config.stepA9Raw,
+            minInvites: config.minInvites ?? c.requiredAssists,
+            maxInvites: config.maxInvites,
+          });
+          c.currentAssists = Math.max(0, Number(validInvites || 0));
+          c.boostA9Raw = reward.boostA9Raw.toString();
+          c.status = c.currentAssists >= c.requiredAssists ? 'READY' : 'ACTIVE';
+          c.updatedAt = nowSec;
+        }
+        return formatChestRecord(c);
+      }
+    }
+    return null;
+  }
+
+  async getWarmupRoundChest(userId, roundId) {
+    const uid = String(userId || '').trim();
+    const rId = Number(roundId);
+    for (const c of this.chests.values()) {
+      if (c.ownerUserId === uid && c.source === 'WARMUP_ROUND' && Number(c.slotIndex) === rId) {
+        return formatChestRecord(c);
+      }
+    }
+    return null;
+  }
+
   async listUserChests(userId) {
     const uid = String(userId || '').trim();
     const all = [...this.chests.values()]
@@ -344,6 +513,7 @@ export class ChestEngine {
     return {
       freeChests: all.filter((c) => c.source === 'FREE_TIER'),
       shopChests: all.filter((c) => c.source === 'SHOP_BOOST').reverse(),
+      warmupChests: all.filter((c) => c.source === 'WARMUP_ROUND').reverse(),
     };
   }
 
@@ -361,6 +531,9 @@ export class ChestEngine {
 
     const chest = this.chests.get(cId);
     if (!chest) throw new ChestError('CHEST_NOT_FOUND', '未找到对应宝箱');
+    if (chest.source === 'WARMUP_ROUND') {
+      throw new ChestError('ASSIST_NOT_ALLOWED', '预热宝箱仅可通过邀请好友预约并绑定活跃钱包解锁');
+    }
     if (chest.status === 'LOCKED') throw new ChestError('CHEST_LOCKED', '该宝箱尚未解锁，请先开启上一个宝箱');
     if (chest.status === 'OPENED' || chest.status === 'EXPIRED') {
       throw new ChestError('CHEST_CLOSED', '该宝箱已开启或已结束助力');
@@ -456,6 +629,18 @@ export class ChestEngine {
       chest.updatedAt = nowSec;
       if (rewardRaw > 0n && promoEngine && walletAddress && typeof promoEngine.creditReward === 'function') {
         await promoEngine.creditReward(walletAddress, rewardRaw, nowSec);
+      }
+    } else if (chest.source === 'WARMUP_ROUND') {
+      if (chest.currentAssists < chest.requiredAssists) {
+        throw new ChestError('ASSISTS_UNMET', `还需 ${chest.requiredAssists - chest.currentAssists} 位已绑活跃钱包的预热好友方可开启`);
+      }
+      rewardRaw = BigInt(chest.baseA9Raw || '0') + BigInt(chest.boostA9Raw || '0');
+      chest.status = 'OPENED';
+      chest.openedAt = nowSec;
+      chest.updatedAt = nowSec;
+      destination = 'PENDING_VAULT';
+      if (rewardRaw > 0n && predictionEngine && typeof predictionEngine.creditPendingBonus === 'function') {
+        await predictionEngine.creditPendingBonus(uid, rewardRaw, nowSec * 1000);
       }
     } else {
       const spec = findFreeChestSpec(chest.tier, chest.slotIndex);

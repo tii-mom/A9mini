@@ -8,6 +8,38 @@ export const WARMUP_TIERS = Object.freeze([
   { minRank: 26, maxRank: 50, rewardA9: 64000 },
 ]);
 
+export const WARMUP_INTENT_TIERS = Object.freeze(['1000', '5000', '20000_plus', 'watching']);
+export const WARMUP_INTENT_A9_ESTIMATE = Object.freeze({ '1000': 1000, '5000': 5000, '20000_plus': 20000, watching: 0 });
+export const DEFAULT_WARMUP_ROUND_CONFIG = Object.freeze({
+  status: 'OPEN',
+  plannedOpenAt: null,
+  targetUsers: 500,
+  chestBaseA9Raw: '300000000000',
+  chestStepA9Raw: '200000000000',
+  chestMinInvites: 2,
+  chestMaxInvites: 5,
+});
+
+export function normalizeWarmupIntentTier(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null || String(raw).trim() === '') return null;
+  const v = String(raw).trim();
+  if (!WARMUP_INTENT_TIERS.includes(v)) {
+    throw new SocialError('BAD_INTENT_TIER', `invalid intentTier: ${v}`);
+  }
+  return v;
+}
+
+export function maskWarmupUser(tgUserId, walletAddress = null) {
+  if (walletAddress && String(walletAddress).length > 10) {
+    const w = String(walletAddress);
+    return `${w.slice(0, 4)}...${w.slice(-4)}`;
+  }
+  const uid = String(tgUserId || '');
+  if (uid.length <= 4) return `TG#${uid}`;
+  return `TG#${uid.slice(0, 2)}***${uid.slice(-3)}`;
+}
+
 export function rewardForWarmupRank(rank) {
   const tier = WARMUP_TIERS.find((t) => rank >= t.minRank && rank <= t.maxRank);
   return tier ? tier.rewardA9 : 0;
@@ -44,6 +76,17 @@ export function parseStartAppParam(rawParam) {
       };
     }
     return { raw, kind: 'invite', teamId: null, targetId: null, referrerId: rest };
+  }
+
+  // 1b) warmup | warmup_<roundId> | warmup_<roundId>_<referrerId>
+  if (/^warmup(?:_(.+))?$/i.test(raw)) {
+    const rest = raw.slice('warmup'.length).replace(/^_/, '');
+    if (!rest) return { raw, kind: 'warmup', teamId: null, targetId: null, referrerId: null };
+    const wm = rest.match(/^(\d+)(?:_(.+))?$/);
+    if (wm) {
+      return { raw, kind: 'warmup', teamId: null, targetId: wm[1], referrerId: wm[2] || null };
+    }
+    return { raw, kind: 'warmup', teamId: null, targetId: null, referrerId: rest };
   }
 
   // 2) (round|burn|proof|bet|chest|gallery)_<targetId>[_<referrerId>]
@@ -134,6 +177,9 @@ export class SocialStore {
   constructor() {
     // key: `${roundId}:${wallet}` -> { roundId, walletAddress, referrerWallet, validInvites, status, updatedAt }
     this.warmups = new Map();
+    // v2 pre-round reservations: key `${roundId}:${tgUserId}`
+    this.warmupRounds = new Map();
+    this.warmupReservations = new Map();
     // teamId -> { teamId, name, captainWallet, tgGroupHandle, tgChatId, bindStatus, members: Set }
     this.teams = new Map();
     this.memberTeam = new Map(); // wallet -> teamId
@@ -441,6 +487,345 @@ export class SocialStore {
       tgMemberCount: Number(t.tgMemberCount || 0),
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Warm-Up v2: Pre-Round Reservations, Intent Tiers & Viral Chest Linkage
+  // -------------------------------------------------------------------------
+  getWarmupRoundConfig(roundId) {
+    const rId = Number(roundId || 1);
+    const saved = this.warmupRounds.get(rId);
+    return {
+      roundId: rId,
+      ...DEFAULT_WARMUP_ROUND_CONFIG,
+      ...(saved || {}),
+    };
+  }
+
+  upsertWarmupRoundConfig(
+    {
+      roundId,
+      status = undefined,
+      plannedOpenAt = undefined,
+      targetUsers = undefined,
+      chestBaseA9Raw = undefined,
+      chestStepA9Raw = undefined,
+      chestMinInvites = undefined,
+      chestMaxInvites = undefined,
+    },
+    nowSec = Math.floor(Date.now() / 1000),
+  ) {
+    const rId = Number(roundId);
+    if (!Number.isInteger(rId) || rId < 1) throw new SocialError('BAD_REQUEST', 'roundId must be a positive integer');
+    const cur = this.getWarmupRoundConfig(rId);
+    const nextStatus = status !== undefined ? String(status).trim().toUpperCase() : cur.status;
+    if (!['OPEN', 'PAUSED', 'CLOSED'].includes(nextStatus)) throw new SocialError('BAD_REQUEST', 'invalid warmup round status');
+    const nextTarget = targetUsers !== undefined ? Math.max(1, Number(targetUsers)) : cur.targetUsers;
+    const nextMin = chestMinInvites !== undefined ? Math.max(1, Number(chestMinInvites)) : cur.chestMinInvites;
+    const nextMax = chestMaxInvites !== undefined ? Math.max(nextMin, Number(chestMaxInvites)) : Math.max(nextMin, cur.chestMaxInvites);
+    const next = {
+      roundId: rId,
+      status: nextStatus,
+      plannedOpenAt: plannedOpenAt === undefined ? cur.plannedOpenAt : (plannedOpenAt === null ? null : Number(plannedOpenAt)),
+      targetUsers: Number.isFinite(nextTarget) ? nextTarget : DEFAULT_WARMUP_ROUND_CONFIG.targetUsers,
+      chestBaseA9Raw: chestBaseA9Raw !== undefined ? String(BigInt(String(chestBaseA9Raw))) : cur.chestBaseA9Raw,
+      chestStepA9Raw: chestStepA9Raw !== undefined ? String(BigInt(String(chestStepA9Raw))) : cur.chestStepA9Raw,
+      chestMinInvites: nextMin,
+      chestMaxInvites: nextMax,
+      createdAt: cur.createdAt || nowSec,
+      updatedAt: nowSec,
+    };
+    this.warmupRounds.set(rId, next);
+    return next;
+  }
+
+  _recomputeReferrerInvites(roundId, refId, nowSec) {
+    const rId = Number(roundId);
+    const refRec = this._findActiveReservationByRef(rId, refId);
+    if (!refRec) return null;
+    const candidates = new Set([refRec.tgUserId, refRec.walletAddress, refRec.walletKey].filter(Boolean));
+    let rawInvites = 0;
+    let validInvites = 0;
+    for (const r of this.warmupReservations.values()) {
+      if (r.roundId !== rId || r.status !== 'ACTIVE' || r.tgUserId === refRec.tgUserId) continue;
+      if (!r.referrerTgId || !candidates.has(r.referrerTgId)) continue;
+      rawInvites += 1;
+      if (r.walletKey && r.walletActive) validInvites += 1;
+    }
+    refRec.rawInvites = rawInvites;
+    refRec.validInvites = validInvites;
+    refRec.updatedAt = nowSec;
+    return { tgUserId: refRec.tgUserId, rawInvites, validInvites };
+  }
+
+  reserveWarmup(
+    { roundId = 1, tgUserId, walletAddress = null, walletActive = false, referrerId = null, intentTier = undefined, remindEnabled = undefined },
+    nowSec = Math.floor(Date.now() / 1000),
+  ) {
+    const rId = Number(roundId);
+    const uid = String(tgUserId || '').trim();
+    if (!uid || !Number.isInteger(rId) || rId < 1) throw new SocialError('BAD_REQUEST', 'valid roundId and tgUserId required');
+    const cfg = this.getWarmupRoundConfig(rId);
+    if (cfg.status !== 'OPEN') throw new SocialError('WARMUP_CLOSED', '本轮预热预约当前未开放');
+
+    const normIntent = normalizeWarmupIntentTier(intentTier);
+    const cleanWallet = walletAddress ? String(walletAddress).trim() : null;
+    const wKey = cleanWallet ? addressKey(cleanWallet) : null;
+    if (wKey) {
+      for (const other of this.warmupReservations.values()) {
+        if (other.roundId === rId && other.walletKey === wKey && other.tgUserId !== uid) {
+          throw new SocialError('WALLET_ALREADY_RESERVED', '该 TON 钱包已在本轮完成预热预约');
+        }
+      }
+    }
+
+    const rawRef = String(referrerId || '').trim() || null;
+    if (rawRef && rawRef !== uid) {
+      this.bindReferral(uid, rawRef, nowSec, { aliases: cleanWallet ? [cleanWallet] : [] });
+    }
+    const storedRef = this.getReferrer(uid) || (cleanWallet ? this.getReferrer(cleanWallet) : null) || rawRef;
+    const effectiveRef = storedRef && storedRef !== uid && (!wKey || addressKey(storedRef) !== wKey) ? storedRef : null;
+
+    const key = `${rId}:${uid}`;
+    const existing = this.warmupReservations.get(key);
+    const isNewSignup = !existing;
+    const rec = existing || {
+      roundId: rId,
+      tgUserId: uid,
+      walletAddress: null,
+      walletKey: null,
+      walletActive: false,
+      referrerTgId: effectiveRef,
+      intentTier: null,
+      remindEnabled: true,
+      remindedAt: null,
+      rawInvites: 0,
+      validInvites: 0,
+      status: 'ACTIVE',
+      createdAt: nowSec,
+      updatedAt: nowSec,
+    };
+
+    rec.status = 'ACTIVE';
+    if (cleanWallet) {
+      rec.walletAddress = cleanWallet;
+      rec.walletKey = wKey;
+      rec.walletActive = Boolean(rec.walletActive || walletActive);
+    }
+    if (!rec.referrerTgId && effectiveRef) rec.referrerTgId = effectiveRef;
+    if (normIntent !== undefined) rec.intentTier = normIntent;
+    if (remindEnabled !== undefined) rec.remindEnabled = Boolean(remindEnabled);
+    rec.updatedAt = nowSec;
+    this.warmupReservations.set(key, rec);
+
+    this._recomputeReferrerInvites(rId, uid, nowSec);
+    let referrerUpdated = null;
+    if (rec.referrerTgId) {
+      const updated = this._recomputeReferrerInvites(rId, rec.referrerTgId, nowSec);
+      if (updated && updated.tgUserId !== uid) referrerUpdated = updated;
+    }
+
+    return { reservation: this._formatReservation(rec), referrerUpdated, isNewSignup };
+  }
+
+  _findActiveReservationByRef(roundId, refId) {
+    const rId = Number(roundId);
+    const clean = String(refId || '').trim();
+    if (!clean) return null;
+    const direct = this.warmupReservations.get(`${rId}:${clean}`);
+    if (direct && direct.status === 'ACTIVE') return direct;
+    const refKey = addressKey(clean);
+    for (const r of this.warmupReservations.values()) {
+      if (r.roundId === rId && r.status === 'ACTIVE' && r.walletKey && r.walletKey === refKey) return r;
+    }
+    return null;
+  }
+
+  syncWarmupWalletForUser({ tgUserId, walletAddress, walletActive = false, roundIds = null }, nowSec = Math.floor(Date.now() / 1000)) {
+    const uid = String(tgUserId || '').trim();
+    const cleanWallet = String(walletAddress || '').trim();
+    if (!uid || !cleanWallet) return [];
+    const wKey = addressKey(cleanWallet);
+    const allowed = Array.isArray(roundIds) ? new Set(roundIds.map(Number)) : null;
+    const updates = [];
+
+    for (const rec of this.warmupReservations.values()) {
+      if (rec.tgUserId !== uid || rec.status !== 'ACTIVE') continue;
+      if (allowed && !allowed.has(rec.roundId)) continue;
+      let conflict = false;
+      for (const other of this.warmupReservations.values()) {
+        if (other.roundId === rec.roundId && other.walletKey === wKey && other.tgUserId !== uid) {
+          conflict = true;
+          break;
+        }
+      }
+      if (conflict) continue;
+      rec.walletAddress = cleanWallet;
+      rec.walletKey = wKey;
+      rec.walletActive = Boolean(rec.walletActive || walletActive);
+      rec.updatedAt = nowSec;
+      let referrerUpdated = null;
+      if (rec.referrerTgId) {
+        const updated = this._recomputeReferrerInvites(rec.roundId, rec.referrerTgId, nowSec);
+        if (updated && updated.tgUserId !== uid) referrerUpdated = updated;
+      }
+      updates.push({ roundId: rec.roundId, reservation: this._formatReservation(rec), referrerUpdated });
+    }
+    return updates;
+  }
+
+  cancelWarmupReservation({ roundId = 1, tgUserId }, nowSec = Math.floor(Date.now() / 1000)) {
+    const rId = Number(roundId);
+    const uid = String(tgUserId || '').trim();
+    const rec = this.warmupReservations.get(`${rId}:${uid}`);
+    if (!rec) return null;
+    rec.status = 'CANCELLED';
+    rec.updatedAt = nowSec;
+    let referrerUpdated = null;
+    if (rec.referrerTgId) {
+      const updated = this._recomputeReferrerInvites(rId, rec.referrerTgId, nowSec);
+      if (updated && updated.tgUserId !== uid) referrerUpdated = updated;
+    }
+    return { ...this._formatReservation(rec), referrerUpdated };
+  }
+
+  getWarmupReservation(roundId, tgUserId) {
+    const rec = this.warmupReservations.get(`${Number(roundId)}:${String(tgUserId || '').trim()}`);
+    return rec ? this._formatReservation(rec) : null;
+  }
+
+  getWarmupRoundStats(roundId) {
+    const rId = Number(roundId);
+    let totalRegistered = 0;
+    let walletBoundCount = 0;
+    let activeWalletCount = 0;
+    let remindEnabledCount = 0;
+    for (const r of this.warmupReservations.values()) {
+      if (r.roundId !== rId || r.status !== 'ACTIVE') continue;
+      totalRegistered += 1;
+      if (r.walletKey) walletBoundCount += 1;
+      if (r.walletActive) activeWalletCount += 1;
+      if (r.remindEnabled) remindEnabledCount += 1;
+    }
+    return { roundId: rId, totalRegistered, walletBoundCount, activeWalletCount, remindEnabledCount };
+  }
+
+  getWarmupLeaderboardV2(roundId = 1, limit = 50) {
+    const rId = Number(roundId);
+    return Array.from(this.warmupReservations.values())
+      .filter((r) => r.roundId === rId && r.status === 'ACTIVE')
+      .sort((a, b) => (b.validInvites - a.validInvites) || (b.rawInvites - a.rawInvites) || (a.createdAt - b.createdAt))
+      .slice(0, limit)
+      .map((r, i) => ({
+        rank: i + 1,
+        label: maskWarmupUser(r.tgUserId, r.walletAddress),
+        walletAddress: maskWarmupUser(r.tgUserId, r.walletAddress),
+        validInvites: r.validInvites,
+        rawInvites: r.rawInvites,
+        walletBound: Boolean(r.walletKey),
+      }));
+  }
+
+  getWarmupAdminSummary(roundId, { readyWalletSet = null, actualOnchainStakers = null } = {}) {
+    const rId = Number(roundId);
+    const config = this.getWarmupRoundConfig(rId);
+    const intentBreakdown = { '1000': 0, '5000': 0, '20000_plus': 0, watching: 0, unset: 0 };
+    let totalActive = 0;
+    let totalCancelled = 0;
+    let walletBoundCount = 0;
+    let activeWalletCount = 0;
+    let remindEnabledCount = 0;
+    let remindedCount = 0;
+    let readyCapitalCount = 0;
+    let estimatedIntentA9Min = 0;
+    const activeRows = [];
+
+    for (const r of this.warmupReservations.values()) {
+      if (r.roundId !== rId) continue;
+      if (r.status !== 'ACTIVE') {
+        totalCancelled += 1;
+        continue;
+      }
+      totalActive += 1;
+      activeRows.push(r);
+      if (r.walletKey) walletBoundCount += 1;
+      if (r.walletActive) activeWalletCount += 1;
+      if (r.remindEnabled) remindEnabledCount += 1;
+      if (r.remindedAt) remindedCount += 1;
+      if (readyWalletSet && r.walletKey && readyWalletSet.has(r.walletKey)) readyCapitalCount += 1;
+      if (r.intentTier && Object.prototype.hasOwnProperty.call(intentBreakdown, r.intentTier)) {
+        intentBreakdown[r.intentTier] += 1;
+        estimatedIntentA9Min += WARMUP_INTENT_A9_ESTIMATE[r.intentTier] || 0;
+      } else {
+        intentBreakdown.unset += 1;
+      }
+    }
+    const topInviters = activeRows
+      .filter((r) => r.rawInvites > 0 || r.validInvites > 0)
+      .sort((a, b) => (b.validInvites - a.validInvites) || (b.rawInvites - a.rawInvites) || (a.createdAt - b.createdAt))
+      .slice(0, 20)
+      .map((r, i) => ({
+        rank: i + 1,
+        tgUserId: r.tgUserId,
+        walletAddress: r.walletAddress,
+        validInvites: r.validInvites,
+        rawInvites: r.rawInvites,
+        intentTier: r.intentTier,
+      }));
+    const stakers = actualOnchainStakers === null || actualOnchainStakers === undefined ? null : Number(actualOnchainStakers);
+    const conversionRatePct = stakers !== null && totalActive > 0 ? Number(((stakers / totalActive) * 100).toFixed(2)) : null;
+    return {
+      roundId: rId,
+      config,
+      totalActive,
+      totalCancelled,
+      walletBoundCount,
+      activeWalletCount,
+      readyCapitalCount,
+      remindEnabledCount,
+      remindedCount,
+      intentBreakdown,
+      estimatedIntentA9Min,
+      topInviters,
+      actualOnchainStakers: stakers,
+      conversionRatePct,
+    };
+  }
+
+  listPendingWarmupReminders(roundId, limit = 25) {
+    const rId = Number(roundId);
+    return Array.from(this.warmupReservations.values())
+      .filter((r) => r.roundId === rId && r.status === 'ACTIVE' && r.remindEnabled && !r.remindedAt)
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, limit)
+      .map((r) => this._formatReservation(r));
+  }
+
+  markWarmupReminded(roundId, tgUserId, nowSec = Math.floor(Date.now() / 1000)) {
+    const rec = this.warmupReservations.get(`${Number(roundId)}:${String(tgUserId || '').trim()}`);
+    if (!rec || rec.remindedAt) return false;
+    rec.remindedAt = nowSec;
+    rec.updatedAt = nowSec;
+    return true;
+  }
+
+  _formatReservation(r) {
+    return {
+      roundId: Number(r.roundId),
+      tgUserId: String(r.tgUserId),
+      walletAddress: r.walletAddress || null,
+      walletKey: r.walletKey || null,
+      walletActive: Boolean(r.walletActive),
+      referrerTgId: r.referrerTgId || null,
+      intentTier: r.intentTier || null,
+      remindEnabled: Boolean(r.remindEnabled),
+      remindedAt: r.remindedAt ? Number(r.remindedAt) : null,
+      rawInvites: Number(r.rawInvites || 0),
+      validInvites: Number(r.validInvites || 0),
+      status: r.status,
+      createdAt: Number(r.createdAt),
+      updatedAt: Number(r.updatedAt),
     };
   }
 }
