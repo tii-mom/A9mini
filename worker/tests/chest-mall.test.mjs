@@ -614,4 +614,59 @@ await test('Security & ledger audit fixes: openChest address normalization, GET 
   assert.match(ogRes.rawBody, /https:\/\/t\.me\/A9_TonBot\?startapp=chest_/);
 });
 
+await test('GET /api/chests/me chestHoldings merges OPENED free chests + deduplicated BOOST + INSTANT completed orders', async () => {
+  const chest = new ChestEngine();
+  const promo = new PromoHotWalletEngine({ hotWalletAddress: HOT_WALLET });
+  const pred = new PredictionEngine();
+  const identityStore = new MemoryIdentityStore();
+  await identityStore.bindVerifiedWallet('9101', W_OWNER, 7000);
+  const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT_WALLET, open: true, promoEngine: promo, chestEngine: chest });
+
+  // 1) Open FREE_TIER Bronze #1 (Bronze #2 becomes ACTIVE and must NOT count)
+  const starter = await chest.claimStarterBronzeChests({ userId: '9101', walletAddress: W_OWNER }, 7001);
+  const b1 = starter.chests[0];
+  await chest.assistChest({ chestId: b1.chestId, helperUserId: '9102', helperWalletAddress: W_H1, walletActive: true }, 7002);
+  await chest.assistChest({ chestId: b1.chestId, helperUserId: '9103', helperWalletAddress: W_H2, walletActive: true }, 7003);
+  await chest.openChest({ chestId: b1.chestId, userId: '9101', walletAddress: W_OWNER, predictionEngine: pred }, 7004);
+
+  // 2) COMPLETED BOOST Gold order (appears in both shopChests and presale orders -> must deduplicate by orderId)
+  const boostOrd = await presale.createOrderIntent(W_OWNER, null, 7010, { skuId: 'chest_gold', openMode: 'BOOST', tgUserId: '9101' });
+  await presale.ingestInbound({ txHash: 'tx_hold_gold_in', finality: 'finalized', to: HOT_WALLET, from: W_OWNER, valueNano: boostOrd.payTonNano, memo: boostOrd.memo }, 7011);
+  await presale.queueConfirmedPayouts(7012);
+  await presale.processPayouts(7013, {
+    a9Broadcaster: async () => ({ txHash: 'tx_hold_gold_out' }),
+    verifier: async () => ({ state: 'CONFIRMED', txHash: 'tx_hold_gold_out' }),
+  });
+
+  // 3) COMPLETED INSTANT Silver order (only in presale orders, not in shopChests -> must be included)
+  const instOrd = await presale.createOrderIntent(W_OWNER, null, 7020, { skuId: 'chest_silver', openMode: 'INSTANT', tgUserId: '9101' });
+  await presale.ingestInbound({ txHash: 'tx_hold_silver_in', finality: 'finalized', to: HOT_WALLET, from: W_OWNER, valueNano: instOrd.payTonNano, memo: instOrd.memo }, 7021);
+  await presale.queueConfirmedPayouts(7022);
+  await presale.processPayouts(7023, {
+    a9Broadcaster: async () => ({ txHash: 'tx_hold_silver_out' }),
+    verifier: async () => ({ state: 'CONFIRMED', txHash: 'tx_hold_silver_out' }),
+  });
+
+  const router = createApiRouter({
+    env: { A9_BOT_TOKEN: BOT_TOKEN },
+    stateStore: emptyStateStore,
+    promoEngine: promo,
+    presaleEngine: presale,
+    chestEngine: chest,
+    identityStore,
+  });
+  const meRes = await router({ method: 'GET', pathname: '/api/chests/me', headers: await tgHeaders(9101, { nowSec: 7030 }), nowSec: 7030 });
+  assert.equal(meRes.status, 200);
+  assert.equal(meRes.body.data.shopChests.length, 1);
+  assert.deepEqual(meRes.body.data.chestHoldings, {
+    bronze: 1,
+    silver: 1,
+    gold: 1,
+    platinum: 0,
+    diamond: 0,
+    distinctTypes: 3,
+    total: 3,
+  });
+});
+
 console.log(`All ${passed} A9 v15 Chest Mall & Viral Assist tests passed.`);
