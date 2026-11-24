@@ -188,6 +188,8 @@ export class SocialStore {
     this.memberJoinedAt = new Map(); // walletKey -> joinedAtSec
     // subjectKey (walletAddress or tgUserId) -> { subjectKey, referrerId, boundAt }
     this.referrals = new Map();
+    // tgUserId -> { tgUserId, settlementPush: boolean, updatedAt: number }
+    this.notificationPrefs = new Map();
   }
 
   /**
@@ -844,6 +846,63 @@ export class SocialStore {
     rec.remindedAt = nowSec;
     rec.updatedAt = nowSec;
     return true;
+  }
+
+  getNotificationPrefs(tgUserId) {
+    const uid = String(tgUserId || '').trim();
+    if (!uid) throw new SocialError('BAD_REQUEST', 'tgUserId required');
+    const rec = this.notificationPrefs.get(uid);
+    return {
+      tgUserId: uid,
+      settlementPush: rec ? Boolean(rec.settlementPush) : true,
+      hourlyCandlePush: false,
+      subscribedExplicitly: Boolean(rec),
+      updatedAt: rec ? Number(rec.updatedAt) : null,
+    };
+  }
+
+  setNotificationPrefs(tgUserId, { settlementPush }, nowSec = Math.floor(Date.now() / 1000)) {
+    const uid = String(tgUserId || '').trim();
+    if (!uid) throw new SocialError('BAD_REQUEST', 'tgUserId required');
+    const next = Boolean(settlementPush);
+    this.notificationPrefs.set(uid, {
+      tgUserId: uid,
+      settlementPush: next,
+      updatedAt: Number(nowSec),
+    });
+    return {
+      tgUserId: uid,
+      settlementPush: next,
+      hourlyCandlePush: false,
+      subscribedExplicitly: true,
+      updatedAt: Number(nowSec),
+    };
+  }
+
+  ensureDefaultNotificationPrefs(tgUserId, nowSec = Math.floor(Date.now() / 1000)) {
+    const uid = String(tgUserId || '').trim();
+    if (!uid) throw new SocialError('BAD_REQUEST', 'tgUserId required');
+    if (!this.notificationPrefs.has(uid)) {
+      this.notificationPrefs.set(uid, {
+        tgUserId: uid,
+        settlementPush: true,
+        updatedAt: Number(nowSec),
+      });
+    }
+    return this.getNotificationPrefs(uid);
+  }
+
+  disableSettlementPush(tgUserId, nowSec = Math.floor(Date.now() / 1000)) {
+    return this.setNotificationPrefs(tgUserId, { settlementPush: false }, nowSec);
+  }
+
+  listSettlementPushSubscribers({ limit = 25 } = {}) {
+    const lim = Math.max(1, Math.min(500, Math.floor(Number(limit) || 25)));
+    return Array.from(this.notificationPrefs.values())
+      .filter((r) => Boolean(r.settlementPush))
+      .sort((a, b) => (a.updatedAt - b.updatedAt) || String(a.tgUserId).localeCompare(String(b.tgUserId)))
+      .slice(0, lim)
+      .map((r) => String(r.tgUserId));
   }
 
   _formatReservation(r) {

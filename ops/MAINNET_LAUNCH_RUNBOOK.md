@@ -9,7 +9,7 @@
 | 序号 | 配置项 | 说明 | 获取/生成方式 |
 |---|---|---|---|
 | 1 | 正式域名 | 前端域名（如 `https://app.<domain>`）与 API 域名（如 `https://api.<domain>`） | Cloudflare DNS 接入正式域名并开启 HTTPS 代理 |
-| 2 | 正式 Telegram Bot | `A9_BOT_TOKEN`（Secret）与 `A9_TG_BOT_HANDLE`（不含 `@`） | `@BotFather` 执行 `/newbot` 与 `/newapp` 绑定前端域名 |
+| 2 | 正式 Telegram Bot | `A9_BOT_TOKEN`（Secret）、`A9_TG_WEBHOOK_SECRET`（Secret，>=16位）与 `A9_TG_BOT_HANDLE`（不含 `@`） | `@BotFather` 执行 `/newbot` 与 `/newapp` 绑定前端域名；`openssl rand -hex 24` 生成 Webhook Secret |
 | 3 | 主网 TonCenter Key | `TONCENTER_API_KEY`（Secret，Mainnet 档位，建议 >= 10 RPS） | `@tonapibot` 或 toncenter.com 申请 Mainnet Key |
 | 4 | 5 个独立主网钱包 | `deployer`、`treasury`、`keeper/opener`、`presaleHotWallet`、`promoHotWallet`（**严禁复用或混用**） | 本机执行 `acton wallet new <name>`；助记词离线冷备 |
 | 5 | 团队多签/硬件地址 | `A9_TEAM_WALLET_ADDRESS`（主网部署 `RoundController` 时永久固化） | 硬件钱包或 TON Multisig 主网地址 |
@@ -33,16 +33,17 @@
 > **生产写操作红线**：本步中的**远程生产 D1 迁移（`--remote`）**与**生产 Worker Secrets 注入（`wrangler secret put`）**均直接写入生产 Cloudflare 环境，**必须由业主单独书面授权后方可执行**；未获单独授权前仅可进行本地只读预演与静态资产核对。
 
 1. **发布静态前端与元数据（含官网分域对齐）**：若独立官网（`a9-official-web/`）占根域 `https://a9.lat`，推荐 Mini App 部署至 `https://app.a9.lat` 并同步更新 `tonconnect-manifest.json` 的 `url`、`A9_PUBLIC_ORIGIN` 与 `A9_TON_PROOF_DOMAINS`，同时确保根域或静态域上的 `a9.json`、`tonconnect-manifest.json` 与 `assets/token/a9-token-2048.png` 返回 `HTTP 200` 且带 `Access-Control-Allow-Origin: *`（`a9-mini-app/_headers` 已内置）；确认 `window.__A9_CONFIG__.liveFundsEnabled = false`；
-2. **生产 D1 迁移（0001..0012，写生产库 · 须单独授权）**：
+2. **生产 D1 迁移（0001..0013，写生产库 · 须单独授权）**：
 ```bash
 cd /Users/yu1/Desktop/A9mini/worker
 npx wrangler d1 migrations apply a9mini-v15-prod --remote --env production
 ```
-   验收项：先备份存量库再按序执行 12 份迁移（含 `0011_round_warmup_v2.sql` 与 `0012_actuarial_hardening.sql`），确认 `promo_budget_ledger`（3 亿 A9 4 槽位）、`captain_founding_bonuses` 唯一索引及所有表索引就绪、`PRAGMA integrity_check = ok`。
+   验收项：先备份存量库再按序执行 13 份迁移（含 `0011_warmup_reservations_v2.sql`、`0012_actuarial_hardening.sql` 与 `0013_user_notification_prefs.sql`），确认 `promo_budget_ledger`（3 亿 A9 4 槽位）、`captain_founding_bonuses` 唯一索引、`user_notification_prefs` 及所有表索引就绪、`PRAGMA integrity_check = ok`。
 3. **注入生产 Worker Secrets（写生产环境 · 须单独授权，严禁写入 wrangler.toml）**：
 ```bash
 cd /Users/yu1/Desktop/A9mini/worker
 npx wrangler secret put A9_BOT_TOKEN --env production
+npx wrangler secret put A9_TG_WEBHOOK_SECRET --env production
 npx wrangler secret put A9_ADMIN_TOKEN --env production
 npx wrangler secret put TONCENTER_API_KEY --env production
 ```
@@ -77,6 +78,7 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
 - `A9_PROTOCOL_VERSION = "v16"`
 - `TONCENTER_API_BASE = "https://toncenter.com/api/v2"`
 - `A9_PUBLIC_ORIGIN = "https://app.a9.lat"`
+- `A9_API_ORIGIN = "https://api.a9.lat"`（Telegram 战报卡片 `/c/img/*.png` 必须走 Worker API 域，绝不可误拼静态前端域）
 - `A9_TG_BOT_HANDLE = "<BotUsername>"`
 - `A9_ALLOWED_ORIGINS = "https://app.a9.lat,https://a9.lat"`
 - `A9_TON_PROOF_DOMAINS = "app.a9.lat"`
@@ -137,7 +139,20 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
    - **宝箱开箱入账对账**：实测免费青铜宝箱 #1（`chest_assists` 满 2 位活跃钱包助力）与商城膨胀箱调用 `POST /api/chests/:id/open` 返回 `200`（非 `403 CHEST_OPEN_DISABLED`），核对 `user_chests.status = 'OPENED'`、`chest_open_credits` 与 `promo_budget_ledger` 留痕、免费青铜箱精确入账 `prediction_rewards.pending_activation_raw`（且青铜 #2 转为 `ACTIVE`）、商城膨胀箱增量精确入账 `promo_balances.claimable_raw`；
    - 过期单晚付 / 异常直转退款 → 实测 `gram_refund_v15.tolk` 按退款规则扣除 `0.03 GRAM` 链上退回 Gas 后原路退回（支付 `1.05 GRAM` 退回 `1.02 GRAM`；异常直转 `0.99 GRAM` 退回 `0.96 GRAM`），`presale_orders` 为 `REFUNDED`、`presale_payouts` 为 `CONFIRMED`；
    - **推广 0.06 GRAM 领币与最终到账对账**：推荐人/开箱领取人付 `0.06 GRAM` 发起领取 → 核对 `promo_claims.status = 'COMPLETED'`（带真实链上入账 `fee_tx_hash` 与出账 `payout_tx_hash`）、`promo_payouts.status = 'CONFIRMED'`（且 `promo_payouts.tx_hash === promo_claims.payout_tx_hash`）、`promo_balances.claimable_raw` 精确扣减且 `total_claimed_raw` 等额增加、**领取人主网 A9 `JettonWallet` 实测收到对应全部 A9 余额**、且 `promoHotWallet` GRAM 净增加（项目方 0 Gas 支出）。
-3. **第二步（账实对平后开启 TG 播报）**：核验 D1 真实表 `presale_orders`、`presale_payouts`、`presale_referral_credits`、`user_chests`、`chest_assists`、`chest_open_credits`、`prediction_rewards`、`promo_balances`、`promo_claims`、`promo_payouts`、`runner_heartbeats` 与链上余额 100% 一致后，再将 `A9_BROADCAST_ENABLED = "1"`（`A9_BROADCAST_WHALE_MIN_GRAM` 先保持 `"50"`）部署并正式放量。
+3. **第二步（Bot 注册冒烟 + 账实对平后开启 TG 播报）**：
+   - 先干跑再授权注册 Bot Webhook（`https://api.<domain>/api/telegram/webhook`）、菜单命令（`/start`、`/status`、`/help`）与左下角 WebApp 菜单按钮：
+```bash
+cd /Users/yu1/Desktop/A9mini/ops
+node scripts/setup-tg-bot.mjs --dry-run \
+  --webhook-url https://api.<domain>/api/telegram/webhook \
+  --app-url https://app.<domain>
+# 业主授权后真实注册：
+OPS_EXECUTE=1 node scripts/setup-tg-bot.mjs --execute \
+  --webhook-url https://api.<domain>/api/telegram/webhook \
+  --app-url https://app.<domain>
+```
+   - 冒烟 3 项必过：`POST /api/telegram/webhook` 缺或错 `X-Telegram-Bot-Api-Secret-Token` 必返 `401`；私聊 Bot 发送 `/start`、`/status`、`/help` 均收到零 Emoji 回复且 `/status` 无轮次时明确显示待核验；打开小程序【我的 -> 系统设置】验证「轮次结算与领取提醒」开关持久化、`整点 1H 时段收盘推送` 显示战队 TG 群自动播报说明并置灰。
+   - 核验 D1 真实表 `presale_orders`、`presale_payouts`、`presale_referral_credits`、`user_chests`、`chest_assists`、`chest_open_credits`、`prediction_rewards`、`promo_balances`、`promo_claims`、`promo_payouts`、`user_notification_prefs`、`runner_heartbeats` 与链上余额 100% 一致后，再将 `A9_BROADCAST_ENABLED = "1"`（`A9_BROADCAST_WHALE_MIN_GRAM` 先保持 `"50"`）部署并正式放量。
 
 ---
 

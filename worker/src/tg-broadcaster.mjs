@@ -92,6 +92,10 @@ export class MemoryBroadcastLog {
     const rec = this.events.get(String(eventKey));
     if (rec) rec.sentCount = Number(sentCount || 0);
   }
+
+  async release(eventKey) {
+    return this.events.delete(String(eventKey));
+  }
 }
 
 /** Cloudflare D1 原子去重日志（多实例 Worker 并发安全）。 */
@@ -123,6 +127,14 @@ export class D1BroadcastLog {
       .bind(Number(sentCount || 0), String(eventKey))
       .run();
   }
+
+  async release(eventKey) {
+    const res = await this.db
+      .prepare('DELETE FROM tg_broadcast_events WHERE event_key = ?')
+      .bind(String(eventKey))
+      .run();
+    return Number(res?.meta?.changes ?? res?.changes ?? 0) > 0;
+  }
 }
 
 export class TelegramBroadcaster {
@@ -131,6 +143,7 @@ export class TelegramBroadcaster {
     botToken = '',
     botHandle = 'A9_TonBot',
     publicOrigin = '',
+    apiOrigin = '',
     officialChannelId = '',
     whaleMinGram = DEFAULT_WHALE_MIN_GRAM,
     socialStore = null,
@@ -144,6 +157,7 @@ export class TelegramBroadcaster {
     this.botToken = String(botToken || '').trim();
     this.botHandle = String(botHandle || 'A9_TonBot').replace(/^@/, '').trim() || 'A9_TonBot';
     this.publicOrigin = String(publicOrigin || '').replace(/\/+$/, '');
+    this.apiOrigin = String(apiOrigin || publicOrigin || '').replace(/\/+$/, '');
     this.officialChannelId = String(officialChannelId || '').trim() || null;
     const minGram = BigInt(String(whaleMinGram ?? DEFAULT_WHALE_MIN_GRAM));
     this.whaleMinNano = minGram > 0n ? minGram * TON_NANO : 0n;
@@ -173,7 +187,7 @@ export class TelegramBroadcaster {
     }
   }
 
-  async _sendTelegram({ chatId, text, photoUrl = null, buttonText = null, buttonUrl = null }) {
+  async _sendTelegram({ chatId, text, photoUrl = null, buttonText = null, buttonUrl = null, replyToMessageId = null }) {
     const base = `https://api.telegram.org/bot${this.botToken}`;
     const replyMarkup = buttonText && buttonUrl
       ? { inline_keyboard: [[{ text: buttonText, url: buttonUrl }]] }
@@ -184,6 +198,9 @@ export class TelegramBroadcaster {
     const payload = usePhoto
       ? { chat_id: String(chatId), photo: photoUrl, caption: text, reply_markup: replyMarkup }
       : { chat_id: String(chatId), text, disable_web_page_preview: true, reply_markup: replyMarkup };
+    if (replyToMessageId !== null && replyToMessageId !== undefined && Number.isFinite(Number(replyToMessageId))) {
+      payload.reply_to_message_id = Number(replyToMessageId);
+    }
 
     const res = await this.fetchImpl(endpoint, {
       method: 'POST',
@@ -194,6 +211,11 @@ export class TelegramBroadcaster {
     if (!res.ok || !json?.ok) {
       const err = new Error(`Telegram API error (${res.status}): ${json?.description || 'unknown'}`);
       err.status = res.status;
+      const rawRetryAfter = json?.parameters?.retry_after ?? res.headers?.get?.('retry-after');
+      const retryAfterNum = Number(rawRetryAfter);
+      if (Number.isFinite(retryAfterNum) && retryAfterNum > 0) {
+        err.retryAfterSec = Math.ceil(retryAfterNum);
+      }
       throw err;
     }
     return json.result;
@@ -285,6 +307,13 @@ export class TelegramBroadcaster {
         qualifiedCandles: Number(round.qualifiedCandles || 0),
         nowSec,
       }));
+      results.push(await this.sendPersonalRoundSettleReminders({
+        roundId: rId,
+        round,
+        passed: status === 2,
+        qualifiedCandles: Number(round.qualifiedCandles || 0),
+        nowSec,
+      }));
     }
 
     return results;
@@ -295,7 +324,7 @@ export class TelegramBroadcaster {
     const targets = await this._collectGlobalTargets();
     const targetUsd = formatUsdFromE8(round?.targetPriceUsdE8);
     const poolStr = formatWholeNumber(round?.rewardBudgetRaw || '700000000000000000');
-    const photoUrl = this.publicOrigin ? `${this.publicOrigin}/c/img/round/${roundId}.png` : null;
+    const photoUrl = this.apiOrigin ? `${this.apiOrigin}/c/img/round/${roundId}.png` : null;
 
     return this._broadcastToTargets({
       eventKey: `open:${roundId}`,
@@ -365,7 +394,7 @@ export class TelegramBroadcaster {
             `战队大额开箱捷报 · ${t.name}`,
             `成员 ${maskWallet(order.walletAddress)} 刚在宝箱商城购入【${chestLabel}】：`,
             `实付 ${gramText} GRAM → 本金已确认入账 ${a9Text} A9（固定报价 1 GRAM = 2,002 A9）`,
-            `链上成交可查，本队同步享有 12% 邀友奖励归因。`,
+            `链上成交可查，本队同步享有 6% 邀友奖励归因。`,
           ].join('\n'),
           buttonText: '前往宝箱商城查看档位',
           buttonUrl: url,
@@ -379,7 +408,7 @@ export class TelegramBroadcaster {
     const targets = await this._collectGlobalTargets();
     const hoursLeft = Math.max(1, Math.ceil(Number(secondsLeft || 0) / 3600));
     const targetUsd = formatUsdFromE8(round?.targetPriceUsdE8);
-    const photoUrl = this.publicOrigin ? `${this.publicOrigin}/c/img/round/${roundId}.png` : null;
+    const photoUrl = this.apiOrigin ? `${this.apiOrigin}/c/img/round/${roundId}.png` : null;
     const progressLine = qualifiedCandles !== null
       ? `当前已达标 ${qualifiedCandles}/24 时段，还差 ${Math.max(0, 16 - qualifiedCandles)} 根小时线过关，否则按合约执行 100% 销毁 BURN。`
       : `距本轮 24H 观察期结束不足 ${hoursLeft} 小时（目标底价 ${targetUsd}），满 16/24 时段通关派奖，未达标将链上执行销毁 BURN。`;
@@ -415,8 +444,8 @@ export class TelegramBroadcaster {
   async broadcastRoundSettle({ roundId, round, passed, qualifiedCandles = 0, groupStatsResolver = null, nowSec = Math.floor(Date.now() / 1000) }) {
     const targets = await this._collectGlobalTargets();
     const poolStr = formatWholeNumber(round?.rewardBudgetRaw || '0');
-    const photoUrl = this.publicOrigin
-      ? `${this.publicOrigin}/c/img/${passed ? 'round' : 'burn'}/${roundId}.png`
+    const photoUrl = this.apiOrigin
+      ? `${this.apiOrigin}/c/img/${passed ? 'round' : 'burn'}/${roundId}.png`
       : null;
 
     return this._broadcastToTargets({
@@ -463,7 +492,7 @@ export class TelegramBroadcaster {
     });
   }
 
-  /** ⑤ 12% 宝箱商城返佣入账私聊群主/邀请人报喜 */
+  /** ⑤ 6% 宝箱商城返佣入账私聊群主/邀请人报喜 */
   async notifyReferralCommission({ order, credit, nowSec = Math.floor(Date.now() / 1000) }) {
     if (!this._canSend() || !credit?.referrer || !credit?.orderId) {
       return { skipped: true, reason: 'DISABLED', sentCount: 0 };
@@ -495,7 +524,7 @@ export class TelegramBroadcaster {
       buildPayload: async () => ({
         text: [
           `返佣到账提醒：+ ${commText} A9`,
-          `你的战队成员/直邀好友刚在宝箱商城完成【${itemText}】，你的 12% 永久返佣已实时入账，随时可提现！`,
+          `你的战队成员/直邀好友刚在宝箱商城完成【${itemText}】，你的 6% 永久返佣已实时入账，随时可提现！`,
         ].join('\n'),
         buttonText: '打开金库查看返佣余额',
         buttonUrl: url,
@@ -522,6 +551,8 @@ export class TelegramBroadcaster {
 
     let sentCount = 0;
     let failedPermanentCount = 0;
+    let rateLimited = false;
+    let retryAfterSec = null;
     for (let i = 0; i < pending.length; i += 1) {
       const rec = pending[i];
       if (!rec?.tgUserId || !/^\d{1,20}$/.test(String(rec.tgUserId))) continue;
@@ -543,6 +574,12 @@ export class TelegramBroadcaster {
         sentCount += 1;
       } catch (e) {
         const st = Number(e?.status || 0);
+        if (st === 429) {
+          rateLimited = true;
+          retryAfterSec = e?.retryAfterSec || null;
+          this.logger?.error?.(`[tg-broadcaster] warmup reminder r${rId} rate-limited (retry_after=${retryAfterSec ?? 'unknown'})`);
+          break;
+        }
         if (st === 400 || st === 403) {
           failedPermanentCount += 1;
           if (typeof this.socialStore.markWarmupReminded === 'function') {
@@ -558,8 +595,10 @@ export class TelegramBroadcaster {
       roundId: rId,
       sentCount,
       failedPermanentCount,
+      rateLimited,
+      retryAfterSec,
       attempted: pending.length,
-      hasMore: pending.length >= limit,
+      hasMore: pending.length >= limit || rateLimited,
     };
   }
 
@@ -585,6 +624,8 @@ export class TelegramBroadcaster {
     let sentCount = 0;
     let skippedDuplicateCount = 0;
     let failedPermanentCount = 0;
+    let rateLimited = false;
+    let retryAfterSec = null;
 
     for (let i = 0; i < candidates.length; i += 1) {
       const item = candidates[i];
@@ -618,6 +659,15 @@ export class TelegramBroadcaster {
         sentCount += 1;
       } catch (e) {
         const st = Number(e?.status || 0);
+        if (st === 429) {
+          rateLimited = true;
+          retryAfterSec = e?.retryAfterSec || null;
+          if (typeof this.dedupLog.release === 'function') {
+            await this.dedupLog.release(eventKey).catch(() => {});
+          }
+          this.logger?.error?.(`[tg-broadcaster] vault expiry reminder rate-limited (retry_after=${retryAfterSec ?? 'unknown'})`);
+          break;
+        }
         if (st === 400 || st === 403) {
           failedPermanentCount += 1;
         }
@@ -631,7 +681,171 @@ export class TelegramBroadcaster {
       sentCount,
       skippedDuplicateCount,
       failedPermanentCount,
+      rateLimited,
+      retryAfterSec,
       attempted: candidates.length,
+    };
+  }
+
+  /** Bot Webhook 命令即时回复（不受群主动广播总开关 A9_BROADCAST_ENABLED=1 阻断） */
+  async sendBotReply({ chatId, text, photoUrl = null, buttonText = null, buttonUrl = null, replyToMessageId = null }) {
+    if (!this.botToken || typeof this.fetchImpl !== 'function') {
+      return { sent: false, reason: 'BOT_NOT_CONFIGURED' };
+    }
+    const cid = String(chatId || '').trim();
+    const bodyText = String(text || '').trim();
+    if (!cid || !bodyText) {
+      return { sent: false, reason: 'BAD_REPLY_PAYLOAD' };
+    }
+    try {
+      await this._sendTelegram({
+        chatId: cid,
+        text: bodyText,
+        photoUrl,
+        buttonText,
+        buttonUrl,
+        replyToMessageId,
+      });
+      return { sent: true };
+    } catch (e) {
+      this.logger?.error?.(`[tg-broadcaster] sendBotReply -> ${cid} failed:`, e?.message || e);
+      return {
+        sent: false,
+        reason: 'SEND_FAILED',
+        status: Number(e?.status || 0),
+        error: e?.message || 'SEND_FAILED',
+      };
+    }
+  }
+
+  /** ⑧ 轮次结算个人私聊通知队列（按 user_notification_prefs 分批推送，429 立即中止续跑，400/403 自动退订） */
+  async sendPersonalRoundSettleReminders({
+    roundId,
+    round = null,
+    passed,
+    qualifiedCandles = 0,
+    limit = 25,
+    nowSec = Math.floor(Date.now() / 1000),
+  } = {}) {
+    if (!this._canSend()) return { skipped: true, reason: 'DISABLED', sentCount: 0 };
+    if (!this.socialStore) return { skipped: true, reason: 'NO_SOCIAL_STORE', sentCount: 0 };
+
+    const rId = Math.floor(Number(roundId));
+    if (!Number.isInteger(rId) || rId < 1) {
+      return { skipped: true, reason: 'INVALID_ROUND_ID', sentCount: 0 };
+    }
+
+    const lim = Math.max(1, Math.min(200, Math.floor(Number(limit) || 25)));
+    let pendingUids = [];
+    if (typeof this.socialStore.listPendingSettlementPushUsers === 'function') {
+      pendingUids = await this.socialStore.listPendingSettlementPushUsers(rId, { limit: lim });
+    } else if (typeof this.socialStore.listSettlementPushSubscribers === 'function') {
+      const allSubs = await this.socialStore.listSettlementPushSubscribers({ limit: 10000 });
+      for (const uid of allSubs) {
+        if (pendingUids.length >= lim) break;
+        const already = await this.dedupLog.has(`settle_dm:${rId}:${uid}`);
+        if (!already) pendingUids.push(String(uid));
+      }
+    } else {
+      return { skipped: true, reason: 'NO_SUBSCRIBER_QUERY', sentCount: 0 };
+    }
+
+    if (!pendingUids.length) {
+      return { skipped: true, reason: 'NO_PENDING_SUBSCRIBERS', sentCount: 0 };
+    }
+
+    const poolStr = formatWholeNumber(round?.rewardBudgetRaw || '0');
+    const isPass = Boolean(passed);
+    const url = buildTeamDeepLink({
+      botHandle: this.botHandle,
+      fallbackParam: isPass ? 'claim' : `burn_${rId}`,
+    });
+    const text = (isPass
+      ? [
+          `第 #${rId} 轮结算通知：通关派奖（${qualifiedCandles}/24 时段达标）`,
+          `本轮奖励池 ${poolStr} A9 已按权重结算开放领取，24H 预言擂台奖励已同步结算。`,
+          `可在小程序「我的 -> 系统设置」随时开关本提醒。`,
+        ]
+      : [
+          `第 #${rId} 轮结算通知：未达标 · 销毁 BURN（${qualifiedCandles}/24 时段）`,
+          `未满 16/24 达标线，合约已执行 100% 质押本金与半数奖池永久销毁 BURN，24H 预言擂台已同步结算。`,
+          `可在小程序「我的 -> 系统设置」随时开关本提醒。`,
+        ]
+    ).join('\n');
+    const buttonText = isPass ? '查看通关结算与领取奖励' : '查看销毁战报与预言金库';
+
+    let sentCount = 0;
+    let skippedDuplicateCount = 0;
+    let failedPermanentCount = 0;
+    let autoDisabledCount = 0;
+    let failedTransientCount = 0;
+    let rateLimited = false;
+    let retryAfterSec = null;
+
+    for (let i = 0; i < pendingUids.length; i += 1) {
+      const uid = String(pendingUids[i] || '').trim();
+      if (!/^\d{1,20}$/.test(uid)) continue;
+      const eventKey = `settle_dm:${rId}:${uid}`;
+      const claimed = await this.dedupLog.tryClaim(eventKey, 'ROUND_SETTLE_DM', nowSec);
+      if (!claimed) {
+        skippedDuplicateCount += 1;
+        continue;
+      }
+
+      if (sentCount > 0 && this.delayMs > 0) await sleep(this.delayMs);
+      try {
+        await this._sendTelegram({
+          chatId: uid,
+          text,
+          buttonText,
+          buttonUrl: url,
+        });
+        await this.dedupLog.markSent(eventKey, 1);
+        sentCount += 1;
+      } catch (e) {
+        const st = Number(e?.status || 0);
+        if (st === 429) {
+          rateLimited = true;
+          retryAfterSec = e?.retryAfterSec || null;
+          if (typeof this.dedupLog.release === 'function') {
+            await this.dedupLog.release(eventKey).catch(() => {});
+          }
+          this.logger?.error?.(`[tg-broadcaster] settle dm r${rId} rate-limited (retry_after=${retryAfterSec ?? 'unknown'})`);
+          break;
+        }
+        if (st === 400 || st === 403) {
+          failedPermanentCount += 1;
+          if (typeof this.socialStore.disableSettlementPush === 'function') {
+            try {
+              await this.socialStore.disableSettlementPush(uid, nowSec);
+              autoDisabledCount += 1;
+            } catch (disErr) {
+              this.logger?.error?.(`[tg-broadcaster] disableSettlementPush(${uid}) failed:`, disErr?.message || disErr);
+            }
+          }
+        } else {
+          failedTransientCount += 1;
+          if (typeof this.dedupLog.release === 'function') {
+            await this.dedupLog.release(eventKey).catch(() => {});
+          }
+        }
+        this.logger?.error?.(`[tg-broadcaster] settle dm r${rId} -> ${uid} failed:`, e?.message || e);
+      }
+    }
+
+    return {
+      skipped: false,
+      eventType: 'ROUND_SETTLE_DM',
+      roundId: rId,
+      sentCount,
+      skippedDuplicateCount,
+      failedPermanentCount,
+      autoDisabledCount,
+      failedTransientCount,
+      rateLimited,
+      retryAfterSec,
+      attempted: pendingUids.length,
+      hasMore: pendingUids.length >= lim || rateLimited,
     };
   }
 }

@@ -461,3 +461,15 @@ CREATE INDEX IF NOT EXISTS idx_warmup_res_remind
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_chests_warmup_round
   ON user_chests(owner_user_id, slot_index)
   WHERE source = 'WARMUP_ROUND';
+
+-- ---------------------------------------------------------------------------
+-- Wave 3: Persistent per-user Telegram DM notification preferences (migration 0013)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_notification_prefs (
+  tg_user_id TEXT PRIMARY KEY,
+  settlement_push INTEGER NOT NULL DEFAULT 1,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_notification_prefs_settlement
+  ON user_notification_prefs(settlement_push, updated_at DESC);

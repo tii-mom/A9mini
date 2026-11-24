@@ -6,7 +6,7 @@ import { renderNintendoGateIcon } from '../paper-art.js';
 
 import { store } from '../store.js';
 import { config } from '../config.js';
-import { A9Haptic } from '../tma.js';
+import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { showToast, openModal, closeModal, formatNum, copyText, escapeHtml } from '../components.js';
 import { icon } from '../icons.js';
@@ -14,8 +14,17 @@ import { L, LANGUAGES } from '../i18n.js';
 import { openChoiceSheet } from '../components.js';
 import { tonConnect } from '../tonconnect.js';
 import { renderCurrentRoute, getTheme, toggleTheme } from '../app.js';
-import { PROTOCOL_SPECS, rawToA9 } from '../data.js';
+import { PROTOCOL_SPECS, rawToA9, fetchNotificationPrefs, updateNotificationPrefs } from '../data.js';
 import { buildTonviewerUrl, shortAddress } from '../tx-ux.js';
+
+let liveNotifCache = { fetched: false, settlementPush: null, error: null, saving: false };
+let settingsRenderSeq = 0;
+
+/** 测试辅助：重置设置页通知偏好内存缓存，绝不接触持久化存储 */
+export function resetLiveNotificationCacheForTest() {
+  liveNotifCache = { fetched: false, settlementPush: null, error: null, saving: false };
+  settingsRenderSeq = 0;
+}
 
 const RISK_STATES = [
   { id: '01', code: 'ERR_0x1301_TON_REJECTED', cat: 'wallet', titleZh: '钱包未连接 / 签名主动拒绝', titleEn: 'Wallet Not Connected / Signature Rejected', descZh: '用户在 TON Connect 2.0 握手时关闭窗口或拒绝签名。', descEn: 'User closed TON Connect 2.0 modal or rejected transaction signing.', actionZh: '快速重新连接钱包', actionEn: 'Reconnect Wallet' },
@@ -47,6 +56,27 @@ export function renderSettingsPage(root) {
   const curLangObj = LANGUAGES.find(l => l.code === settings.language) || LANGUAGES[0];
   const isDark = getTheme() === 'dark';
   const soundOn = A9Audio.isEnabled();
+  const isDemo = config.isDemo;
+  const hasInitData = !isDemo && Boolean(A9TMA.getRawInitData());
+  const seq = ++settingsRenderSeq;
+
+  const liveSettleActive = Boolean(hasInitData && liveNotifCache.fetched && liveNotifCache.settlementPush === true);
+  const hourlySubText = isDemo
+    ? L('观察期每小时定盘达标实时提醒', 'Alert on each hourly TWAP check')
+    : L('由战队 TG 群自动播报（个人私聊待开放）', 'Auto-posted in Squad TG group (DM coming soon)');
+  const settleSubText = isDemo
+    ? L('轮次结算结果与金库可领通知', 'Notify when rounds settle or rewards unlock')
+    : (!hasInitData
+        ? L('请在 Telegram 小程序内打开以管理结算私聊提醒', 'Open in Telegram Mini App to manage settlement DM alerts')
+        : (liveNotifCache.saving
+            ? L('正在保存设置…', 'Saving preference…')
+            : (liveNotifCache.error
+                ? L('提醒状态同步失败，请稍后重试', 'Failed to sync alert preference')
+                : (!liveNotifCache.fetched
+                    ? L('正在同步服务端提醒状态…', 'Syncing alert preference…')
+                    : (liveSettleActive
+                        ? L('已开启 Telegram 私聊结算与领取提醒', 'Telegram DM settlement & claim alerts ON')
+                        : L('已关闭 Telegram 私聊结算与领取提醒', 'Telegram DM settlement & claim alerts OFF'))))));
 
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
@@ -130,20 +160,26 @@ export function renderSettingsPage(root) {
             <span class="icon-badge emerald">${icon('clock', 16)}</span>
             <div>
               <div class="settings-row-title">${L('整点 1H 时段收盘推送', 'Hourly Slot Close Push')}</div>
-              <div class="settings-row-sub">${L('观察期每小时定盘达标实时提醒', 'Alert on each hourly TWAP check')}</div>
+              <div class="settings-row-sub">${hourlySubText}</div>
             </div>
           </div>
-          <div class="a9-switch ${settings.hourlyCandlePush ? 'on' : ''}" data-pref="hourlyCandlePush" role="switch" aria-checked="${Boolean(settings.hourlyCandlePush)}" tabindex="0"></div>
+          ${isDemo
+            ? `<div class="a9-switch ${settings.hourlyCandlePush ? 'on' : ''}" id="set-hourly-push-switch" data-pref="hourlyCandlePush" role="switch" aria-checked="${Boolean(settings.hourlyCandlePush)}" tabindex="0"></div>`
+            : `<div class="a9-switch disabled" id="set-hourly-push-switch" role="switch" aria-checked="false" aria-disabled="true"></div>`}
         </div>
         <div class="settings-row">
           <div class="settings-row-left">
             <span class="icon-badge amber">${icon('bell', 16)}</span>
             <div>
               <div class="settings-row-title">${L('轮次结算与领取提醒', 'Settlement & Claim Alerts')}</div>
-              <div class="settings-row-sub">${L('轮次结算结果与金库可领通知', 'Notify when rounds settle or rewards unlock')}</div>
+              <div class="settings-row-sub" id="set-settlement-push-sub">${settleSubText}</div>
             </div>
           </div>
-          <div class="a9-switch ${settings.settlementPush ? 'on' : ''}" data-pref="settlementPush" role="switch" aria-checked="${Boolean(settings.settlementPush)}" tabindex="0"></div>
+          ${isDemo
+            ? `<div class="a9-switch ${settings.settlementPush ? 'on' : ''}" id="set-settlement-push-switch" data-pref="settlementPush" role="switch" aria-checked="${Boolean(settings.settlementPush)}" tabindex="0"></div>`
+            : (!hasInitData
+                ? `<div class="a9-switch disabled" id="set-settlement-push-switch" role="switch" aria-checked="false" aria-disabled="true"></div>`
+                : `<div class="a9-switch ${liveSettleActive ? 'on' : ''}${liveNotifCache.saving ? ' disabled' : ''}" id="set-settlement-push-switch" role="switch" aria-checked="${liveSettleActive}" aria-disabled="${liveNotifCache.saving ? 'true' : 'false'}" tabindex="0"></div>`)}
         </div>
       </div>
 
@@ -170,24 +206,31 @@ export function renderSettingsPage(root) {
     };
   });
 
-  root.querySelector('#set-wallet-row').onclick = () => tonConnect.openConnectModal(renderCurrentRoute);
-  root.querySelector('#set-tg-row').onclick = () => {
-    if (!config.isDemo) { showToast(L('请在 Telegram 内核验身份', 'Verify identity in Telegram')); return; }
-    A9Haptic.success();
-    store.update(s => { s.user.tgBound = !s.user.tgBound; });
-    showToast(store.state.user.tgBound ? L('Telegram 已绑定', 'Telegram bound') : L('已模拟解绑 Telegram', 'Telegram unbound'));
-    renderSettingsPage(root);
-  };
-  root.querySelector('#set-lang-row').onclick = () => openChoiceSheet({
-    title: L('选择界面语言', 'Select Language'),
-    selected: settings.language,
-    options: LANGUAGES.map(l => ({ value: l.code, label: l.label, sub: l.sub })),
-    onSelect: (code) => {
-      store.update(s => { s.settings.language = code; });
-      showToast(`${L('已切换语言', 'Language')}: ${code}`);
-      renderCurrentRoute();
-    }
-  });
+  const walletRow = root.querySelector('#set-wallet-row');
+  if (walletRow) walletRow.onclick = () => tonConnect.openConnectModal(renderCurrentRoute);
+  const tgRow = root.querySelector('#set-tg-row');
+  if (tgRow) {
+    tgRow.onclick = () => {
+      if (!config.isDemo) { showToast(L('请在 Telegram 内核验身份', 'Verify identity in Telegram')); return; }
+      A9Haptic.success();
+      store.update(s => { s.user.tgBound = !s.user.tgBound; });
+      showToast(store.state.user.tgBound ? L('Telegram 已绑定', 'Telegram bound') : L('已模拟解绑 Telegram', 'Telegram unbound'));
+      renderSettingsPage(root);
+    };
+  }
+  const langRow = root.querySelector('#set-lang-row');
+  if (langRow) {
+    langRow.onclick = () => openChoiceSheet({
+      title: L('选择界面语言', 'Select Language'),
+      selected: settings.language,
+      options: LANGUAGES.map(l => ({ value: l.code, label: l.label, sub: l.sub })),
+      onSelect: (code) => {
+        store.update(s => { s.settings.language = code; });
+        showToast(`${L('已切换语言', 'Language')}: ${code}`);
+        renderCurrentRoute();
+      }
+    });
+  }
   const soundSw = root.querySelector('#set-sound-switch');
   if (soundSw) {
     const toggleSound = () => {
@@ -199,11 +242,90 @@ export function renderSettingsPage(root) {
     soundSw.onclick = toggleSound;
     soundSw.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSound(); } };
   }
-  root.querySelectorAll('[data-pref]').forEach(el => {
-    const togglePref = () => { A9Haptic.tick(); const k = el.dataset.pref; store.update(s => { s.settings[k] = !s.settings[k]; }); renderSettingsPage(root); };
-    el.onclick = togglePref;
-    el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePref(); } };
-  });
+  if (isDemo) {
+    root.querySelectorAll('[data-pref]').forEach(el => {
+      const togglePref = () => { A9Haptic.tick(); const k = el.dataset.pref; store.update(s => { s.settings[k] = !s.settings[k]; }); renderSettingsPage(root); };
+      el.onclick = togglePref;
+      el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePref(); } };
+    });
+  } else if (hasInitData) {
+    const settleSw = root.querySelector('#set-settlement-push-switch');
+    const settleSub = root.querySelector('#set-settlement-push-sub');
+    const applyLiveUi = () => {
+      if (seq !== settingsRenderSeq || root.isConnected === false || !settleSw || settleSw.isConnected === false) return;
+      const curOn = Boolean(liveNotifCache.fetched && liveNotifCache.settlementPush === true);
+      if (settleSw.classList) {
+        settleSw.classList.toggle('on', curOn);
+        settleSw.classList.toggle('disabled', Boolean(liveNotifCache.saving));
+      }
+      settleSw.setAttribute?.('aria-checked', String(curOn));
+      settleSw.setAttribute?.('aria-disabled', String(Boolean(liveNotifCache.saving)));
+      if (settleSub) {
+        if (liveNotifCache.saving) {
+          settleSub.textContent = L('正在保存设置…', 'Saving preference…');
+        } else if (liveNotifCache.error && liveNotifCache.settlementPush === null) {
+          settleSub.textContent = L('提醒状态同步失败，请稍后重试', 'Failed to sync alert preference');
+        } else if (!liveNotifCache.fetched) {
+          settleSub.textContent = L('正在同步服务端提醒状态…', 'Syncing alert preference…');
+        } else {
+          settleSub.textContent = curOn
+            ? L('已开启 Telegram 私聊结算与领取提醒', 'Telegram DM settlement & claim alerts ON')
+            : L('已关闭 Telegram 私聊结算与领取提醒', 'Telegram DM settlement & claim alerts OFF');
+        }
+      }
+    };
+
+    const syncLivePrefs = () => {
+      fetchNotificationPrefs()
+        .then((res) => {
+          const on = Boolean(res?.settlementPush);
+          liveNotifCache = { fetched: true, settlementPush: on, error: null, saving: false };
+          store.update(s => { s.settings.settlementPush = on; });
+          applyLiveUi();
+        })
+        .catch(() => {
+          liveNotifCache = { fetched: true, settlementPush: null, error: 'SYNC_FAILED', saving: false };
+          applyLiveUi();
+        });
+    };
+
+    if (!liveNotifCache.fetched && !liveNotifCache.saving) {
+      syncLivePrefs();
+    }
+
+    if (settleSw) {
+      const toggleLiveSettle = async () => {
+        if (liveNotifCache.saving) return;
+        if (!liveNotifCache.fetched || (liveNotifCache.error && liveNotifCache.settlementPush === null)) {
+          liveNotifCache = { fetched: false, settlementPush: null, error: null, saving: false };
+          applyLiveUi();
+          syncLivePrefs();
+          return;
+        }
+        A9Haptic.tick();
+        const prev = Boolean(liveNotifCache.settlementPush);
+        const next = !prev;
+        liveNotifCache = { fetched: true, settlementPush: next, error: null, saving: true };
+        applyLiveUi();
+        try {
+          const res = await updateNotificationPrefs({ settlementPush: next });
+          const saved = Boolean(res?.settlementPush);
+          liveNotifCache = { fetched: true, settlementPush: saved, error: null, saving: false };
+          store.update(s => { s.settings.settlementPush = saved; });
+          applyLiveUi();
+          showToast(saved
+            ? L('已开启轮次结算私聊提醒', 'Settlement DM alerts enabled')
+            : L('已关闭轮次结算私聊提醒', 'Settlement DM alerts disabled'));
+        } catch (e) {
+          liveNotifCache = { fetched: true, settlementPush: prev, error: 'SAVE_FAILED', saving: false };
+          applyLiveUi();
+          showToast(e?.message || L('提醒设置保存失败，请重试', 'Failed to save alert preference'));
+        }
+      };
+      settleSw.onclick = toggleLiveSettle;
+      settleSw.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleLiveSettle(); } };
+    }
+  }
   const resetBtn = root.querySelector('#btn-reset-demo');
   if (resetBtn) resetBtn.onclick = () => { A9Haptic.warning(); store.reset(); showToast(L('已恢复初始演示数据', 'Demo reset')); renderCurrentRoute(); };
 }

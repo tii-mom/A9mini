@@ -51,7 +51,10 @@ function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}
 const CHAIN_CACHE_TTL_SEC = 15;
 const CHAIN_CACHE_STALE_MAX_SEC = 60;
 
-function routeNeedsChainState(pathname) {
+function routeNeedsChainState(pathname, request = null) {
+  if (pathname === '/api/telegram/webhook') {
+    return Boolean(String(request?.headers?.get?.('x-telegram-bot-api-secret-token') || '').trim());
+  }
   return (
     pathname === '/api/config' ||
     pathname === '/api/rounds' ||
@@ -203,6 +206,7 @@ function buildBroadcaster(env, { socialStore, identityStore, hasD1 }) {
     botToken: env.A9_BOT_TOKEN || '',
     botHandle: env.A9_TG_BOT_HANDLE || 'A9_TonBot',
     publicOrigin: env.A9_PUBLIC_ORIGIN || '',
+    apiOrigin: env.A9_API_ORIGIN || env.A9_PUBLIC_ORIGIN || '',
     officialChannelId: env.A9_OFFICIAL_CHANNEL_ID || '',
     whaleMinGram: env.A9_BROADCAST_WHALE_MIN_GRAM || '50',
     socialStore,
@@ -281,6 +285,8 @@ const RATE_LIMIT_MAX_BUCKETS = 2000;
 const RATE_LIMIT_RULES = Object.freeze([
   { method: 'POST', prefix: '/api/auth/ton-proof/payload', limit: 20, windowSec: 60 },
   { method: 'POST', prefix: '/api/auth/ton-proof/verify', limit: 20, windowSec: 60 },
+  { method: 'POST', prefix: '/api/me/notifications', limit: 30, windowSec: 60 },
+  { method: 'POST', prefix: '/api/telegram/webhook', limit: 240, windowSec: 60 },
   { method: 'POST', prefix: '/api/warmup/register', limit: 30, windowSec: 60 },
   { method: 'POST', prefix: '/api/warmup/cancel', limit: 30, windowSec: 60 },
   { method: 'POST', prefix: '/api/prediction/bet', limit: 30, windowSec: 60 },
@@ -399,7 +405,7 @@ export default {
     let ps = { dataAvailable: false, currentRoundId: null, successCount: null, poolRemainingRaw: null, carryRaw: null, teamPoolRemainingRaw: null, teamCarryRaw: null };
     let rounds = [];
 
-    if (tc && rcAddr && routeNeedsChainState(url.pathname)) {
+    if (tc && rcAddr && routeNeedsChainState(url.pathname, request)) {
       const cacheKey = `${env.TONCENTER_API_BASE || ''}:${rcAddr}`;
       const cached = memChainCacheByTarget.get(cacheKey) || null;
       const memFresh = cached?.ps && (nowSec - cached.fetchedAt) <= CHAIN_CACHE_TTL_SEC;
@@ -582,6 +588,7 @@ export default {
       identityStore,
       publicKeyResolver: tc ? (addr) => tc.fetchWalletPublicKey(addr) : null,
       walletStateResolver: tc ? (addr) => tc.fetchWalletAccountState(addr) : null,
+      broadcaster,
       healthChecker,
       runnerHeartbeatReader: readRunnerHeartbeats,
     });

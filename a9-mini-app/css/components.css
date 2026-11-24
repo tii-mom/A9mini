@@ -1328,6 +1328,13 @@ img {
   transform: translateX(20px);
 }
 
+.a9-switch.disabled,
+.a9-switch[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .risk-check {
   display: flex;
   align-items: flex-start;

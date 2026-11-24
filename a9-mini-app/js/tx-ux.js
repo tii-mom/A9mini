@@ -175,14 +175,14 @@ export function openTxRiskConfirmModal({
   });
 }
 
-class PendingTxManager {
+export class PendingTxManager {
   constructor() {
-    this._tx = this._readFromSession();
+    this._tx = this._readFromSession({ degradeInFlight: true });
     this._listeners = new Set();
     this._pollSeq = 0;
   }
 
-  _readFromSession() {
+  _readFromSession({ degradeInFlight = false } = {}) {
     const ss = getSafeSessionStorage();
     if (!ss) return null;
     try {
@@ -193,6 +193,13 @@ class PendingTxManager {
       if (Date.now() - Number(parsed.startedAt || 0) > PENDING_TX_MAX_AGE_MS) {
         ss.removeItem(SESSION_PENDING_TX_KEY);
         return null;
+      }
+      if (degradeInFlight && (parsed.status === 'signed' || parsed.status === 'confirming')) {
+        parsed.status = 'timeout';
+        parsed.detail = parsed.detail || '页面已重新加载，请前往 Tonviewer 核验该笔链上交易状态。';
+        parsed.detailEn = parsed.detailEn || 'Page reloaded; please verify this transaction on Tonviewer.';
+        parsed.updatedAt = Date.now();
+        ss.setItem(SESSION_PENDING_TX_KEY, JSON.stringify(parsed));
       }
       return parsed;
     } catch (_) {
@@ -395,8 +402,8 @@ export function renderPendingTxBannerHtml(tx, network = 'mainnet') {
       chipCls: 'chip-amber',
       chipZh: '确认超时提示',
       chipEn: 'VERIFY ON CHAIN',
-      descZh: '区块确认耗时长于预期，请前往 Tonviewer 核验最终结果。',
-      descEn: 'Taking longer than usual; please verify finality on Tonviewer.',
+      descZh: tx.detail || '区块确认耗时长于预期，请前往 Tonviewer 核验最终结果。',
+      descEn: tx.detailEn || 'Taking longer than usual; please verify finality on Tonviewer.',
       border: 'var(--gold-border)',
       ic: 'alert',
       icCls: 'text-gold',

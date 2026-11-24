@@ -896,6 +896,95 @@ export class D1SocialStore {
       .run();
     return Number(res?.meta?.changes ?? res?.changes ?? 0) === 1;
   }
+
+  async getNotificationPrefs(tgUserId) {
+    const uid = String(tgUserId || '').trim();
+    if (!uid) throw new SocialError('BAD_REQUEST', 'tgUserId required');
+    const row = await this.db
+      .prepare('SELECT tg_user_id, settlement_push, updated_at FROM user_notification_prefs WHERE tg_user_id = ?')
+      .bind(uid)
+      .first();
+    return {
+      tgUserId: uid,
+      settlementPush: row ? Number(row.settlement_push) === 1 : true,
+      hourlyCandlePush: false,
+      subscribedExplicitly: Boolean(row),
+      updatedAt: row ? Number(row.updated_at) : null,
+    };
+  }
+
+  async setNotificationPrefs(tgUserId, { settlementPush }, nowSec = Math.floor(Date.now() / 1000)) {
+    const uid = String(tgUserId || '').trim();
+    if (!uid) throw new SocialError('BAD_REQUEST', 'tgUserId required');
+    const next = Boolean(settlementPush);
+    await this.db
+      .prepare(
+        `INSERT INTO user_notification_prefs (tg_user_id, settlement_push, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(tg_user_id) DO UPDATE SET
+           settlement_push = excluded.settlement_push,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(uid, next ? 1 : 0, Number(nowSec))
+      .run();
+    return {
+      tgUserId: uid,
+      settlementPush: next,
+      hourlyCandlePush: false,
+      subscribedExplicitly: true,
+      updatedAt: Number(nowSec),
+    };
+  }
+
+  async ensureDefaultNotificationPrefs(tgUserId, nowSec = Math.floor(Date.now() / 1000)) {
+    const uid = String(tgUserId || '').trim();
+    if (!uid) throw new SocialError('BAD_REQUEST', 'tgUserId required');
+    await this.db
+      .prepare('INSERT OR IGNORE INTO user_notification_prefs (tg_user_id, settlement_push, updated_at) VALUES (?, 1, ?)')
+      .bind(uid, Number(nowSec))
+      .run();
+    return this.getNotificationPrefs(uid);
+  }
+
+  async disableSettlementPush(tgUserId, nowSec = Math.floor(Date.now() / 1000)) {
+    return this.setNotificationPrefs(tgUserId, { settlementPush: false }, nowSec);
+  }
+
+  async listSettlementPushSubscribers({ limit = 25 } = {}) {
+    const lim = Math.max(1, Math.min(500, Math.floor(Number(limit) || 25)));
+    const res = await this.db
+      .prepare(
+        `SELECT tg_user_id FROM user_notification_prefs
+         WHERE settlement_push = 1
+         ORDER BY updated_at ASC, tg_user_id ASC
+         LIMIT ?`,
+      )
+      .bind(lim)
+      .all();
+    return (res?.results || []).map((r) => String(r.tg_user_id));
+  }
+
+  async listPendingSettlementPushUsers(roundId, { limit = 25 } = {}) {
+    const rId = Math.floor(Number(roundId));
+    if (!Number.isInteger(rId) || rId < 1) return [];
+    const lim = Math.max(1, Math.min(500, Math.floor(Number(limit) || 25)));
+    const prefix = `settle_dm:${rId}:`;
+    const res = await this.db
+      .prepare(
+        `SELECT p.tg_user_id
+         FROM user_notification_prefs p
+         WHERE p.settlement_push = 1
+           AND NOT EXISTS (
+             SELECT 1 FROM tg_broadcast_events e
+             WHERE e.event_key = ? || p.tg_user_id
+           )
+         ORDER BY p.updated_at ASC, p.tg_user_id ASC
+         LIMIT ?`,
+      )
+      .bind(prefix, lim)
+      .all();
+    return (res?.results || []).map((r) => String(r.tg_user_id));
+  }
 }
 
 // ---------------------------------------------------------------------------

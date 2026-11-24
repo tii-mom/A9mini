@@ -930,3 +930,285 @@ test('PROTOCOL_SPECS single source of truth & Live renderRiskAudit invariants ch
   assert.equal(out.vaultExact, true);
 });
 
+test('PendingTxManager degrades in-flight signed/confirming session tx to timeout on cold reload', () => {
+  const out = runScenario(
+    {
+      href: 'https://app.a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat', liveFundsEnabled: false },
+    },
+    `
+      const { PendingTxManager, renderPendingTxBannerHtml, SESSION_PENDING_TX_KEY } = await import(JS_URL + '/tx-ux.js');
+      const addr = 'UQBqTR8EYSz-uNKIBODC-3z0vOFlqoBGzLJb38wJOvCuiwbX';
+      const now = Date.now();
+
+      sessionStorage.setItem(SESSION_PENDING_TX_KEY, JSON.stringify({
+        id: 'stake_reload_1',
+        kind: 'stake',
+        title: '质押测试',
+        titleEn: 'Stake Test',
+        explorerAddress: addr,
+        status: 'signed',
+        attempt: 0,
+        maxAttempts: 12,
+        startedAt: now - 5000,
+        updatedAt: now - 5000,
+      }));
+      const mgr1 = new PendingTxManager();
+      const act1 = mgr1.getActive();
+      const locked1 = mgr1.isLocked('stake');
+      const stored1 = JSON.parse(sessionStorage.getItem(SESSION_PENDING_TX_KEY) || '{}');
+      const html1 = renderPendingTxBannerHtml(act1, 'mainnet');
+
+      sessionStorage.setItem(SESSION_PENDING_TX_KEY, JSON.stringify({
+        id: 'claim_reload_2',
+        kind: 'claim',
+        title: '领奖测试',
+        titleEn: 'Claim Test',
+        explorerAddress: addr,
+        status: 'confirming',
+        attempt: 4,
+        maxAttempts: 12,
+        startedAt: now - 8000,
+        updatedAt: now - 1000,
+      }));
+      const mgr2 = new PendingTxManager();
+      const act2 = mgr2.getActive();
+      const locked2 = mgr2.isLocked();
+
+      console.log(JSON.stringify({
+        status1: act1?.status,
+        storedStatus1: stored1?.status,
+        locked1,
+        hasTonviewer: html1.includes('https://tonviewer.com/' + addr),
+        hasDismiss: html1.includes('id="btn-dismiss-pending-tx"'),
+        hasReloadDetail: html1.includes('页面已重新加载'),
+        status2: act2?.status,
+        locked2,
+      }));
+    `,
+  );
+
+  assert.equal(out.status1, 'timeout');
+  assert.equal(out.storedStatus1, 'timeout');
+  assert.equal(out.locked1, false);
+  assert.equal(out.hasTonviewer, true);
+  assert.equal(out.hasDismiss, true);
+  assert.equal(out.hasReloadDetail, true);
+  assert.equal(out.status2, 'timeout');
+  assert.equal(out.locked2, false);
+});
+
+test('Settings page disables hourlyCandlePush in Live mode and syncs settlementPush via /api/me/notifications', () => {
+  const nonTgOut = runScenario(
+    {
+      href: 'https://app.a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat', liveFundsEnabled: false },
+    },
+    `
+      const mkNode = () => ({
+        addEventListener() {},
+        classList: { add() {}, remove() {}, toggle() {}, contains() { return true; } },
+        querySelector: (sel) => (sel === '#btn-wallet-pill' || sel === '#dock-pill' ? mkNode() : null),
+        querySelectorAll: () => [],
+        insertAdjacentHTML() {},
+        setAttribute() {},
+        getAttribute() { return null; },
+        remove() {},
+        set innerHTML(_v) {},
+        style: {},
+        dataset: {},
+        textContent: '',
+        onclick: null,
+        animate: () => ({ finished: Promise.resolve() }),
+      });
+      globalThis.window.addEventListener = () => {};
+      globalThis.window.scrollTo = () => {};
+      Object.defineProperty(globalThis, 'navigator', { value: { language: 'zh-CN' }, configurable: true });
+      globalThis.document = {
+        documentElement: { dataset: { theme: 'light' }, lang: 'zh-CN' },
+        body: { dataset: {}, appendChild() {}, classList: { add() {}, remove() {}, toggle() {} } },
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        getElementById: () => mkNode(),
+        addEventListener: () => {},
+        createElement: () => mkNode(),
+      };
+      globalThis.requestAnimationFrame = () => 0;
+      globalThis.setInterval = () => 0;
+
+      const { store } = await import(JS_URL + '/store.js');
+      const { renderSettingsPage, resetLiveNotificationCacheForTest } = await import(JS_URL + '/pages/system.js');
+      store.update((s) => { s.settings.language = 'zh-CN'; });
+      resetLiveNotificationCacheForTest();
+      const root = {
+        isConnected: true,
+        innerHTML: '',
+        querySelector() { return null; },
+        querySelectorAll() { return []; },
+      };
+      renderSettingsPage(root);
+      console.log(JSON.stringify({
+        hourlyDisabled: /id="set-hourly-push-switch"[^>]*disabled/.test(root.innerHTML) || root.innerHTML.includes('id="set-hourly-push-switch" role="switch" aria-checked="false" aria-disabled="true"'),
+        hourlyText: root.innerHTML.includes('由战队 TG 群自动播报'),
+        settleDisabledNonTg: /class="a9-switch disabled" id="set-settlement-push-switch"/.test(root.innerHTML),
+        settleNonTgHint: root.innerHTML.includes('请在 Telegram 小程序内打开以管理结算私聊提醒'),
+        notifFetchCount: fetchCalls.filter((c) => String(c.url).includes('/api/me/notifications')).length,
+      }));
+    `,
+  );
+
+  assert.equal(nonTgOut.hourlyText, true);
+  assert.equal(nonTgOut.hourlyDisabled, true);
+  assert.equal(nonTgOut.settleDisabledNonTg, true);
+  assert.equal(nonTgOut.settleNonTgHint, true);
+  assert.equal(nonTgOut.notifFetchCount, 0);
+
+  const tgOut = runScenario(
+    {
+      href: 'https://app.a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat', liveFundsEnabled: false },
+      startParam: 'market',
+    },
+    `
+      const mkNode = () => ({
+        addEventListener() {},
+        classList: { add() {}, remove() {}, toggle() {}, contains() { return true; } },
+        querySelector: (sel) => (sel === '#btn-wallet-pill' || sel === '#dock-pill' ? mkNode() : null),
+        querySelectorAll: () => [],
+        insertAdjacentHTML() {},
+        appendChild() {},
+        replaceWith() {},
+        setAttribute() {},
+        getAttribute() { return null; },
+        remove() {},
+        set innerHTML(_v) {},
+        style: {},
+        dataset: {},
+        textContent: '',
+        onclick: null,
+        animate: () => ({ finished: Promise.resolve() }),
+      });
+      globalThis.window.addEventListener = () => {};
+      globalThis.window.scrollTo = () => {};
+      Object.defineProperty(globalThis, 'navigator', { value: { language: 'zh-CN' }, configurable: true });
+      globalThis.document = {
+        documentElement: { dataset: { theme: 'light' }, lang: 'zh-CN' },
+        body: { dataset: {}, appendChild() {}, classList: { add() {}, remove() {}, toggle() {} } },
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        getElementById: () => mkNode(),
+        addEventListener: () => {},
+        createElement: () => mkNode(),
+      };
+      globalThis.requestAnimationFrame = () => 0;
+      globalThis.setInterval = () => 0;
+
+      let serverPref = true;
+      let failNextPost = false;
+      const netLog = [];
+      globalThis.fetch = async (target, init = {}) => {
+        const u = String(target);
+        const method = init.method || 'GET';
+        const body = init.body ? JSON.parse(init.body) : null;
+        if (u.endsWith('/api/me/notifications')) {
+          netLog.push({ u, method, body });
+        }
+        if (u.endsWith('/api/me/notifications') && method === 'GET') {
+          return { ok: true, status: 200, async json() { return { ok: true, data: { tgUserId: '123', settlementPush: serverPref, hourlyCandlePush: false }, ts: Date.now() }; } };
+        }
+        if (u.endsWith('/api/me/notifications') && method === 'POST') {
+          if (failNextPost) {
+            return { ok: false, status: 500, async json() { return { ok: false, error: { code: 'ERR', message: 'save failed' }, ts: Date.now() }; } };
+          }
+          serverPref = Boolean(body.settlementPush);
+          return { ok: true, status: 200, async json() { return { ok: true, data: { tgUserId: '123', settlementPush: serverPref, hourlyCandlePush: false }, ts: Date.now() }; } };
+        }
+        return { ok: true, status: 200, async json() { return { ok: true, data: {}, ts: Date.now() }; } };
+      };
+
+      function makeSwitchEl() {
+        const classes = new Set();
+        const attrs = {};
+        return {
+          isConnected: true,
+          classList: {
+            add(c) { classes.add(c); },
+            remove(c) { classes.delete(c); },
+            toggle(c, force) {
+              const on = force === undefined ? !classes.has(c) : Boolean(force);
+              if (on) classes.add(c); else classes.delete(c);
+            },
+            contains(c) { return classes.has(c); },
+          },
+          setAttribute(k, v) { attrs[k] = String(v); },
+          getAttribute(k) { return attrs[k] ?? null; },
+          onclick: null,
+          onkeydown: null,
+        };
+      }
+
+      const settleSw = makeSwitchEl();
+      const settleSub = { isConnected: true, textContent: '' };
+      const root = {
+        isConnected: true,
+        innerHTML: '',
+        querySelector(sel) {
+          if (sel === '#set-settlement-push-switch') return settleSw;
+          if (sel === '#set-settlement-push-sub') return settleSub;
+          return null;
+        },
+        querySelectorAll() { return []; },
+      };
+
+      const { store } = await import(JS_URL + '/store.js');
+      const { renderSettingsPage, resetLiveNotificationCacheForTest } = await import(JS_URL + '/pages/system.js');
+      store.update((s) => { s.settings.language = 'zh-CN'; s.settings.settlementPush = false; });
+      resetLiveNotificationCacheForTest();
+      renderSettingsPage(root);
+      await new Promise((r) => setTimeout(r, 20));
+      const afterLoad = {
+        on: settleSw.classList.contains('on'),
+        ariaChecked: settleSw.getAttribute('aria-checked'),
+        sub: settleSub.textContent,
+      };
+
+      await settleSw.onclick();
+      const afterToggleOff = {
+        on: settleSw.classList.contains('on'),
+        ariaChecked: settleSw.getAttribute('aria-checked'),
+        serverPref,
+      };
+
+      failNextPost = true;
+      await settleSw.onclick();
+      const afterFailedToggle = {
+        on: settleSw.classList.contains('on'),
+        ariaChecked: settleSw.getAttribute('aria-checked'),
+        serverPref,
+      };
+
+      console.log(JSON.stringify({
+        afterLoad,
+        afterToggleOff,
+        afterFailedToggle,
+        netLog,
+        lsKeys: Object.keys(localStorage._dump()),
+      }));
+    `,
+  );
+
+  assert.equal(tgOut.afterLoad.on, true);
+  assert.equal(tgOut.afterLoad.ariaChecked, 'true');
+  assert.ok(tgOut.afterLoad.sub.includes('已开启 Telegram 私聊结算与领取提醒'));
+  assert.equal(tgOut.afterToggleOff.on, false);
+  assert.equal(tgOut.afterToggleOff.ariaChecked, 'false');
+  assert.equal(tgOut.afterToggleOff.serverPref, false);
+  assert.equal(tgOut.afterFailedToggle.on, false);
+  assert.equal(tgOut.afterFailedToggle.ariaChecked, 'false');
+  assert.equal(tgOut.netLog.length, 3);
+  assert.equal(tgOut.netLog[0].method, 'GET');
+  assert.equal(tgOut.netLog[1].method, 'POST');
+  assert.deepEqual(tgOut.netLog[1].body, { settlementPush: false });
+  assert.deepEqual(tgOut.lsKeys, ['a9_ui_prefs_v1']);
+});
+

@@ -68,6 +68,7 @@ const broadcaster = new TelegramBroadcaster({
   botToken: process.env.A9_BOT_TOKEN || '',
   botHandle: process.env.A9_TG_BOT_HANDLE || 'A9_TonBot',
   publicOrigin: process.env.A9_PUBLIC_ORIGIN || '',
+  apiOrigin: process.env.A9_API_ORIGIN || process.env.A9_PUBLIC_ORIGIN || '',
   officialChannelId: process.env.A9_OFFICIAL_CHANNEL_ID || '',
   whaleMinGram: process.env.A9_BROADCAST_WHALE_MIN_GRAM || '50',
   socialStore,
@@ -209,7 +210,7 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
   }
 }
 
-const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, chestEngine, budgetLedger, userReader, identityStore, publicKeyResolver, walletStateResolver });
+const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, chestEngine, budgetLedger, userReader, identityStore, publicKeyResolver, walletStateResolver, broadcaster });
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${host}:${port}`);

@@ -90,6 +90,7 @@ export const ENDPOINTS = Object.freeze({
   chestsOpenAll: '/api/chests/open-all',
   chestsCritFeed: (limit = 12) => `/api/chests/crit-feed?limit=${encodeURIComponent(limit)}`,
   me: '/api/me',
+  meNotifications: '/api/me/notifications',
   tonProofPayload: '/api/auth/ton-proof/payload',
   tonProofVerify: '/api/auth/ton-proof/verify'
 });
@@ -720,5 +721,38 @@ export async function requestChestPurchaseIntent({ walletAddress, skuId, openMod
   return request(ENDPOINTS.presaleIntent, {
     method: 'POST',
     body: withReferrer({ walletAddress, skuId, openMode }, referrerId)
+  });
+}
+
+/** 读取 Telegram 私聊结算提醒偏好（Demo 返回模拟，Live 无 initData 返回 null） */
+export async function fetchNotificationPrefs() {
+  if (config.isDemo) {
+    return {
+      tgUserId: 'demo',
+      settlementPush: true,
+      hourlyCandlePush: false,
+      subscribedExplicitly: true,
+      updatedAt: null,
+    };
+  }
+  if (!A9TMA.getRawInitData()) return null;
+  return request(ENDPOINTS.meNotifications);
+}
+
+/** 更新 Telegram 私聊结算提醒开关（真实持久化到服务端） */
+export async function updateNotificationPrefs({ settlementPush }) {
+  if (config.isDemo) {
+    return {
+      tgUserId: 'demo',
+      settlementPush: Boolean(settlementPush),
+      hourlyCandlePush: false,
+      subscribedExplicitly: true,
+      updatedAt: Math.floor(Date.now() / 1000),
+    };
+  }
+  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开');
+  return request(ENDPOINTS.meNotifications, {
+    method: 'POST',
+    body: { settlementPush: Boolean(settlementPush) },
   });
 }

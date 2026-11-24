@@ -21,6 +21,7 @@ import {
 import { GrowthError, renderOgCardPng, renderOgCardSvg, renderOgLandingHtml } from './growth-engine.mjs';
 import { SocialError, parseStartAppParam, createTelegramBotGroupVerifier } from './social-store.mjs';
 import { AuthError, MemoryIdentityStore, allowedProofDomains, createRequestAuth, expectedChainId, verifyTonProof } from './auth.mjs';
+import { TelegramBroadcaster } from './tg-broadcaster.mjs';
 import { addressKey, normalizeTonAddress } from './ton-address.mjs';
 
 function ok(data, status = 200) {
@@ -113,6 +114,16 @@ function timingSafeEqualStr(a, b) {
   let diff = 0;
   for (let i = 0; i < x.length; i += 1) diff |= x.charCodeAt(i) ^ y.charCodeAt(i);
   return diff === 0;
+}
+
+function extractHeader(headers = {}, targetName = '') {
+  const want = String(targetName || '').toLowerCase();
+  for (const [k, v] of Object.entries(headers || {})) {
+    if (String(k).toLowerCase() === want && v !== undefined && v !== null) {
+      return String(v).trim();
+    }
+  }
+  return '';
 }
 
 function resolveTicketRoundRange(query = {}, stateStore = null) {
@@ -212,6 +223,7 @@ export function createApiRouter({
   publicKeyResolver = null,
   walletStateResolver = null,
   telegramGroupVerifier = null,
+  broadcaster = null,
   healthChecker = null,
   runnerHeartbeatReader = null,
 }) {
@@ -296,6 +308,151 @@ export function createApiRouter({
         const id = await auth.telegram();
         const binding = await identityStore.getBinding(id.telegramUserId, nowSec);
         return ok({ telegramUserId: id.telegramUserId, user: id.user, wallet: publicBinding(binding) });
+      }
+
+      if (method === 'GET' && pathname === '/api/me/notifications') {
+        const id = await auth.telegram();
+        if (!socialStore || typeof socialStore.getNotificationPrefs !== 'function') {
+          return ok({
+            tgUserId: id.telegramUserId,
+            settlementPush: true,
+            hourlyCandlePush: false,
+            subscribedExplicitly: false,
+            updatedAt: null,
+          });
+        }
+        return ok(await socialStore.getNotificationPrefs(id.telegramUserId));
+      }
+
+      if (method === 'POST' && pathname === '/api/me/notifications') {
+        const id = await auth.telegram();
+        if (typeof body?.settlementPush !== 'boolean') {
+          return err('BAD_REQUEST', 'settlementPush boolean is required', 400);
+        }
+        if (!socialStore || typeof socialStore.setNotificationPrefs !== 'function') {
+          return err('SERVICE_UNAVAILABLE', 'notification store unavailable', 503);
+        }
+        return ok(await socialStore.setNotificationPrefs(id.telegramUserId, { settlementPush: body.settlementPush }, nowSec));
+      }
+
+      if (method === 'POST' && pathname === '/api/telegram/webhook') {
+        const expectedSecret = String(env.A9_TG_WEBHOOK_SECRET || '').trim();
+        if (!expectedSecret) {
+          return err('WEBHOOK_NOT_CONFIGURED', 'telegram webhook secret is not configured', 503);
+        }
+        const providedSecret = extractHeader(headers, 'x-telegram-bot-api-secret-token');
+        if (!timingSafeEqualStr(providedSecret, expectedSecret)) {
+          return err('UNAUTHORIZED', 'invalid telegram webhook secret token', 401);
+        }
+
+        const msg = body?.message || body?.edited_message || null;
+        if (!msg?.text || msg?.chat?.id === undefined || msg?.chat?.id === null) {
+          return ok({ handled: false, ignored: true });
+        }
+
+        const cmdMatch = String(msg.text).trim().match(/^\/(start|status|help)(?:@[A-Za-z0-9_]+)?(?:\s+([\s\S]*))?$/i);
+        if (!cmdMatch) {
+          return ok({ handled: false, ignored: true });
+        }
+
+        const command = cmdMatch[1].toLowerCase();
+        const rawArg = String(cmdMatch[2] || '').trim().split(/\s+/)[0] || '';
+        const chatId = String(msg.chat.id);
+        const chatType = String(msg.chat.type || 'private').toLowerCase();
+        const fromUserId = msg.from?.id ? String(msg.from.id) : null;
+        const replyToMessageId = msg.message_id ?? null;
+        const botHandle = String(env.A9_TG_BOT_HANDLE || 'A9_TonBot').replace(/^@/, '').trim() || 'A9_TonBot';
+
+        let replyText = '';
+        let buttonText = null;
+        let buttonUrl = null;
+
+        if (command === 'start') {
+          if (chatType === 'private' && fromUserId && socialStore && typeof socialStore.ensureDefaultNotificationPrefs === 'function') {
+            try {
+              await socialStore.ensureDefaultNotificationPrefs(fromUserId, nowSec);
+            } catch {
+              // ignore non-critical notification init error
+            }
+          }
+          const safePayload = /^[A-Za-z0-9_-]{1,64}$/.test(rawArg) ? rawArg : null;
+          if (safePayload && fromUserId && socialStore && typeof socialStore.bindReferral === 'function') {
+            const parsed = parseStartAppParam(safePayload);
+            if (parsed?.referrerId) {
+              try {
+                await socialStore.bindReferral(fromUserId, parsed.referrerId, nowSec);
+              } catch {
+                // ignore self/cycle referral rejections
+              }
+            }
+          }
+          const lines = [
+            'A9 · 财富大冒险官方助手（TON v16.1）',
+            '1. 新人 0 GRAM 领取青铜免费宝箱并参与 24H 预言擂台',
+            '2. 宝箱商城支持固定报价 1 GRAM = 2,002 A9，随机暴击最高 +30%（期望 0.7%–4.2%）',
+            '3. 链上质押满 16/24 时段通关派奖，未达标执行 100% 销毁 BURN',
+          ];
+          if (chatType === 'private') {
+            lines.push('默认已开启轮次结算私聊提醒，可在小程序「我的 -> 系统设置」随时开关。');
+          }
+          replyText = lines.join('\n');
+          buttonText = '打开 A9 · 财富大冒险';
+          buttonUrl = `https://t.me/${botHandle}?startapp=${encodeURIComponent(safePayload || 'market')}`;
+        } else if (command === 'status') {
+          const ps = stateStore?.getProtocolState?.() || null;
+          const curId = Number(ps?.currentRoundId || 0);
+          const item = curId > 0 ? stateStore?.getRound?.(curId) : null;
+          const detail = item ? mapV15RoundDetail(curId, item.round, item.candles, nowSec, stateStore.getTiming()) : null;
+          if (!ps?.dataAvailable || !detail) {
+            replyText = '当前链上轮次数据待核验（尚未开轮或正在同步 TonCenter 节点，绝不展示模拟数值）。请稍后再试或进入小程序核验。';
+            buttonText = '进入小程序查看链上状态';
+            buttonUrl = `https://t.me/${botHandle}?startapp=market`;
+          } else {
+            const targetUsdNum = detail.targetPriceUsdE8 ? Number(detail.targetPriceUsdE8) : 0;
+            const targetUsdStr = targetUsdNum > 0 ? `$${(targetUsdNum / 1e8).toFixed(4)}` : '待核验';
+            const poolStr = formatWholeA9FromRaw(detail.rewardBudgetRaw) || '待核验';
+            const qualified = Number(detail.qualifiedCandles ?? 0);
+            replyText = [
+              `第 #${curId} 轮链上战况（v16.1）`,
+              `轮次阶段：${detail.state}`,
+              `目标底价：${targetUsdStr}`,
+              `本轮奖励池：${poolStr} A9（单轮上限 15x）`,
+              `24H 达标进度：${qualified}/24 时段（>= 16 通关派奖，< 16 销毁 BURN）`,
+            ].join('\n');
+            buttonText = `查看第 #${curId} 轮实时走势`;
+            buttonUrl = `https://t.me/${botHandle}?startapp=${encodeURIComponent(`round_${curId}`)}`;
+          }
+        } else {
+          replyText = [
+            'A9 · 财富大冒险 Bot 命令与安全指南',
+            '/start — 打开 Mini App 并绑定邀请归因',
+            '/status — 实时查询链上轮次与 24H 达标进度',
+            '/help — 查看玩法规则与资金安全红线',
+            '核心规则：24H TWAP 达标 >= 16/24 时段通关，未达标本金与半数奖池执行销毁 BURN；超 7 天未结算支持无许可 AbortRound 退回本金。',
+            '安全提示：严禁未下单直接向热钱包转账；商城购箱含 +0.06 GRAM 配送 Gas，逾期/异常自动退款固定扣除 0.03 GRAM Gas。',
+          ].join('\n');
+          buttonText = '阅读完整闯关指南';
+          buttonUrl = `https://t.me/${botHandle}?startapp=rules`;
+        }
+
+        const replySender =
+          broadcaster && typeof broadcaster.sendBotReply === 'function'
+            ? broadcaster
+            : (env.A9_BOT_TOKEN
+                ? new TelegramBroadcaster({ enabled: false, botToken: env.A9_BOT_TOKEN, botHandle })
+                : null);
+        const sendRes = replySender
+          ? await replySender.sendBotReply({ chatId, text: replyText, buttonText, buttonUrl, replyToMessageId })
+          : { sent: false, reason: 'NO_BROADCASTER' };
+
+        return ok({
+          handled: true,
+          command,
+          chatId,
+          replied: Boolean(sendRes?.sent),
+          sendReason: sendRes?.reason || null,
+          replyText,
+        });
       }
 
       if (method === 'POST' && pathname === '/api/auth/ton-proof/payload') {
