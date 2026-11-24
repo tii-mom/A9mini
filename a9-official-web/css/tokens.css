@@ -73,9 +73,10 @@
   --stamp-pending-bg: #EFEFF3;
   --stamp-pending-border: #D9DDE6;
   --asset-shadow: drop-shadow(0 6px 10px rgba(23, 25, 32, 0.12));
+  --sticker-red-shadow: drop-shadow(0 0 1.4px #FFFFFF) drop-shadow(0 0 1.4px #FFFFFF) drop-shadow(0 6px 10px rgba(80, 0, 0, 0.28));
 
   --font-sans: 'Rubik', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --ease-ui: cubic-bezier(0.22, 1, 0.36, 1);
   --radius-xl: 20px;
   --radius-lg: 14px;
@@ -103,7 +104,8 @@
   --ink-soft: #B4B8C5;
   --ink-muted: #7F8494;
 
-  --nt-red: #EC2434;
+  --cover-red: #EC2434;
+  --nt-red: var(--cover-red);
   --nt-red-hover: #DC1B2B;
   --nt-red-edge: #910D18;
   --nt-red-soft: #2E1A1E;
@@ -138,4 +140,5 @@
   --stamp-pending-bg: #262831;
   --stamp-pending-border: #383B48;
   --asset-shadow: brightness(0.94) drop-shadow(0 8px 14px rgba(0, 0, 0, 0.42));
+  --sticker-red-shadow: drop-shadow(0 0 1.4px rgba(255, 255, 255, 0.92)) drop-shadow(0 0 1.4px rgba(255, 255, 255, 0.92)) drop-shadow(0 8px 12px rgba(0, 0, 0, 0.36));
 }

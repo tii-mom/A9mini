@@ -6,9 +6,22 @@
   <meta name="theme-color" content="#F6F6F8" />
   <meta name="description" content="A9 红皮书。阅读目标价、奖励解锁、销毁和链上验真规则。" />
   <title>A9 红皮书</title>
+  <link rel="canonical" href="https://a9.lat/redpaper/" />
   <link rel="icon" type="image/png" sizes="16x16" href="../assets/brand/favicon-16.png" />
   <link rel="icon" type="image/png" sizes="32x32" href="../assets/brand/favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="../assets/brand/apple-touch-icon.png" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="A9" />
+  <meta property="og:url" content="https://a9.lat/redpaper/" />
+  <meta property="og:title" content="A9 红皮书 · A9 Redpaper" />
+  <meta property="og:description" content="阅读 A9 财富大冒险的目标价走廊、24H 考核、奖励解锁、本金销毁与链上验真规则。" />
+  <meta property="og:image" content="https://a9.lat/assets/token/a9-token-2048.png" />
+  <meta property="og:image:width" content="2048" />
+  <meta property="og:image:height" content="2048" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="A9 红皮书 · A9 Redpaper" />
+  <meta name="twitter:description" content="阅读 A9 财富大冒险的目标价走廊、24H 考核、奖励解锁、本金销毁与链上验真规则。" />
+  <meta name="twitter:image" content="https://a9.lat/assets/token/a9-token-2048.png" />
   <script src="../js/boot-preferences.js"></script>
   <link rel="stylesheet" href="../css/tokens.css" />
   <link rel="stylesheet" href="../css/official.css" />
@@ -23,8 +36,11 @@
         <span lang="zh-CN">A9 官网</span><span lang="en">A9 Home</span>
       </a>
       <div class="header-actions">
-        <button type="button" class="pill-btn" id="paper-theme"><span lang="zh-CN">切换主题</span><span lang="en">Switch theme</span></button>
-        <button type="button" class="pill-btn" id="paper-language"><span lang="zh-CN">English</span><span lang="en">中文</span></button>
+        <button type="button" class="pill-btn" id="paper-theme" aria-label="Toggle Theme">
+          <span class="theme-icon" id="paper-theme-icon" aria-hidden="true">☾</span>
+          <span class="pill-label"><span lang="zh-CN">切换主题</span><span lang="en">Theme</span></span>
+        </button>
+        <button type="button" class="pill-btn mono" id="paper-language" aria-label="Switch Language"><span lang="zh-CN">EN</span><span lang="en">中文</span></button>
       </div>
     </div>
   </header>
@@ -111,10 +127,16 @@
       <div class="paper-body">
         <dl class="paper-metrics">
           <div><dt><span lang="zh-CN">固定总供应</span><span lang="en">Fixed supply</span></dt><dd>10,000,000,000 A9</dd></div>
-          <div><dt><span lang="zh-CN">闯关奖励池</span><span lang="en">Challenge pool</span></dt><dd>7,000,000,000 A9</dd></div>
-          <div><dt><span lang="zh-CN">团队池</span><span lang="en">Team pool</span></dt><dd>1,200,000,000 A9</dd></div>
+          <div><dt><span lang="zh-CN">闯关奖励池（70%）</span><span lang="en">Challenge pool (70%)</span></dt><dd>7,000,000,000 A9</dd></div>
+          <div><dt><span lang="zh-CN">团队池（12%）</span><span lang="en">Team pool (12%)</span></dt><dd>1,200,000,000 A9</dd></div>
+          <div><dt><span lang="zh-CN">其余供应（18%）</span><span lang="en">Remaining supply (18%)</span></dt><dd>1,800,000,000 A9</dd></div>
         </dl>
         <div class="paper-meter supply-meter" aria-hidden="true"><i style="--part:70"></i><i style="--part:12"></i><i style="--part:18"></i></div>
+        <div class="supply-legend mono">
+          <span><i class="lg-dot pool"></i><span lang="zh-CN">70% 闯关奖励池</span><span lang="en">70% Challenge pool</span></span>
+          <span><i class="lg-dot team"></i><span lang="zh-CN">12% 团队池</span><span lang="en">12% Team pool</span></span>
+          <span><i class="lg-dot rest"></i><span lang="zh-CN">18% 其余供应</span><span lang="en">18% Remaining supply</span></span>
+        </div>
         <details class="paper-details">
           <summary><span lang="zh-CN">查看完整规则</span><span lang="en">Read the full rules</span></summary>
           <div class="paper-details-content">
@@ -194,5 +216,15 @@
       </div>
     </section>
   </main>
+  <footer class="paper-footer">
+    <div class="wrap paper-footer-inner">
+      <div class="paper-footer-links">
+        <a class="cta-red cta-sm" href="../#simulator"><span lang="zh-CN">前往完整收益试算</span><span lang="en">Open reward simulator</span></a>
+        <a class="cta-card cta-sm" href="../#sandbox"><span lang="zh-CN">体验 24H 判定沙盘</span><span lang="en">Try 24H sandbox</span></a>
+        <a class="cta-card cta-sm" href="../"><span lang="zh-CN">返回 A9 官网</span><span lang="en">Back to A9 Home</span></a>
+      </div>
+      <button type="button" class="pill-btn" id="paper-back-to-top"><span lang="zh-CN">回到顶部 ↑</span><span lang="en">Back to Top ↑</span></button>
+    </div>
+  </footer>
 </body>
 </html>
