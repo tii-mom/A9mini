@@ -75,8 +75,10 @@ export const RESERVING_STATUSES = Object.freeze([
 export const TON_NANO = 1_000_000_000n;
 export const A9_RAW = 1_000_000_000n;
 export const DUST_LIMIT_NANO = 100_000_000n;        // 0.1 GRAM
-export const PASSIVE_FREE_MIN_NANO = 990_000_000n;  // 0.99 GRAM (covers Bronze Chest full passive refund)
-export const USER_FAULT_FEE_NANO = 50_000_000n;     // 0.05 GRAM
+export const PASSIVE_FREE_MIN_NANO = 990_000_000n;  // 0.99 GRAM (legacy SKU minimum reference)
+export const DELIVERY_GAS_FEE_NANO = 60_000_000n;   // 0.06 GRAM user-paid A9 on-chain delivery gas
+export const REFUND_GAS_FEE_NANO = 30_000_000n;     // 0.03 GRAM user-paid on-chain refund gas (0 project gas)
+export const USER_FAULT_FEE_NANO = 50_000_000n;     // 0.05 GRAM optional higher user-fault fee
 export const REFERRAL_BPS = 12n;                     // 12% referral reward (percent)
 export const ORDER_TTL_SEC = 30 * 60;               // unpaid order holds its reservation for 30 min
 export const MAX_PAYOUT_ATTEMPTS = 5;
@@ -132,7 +134,9 @@ export class PresaleEngine {
     chestEngine = null,
     broadcaster = null,
     orderTtlSec = ORDER_TTL_SEC,
-    userFaultFeeNano = null, // published user-fault fee in GRAM nano; null = zero fee (full refund)
+    deliveryFeeNano = DELIVERY_GAS_FEE_NANO,
+    refundFeeNano = REFUND_GAS_FEE_NANO,
+    userFaultFeeNano = null, // optional higher user-fault fee in GRAM nano (minimum refund gas fee always applies)
   } = {}) {
     if (!repo) throw new PresaleError('CONFIG_MISSING', 'presale repository required');
     if (!hotWalletAddress) throw new PresaleError('CONFIG_MISSING', 'presale hotWalletAddress required');
@@ -150,8 +154,15 @@ export class PresaleEngine {
     this.chestEngine = chestEngine;
     this.broadcaster = broadcaster;
     this.orderTtlSec = orderTtlSec;
+    this.deliveryFeeNano = BigInt(deliveryFeeNano ?? DELIVERY_GAS_FEE_NANO);
+    this.refundFeeNano = BigInt(refundFeeNano ?? REFUND_GAS_FEE_NANO);
     this.userFaultFeeNano = userFaultFeeNano === null || userFaultFeeNano === undefined || userFaultFeeNano === '' ? null : BigInt(userFaultFeeNano);
     this.userQuotaNano = new Map(); // walletKey -> bigint (ops override, memory only)
+  }
+
+  /** Exact total GRAM nano user must transfer on-chain (net order principal + 0.06 GRAM A9 delivery gas). */
+  expectedPayNano(order) {
+    return BigInt(order.tonNano) + this.deliveryFeeNano;
   }
 
   /** Exact A9 raw for an amount of GRAM nano at the fixed protocol rate (no randomness, no bonus). */
@@ -184,6 +195,8 @@ export class PresaleEngine {
       availQuotaNano: avail.toString(),
       minOrderNano: this.minOrderNano.toString(),
       maxOrderNano: this.maxOrderNano.toString(),
+      deliveryFeeNano: this.deliveryFeeNano.toString(),
+      refundFeeNano: this.refundFeeNano.toString(),
       // Legacy integer fields kept for existing UI (whole GRAM, truncated).
       unlockedQuotaTon: Number(unlocked / TON_NANO),
       usedQuotaTon: Number(userReservedNano / TON_NANO),
@@ -360,9 +373,11 @@ export class PresaleEngine {
   }
 
   _refundAmount(receivedNano, passive) {
-    if (passive && receivedNano >= PASSIVE_FREE_MIN_NANO) return { refundNano: receivedNano, feeDeducted: false };
-    // 未经批准并公示扣费规则时，默认零手续费全额退款，绝不硬编码扣费。
-    const fee = this.userFaultFeeNano !== null && this.userFaultFeeNano > 0n ? this.userFaultFeeNano : 0n;
+    // 零项目方 Gas 铁律：所有链上原路退款至少扣除链上退回 Gas 成本（默认 0.03 GRAM），确保热钱包 0 倒贴。
+    const baseFee = this.refundFeeNano > 0n ? this.refundFeeNano : 0n;
+    const fee = !passive && this.userFaultFeeNano !== null && this.userFaultFeeNano > baseFee
+      ? this.userFaultFeeNano
+      : baseFee;
     if (fee === 0n) return { refundNano: receivedNano, feeDeducted: false };
     return { refundNano: receivedNano > fee ? receivedNano - fee : 0n, feeDeducted: true };
   }
@@ -456,8 +471,8 @@ export class PresaleEngine {
     if (normalizeOrderStatus(order.status, order.payoutTxHash) !== PRESALE_STATUS.PENDING_PAYMENT) {
       return anomaly('order_not_payable', false);
     }
-    if (receivedNano !== BigInt(order.tonNano)) return anomaly('amount_mismatch', true);
-    // 订单有效但已关闭或已过期：执行原被动全额退款规则（最低单 5 GRAM，恒为全额）。
+    if (receivedNano !== this.expectedPayNano(order)) return anomaly('amount_mismatch', true);
+    // 订单有效但已关闭或已过期：执行被动原路退款（扣除 0.03 GRAM 链上退回 Gas 成本，热钱包 0 倒贴）。
     if (!this.open) return refund('closed', true, true);
     if (nowSec > Number(order.expiresAt || 0) && Number(order.expiresAt || 0) > 0) return refund('expired', true, true);
     return { ...base, action: 'CONFIRM', reason: 'valid', a9AmountRaw: BigInt(order.a9AmountRaw) };
@@ -542,8 +557,8 @@ export class PresaleEngine {
   /**
    * 人工处理异常入账：
    * - decision: 'REFUND'（退回原付款人）| 'CLOSE_NO_REFUND'（例如已线下退款，必须写备注）。
-   * - 手续费规则（P0-D）：未配置已公示的扣费规则（userFaultFeeNano == null）时，USER / SYSTEM / UNKNOWN
-   *   均按零手续费全额退款；若未来配置了有效的扣费规则，也仅对 USER 责任方扣除，SYSTEM / UNKNOWN 恒全额退款。
+   * - 零项目方 Gas 手续费规则：链上原路退款至少扣除链上退回 Gas 成本（refundFeeNano，默认 0.03 GRAM），
+   *   若额外配置了更高的 userFaultFeeNano，仅对 USER 责任方按较高值扣除，SYSTEM / UNKNOWN 恒仅扣基础退回 Gas。
    * - 所有权隔离（P0-B）：仅当该异常入账就是订单本人的错额付款且该订单确实绑定了该 txHash（PAYMENT_EXCEPTION）时，
    *   才关联该订单并驱动其状态；其他误付/重复付款的退款 orderId = null，绝不触碰原备注引用的任何订单。
    */
@@ -563,10 +578,11 @@ export class PresaleEngine {
     }
     if (decision !== 'REFUND') throw new PresaleError('BAD_REQUEST', 'decision must be REFUND or CLOSE_NO_REFUND');
 
+    const baseGasFee = this.refundFeeNano > 0n ? this.refundFeeNano : 0n;
     const feeNano =
-      faultParty === FAULT_PARTY.USER && this.userFaultFeeNano !== null && this.userFaultFeeNano > 0n
+      faultParty === FAULT_PARTY.USER && this.userFaultFeeNano !== null && this.userFaultFeeNano > baseGasFee
         ? this.userFaultFeeNano
-        : 0n;
+        : baseGasFee;
     if (received <= feeNano) throw new PresaleError('BAD_AMOUNT', 'refund amount would be zero');
     const refundNano = received - feeNano;
 
@@ -885,13 +901,18 @@ export class PresaleEngine {
 
   formatOrder(o) {
     const status = normalizeOrderStatus(o.status, o.payoutTxHash);
-    const tonNanoStr = BigInt(o.tonNano).toString();
+    const tonNanoBig = BigInt(o.tonNano);
+    const tonNanoStr = tonNanoBig.toString();
+    const deliveryFeeNanoStr = this.deliveryFeeNano.toString();
+    const payTonNanoStr = (tonNanoBig + this.deliveryFeeNano).toString();
     const skuId = o.skuId || CHEST_MALL_NANO_TO_SKU[tonNanoStr] || null;
     const out = {
       orderId: o.orderId,
       walletAddress: o.walletAddress,
       referrerId: o.referrerId || null,
       tonNano: tonNanoStr,
+      deliveryFeeNano: deliveryFeeNanoStr,
+      payTonNano: payTonNanoStr,
       a9AmountRaw: BigInt(o.a9AmountRaw).toString(),
       payTo: this.hotWalletAddress,
       memo: o.memo,

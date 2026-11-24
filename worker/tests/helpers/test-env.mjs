@@ -63,6 +63,7 @@ export const MIGRATIONS = [
   '../../migrations/0008_prediction_activations.sql',
   '../../migrations/0009_chest_mall_and_assists.sql',
   '../../migrations/0010_w2_runner_cursors_and_promo_payouts.sql',
+  '../../migrations/0011_warmup_reservations_v2.sql',
 ];
 
 /** Async dump of every user table; works for the SQLite adapter and for real (Miniflare) D1. */
@@ -109,7 +110,7 @@ export async function tgHeaders(userId, { botToken = TEST_BOT_TOKEN, authDate = 
 /** Drive one presale order all the way to COMPLETED with fake broadcaster + verifier. */
 export async function completePurchase(engine, wallet, gram, nowSec, { txHash = `in-${wallet}-${nowSec}` } = {}) {
   const order = await engine.createOrderIntent(wallet, gram, nowSec);
-  const res = await engine.ingestInbound({ txHash, finality: 'finalized', to: engine.hotWalletAddress, from: wallet, valueNano: order.tonNano, memo: order.memo }, nowSec + 1);
+  const res = await engine.ingestInbound({ txHash, finality: 'finalized', to: engine.hotWalletAddress, from: wallet, valueNano: order.payTonNano, memo: order.memo }, nowSec + 1);
   if (res.action !== 'CONFIRM') throw new Error(`expected CONFIRM, got ${res.action}/${res.reason}`);
   await engine.queueConfirmedPayouts(nowSec + 2);
   await engine.processPayouts(nowSec + 3, {

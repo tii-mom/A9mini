@@ -4,7 +4,7 @@ import { ChestEngine, CHEST_MALL_CATALOG, CAPTAIN_FOUNDING_BONUS_RAW } from '../
 import { D1ChestEngine } from '../src/d1-chest-store.mjs';
 import { D1PresaleStore, D1SocialStore, D1PredictionEngine } from '../src/d1-growth-store.mjs';
 import { D1PromoStore } from '../src/d1-promo-store.mjs';
-import { PresaleHotWalletEngine, PASSIVE_FREE_MIN_NANO } from '../src/presale-hotwallet.mjs';
+import { PresaleHotWalletEngine, PASSIVE_FREE_MIN_NANO, DELIVERY_GAS_FEE_NANO, REFUND_GAS_FEE_NANO } from '../src/presale-hotwallet.mjs';
 import { PromoHotWalletEngine } from '../src/promo-hotwallet.mjs';
 import { PredictionEngine } from '../src/growth-engine.mjs';
 import { SocialStore, parseStartAppParam, createTelegramBotGroupVerifier } from '../src/social-store.mjs';
@@ -38,8 +38,10 @@ const emptyStateStore = {
 
 console.log('Running A9 v15 Chest Mall & Viral Assist tests...');
 
-await test('5 Chest Mall SKUs exact fixed-rate pricing & 0.99 GRAM passive free refund boundary', async () => {
+await test('5 Chest Mall SKUs exact fixed-rate pricing, +0.06 GRAM delivery gas & 0.03 GRAM refund gas rule', async () => {
   assert.equal(PASSIVE_FREE_MIN_NANO, 990_000_000n);
+  assert.equal(DELIVERY_GAS_FEE_NANO, 60_000_000n);
+  assert.equal(REFUND_GAS_FEE_NANO, 30_000_000n);
   assert.equal(CHEST_MALL_CATALOG.chest_bronze.baseA9, '1981.98');
   assert.equal(CHEST_MALL_CATALOG.chest_silver.baseA9, '9989.98');
   assert.equal(CHEST_MALL_CATALOG.chest_gold.baseA9, '19999.98');
@@ -51,16 +53,18 @@ await test('5 Chest Mall SKUs exact fixed-rate pricing & 0.99 GRAM passive free 
   assert.equal(ord.skuId, 'chest_bronze');
   assert.equal(ord.openMode, 'BOOST');
   assert.equal(ord.tonNano, '990000000');
+  assert.equal(ord.deliveryFeeNano, '60000000');
+  assert.equal(ord.payTonNano, '1050000000');
   assert.equal(ord.a9AmountRaw, '1981980000000');
 
-  // Expired 0.99 GRAM Bronze Chest order paid late -> full passive free refund (0 fee)
+  // Expired 0.99 GRAM Bronze Chest order paid late (1.05 GRAM) -> passive refund minus 0.03 GRAM on-chain refund gas
   const latePlan = await presale.planInbound(
-    { txHash: 'tx_late_099', finality: 'finalized', to: HOT_WALLET, from: W_OWNER, valueNano: '990000000', memo: ord.memo },
+    { txHash: 'tx_late_099', finality: 'finalized', to: HOT_WALLET, from: W_OWNER, valueNano: ord.payTonNano, memo: ord.memo },
     ord.expiresAt + 10,
   );
   assert.equal(latePlan.action, 'REFUND');
-  assert.equal(latePlan.refundNano, 990_000_000n);
-  assert.equal(latePlan.feeDeducted, false);
+  assert.equal(latePlan.refundNano, 1_020_000_000n);
+  assert.equal(latePlan.feeDeducted, true);
 });
 
 await test('Real TonCenterClient.fetchWalletAccountState format: active passes, uninitialized rejects, RPC failure returns 503', async () => {
@@ -168,7 +172,7 @@ await test('Shop Boost Chest: transient creation failure is idempotently backfil
 
   const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT_WALLET, open: true, promoEngine: promo, chestEngine: chest, broadcaster });
   const ord = await presale.createOrderIntent(W_OWNER, null, 1000, { skuId: 'chest_gold', openMode: 'BOOST', tgUserId: '1001', referrerId: W_H3 });
-  await presale.ingestInbound({ txHash: 'tx_gold_in', finality: 'finalized', to: HOT_WALLET, from: W_OWNER, valueNano: '9990000000', memo: ord.memo }, 1010);
+  await presale.ingestInbound({ txHash: 'tx_gold_in', finality: 'finalized', to: HOT_WALLET, from: W_OWNER, valueNano: ord.payTonNano, memo: ord.memo }, 1010);
   await presale.queueConfirmedPayouts(1015);
   await presale.processPayouts(1020, {
     a9Broadcaster: async () => ({ txHash: 'tx_gold_out' }),
@@ -225,7 +229,7 @@ await test('Direct paid invitee (TG-only ref) unlocks vault, Captain >=50 gets 5
   pred.creditPendingBonus('1001', 500_000_000_000n, 1005 * 1000);
 
   const ord = await presale.createOrderIntent(W_H1, null, 1010, { skuId: 'chest_bronze', openMode: 'INSTANT', tgUserId: '2001', referrerId: '1001' });
-  await presale.ingestInbound({ txHash: 'tx_inv_099', finality: 'finalized', to: HOT_WALLET, from: W_H1, valueNano: '990000000', memo: ord.memo }, 1015);
+  await presale.ingestInbound({ txHash: 'tx_inv_099', finality: 'finalized', to: HOT_WALLET, from: W_H1, valueNano: ord.payTonNano, memo: ord.memo }, 1015);
   await presale.queueConfirmedPayouts(1020);
   await presale.processPayouts(1025, {
     a9Broadcaster: async () => ({ txHash: 'tx_inv_out' }),

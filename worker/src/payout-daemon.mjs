@@ -179,6 +179,8 @@ export function createPayoutDaemon({
         minOrderTon: BigInt(env.A9_PRESALE_MIN_ORDER_TON || '5'),
         maxOrderTon: BigInt(env.A9_PRESALE_MAX_ORDER_TON || '200'),
         open: env.A9_PRESALE_OPEN === '1',
+        deliveryFeeNano: env.A9_PRESALE_DELIVERY_FEE_NANO || undefined,
+        refundFeeNano: env.A9_PRESALE_REFUND_FEE_NANO || undefined,
         userFaultFeeNano: env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
         promoEngine,
         socialStore,

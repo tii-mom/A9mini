@@ -461,7 +461,8 @@ export default {
       minOrderTon: BigInt(env.A9_PRESALE_MIN_ORDER_TON || '5'),
       maxOrderTon: BigInt(env.A9_PRESALE_MAX_ORDER_TON || '200'),
       open: env.A9_PRESALE_OPEN === '1',
-      // Only set after the user-fault fee rule is published and approved (unset = full refunds).
+      deliveryFeeNano: env.A9_PRESALE_DELIVERY_FEE_NANO || undefined,
+      refundFeeNano: env.A9_PRESALE_REFUND_FEE_NANO || undefined,
       userFaultFeeNano: env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
       promoEngine,
       socialStore,
@@ -571,13 +572,13 @@ export default {
         status: out.status,
         headers: corsHeaders(out.contentType || 'text/plain; charset=utf-8', extra, corsOrigin),
       });
-    }
       if (edgeCache && edgeCacheKey && out.status === 200 && out.contentType?.startsWith('image/')) {
         const putPromise = edgeCache.put(edgeCacheKey, resp.clone()).catch(() => {});
         if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(putPromise);
         else await putPromise;
       }
       return resp;
+    }
     return new Response(JSON.stringify(out.body), { status: out.status, headers: corsHeaders('application/json; charset=utf-8', {}, corsOrigin) });
   },
 

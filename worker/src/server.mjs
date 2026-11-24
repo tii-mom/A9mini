@@ -77,6 +77,8 @@ const presaleEngine = presaleHotAddr
       minOrderTon: BigInt(process.env.A9_PRESALE_MIN_ORDER_TON || '5'),
       maxOrderTon: BigInt(process.env.A9_PRESALE_MAX_ORDER_TON || '200'),
       open: process.env.A9_PRESALE_OPEN === '1',
+      deliveryFeeNano: process.env.A9_PRESALE_DELIVERY_FEE_NANO || undefined,
+      refundFeeNano: process.env.A9_PRESALE_REFUND_FEE_NANO || undefined,
       userFaultFeeNano: process.env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
       promoEngine,
       socialStore,

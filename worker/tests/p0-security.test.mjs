@@ -70,7 +70,7 @@ if (await createMiniflareD1().then((mf) => { if (mf) MF_DISPOSE.push(mf.dispose)
   console.log('  SKIP  [d1-miniflare] backend: `miniflare` not installed (npm i -D miniflare to run against real D1/workerd)');
 }
 const dumpOf = async (e) => (e._db ? dumpDb(e._db) : e.repo.snapshot());
-const inbound = (order, extra = {}) => ({ txHash: `in-${order.orderId}`, finality: 'finalized', to: HOT, from: order.walletAddress, valueNano: order.tonNano, memo: order.memo, ...extra });
+const inbound = (order, extra = {}) => ({ txHash: `in-${order.orderId}`, finality: 'finalized', to: HOT, from: order.walletAddress, valueNano: order.payTonNano, memo: order.memo, ...extra });
 
 console.log('Running phase-1 P0 security tests...');
 
@@ -408,7 +408,7 @@ for (const [name, make] of BACKENDS) {
     assert.equal((await e.repo.listOpenPayouts()).length, 1); // no automatic refund, no automatic fee
     const anomalies = await e.listAnomalies();
     assert.deepEqual(anomalies.map((a) => [a.txHash, a.reason, a.refundTo, a.valueNano]).sort(), [
-      ['thief', 'sender_mismatch', 'EQ_SOMEONE_ELSE', '10000000000'],
+      ['thief', 'sender_mismatch', 'EQ_SOMEONE_ELSE', '10060000000'],
       ['under', 'amount_mismatch', 'EQ_BUYER_2', '9000000000'],
     ]);
     const wrongDest = await e.planInbound(inbound(o, { txHash: 'x', to: 'EQ_OTHER_WALLET' }), 1007);
@@ -500,16 +500,16 @@ for (const [name, make] of BACKENDS) {
     await pool.createOrderIntent('EQ_P6', '10', later);
   });
 
-  await test(`[${name}] expired order paid late -> passive full refund; refund broadcast failure retries then confirms`, async () => {
+  await test(`[${name}] expired order paid late -> passive refund minus 0.03 GRAM gas; refund broadcast failure retries then confirms`, async () => {
     const e = await make({});
     const o = await e.createOrderIntent('EQ_LATE', '5', 1000);
     const late = await e.ingestInbound(inbound(o), 1000 + 31 * 60);
     assert.equal(late.action, 'REFUND');
     assert.equal(late.reason, 'expired');
-    assert.equal(late.refundNano, 5_000_000_000n);
+    assert.equal(late.refundNano, 5_030_000_000n);
     const t = 1000 + 32 * 60;
     let n = 0;
-    const flaky = async (inst) => { n += 1; if (n === 1) throw Object.assign(new Error('rpc down'), { notSent: true }); assert.equal(inst.tonNano, '5000000000'); return { txHash: 'refund-tx' }; };
+    const flaky = async (inst) => { n += 1; if (n === 1) throw Object.assign(new Error('rpc down'), { notSent: true }); assert.equal(inst.tonNano, '5030000000'); return { txHash: 'refund-tx' }; };
     await e.processPayouts(t, { refundBroadcaster: flaky });
     assert.equal((await e.getOrder(o.orderId)).status, PRESALE_STATUS.REFUND_PENDING);
     await e.processPayouts(t + 1, { refundBroadcaster: flaky });
@@ -519,7 +519,7 @@ for (const [name, make] of BACKENDS) {
     assert.equal(n, 2);
   });
 
-  await test(`[${name}] anomaly resolution (P0-D): zero fee when unpublished for USER/SYSTEM/UNKNOWN; fee only for USER when published; resolves once`, async () => {
+  await test(`[${name}] anomaly resolution (P0-D): 0.03 GRAM base refund gas deducted for USER/SYSTEM/UNKNOWN; higher userFaultFeeNano applies only to USER; resolves once`, async () => {
     const e = await make({});
     const o = await e.createOrderIntent('EQ_ANOM', '10', 1000);
     await e.ingestInbound(inbound(o, { txHash: 'short', valueNano: '9000000000' }), 1001);
@@ -528,26 +528,26 @@ for (const [name, make] of BACKENDS) {
     await e.ingestInbound({ txHash: 'unk-nofee', finality: 'finalized', to: HOT, from: 'EQ_UNK_FAULT', valueNano: '2000000000', memo: '' }, 1002);
     // 缺少操作人仍拒绝
     await assert.rejects(e.resolveAnomaly('short', { decision: 'REFUND', faultParty: 'SYSTEM' }, 1003), { code: 'BAD_REQUEST' });
-    // 未配置手续费规则时，USER / SYSTEM / UNKNOWN 三种责任方全部按零手续费全额退款
-    const uRes = await e.resolveAnomaly('user-nofee', { decision: 'REFUND', faultParty: 'USER', operator: 'ops', note: 'no fee rule yet' }, 1003);
-    assert.equal(uRes.feeNano, '0');
-    assert.equal(uRes.refundNano, '4000000000');
+    // 未配置额外 userFaultFeeNano 时，USER / SYSTEM / UNKNOWN 三种责任方均扣除 0.03 GRAM 链上退回 Gas 成本
+    const uRes = await e.resolveAnomaly('user-nofee', { decision: 'REFUND', faultParty: 'USER', operator: 'ops', note: 'base refund gas' }, 1003);
+    assert.equal(uRes.feeNano, '30000000');
+    assert.equal(uRes.refundNano, '3970000000');
     const unkRes = await e.resolveAnomaly('unk-nofee', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops', note: 'unknown' }, 1003);
-    assert.equal(unkRes.feeNano, '0');
-    assert.equal(unkRes.refundNano, '2000000000');
+    assert.equal(unkRes.feeNano, '30000000');
+    assert.equal(unkRes.refundNano, '1970000000');
 
     const both = await Promise.allSettled([
       e.resolveAnomaly('short', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops', note: 'system' }, 1004),
       e.resolveAnomaly('short', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops2', note: 'dup' }, 1004),
     ]);
     assert.equal(both.filter((r) => r.status === 'fulfilled').length, 1);
-    assert.equal(both.find((r) => r.status === 'fulfilled').value.refundNano, '9000000000');
+    assert.equal(both.find((r) => r.status === 'fulfilled').value.refundNano, '8970000000');
     assert.equal((await e.getOrder(o.orderId)).status, PRESALE_STATUS.REFUND_PENDING);
     const shortRefund = await e.repo.getPayout('refund:short');
     assert.equal(shortRefund.recipient, 'EQ_ANOM');
-    assert.equal(shortRefund.amount, '9000000000');
+    assert.equal(shortRefund.amount, '8970000000');
 
-    // 配置有效手续费规则后：仅 USER 扣费，SYSTEM 与 UNKNOWN 仍为 0 手续费全额退款
+    // 配置更高 userFaultFeeNano (0.05 GRAM) 后：仅 USER 扣 0.05 GRAM，SYSTEM 与 UNKNOWN 仅扣 0.03 GRAM 链上退回 Gas
     const published = await make({ userFaultFeeNano: '50000000' });
     await published.ingestInbound({ txHash: 'stray2', finality: 'finalized', to: HOT, from: 'EQ_STRANGER', valueNano: '3000000000', memo: '' }, 1002);
     await published.ingestInbound({ txHash: 'stray-sys', finality: 'finalized', to: HOT, from: 'EQ_SYS', valueNano: '3000000000', memo: '' }, 1002);
@@ -557,11 +557,11 @@ for (const [name, make] of BACKENDS) {
     assert.equal(r.refundNano, '2950000000');
     assert.equal(r.recipient, 'EQ_STRANGER');
     const rSys = await published.resolveAnomaly('stray-sys', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops' }, 1005);
-    assert.equal(rSys.feeNano, '0');
-    assert.equal(rSys.refundNano, '3000000000');
+    assert.equal(rSys.feeNano, '30000000');
+    assert.equal(rSys.refundNano, '2970000000');
     const rUnk = await published.resolveAnomaly('stray-unk', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 1005);
-    assert.equal(rUnk.feeNano, '0');
-    assert.equal(rUnk.refundNano, '3000000000');
+    assert.equal(rUnk.feeNano, '30000000');
+    assert.equal(rUnk.refundNano, '2970000000');
     await assert.rejects(published.resolveAnomaly('stray2', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops' }, 1006), { code: 'ALREADY_RESOLVED' });
     await assert.rejects(e.resolveAnomaly('stray', { decision: 'CLOSE_NO_REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 1007), { code: 'BAD_REQUEST' });
     assert.equal((await e.resolveAnomaly('stray', { decision: 'CLOSE_NO_REFUND', faultParty: 'UNKNOWN', operator: 'ops', note: 'refunded off-band tx X' }, 1007)).status, 'CLOSED_NO_REFUND');
@@ -616,7 +616,7 @@ for (const [name, make] of BACKENDS) {
     const doneOrder = await completePurchase(e, 'EQ_DONE', '5', 900, { txHash: 'done-first' });
 
     const txs = [
-      { txHash: 'tx-valid', finality: 'finalized', to: HOT, from: 'EQ_VALID', valueNano: validOrder.tonNano, memo: validOrder.memo },
+      { txHash: 'tx-valid', finality: 'finalized', to: HOT, from: 'EQ_VALID', valueNano: validOrder.payTonNano, memo: validOrder.memo },
       { txHash: 'tx-nomemo', finality: 'finalized', to: HOT, from: 'EQ_NO_MEMO', valueNano: '7000000000', memo: '' },
       { txHash: 'tx-badmemo', finality: 'finalized', to: HOT, from: 'EQ_BAD_MEMO', valueNano: '6000000000', memo: 'hello-world' },
       { txHash: 'tx-badorder', finality: 'finalized', to: HOT, from: 'EQ_BAD_ORD', valueNano: '5000000000', memo: 'buy:doesnotexist' },
@@ -671,10 +671,10 @@ for (const [name, make] of BACKENDS) {
       assert.equal(anomalies.some((a) => a.txHash === mustBeAnomaly), true, `${mustBeAnomaly} must be in OPEN anomalies`);
     }
     assert.equal(anomalies.some((a) => a.txHash === 'tx-promo-valid'), false);
-    // 确认合法领取单号误转 8 GRAM 可以正常走人工全额退款
+    // 确认合法领取单号误转 8 GRAM 可以正常走人工退款（扣除 0.03 GRAM 链上退回 Gas）
     const res8g = await e.resolveAnomaly('tx-valid-claim-8gram', { decision: 'REFUND', faultParty: 'USER', operator: 'ops' }, 1015);
     assert.equal(res8g.status, 'REFUND_QUEUED');
-    assert.equal(res8g.refundNano, '8000000000');
+    assert.equal(res8g.refundNano, '7970000000');
 
     // 反例 6：推广钱包与兑换钱包已分离，有效领取单打到兑换热钱包（8 GRAM 与 0.06 GRAM）均绝不能归类为 OTHER_FLOW
     const separatePromo = new PromoHotWalletEngine({ hotWalletAddress: 'EQ_SEPARATE_PROMO_WALLET' });
@@ -706,18 +706,18 @@ for (const [name, make] of BACKENDS) {
     assert.equal((await e.getQuota('EQ_USER_A', 1000)).usedQuotaNano, '10000000000');
 
     // B 和 C 两人分别错用 A 的订单号付款
-    const bIn = await e.ingestInbound({ txHash: 'b-wrong', finality: 'finalized', to: HOT, from: 'EQ_USER_B', valueNano: aOrder.tonNano, memo: aOrder.memo }, 1001);
-    const cIn = await e.ingestInbound({ txHash: 'c-wrong', finality: 'finalized', to: HOT, from: 'EQ_USER_C', valueNano: aOrder.tonNano, memo: aOrder.memo }, 1002);
+    const bIn = await e.ingestInbound({ txHash: 'b-wrong', finality: 'finalized', to: HOT, from: 'EQ_USER_B', valueNano: aOrder.payTonNano, memo: aOrder.memo }, 1001);
+    const cIn = await e.ingestInbound({ txHash: 'c-wrong', finality: 'finalized', to: HOT, from: 'EQ_USER_C', valueNano: aOrder.payTonNano, memo: aOrder.memo }, 1002);
     assert.equal(bIn.action, 'ANOMALY');
     assert.equal(cIn.action, 'ANOMALY');
 
-    // 两笔误付均独立审核退款成功，且 A 的订单和额度丝毫不受影响
+    // 两笔误付均独立审核退款成功（扣 0.03 GRAM 链上退回 Gas），且 A 的订单和额度丝毫不受影响
     const rB = await e.resolveAnomaly('b-wrong', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 1003);
     const rC = await e.resolveAnomaly('c-wrong', { decision: 'REFUND', faultParty: 'USER', operator: 'ops' }, 1004);
     assert.equal(rB.status, 'REFUND_QUEUED');
     assert.equal(rC.status, 'REFUND_QUEUED');
-    assert.equal(rB.refundNano, '10000000000');
-    assert.equal(rC.refundNano, '10000000000');
+    assert.equal(rB.refundNano, '10030000000');
+    assert.equal(rC.refundNano, '10030000000');
     assert.equal((await e.repo.getPayout('refund:b-wrong')).orderId, null);
     assert.equal((await e.repo.getPayout('refund:c-wrong')).orderId, null);
 
@@ -744,7 +744,7 @@ for (const [name, make] of BACKENDS) {
     // 验证 A 的订单仍为 PENDING_PAYMENT，额度仍精确占用 10 GRAM，随后 A 仍能正常付款成交
     assert.equal((await e.getOrder(aOrder.orderId)).status, PRESALE_STATUS.PENDING_PAYMENT);
     assert.equal((await e.getQuota('EQ_USER_A', 1007)).usedQuotaNano, '10000000000');
-    const aPay = await e.ingestInbound({ txHash: 'a-real-pay', finality: 'finalized', to: HOT, from: 'EQ_USER_A', valueNano: aOrder.tonNano, memo: aOrder.memo }, 1008);
+    const aPay = await e.ingestInbound({ txHash: 'a-real-pay', finality: 'finalized', to: HOT, from: 'EQ_USER_A', valueNano: aOrder.payTonNano, memo: aOrder.memo }, 1008);
     assert.equal(aPay.action, 'CONFIRM');
     await e.queueConfirmedPayouts(1009);
     await e.processPayouts(1010, { a9Broadcaster: async () => ({ txHash: 'a9-for-a' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
@@ -752,8 +752,8 @@ for (const [name, make] of BACKENDS) {
     assert.equal(await e.hasCompletedPurchase('EQ_USER_A'), true);
 
     // D2: A 的订单已经 COMPLETED，再次收到两笔重复付款（来自 A 和 B），退款或 NEEDS_REVIEW 均不改动 A 订单
-    await e.ingestInbound({ txHash: 'dup-by-a', finality: 'finalized', to: HOT, from: 'EQ_USER_A', valueNano: aOrder.tonNano, memo: aOrder.memo }, 1020);
-    await e.ingestInbound({ txHash: 'dup-by-b', finality: 'finalized', to: HOT, from: 'EQ_USER_B', valueNano: aOrder.tonNano, memo: aOrder.memo }, 1021);
+    await e.ingestInbound({ txHash: 'dup-by-a', finality: 'finalized', to: HOT, from: 'EQ_USER_A', valueNano: aOrder.payTonNano, memo: aOrder.memo }, 1020);
+    await e.ingestInbound({ txHash: 'dup-by-b', finality: 'finalized', to: HOT, from: 'EQ_USER_B', valueNano: aOrder.payTonNano, memo: aOrder.memo }, 1021);
     await e.resolveAnomaly('dup-by-a', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 1022);
     await e.resolveAnomaly('dup-by-b', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops' }, 1023);
     await e.processPayouts(1024, {
@@ -837,8 +837,9 @@ for (const [name, make] of BACKENDS) {
     await e3.ingestInbound({ txHash: 'c-open', finality: 'finalized', to: HOT, from: 'EQ_CON_4', valueNano: '4000000000', memo: 'bad' }, 1015);
     await e3.ingestInbound({ txHash: 'c-dust', finality: 'finalized', to: HOT, from: 'EQ_CON_5', valueNano: '50000000', memo: '' }, 1016);
 
-    const totalIn = 10_000_000_000n + 8_000_000_000n + 6_000_000_000n + 4_000_000_000n + 50_000_000n;
-    const completedGram = BigInt((await e3.getOrder(oOk.orderId)).tonNano);
+    const totalIn = 10_060_000_000n + 8_000_000_000n + 6_000_000_000n + 4_000_000_000n + 50_000_000n;
+    const okOrd = await e3.getOrder(oOk.orderId);
+    const completedGram = BigInt(okOrd.tonNano) + BigInt(okOrd.deliveryFeeNano);
     const refundedGram = BigInt((await e3.repo.getPayout('refund:c-dup')).amount);
     const feeGram = BigInt((await e3.repo.getInbound('c-dup')).feeNano);
     const closedNoRefundGram = BigInt((await e3.repo.getInbound('c-offband')).valueNano);
@@ -1043,7 +1044,7 @@ await test('[d1-sqlite] P0-I: commitInbound order-race commits ANOMALY in ONE db
   const e = new D1PresaleStore({ db: monitoredDb, hotWalletAddress: HOT, open: true });
   const o = await e.createOrderIntent('EQ_RACE_A', '10', 1000);
   // 模拟 planInbound 时订单有效，随后在 commitInbound 前订单刚过期释放
-  const plan = await e.planInbound({ txHash: 'tx-race-atomic', finality: 'finalized', to: HOT, from: 'EQ_RACE_A', valueNano: o.tonNano, memo: o.memo }, 1005);
+  const plan = await e.planInbound({ txHash: 'tx-race-atomic', finality: 'finalized', to: HOT, from: 'EQ_RACE_A', valueNano: o.payTonNano, memo: o.memo }, 1005);
   assert.equal(plan.action, 'CONFIRM');
   await rawDb.prepare('UPDATE presale_orders SET expires_at = 1001 WHERE order_id = ?').bind(o.orderId).run();
 
@@ -1052,7 +1053,7 @@ await test('[d1-sqlite] P0-I: commitInbound order-race commits ANOMALY in ONE db
   crashAfterCommit = true;
   await assert.rejects(
     e.repo.commitInbound({
-      inbound: { txHash: 'tx-race-atomic', orderId: o.orderId, sender: 'EQ_RACE_A', valueNano: o.tonNano, memo: o.memo, decision: plan.action, reason: plan.reason, createdAt: 1005 },
+      inbound: { txHash: 'tx-race-atomic', orderId: o.orderId, sender: 'EQ_RACE_A', valueNano: o.payTonNano, memo: o.memo, decision: plan.action, reason: plan.reason, createdAt: 1005 },
       orderUpdate: { orderId: o.orderId, from: [PRESALE_STATUS.PENDING_PAYMENT, PRESALE_STATUS.PENDING_TON], notExpiredAt: 1005, patch: { status: PRESALE_STATUS.PAYMENT_CONFIRMED, inboundTxHash: 'tx-race-atomic', updatedAt: 1005 } },
       payout: null,
     }),
@@ -1062,7 +1063,7 @@ await test('[d1-sqlite] P0-I: commitInbound order-race commits ANOMALY in ONE db
   assert.equal(batchCalls, 1);
   assert.equal(postBatchWrites, 0);
 
-  // 重启新建引擎实例：无需二次修补，异常队列已可靠记录该笔入账；重扫同一 txHash 返回 REPLAY；人工可全额退款
+  // 重启新建引擎实例：无需二次修补，异常队列已可靠记录该笔入账；重扫同一 txHash 返回 REPLAY；人工可退款（扣除 0.03 GRAM 链上退回 Gas）
   const restarted = new D1PresaleStore({ db: rawDb, hotWalletAddress: HOT, open: true });
   const row = await restarted.repo.getInbound('tx-race-atomic');
   assert.equal(row.decision, 'ANOMALY');
@@ -1071,11 +1072,11 @@ await test('[d1-sqlite] P0-I: commitInbound order-race commits ANOMALY in ONE db
   assert.equal(row.refundTo, 'EQ_RACE_A');
   assert.equal((await restarted.getOrder(o.orderId)).status, PRESALE_STATUS.PENDING_PAYMENT);
   assert.equal((await restarted.listAnomalies('OPEN')).length, 1);
-  const rescan = await restarted.ingestInbound({ txHash: 'tx-race-atomic', finality: 'finalized', to: HOT, from: 'EQ_RACE_A', valueNano: o.tonNano, memo: o.memo }, 1010);
+  const rescan = await restarted.ingestInbound({ txHash: 'tx-race-atomic', finality: 'finalized', to: HOT, from: 'EQ_RACE_A', valueNano: o.payTonNano, memo: o.memo }, 1010);
   assert.equal(rescan.action, 'REPLAY');
   const resolved = await restarted.resolveAnomaly('tx-race-atomic', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops' }, 1015);
   assert.equal(resolved.status, 'REFUND_QUEUED');
-  assert.equal(resolved.refundNano, o.tonNano);
+  assert.equal(resolved.refundNano, (BigInt(o.payTonNano) - 30_000_000n).toString());
   await restarted.processPayouts(1020, { refundBroadcaster: async () => ({ txHash: 'rf-race-1' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
   assert.equal((await restarted.repo.getPayout('refund:tx-race-atomic')).status, 'CONFIRMED');
 
@@ -1094,11 +1095,11 @@ await test('[d1-sqlite] P0-I: commitInbound order-race commits ANOMALY in ONE db
   };
   const eFail = new D1PresaleStore({ db: rollbackDb, hotWalletAddress: HOT, open: true });
   await assert.rejects(
-    eFail.ingestInbound({ txHash: 'tx-rollback-then-recover', finality: 'finalized', to: HOT, from: 'EQ_RACE_B', valueNano: o2.tonNano, memo: o2.memo }, 2005),
+    eFail.ingestInbound({ txHash: 'tx-rollback-then-recover', finality: 'finalized', to: HOT, from: 'EQ_RACE_B', valueNano: o2.payTonNano, memo: o2.memo }, 2005),
   );
   assert.equal(await restarted.repo.getInbound('tx-rollback-then-recover'), null);
   assert.equal((await restarted.getOrder(o2.orderId)).status, PRESALE_STATUS.PENDING_PAYMENT);
-  const recovered = await restarted.ingestInbound({ txHash: 'tx-rollback-then-recover', finality: 'finalized', to: HOT, from: 'EQ_RACE_B', valueNano: o2.tonNano, memo: o2.memo }, 2006);
+  const recovered = await restarted.ingestInbound({ txHash: 'tx-rollback-then-recover', finality: 'finalized', to: HOT, from: 'EQ_RACE_B', valueNano: o2.payTonNano, memo: o2.memo }, 2006);
   assert.equal(recovered.action, 'CONFIRM');
   assert.equal((await restarted.getOrder(o2.orderId)).status, PRESALE_STATUS.PAYMENT_CONFIRMED);
 });
@@ -1138,10 +1139,10 @@ if (BACKENDS.some(([n]) => n === 'd1-miniflare')) {
 
     // 真实 D1 上验证多笔错付同一订单均可独立退款
     const oA = await e.createOrderIntent('EQ_MF_A', '10', 300);
-    await e.ingestInbound({ txHash: 'mf-b', finality: 'finalized', to: HOT, from: 'EQ_MF_B', valueNano: oA.tonNano, memo: oA.memo }, 301);
-    await e.ingestInbound({ txHash: 'mf-c', finality: 'finalized', to: HOT, from: 'EQ_MF_C', valueNano: oA.tonNano, memo: oA.memo }, 302);
-    assert.equal((await e.resolveAnomaly('mf-b', { decision: 'REFUND', faultParty: 'USER', operator: 'ops' }, 303)).refundNano, '10000000000');
-    assert.equal((await e.resolveAnomaly('mf-c', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 304)).refundNano, '10000000000');
+    await e.ingestInbound({ txHash: 'mf-b', finality: 'finalized', to: HOT, from: 'EQ_MF_B', valueNano: oA.payTonNano, memo: oA.memo }, 301);
+    await e.ingestInbound({ txHash: 'mf-c', finality: 'finalized', to: HOT, from: 'EQ_MF_C', valueNano: oA.payTonNano, memo: oA.memo }, 302);
+    assert.equal((await e.resolveAnomaly('mf-b', { decision: 'REFUND', faultParty: 'USER', operator: 'ops' }, 303)).refundNano, '10030000000');
+    assert.equal((await e.resolveAnomaly('mf-c', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 304)).refundNano, '10030000000');
 
     // 真实 D1 上验证 db.batch() 崩溃回滚原子性（P0-E）
     let crashOnce = true;
@@ -1210,7 +1211,7 @@ if (BACKENDS.some(([n]) => n === 'd1-miniflare')) {
     const eRaceMf = new D1PresaleStore({ db: raceDb, hotWalletAddress: HOT, open: true });
     await assert.rejects(
       eRaceMf.repo.commitInbound({
-        inbound: { txHash: 'mf-race-tx', orderId: oRaceMf.orderId, sender: 'EQ_MF_RACE', valueNano: oRaceMf.tonNano, memo: oRaceMf.memo, decision: 'CONFIRM', reason: 'valid', createdAt: 505 },
+        inbound: { txHash: 'mf-race-tx', orderId: oRaceMf.orderId, sender: 'EQ_MF_RACE', valueNano: oRaceMf.payTonNano, memo: oRaceMf.memo, decision: 'CONFIRM', reason: 'valid', createdAt: 505 },
         orderUpdate: { orderId: oRaceMf.orderId, from: [PRESALE_STATUS.PENDING_PAYMENT, PRESALE_STATUS.PENDING_TON], notExpiredAt: 505, patch: { status: PRESALE_STATUS.PAYMENT_CONFIRMED, inboundTxHash: 'mf-race-tx', updatedAt: 505 } },
         payout: null,
       }),
@@ -1223,8 +1224,8 @@ if (BACKENDS.some(([n]) => n === 'd1-miniflare')) {
     assert.equal(mfRow.reason, 'order_state_race');
     assert.equal(mfRow.anomalyStatus, 'OPEN');
     assert.equal(mfRow.refundTo, 'EQ_MF_RACE');
-    assert.equal((await e.ingestInbound({ txHash: 'mf-race-tx', finality: 'finalized', to: HOT, from: 'EQ_MF_RACE', valueNano: oRaceMf.tonNano, memo: oRaceMf.memo }, 510)).action, 'REPLAY');
-    assert.equal((await e.resolveAnomaly('mf-race-tx', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops' }, 512)).refundNano, oRaceMf.tonNano);
+    assert.equal((await e.ingestInbound({ txHash: 'mf-race-tx', finality: 'finalized', to: HOT, from: 'EQ_MF_RACE', valueNano: oRaceMf.payTonNano, memo: oRaceMf.memo }, 510)).action, 'REPLAY');
+    assert.equal((await e.resolveAnomaly('mf-race-tx', { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops' }, 512)).refundNano, (BigInt(oRaceMf.payTonNano) - 30_000_000n).toString());
   });
 }
 
@@ -1651,7 +1652,7 @@ await test('admin anomaly API requires the admin token and resolves with an audi
   assert.equal(list.body.data.length, 1);
   const res = await route({ method: 'POST', pathname: '/api/admin/presale/anomalies/adm-1/resolve', headers: { 'x-a9-admin-token': 'adm-p0' }, body: { decision: 'REFUND', faultParty: 'SYSTEM', operator: 'ops-alice', note: 'memo typo by our UI' }, nowSec: 102 });
   assert.equal(res.status, 200);
-  assert.equal(res.body.data.refundNano, '7000000000');
+  assert.equal(res.body.data.refundNano, '6970000000');
   const [row] = await presale.listAnomalies(null);
   assert.equal(row.resolvedBy, 'ops-alice');
   assert.equal(row.faultParty, 'SYSTEM');
@@ -1871,7 +1872,7 @@ await test('Step 0 & Knife 2: Item shop/inventory fully removed (404), pure 1 GR
     const ord = (await route({ method: 'POST', pathname: '/api/presale/intent', headers: hRookie, body: { gramAmount: '5' }, nowSec: nowSec + 140 })).body.data;
     assert.equal(ord.a9AmountRaw, '10010000000000');
     assert.equal('skuId' in ord, false);
-    await presaleEngine.ingestInbound({ txHash: 'tx-k2-5g', finality: 'finalized', to: HOT, from: 'EQ_ROOKIE_K2', valueNano: ord.tonNano, memo: ord.memo }, nowSec + 145);
+    await presaleEngine.ingestInbound({ txHash: 'tx-k2-5g', finality: 'finalized', to: HOT, from: 'EQ_ROOKIE_K2', valueNano: ord.payTonNano, memo: ord.memo }, nowSec + 145);
     await presaleEngine.queueConfirmedPayouts(nowSec + 146);
     await presaleEngine.processPayouts(nowSec + 147, { a9Broadcaster: async () => ({ txHash: 'out-k2-5g' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
     const actOk = await route({ method: 'POST', pathname: '/api/prediction/activate', headers: hRookie, body: {}, nowSec: nowSec + 150 });
@@ -2190,14 +2191,14 @@ await test('Knife 3: TG squad broadcaster (disabled by default, bound-only targe
     const presale = makePresale(bot);
     // 10 GRAM 小单 -> 不推送
     const oSmall = await presale.createOrderIntent('EQ_MEM_WHALE', '10', nowSec);
-    await presale.ingestInbound({ txHash: 'tx-small-10', finality: 'finalized', to: HOT, from: 'EQ_MEM_WHALE', valueNano: oSmall.tonNano, memo: oSmall.memo }, nowSec + 1);
+    await presale.ingestInbound({ txHash: 'tx-small-10', finality: 'finalized', to: HOT, from: 'EQ_MEM_WHALE', valueNano: oSmall.payTonNano, memo: oSmall.memo }, nowSec + 1);
     await presale.queueConfirmedPayouts(nowSec + 2);
     await presale.processPayouts(nowSec + 3, { a9Broadcaster: async () => ({ txHash: 'out-small-10' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
     const countBeforeWhale = sentCalls.length;
 
     // 50 GRAM 大单 -> 仅向买家所属战队群 (-100888999) 推 1 条捷报
     const oWhale = await presale.createOrderIntent('EQ_MEM_WHALE', '50', nowSec + 10);
-    await presale.ingestInbound({ txHash: 'tx-whale-50', finality: 'finalized', to: HOT, from: 'EQ_MEM_WHALE', valueNano: oWhale.tonNano, memo: oWhale.memo }, nowSec + 11);
+    await presale.ingestInbound({ txHash: 'tx-whale-50', finality: 'finalized', to: HOT, from: 'EQ_MEM_WHALE', valueNano: oWhale.payTonNano, memo: oWhale.memo }, nowSec + 11);
     await presale.queueConfirmedPayouts(nowSec + 12);
     await presale.processPayouts(nowSec + 13, { a9Broadcaster: async () => ({ txHash: 'out-whale-50' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
     assert.equal(sentCalls.length, countBeforeWhale + 1);
@@ -2209,7 +2210,7 @@ await test('Knife 3: TG squad broadcaster (disabled by default, bound-only targe
     // Telegram API 故障时绝不阻塞主链路的 COMPLETED 状态确认
     failTelegramApi = true;
     const oFailPush = await presale.createOrderIntent('EQ_MEM_WHALE', '60', nowSec + 20);
-    await presale.ingestInbound({ txHash: 'tx-whale-60', finality: 'finalized', to: HOT, from: 'EQ_MEM_WHALE', valueNano: oFailPush.tonNano, memo: oFailPush.memo }, nowSec + 21);
+    await presale.ingestInbound({ txHash: 'tx-whale-60', finality: 'finalized', to: HOT, from: 'EQ_MEM_WHALE', valueNano: oFailPush.payTonNano, memo: oFailPush.memo }, nowSec + 21);
     await presale.queueConfirmedPayouts(nowSec + 22);
     await presale.processPayouts(nowSec + 23, { a9Broadcaster: async () => ({ txHash: 'out-whale-60' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
     assert.equal((await presale.getOrder(oFailPush.orderId)).status, PRESALE_STATUS.COMPLETED);

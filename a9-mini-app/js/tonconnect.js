@@ -423,17 +423,18 @@ class A9TonConnect {
     return await this._dispatch(buildV15PromoFeeTx(intent), 'demo_v15_promo');
   }
 
-  /** v15/v16 宝箱商城 / A9 固定兑换 GRAM 支付（memo = buy:<orderId>）。 */
+  /** v15/v16 宝箱商城 / A9 固定兑换 GRAM 支付（memo = buy:<orderId>，实付含 0.06 GRAM 发币 Gas）。 */
   async sendV15PresaleTx(order) {
     if (!config.isDemo && !liveFundsReady()) throw createFundsDisabledError();
-    if (!order?.payTo || !order?.memo || !order?.tonNano) {
+    const payNano = order?.payTonNano || order?.tonNano;
+    if (!order?.payTo || !order?.memo || !payNano) {
       const err = new Error('宝箱商城付款单无效，请重新下单');
       err.code = 'BAD_PRESALE_ORDER';
       throw err;
     }
     return await this._dispatch(buildV15PresaleTx({
       payTo: order.payTo,
-      tonNano: order.tonNano,
+      tonNano: payNano,
       memo: order.memo,
     }), 'demo_v15_presale');
   }

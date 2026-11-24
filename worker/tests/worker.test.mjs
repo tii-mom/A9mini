@@ -248,9 +248,11 @@ await test('PresaleHotWalletEngine handles valid fill, passive free refund, no-o
   const order = await engine.createOrderIntent(ALICE, 10, 1000);
   assert.equal(order.status, PRESALE_STATUS.PENDING_PAYMENT);
   assert.equal(order.tonNano, '10000000000');
+  assert.equal(order.deliveryFeeNano, '60000000');
+  assert.equal(order.payTonNano, '10060000000');
 
-  // Valid 10 GRAM finalized -> PAYMENT_CONFIRMED -> queued 20,000 A9 payout with excesses back to HOT
-  const fill = await engine.ingestInbound({ txHash: 'p1', finality: 'finalized', to: HOT, from: ALICE, valueNano: '10000000000', memo: order.memo }, 1010);
+  // Valid 10.06 GRAM (10 GRAM principal + 0.06 GRAM delivery gas) finalized -> PAYMENT_CONFIRMED -> queued 20,000 A9 payout with excesses back to HOT
+  const fill = await engine.ingestInbound({ txHash: 'p1', finality: 'finalized', to: HOT, from: ALICE, valueNano: order.payTonNano, memo: order.memo }, 1010);
   assert.equal(fill.action, 'CONFIRM');
   assert.equal((await engine.getOrder(order.orderId)).status, PRESALE_STATUS.PAYMENT_CONFIRMED);
   assert.equal(await engine.queueConfirmedPayouts(1011), 1);
@@ -264,7 +266,7 @@ await test('PresaleHotWalletEngine handles valid fill, passive free refund, no-o
   const dust = await engine.ingestInbound({ txHash: 'p2', finality: 'finalized', to: HOT, from: ALICE, valueNano: '100000000', memo: '' }, 1020);
   assert.equal(dust.action, 'IGNORE_DUST');
 
-  // No matching order -> recorded as an ANOMALY for review: no auto payout, no automatic fee.
+  // No matching order -> recorded as an ANOMALY for review: no auto payout; refund deducts 0.03 GRAM on-chain refund gas.
   const fault = await engine.ingestInbound({ txHash: 'p3', finality: 'finalized', to: HOT, from: ALICE, valueNano: '95000000000', memo: '' }, 1030);
   assert.equal(fault.action, 'ANOMALY');
   assert.equal(fault.reason, 'no_matching_order');
@@ -272,18 +274,17 @@ await test('PresaleHotWalletEngine handles valid fill, passive free refund, no-o
   const [anomaly] = await engine.listAnomalies();
   assert.equal(anomaly.refundTo, ALICE);
   assert.equal(anomaly.valueNano, '95000000000');
-  // P0-D: 未配置已公示扣费规则时，USER 责任方也按零手续费全额退款，绝不阻止本金退还。
   const resolved = await engine.resolveAnomaly('p3', { decision: 'REFUND', faultParty: 'USER', operator: 'ops1' }, 1032);
-  assert.equal(resolved.refundNano, '95000000000');
-  assert.equal(resolved.feeNano, '0');
+  assert.equal(resolved.refundNano, '94970000000');
+  assert.equal(resolved.feeNano, '30000000');
 
-  // Passive refund (closed + >= 1 GRAM) -> 100% free full refund
+  // Passive refund (closed) -> deducts 0.03 GRAM on-chain refund gas so hot wallet bears 0 gas
   const order2 = await engine.createOrderIntent(ALICE, 5, 1035);
   engine.open = false;
-  const passive = await engine.ingestInbound({ txHash: 'p4', finality: 'finalized', to: HOT, from: ALICE, valueNano: '5000000000', memo: order2.memo }, 1040);
+  const passive = await engine.ingestInbound({ txHash: 'p4', finality: 'finalized', to: HOT, from: ALICE, valueNano: order2.payTonNano, memo: order2.memo }, 1040);
   assert.equal(passive.action, 'REFUND');
-  assert.equal(passive.refundNano, 5000000000n);
-  assert.equal(passive.feeDeducted, false);
+  assert.equal(passive.refundNano, 5030000000n);
+  assert.equal(passive.feeDeducted, true);
   assert.equal((await engine.getOrder(order2.orderId)).status, PRESALE_STATUS.REFUND_PENDING);
 });
 
@@ -410,7 +411,7 @@ await test('PresalePayoutRunner polls buy:<id> finalized GRAM, broadcasts A9 pay
 
   const fakeTc = {
     fetchInboundTransfers: async () => [
-      { txHash: 'buy-tx-1', finality: 'finalized', to: HOT, from: USER, valueNano: '1000000000', memo: order.memo },
+      { txHash: 'buy-tx-1', finality: 'finalized', to: HOT, from: USER, valueNano: order.payTonNano, memo: order.memo },
       { txHash: 'other-tx', finality: 'finalized', to: HOT, from: USER, valueNano: '60000000', memo: 'claim:xyz' },
     ],
   };
@@ -471,7 +472,7 @@ await test('First-touch referral binding blocks self/mutual invites and credits 
 
   // Presale 10 GRAM -> 20,000 A9 -> 12% = 2,400 A9, booked only after the payout is confirmed.
   const order = await presale.createOrderIntent(BUYER, 10, 200, { referrerId: social.getReferrer(BUYER) });
-  await presale.ingestInbound({ txHash: 'ref-buy-1', finality: 'finalized', to: HOT, from: BUYER, valueNano: '10000000000', memo: order.memo }, 210);
+  await presale.ingestInbound({ txHash: 'ref-buy-1', finality: 'finalized', to: HOT, from: BUYER, valueNano: order.payTonNano, memo: order.memo }, 210);
   await presale.queueConfirmedPayouts(211);
   await presale.processReferralCredits(211);
   assert.equal(promo.getBalance(REF).claimableRaw, '0');
@@ -822,7 +823,7 @@ await test('D1 full-stack persistence loop (real SQLite): bindReferral -> placeB
   const ordRes = await route({ method: 'POST', pathname: '/api/presale/intent', body: { gramAmount: '5', referrerId: REF }, headers: await H(2020), nowSec: 2020 });
   assert.equal(ordRes.status, 200);
   const ord = ordRes.body.data;
-  await presale.ingestInbound({ txHash: 'tx-in-d1', finality: 'finalized', to: HOT, from: USER_W, valueNano: ord.tonNano, memo: ord.memo }, 2025);
+  await presale.ingestInbound({ txHash: 'tx-in-d1', finality: 'finalized', to: HOT, from: USER_W, valueNano: ord.payTonNano, memo: ord.memo }, 2025);
   await presale.queueConfirmedPayouts(2026);
   await presale.processPayouts(2027, { a9Broadcaster: async () => ({ txHash: 'tx-out-d1' }), verifier: async () => ({ state: 'CONFIRMED' }) });
   await presale.processReferralCredits(2030);
@@ -1537,7 +1538,7 @@ await test('W2-3: TonCenter v3 verifyOutboundPayout checks downstream A9/REFUND 
   const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT, open: true });
   const ord = await presale.createOrderIntent(BUYER, '5', 1000);
   await presale.ingestInbound(
-    { txHash: 'in_crash_1', finality: 'finalized', to: HOT, from: BUYER, valueNano: ord.tonNano, memo: ord.memo },
+    { txHash: 'in_crash_1', finality: 'finalized', to: HOT, from: BUYER, valueNano: ord.payTonNano, memo: ord.memo },
     1005,
   );
   await presale.queueConfirmedPayouts(1006);
@@ -2012,7 +2013,7 @@ await test('W2-8: Security audit regressions (queryId rotation, cursor freeze, v
   const presale1 = new D1PresaleStore({ db: db1, hotWalletAddress: HOT, open: true });
   const ord = await presale1.createOrderIntent(BUYER, '5', 2000);
   await presale1.ingestInbound(
-    { txHash: 'in_rot_1', finality: 'finalized', to: HOT, from: BUYER, valueNano: ord.tonNano, memo: ord.memo },
+    { txHash: 'in_rot_1', finality: 'finalized', to: HOT, from: BUYER, valueNano: ord.payTonNano, memo: ord.memo },
     2005,
   );
   await presale1.queueConfirmedPayouts(2006);
