@@ -347,6 +347,25 @@ export class PredictionEngine {
       pendingExpiresAt: st.pendingExpiresAt,
     };
   }
+
+  listExpiringPendingVaults({ nowMs = Date.now(), windowMs = 6 * 3600 * 1000, limit = 50 } = {}) {
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(Number(limit) || 50)));
+    const deadlineMs = Number(nowMs) + Number(windowMs);
+    const matches = [];
+    for (const [uid, st] of this.userStats.entries()) {
+      if (st.pendingActivationRaw <= 0n || st.pendingExpiresAt === null) continue;
+      const exp = Number(st.pendingExpiresAt);
+      if (exp > nowMs && exp <= deadlineMs) {
+        matches.push({
+          userId: uid,
+          pendingActivationRaw: st.pendingActivationRaw.toString(),
+          pendingExpiresAt: exp,
+        });
+      }
+    }
+    matches.sort((a, b) => a.pendingExpiresAt - b.pendingExpiresAt);
+    return matches.slice(0, safeLimit);
+  }
 }
 
 // ---------------------------------------------------------------------------

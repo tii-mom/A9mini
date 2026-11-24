@@ -668,12 +668,37 @@ export function tickDemoPrice(r) {
 
 /* ---------------- 演示模式：宝箱商城与免费裂变宝箱（DEMO ONLY） ---------------- */
 
+export const DEMO_PAID_CHEST_CRIT_TIERS = [
+  { key: 'normal',    labelZh: '常规奖励', labelEn: 'Normal Bonus',   weight: 75, minRatio: 0.0,  maxRatio: 0.15, isCrit: false },
+  { key: 'lucky',     labelZh: '幸运暴击', labelEn: 'Lucky Bonus',    weight: 18, minRatio: 0.15, maxRatio: 0.35, isCrit: false },
+  { key: 'epic',      labelZh: '史诗暴击', labelEn: 'Epic Crit',      weight: 6,  minRatio: 0.35, maxRatio: 0.65, isCrit: true },
+  { key: 'legendary', labelZh: '传说暴击', labelEn: 'Legendary Crit', weight: 1,  minRatio: 0.65, maxRatio: 1.0,  isCrit: true }
+];
+
+function rollDemoPaidChestBonusRaw(maxBoostA9Raw) {
+  const maxBonus = BigInt(String(maxBoostA9Raw || '0'));
+  if (maxBonus <= 0n) return { bonusRaw: 0n, critTier: 'normal', isCrit: false };
+  const rollPct = Math.random() * 100;
+  let acc = 0;
+  let chosen = DEMO_PAID_CHEST_CRIT_TIERS[0];
+  for (const t of DEMO_PAID_CHEST_CRIT_TIERS) {
+    acc += t.weight;
+    if (rollPct < acc) {
+      chosen = t;
+      break;
+    }
+  }
+  const ratio = chosen.minRatio + Math.random() * (chosen.maxRatio - chosen.minRatio);
+  const ratioBps = Math.max(0, Math.min(10000, Math.round(ratio * 10000)));
+  return { bonusRaw: (maxBonus * BigInt(ratioBps)) / 10000n, critTier: chosen.key, isCrit: chosen.isCrit };
+}
+
 export const DEMO_CHEST_SKUS = [
-  { skuId: 'chest_bronze',   tier: 'bronze',   zh: '青铜宝箱', en: 'Bronze Chest',   priceGram: '0.99',  deliveryFeeGram: '0.06', totalPayGram: '1.05',   baseA9: 1981.98,   maxBoostPct: 2,   maxBoostA9: 39.64,    requiredAssists: 2 },
-  { skuId: 'chest_silver',   tier: 'silver',   zh: '白银宝箱', en: 'Silver Chest',   priceGram: '4.99',  deliveryFeeGram: '0.06', totalPayGram: '5.05',   baseA9: 9989.98,   maxBoostPct: 3,   maxBoostA9: 299.70,   requiredAssists: 3 },
-  { skuId: 'chest_gold',     tier: 'gold',     zh: '黄金宝箱', en: 'Gold Chest',     priceGram: '9.99',  deliveryFeeGram: '0.06', totalPayGram: '10.05',  baseA9: 19999.98,  maxBoostPct: 4,   maxBoostA9: 800.00,   requiredAssists: 4 },
-  { skuId: 'chest_platinum', tier: 'platinum', zh: '白金宝箱', en: 'Platinum Chest', priceGram: '19.99', deliveryFeeGram: '0.06', totalPayGram: '20.05',  baseA9: 40019.98,  maxBoostPct: 4.5, maxBoostA9: 1800.90,  requiredAssists: 5 },
-  { skuId: 'chest_diamond',  tier: 'diamond',  zh: '钻石宝箱', en: 'Diamond Chest',  priceGram: '99.99', deliveryFeeGram: '0.06', totalPayGram: '100.05', baseA9: 200179.98, maxBoostPct: 5,   maxBoostA9: 10009.00, requiredAssists: 6 }
+  { skuId: 'chest_bronze',   tier: 'bronze',   zh: '青铜宝箱', en: 'Bronze Chest',   priceGram: '0.99',  deliveryFeeGram: '0.06', totalPayGram: '1.05',   baseA9: 1981.98,   maxBoostPct: 5,  maxBoostA9: 99.10,    requiredAssists: 0 },
+  { skuId: 'chest_silver',   tier: 'silver',   zh: '白银宝箱', en: 'Silver Chest',   priceGram: '4.99',  deliveryFeeGram: '0.06', totalPayGram: '5.05',   baseA9: 9989.98,   maxBoostPct: 10, maxBoostA9: 999.00,   requiredAssists: 0 },
+  { skuId: 'chest_gold',     tier: 'gold',     zh: '黄金宝箱', en: 'Gold Chest',     priceGram: '9.99',  deliveryFeeGram: '0.06', totalPayGram: '10.05',  baseA9: 19999.98,  maxBoostPct: 15, maxBoostA9: 3000.00,  requiredAssists: 0 },
+  { skuId: 'chest_platinum', tier: 'platinum', zh: '白金宝箱', en: 'Platinum Chest', priceGram: '19.99', deliveryFeeGram: '0.06', totalPayGram: '20.05',  baseA9: 40019.98,  maxBoostPct: 20, maxBoostA9: 8004.00,  requiredAssists: 0 },
+  { skuId: 'chest_diamond',  tier: 'diamond',  zh: '钻石宝箱', en: 'Diamond Chest',  priceGram: '99.99', deliveryFeeGram: '0.06', totalPayGram: '100.05', baseA9: 200179.98, maxBoostPct: 30, maxBoostA9: 60054.00, requiredAssists: 0 }
 ];
 
 const demoChestStore = {
@@ -729,12 +754,12 @@ function ensureDemoChests() {
       labelEn: 'Gold Chest',
       orderId: 'IM-DEMO-1',
       baseA9Raw: '19999980000000',
-      boostA9Raw: '350000000000',
-      maxBoostA9Raw: '799999200000',
-      requiredAssists: 4,
-      currentAssists: 1,
-      status: 'ACTIVE',
-      expiresAt: nowSec + 18 * 3600,
+      boostA9Raw: '0',
+      maxBoostA9Raw: '2999997000000',
+      requiredAssists: 0,
+      currentAssists: 0,
+      status: 'READY',
+      expiresAt: null,
       createdAt: nowSec - 6 * 3600
     }
   ];
@@ -746,6 +771,7 @@ export function demoChestsMe() {
   const s = ensureDemoChests();
   return {
     catalog: DEMO_CHEST_SKUS,
+    critTiers: DEMO_PAID_CHEST_CRIT_TIERS,
     freeChests: s.freeChests.map((c) => ({ ...c })),
     shopChests: s.shopChests.map((c) => ({ ...c })),
     chestHoldings: computeDemoChestHoldings(s)
@@ -757,7 +783,7 @@ export function demoClaimStarterChests() {
   return { created: false, chests: s.freeChests.map((c) => ({ ...c })) };
 }
 
-export function demoBuyChest(state, skuId, openMode = 'BOOST') {
+export function demoBuyChest(state, skuId, _openMode = 'BOOST') {
   const pack = DEMO_CHEST_SKUS.find((p) => p.skuId === skuId);
   if (!pack) return { error: '未知宝箱档位' };
   const price = Number(pack.priceGram);
@@ -766,45 +792,38 @@ export function demoBuyChest(state, skuId, openMode = 'BOOST') {
   state.user.tonBalance = Number((state.user.tonBalance - totalPay).toFixed(2));
   state.user.a9Available = Number((state.user.a9Available + pack.baseA9).toFixed(2));
   const orderId = `CM-${Date.now().toString().slice(-4)}`;
-  const mode = openMode === 'INSTANT' ? 'INSTANT' : 'BOOST';
   state.market.records.unshift({
     id: orderId,
     skuId: pack.skuId,
     ton: totalPay,
     a9: pack.baseA9,
-    status: mode === 'BOOST' ? '演示已发本金·膨胀中' : '演示直接开箱',
+    status: '演示已发本金·待开暴击',
     hash: demoTxHash('EQC'),
     time: '刚刚'
   });
-  let boostChest = null;
   const s = ensureDemoChests();
-  if (mode === 'BOOST') {
-    const nowSec = Math.floor(Date.now() / 1000);
-    const baseRaw = BigInt(Math.round(pack.baseA9 * 1e9));
-    const maxRaw = BigInt(Math.round(pack.maxBoostA9 * 1e9));
-    const initRaw = baseRaw / 100n;
-    boostChest = {
-      chestId: `ch_demo_${Date.now().toString(36)}`,
-      source: 'SHOP_BOOST',
-      tier: pack.tier,
-      slotIndex: 1,
-      labelZh: pack.zh,
-      labelEn: pack.en,
-      orderId,
-      baseA9Raw: baseRaw.toString(),
-      boostA9Raw: initRaw.toString(),
-      maxBoostA9Raw: maxRaw.toString(),
-      requiredAssists: pack.requiredAssists,
-      currentAssists: 0,
-      status: 'ACTIVE',
-      expiresAt: nowSec + 24 * 3600,
-      createdAt: nowSec
-    };
-    s.shopChests.unshift(boostChest);
-  } else {
-    s.instantOrders.unshift({ orderId, skuId: pack.skuId, tier: pack.tier, status: 'COMPLETED' });
-  }
-  return { orderId, pack, openMode: mode, receivedA9: pack.baseA9, boostChest };
+  const nowSec = Math.floor(Date.now() / 1000);
+  const baseRaw = BigInt(Math.round(pack.baseA9 * 1e9));
+  const maxRaw = BigInt(Math.round(pack.maxBoostA9 * 1e9));
+  const boostChest = {
+    chestId: `ch_demo_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
+    source: 'SHOP_BOOST',
+    tier: pack.tier,
+    slotIndex: 1,
+    labelZh: pack.zh,
+    labelEn: pack.en,
+    orderId,
+    baseA9Raw: baseRaw.toString(),
+    boostA9Raw: '0',
+    maxBoostA9Raw: maxRaw.toString(),
+    requiredAssists: 0,
+    currentAssists: 0,
+    status: 'READY',
+    expiresAt: null,
+    createdAt: nowSec
+  };
+  s.shopChests.unshift(boostChest);
+  return { orderId, pack, openMode: 'BOOST', receivedA9: pack.baseA9, boostChest };
 }
 
 export function demoGetChest(chestId) {
@@ -888,10 +907,78 @@ export function demoOpenChest(state, chestId) {
   const sc = s.shopChests.find((c) => c.chestId === chestId);
   if (!sc) throw new Error('未找到宝箱');
   if (sc.status === 'OPENED') throw new Error('该宝箱已开箱');
+  const rolled = rollDemoPaidChestBonusRaw(sc.maxBoostA9Raw);
+  sc.boostA9Raw = rolled.bonusRaw.toString();
   sc.status = 'OPENED';
-  const boostA9 = Number(BigInt(sc.boostA9Raw)) / 1e9;
+  const boostA9 = Number(rolled.bonusRaw) / 1e9;
   state.user.a9Available = Number((state.user.a9Available + boostA9).toFixed(2));
-  return { chest: { ...sc }, rewardA9Raw: sc.boostA9Raw, destination: 'PROMO_BALANCE', nextUnlocked: null };
+  if (rolled.isCrit) {
+    demoCritFeedItems.unshift({
+      chestId: sc.chestId,
+      actor: state?.user?.shortAddress || 'UQ...489f',
+      tier: sc.tier,
+      labelZh: sc.labelZh,
+      labelEn: sc.labelEn,
+      boostA9Raw: sc.boostA9Raw,
+      maxBoostA9Raw: sc.maxBoostA9Raw,
+      critTier: rolled.critTier,
+      ratioBps: rolled.critTier === 'legendary' ? 8200 : 4800,
+      openedAt: Math.floor(Date.now() / 1000)
+    });
+    if (demoCritFeedItems.length > 15) demoCritFeedItems.length = 15;
+  }
+  return {
+    chest: { ...sc },
+    rewardA9Raw: sc.boostA9Raw,
+    destination: 'PROMO_BALANCE',
+    nextUnlocked: null,
+    critTier: rolled.critTier,
+    isCrit: rolled.isCrit,
+    budgetCapped: false
+  };
+}
+
+const demoCritFeedItems = [
+  { chestId: 'ch_demo_crit_1', actor: 'UQ9F...8821', tier: 'diamond',  labelZh: '钻石宝箱', labelEn: 'Diamond Chest',  boostA9Raw: '49244275080000', maxBoostA9Raw: '60053994000000', critTier: 'legendary', ratioBps: 8200, openedAt: Math.floor(Date.now() / 1000) - 95 },
+  { chestId: 'ch_demo_crit_2', actor: 'EQ3A...410C', tier: 'platinum', labelZh: '白金宝箱', labelEn: 'Platinum Chest', boostA9Raw: '4162077920000',  maxBoostA9Raw: '8003996000000',  critTier: 'epic',      ratioBps: 5200, openedAt: Math.floor(Date.now() / 1000) - 260 },
+  { chestId: 'ch_demo_crit_3', actor: 'TG·**7392',   tier: 'gold',     labelZh: '黄金宝箱', labelEn: 'Gold Chest',     boostA9Raw: '2339997660000',  maxBoostA9Raw: '2999997000000',  critTier: 'legendary', ratioBps: 7800, openedAt: Math.floor(Date.now() / 1000) - 510 },
+  { chestId: 'ch_demo_crit_4', actor: 'UQ7B...19E4', tier: 'silver',   labelZh: '白银宝箱', labelEn: 'Silver Chest',   boostA9Raw: '459539080000',   maxBoostA9Raw: '998998000000',   critTier: 'epic',      ratioBps: 4600, openedAt: Math.floor(Date.now() / 1000) - 880 }
+];
+
+export function demoChestCritFeed(limit = 12) {
+  const n = Math.max(1, Math.min(30, Math.floor(Number(limit) || 12)));
+  return { items: demoCritFeedItems.slice(0, n).map((it) => ({ ...it })) };
+}
+
+export function demoOpenAllChests(state, tier = null) {
+  const s = ensureDemoChests();
+  const filterTier = tier ? String(tier).trim().toLowerCase() : null;
+  const targets = s.shopChests
+    .filter((c) => c.status !== 'OPENED')
+    .filter((c) => (!filterTier ? true : String(c.tier || '').toLowerCase() === filterTier));
+  let totalRewardRaw = 0n;
+  let totalBaseRaw = 0n;
+  let critCount = 0;
+  let legendaryCount = 0;
+  const results = [];
+  for (const c of targets) {
+    const res = demoOpenChest(state, c.chestId);
+    totalRewardRaw += BigInt(res.rewardA9Raw || '0');
+    totalBaseRaw += BigInt(res.chest?.baseA9Raw || '0');
+    if (res.isCrit) critCount += 1;
+    if (res.critTier === 'legendary') legendaryCount += 1;
+    results.push(res);
+  }
+  return {
+    openedCount: results.length,
+    tier: filterTier,
+    totalBaseA9Raw: totalBaseRaw.toString(),
+    totalRewardA9Raw: totalRewardRaw.toString(),
+    critCount,
+    legendaryCount,
+    budgetCappedCount: 0,
+    results
+  };
 }
 
 /* ---------------- 演示模式：每轮预热预约与预热宝箱（DEMO ONLY） ---------------- */

@@ -105,7 +105,7 @@ function buildAngles(type, id, ctx = {}) {
         label: L('数据派', 'Data'),
         text: L(
           `A9 第 ${roundNum} 轮 ${gapText}（定格 ${passed}/${required} 段）——合约已链上执行 100% 销毁 BURN，Tx 全网可查。见证销毁并分享，解锁下轮宝箱商城优先通道。`,
-          `A9 Round #${roundNum} ${gapText} (${passed}/${required} slots)—100% on-chain BURN executed per v16 contract. Share to unlock next-round Chest Mall priority.`
+          `A9 Round #${roundNum} ${gapText} (${passed}/${required} slots)—100% on-chain BURN executed per v16.1 contract. Share to unlock next-round Chest Mall priority.`
         )
       },
       {
@@ -135,11 +135,11 @@ function buildAngles(type, id, ctx = {}) {
     return [
       {
         key: 'gift',
-        label: L('双人同行礼', 'Co-Op Gift'),
+        label: isBoost ? L('随机暴击战报', 'Crit Report') : L('双人同行礼', 'Co-Op Gift'),
         text: isBoost
           ? L(
-              `A9 双人同行礼：我的【${label}】正在 24H 膨胀窗口（+2%~+5% 区间，还差 ${need} 位活跃钱包同路人），绑活跃 TON 钱包结伴同行，你也将开启自己的青铜宝箱 #1（300 A9）并可 0 GRAM 参加 24H 预言擂台！`,
-              `A9 Co-Op Gift: my [${label}] is in a 24H boost window (+2%–+5%, ${need} active-wallet partner(s) left). Connect an active TON wallet to team up, start your own Bronze Chest #1 (300 A9), and call PASS vs BURN in the 0 GRAM 24H Arena.`
+              `刚在 A9 宝箱商城开启【${label}】触发随机暴击，额外爆出 ${rewardText}！付费箱免助力 100% 固定本金保底 + 最高 +30% 暴击，来试试手气或 0 GRAM 参加 24H 预言擂台！`,
+              `Just hit a random crit opening [${label}] in A9 Chest Mall (+${rewardText} bonus)! Paid chests need zero assists—100% base safe + up to +30% crit.`
             )
           : L(
               `A9 双人同行礼：一起累计活跃钱包进度开启【${label}】（${rewardText}，还差 ${need} 位同路人），确认同行后自动为你发放青铜宝箱 #1（300 A9，按规则激活）！`,
@@ -151,8 +151,8 @@ function buildAngles(type, id, ctx = {}) {
         label: L('站队对赌战报', 'Battle Call'),
         text: isBoost
           ? L(
-              `A9 第 ${roundNum} 轮 24H 赛点正热（${passed}/${required} 段）！我已开出【${label}】24H 膨胀箱，来领双人同行礼（青铜宝箱 #1），顺便去 24H 预言擂台站队对赌 PASS / BURN！`,
-              `A9 Round #${roundNum} 24H is heating up (${passed}/${required} slots)! Grab our Co-Op Bronze Chest #1 and pick PASS or BURN in the 24H Prediction Arena.`
+              `A9 第 ${roundNum} 轮 24H 赛点正热（${passed}/${required} 段）！刚开【${label}】爆出 ${rewardText} 随机暴击，顺便来 24H 预言擂台 0 GRAM 站队对赌 PASS / BURN！`,
+              `A9 Round #${roundNum} 24H is heating up (${passed}/${required} slots)! Just popped [${label}] for ${rewardText} bonus—come pick PASS or BURN for 0 GRAM.`
             )
           : L(
               `A9 第 ${roundNum} 轮 24H 生死线（${passed}/${required} 段）！差 ${need} 位活跃钱包同路人一起开【${label}】，同行即得青铜宝箱 #1，来 24H 擂台一决高下！`,
@@ -162,10 +162,15 @@ function buildAngles(type, id, ctx = {}) {
       {
         key: 'data',
         label: L('链上规则透明', 'Transparent'),
-        text: L(
-          `A9 协议双人同行礼：仅需连接链上活跃 TON 钱包校验（0 扣款、防女巫公开可查），同行推进【${label}】并自动激活青铜宝箱 #1。`,
-          `A9 Protocol Co-Op Gift: active TON wallet check (0 transfer, transparent anti-sybil) advances [${label}] and activates your Bronze Chest #1.`
-        )
+        text: isBoost
+          ? L(
+              `A9 宝箱商城透明规则：1 GRAM = 2,002 A9 固定本金 100% 保底，开箱触发服务端随机暴击（5%–30% 区间，四档概率全公开）。`,
+              `A9 Chest Mall rules: 1 GRAM = 2,002 A9 base 100% guaranteed, plus server-side CSPRNG random crit (up to +5%–+30% across 4 transparent tiers).`
+            )
+          : L(
+              `A9 协议双人同行礼：仅需连接链上活跃 TON 钱包校验（0 扣款、防女巫公开可查），同行推进【${label}】并自动激活青铜宝箱 #1。`,
+              `A9 Protocol Co-Op Gift: active TON wallet check (0 transfer, transparent anti-sybil) advances [${label}] and activates your Bronze Chest #1.`
+            )
       }
     ];
   }
@@ -196,7 +201,7 @@ function buildAngles(type, id, ctx = {}) {
         key: 'casual',
         label: L('吃瓜自嘲派', 'Banter'),
         text: L(
-          `一分钱不花先站个队：A9 第 ${roundNum} 轮我选【${sideLabel}】${slotNote}。现在 ${passed}/${required} 段，猜对瓜分奖池、首轮猜错也保底 500 A9，白嫖看戏不亏。`,
+          `0 成本先站个队：A9 第 ${roundNum} 轮我选【${sideLabel}】${slotNote}。现在 ${passed}/${required} 段，猜对瓜分奖池、首轮猜错也保底 500 A9 赠金，看戏站队不亏。`,
           `Zero-cost stand on A9 Round #${roundNum}: [${sideLabel}]${slotNote}. Currently ${passed}/${required} slots—500 A9 rookie floor even on a first miss.`
         )
       }

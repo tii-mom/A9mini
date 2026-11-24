@@ -16,6 +16,9 @@ import {
   nextFreeChestSpec,
   computeShopBoostForAssists,
   computeWarmupChestReward,
+  rollPaidChestBonusRaw,
+  classifyPaidCritTier,
+  maskCritActor,
   formatChestRecord,
 } from './chest-engine.mjs';
 
@@ -107,14 +110,13 @@ export class D1ChestEngine {
     if (existing) return rowToChest(existing);
 
     const chestId = `ch_${randomHex(6)}`;
-    const initBoost = computeShopBoostForAssists(pack, 0);
     await this.db
       .prepare(
         `INSERT OR IGNORE INTO user_chests (
            chest_id, owner_user_id, owner_wallet_key, source, tier, slot_index, order_id,
            base_a9_raw, boost_a9_raw, max_boost_a9_raw, required_assists, current_assists,
            status, expires_at, opened_at, created_at, updated_at
-         ) VALUES (?, ?, ?, 'SHOP_BOOST', ?, 1, ?, ?, ?, ?, ?, 0, 'ACTIVE', ?, NULL, ?, ?)`,
+         ) VALUES (?, ?, ?, 'SHOP_BOOST', ?, 1, ?, ?, '0', ?, 0, 0, 'READY', NULL, NULL, ?, ?)`,
       )
       .bind(
         chestId,
@@ -123,10 +125,7 @@ export class D1ChestEngine {
         pack.tier,
         String(orderId),
         pack.baseA9Raw,
-        initBoost.toString(),
         pack.maxBoostA9Raw,
-        pack.requiredAssists,
-        nowSec + SHOP_BOOST_TTL_SEC,
         nowSec,
         nowSec,
       )
@@ -264,6 +263,9 @@ export class D1ChestEngine {
     if (chest.source === 'WARMUP_ROUND') {
       throw new ChestError('ASSIST_NOT_ALLOWED', '预热宝箱仅可通过邀请好友预约并绑定活跃钱包解锁');
     }
+    if (chest.source === 'SHOP_BOOST') {
+      throw new ChestError('ASSIST_NOT_ALLOWED', '付费宝箱无需好友膨胀，购买后可直接开箱触发随机暴击奖励');
+    }
     if (chest.status === 'LOCKED') throw new ChestError('CHEST_LOCKED', '该宝箱尚未解锁，请先开启上一个宝箱');
     if (chest.status === 'OPENED' || chest.status === 'EXPIRED') {
       throw new ChestError('CHEST_CLOSED', '该宝箱已开启或已结束助力');
@@ -323,7 +325,7 @@ export class D1ChestEngine {
              SELECT ?, ?, ?, ?, ?, ?, ?
              WHERE EXISTS (
                SELECT 1 FROM user_chests
-               WHERE chest_id = ? AND source != 'WARMUP_ROUND' AND current_assists = ? AND current_assists < required_assists AND status IN ('ACTIVE', 'READY')
+               WHERE chest_id = ? AND source = 'FREE_TIER' AND current_assists = ? AND current_assists < required_assists AND status IN ('ACTIVE', 'READY')
              )
              AND (SELECT COUNT(*) FROM chest_assists WHERE helper_wallet_key = ? AND assist_day = ?) < ?`,
           )
@@ -336,7 +338,7 @@ export class D1ChestEngine {
           .prepare(
             `UPDATE user_chests
              SET current_assists = ?, boost_a9_raw = ?, status = ?, updated_at = ?
-             WHERE chest_id = ? AND source != 'WARMUP_ROUND' AND current_assists = ? AND current_assists < required_assists AND status IN ('ACTIVE', 'READY')
+             WHERE chest_id = ? AND source = 'FREE_TIER' AND current_assists = ? AND current_assists < required_assists AND status IN ('ACTIVE', 'READY')
                AND EXISTS (SELECT 1 FROM chest_assists WHERE chest_id = ? AND helper_wallet_key = ?)`,
           )
           .bind(nextAssists, nextBoostStr, nextStatus, nowSec, cId, chest.currentAssists, cId, hKey),
@@ -390,12 +392,14 @@ export class D1ChestEngine {
       promoEngine = null,
       predictionEngine = null,
       budgetLedger = this.budgetLedger,
+      randomFn = null,
     },
     nowSec = Math.floor(Date.now() / 1000),
   ) {
     const cId = String(chestId || '').trim();
     const uid = String(userId || '').trim();
     const MAX_CAS_RETRIES = 6;
+    let cachedShopRoll = null;
 
     for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt += 1) {
       const chest = await this.getChest(cId);
@@ -408,13 +412,21 @@ export class D1ChestEngine {
       let destination = 'PROMO_BALANCE';
       let nextSpec = null;
       let budgetBucket = 'free_chest_captain';
+      let critTier = null;
+      let isCrit = false;
+      let budgetCapped = false;
 
       if (chest.source === 'SHOP_BOOST') {
-        rewardRaw = BigInt(chest.boostA9Raw || '0');
-        budgetBucket = 'presale_promo';
-        if (rewardRaw > 0n && !walletAddress) {
-          throw new ChestError('WALLET_REQUIRED', '领取膨胀奖励需绑定钱包地址');
+        if (!walletAddress) {
+          throw new ChestError('WALLET_REQUIRED', '开启付费宝箱领取随机暴击奖励需绑定钱包地址');
         }
+        if (!cachedShopRoll) {
+          cachedShopRoll = rollPaidChestBonusRaw(chest.maxBoostA9Raw, randomFn);
+        }
+        rewardRaw = cachedShopRoll.bonusRaw;
+        critTier = cachedShopRoll.critTier;
+        isCrit = cachedShopRoll.isCrit;
+        budgetBucket = 'presale_promo';
       } else if (chest.source === 'WARMUP_ROUND') {
         if (chest.currentAssists < chest.requiredAssists) {
           throw new ChestError('ASSISTS_UNMET', `还需 ${chest.requiredAssists - chest.currentAssists} 位已绑活跃钱包的预热好友方可开启`);
@@ -546,11 +558,32 @@ export class D1ChestEngine {
       }
 
       let budgetPrep = null;
-      if (rewardRaw > 0n && budgetLedger && typeof budgetLedger.prepareAtomicReserve === 'function') {
-        budgetPrep = await budgetLedger.prepareAtomicReserve(budgetBucket, rewardRaw, nowSec);
+      let finalRewardRaw = rewardRaw;
+      let finalRewardStr = rewardStr;
+      let finalCreditStmt = creditStmt;
+      let finalBalGuardSql = balGuardSql;
+      let finalBalGuardArgs = balGuardArgs;
+      if (finalRewardRaw > 0n && budgetLedger && typeof budgetLedger.prepareAtomicReserve === 'function') {
+        try {
+          budgetPrep = await budgetLedger.prepareAtomicReserve(budgetBucket, finalRewardRaw, nowSec);
+        } catch (e) {
+          if (chest.source === 'SHOP_BOOST' && e?.code === 'PROMO_BUDGET_EXHAUSTED') {
+            finalRewardRaw = 0n;
+            finalRewardStr = '0';
+            finalCreditStmt = null;
+            finalBalGuardSql = '';
+            finalBalGuardArgs = [];
+            critTier = 'normal';
+            isCrit = false;
+            budgetCapped = true;
+          } else {
+            throw e;
+          }
+        }
       }
       const budgetGuardSql = budgetPrep ? budgetPrep.guardSql : '';
       const budgetGuardArgs = budgetPrep ? budgetPrep.guardArgs : [];
+      const nextBoostRawStr = chest.source === 'SHOP_BOOST' ? finalRewardStr : String(chest.boostA9Raw || '0');
 
       const stmts = [
         this.db
@@ -565,17 +598,17 @@ export class D1ChestEngine {
                  AND boost_a9_raw = ?
                  AND base_a9_raw = ?
              )
-               AND NOT EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ?)${balGuardSql}${budgetGuardSql}`,
+               AND NOT EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ?)${finalBalGuardSql}${budgetGuardSql}`,
           )
           .bind(
-            cId, recipientKey, destination, rewardStr, openToken, nowSec,
+            cId, recipientKey, destination, finalRewardStr, openToken, nowSec,
             cId, chest.currentAssists, String(chest.boostA9Raw || '0'), String(chest.baseA9Raw || '0'),
-            cId, ...balGuardArgs, ...budgetGuardArgs,
+            cId, ...finalBalGuardArgs, ...budgetGuardArgs,
           ),
         this.db
           .prepare(
             `UPDATE user_chests
-             SET status = 'OPENED', opened_at = ?, updated_at = ?
+             SET status = 'OPENED', boost_a9_raw = ?, opened_at = ?, updated_at = ?
              WHERE chest_id = ?
                AND status IN ('ACTIVE', 'READY')
                AND current_assists = ?
@@ -584,7 +617,7 @@ export class D1ChestEngine {
                AND EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)`,
           )
           .bind(
-            nowSec, nowSec,
+            nextBoostRawStr, nowSec, nowSec,
             cId, chest.currentAssists, String(chest.boostA9Raw || '0'), String(chest.baseA9Raw || '0'),
             cId, openToken,
           ),
@@ -610,15 +643,15 @@ export class D1ChestEngine {
           ),
         );
       }
-      if (creditStmt) stmts.push(creditStmt);
+      if (finalCreditStmt) stmts.push(finalCreditStmt);
 
       const out = await this.db.batch(stmts);
       if (changes(out?.[0]) === 1) {
-        if (rewardRaw > 0n) {
+        if (finalRewardRaw > 0n) {
           if (destination === 'PENDING_VAULT' && predictionEngine && !predictionEngine.db && typeof predictionEngine.creditPendingBonus === 'function') {
-            await predictionEngine.creditPendingBonus(uid, rewardRaw, nowSec * 1000);
+            await predictionEngine.creditPendingBonus(uid, finalRewardRaw, nowSec * 1000);
           } else if (destination === 'PROMO_BALANCE' && promoEngine && !promoEngine.db && walletAddress && typeof promoEngine.creditReward === 'function') {
-            await promoEngine.creditReward(walletAddress, rewardRaw, nowSec);
+            await promoEngine.creditReward(walletAddress, finalRewardRaw, nowSec);
           }
         }
         let nextUnlocked = null;
@@ -631,9 +664,12 @@ export class D1ChestEngine {
         }
         return {
           chest: await this.getChest(cId),
-          rewardA9Raw: rewardStr,
+          rewardA9Raw: finalRewardStr,
           destination,
           nextUnlocked,
+          critTier,
+          isCrit,
+          budgetCapped,
         };
       }
 
@@ -644,6 +680,108 @@ export class D1ChestEngine {
     }
 
     throw new ChestError('CONCURRENT_OPEN', '宝箱助力进度或账户余额刚发生并发变动，请重试开箱');
+  }
+
+  async openAllChests(
+    {
+      userId,
+      walletAddress,
+      tier = null,
+      promoEngine = null,
+      budgetLedger = this.budgetLedger,
+      randomFn = null,
+    },
+    nowSec = Math.floor(Date.now() / 1000),
+  ) {
+    const uid = String(userId || '').trim();
+    const filterTier = tier ? String(tier).trim().toLowerCase() : null;
+    if (!uid) throw new ChestError('BAD_REQUEST', 'userId required');
+    if (!walletAddress) throw new ChestError('WALLET_REQUIRED', '一键开启付费宝箱需绑定钱包地址');
+
+    const res = filterTier
+      ? await this.db
+          .prepare("SELECT chest_id FROM user_chests WHERE owner_user_id = ? AND source = 'SHOP_BOOST' AND status IN ('ACTIVE', 'READY') AND tier = ? ORDER BY created_at ASC")
+          .bind(uid, filterTier)
+          .all()
+      : await this.db
+          .prepare("SELECT chest_id FROM user_chests WHERE owner_user_id = ? AND source = 'SHOP_BOOST' AND status IN ('ACTIVE', 'READY') ORDER BY created_at ASC")
+          .bind(uid)
+          .all();
+
+    const rows = res?.results || [];
+    let totalRewardRaw = 0n;
+    let totalBaseRaw = 0n;
+    let critCount = 0;
+    let legendaryCount = 0;
+    let budgetCappedCount = 0;
+    const results = [];
+
+    for (const row of rows) {
+      const opened = await this.openChest(
+        {
+          chestId: String(row.chest_id),
+          userId: uid,
+          walletAddress,
+          promoEngine,
+          budgetLedger,
+          randomFn,
+        },
+        nowSec,
+      );
+      totalRewardRaw += BigInt(opened.rewardA9Raw || '0');
+      totalBaseRaw += BigInt(opened.chest?.baseA9Raw || '0');
+      if (opened.isCrit) critCount += 1;
+      if (opened.critTier === 'legendary') legendaryCount += 1;
+      if (opened.budgetCapped) budgetCappedCount += 1;
+      results.push(opened);
+    }
+
+    return {
+      openedCount: results.length,
+      tier: filterTier,
+      totalBaseA9Raw: totalBaseRaw.toString(),
+      totalRewardA9Raw: totalRewardRaw.toString(),
+      critCount,
+      legendaryCount,
+      budgetCappedCount,
+      results,
+    };
+  }
+
+  async listRecentCritFeed({ limit = 15 } = {}) {
+    const safeLimit = Math.max(1, Math.min(30, Math.floor(Number(limit) || 15)));
+    const scanLimit = Math.min(150, Math.max(30, safeLimit * 6));
+    const res = await this.db
+      .prepare(
+        `SELECT chest_id, owner_user_id, owner_wallet_key, tier, boost_a9_raw, max_boost_a9_raw, opened_at, updated_at
+         FROM user_chests
+         WHERE source = 'SHOP_BOOST' AND status = 'OPENED' AND boost_a9_raw != '0'
+         ORDER BY opened_at DESC, updated_at DESC
+         LIMIT ?`,
+      )
+      .bind(scanLimit)
+      .all();
+    const items = [];
+    for (const r of res?.results || []) {
+      const { critTier, isCrit, ratioBps } = classifyPaidCritTier(r.boost_a9_raw, r.max_boost_a9_raw);
+      if (!isCrit) continue;
+      const tier = String(r.tier || '');
+      const spec = Object.values(CHEST_MALL_CATALOG).find((p) => p.tier === tier) || null;
+      items.push({
+        chestId: String(r.chest_id),
+        actor: maskCritActor(r.owner_user_id, r.owner_wallet_key),
+        tier,
+        labelZh: spec?.zh || tier,
+        labelEn: spec?.en || tier,
+        boostA9Raw: String(r.boost_a9_raw || '0'),
+        maxBoostA9Raw: String(r.max_boost_a9_raw || '0'),
+        critTier,
+        ratioBps,
+        openedAt: Number(r.opened_at || r.updated_at || 0),
+      });
+      if (items.length >= safeLimit) break;
+    }
+    return items;
   }
 
   /**

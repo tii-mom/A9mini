@@ -657,6 +657,11 @@ export default {
     } catch (e) {
       console.error('[a9mini-v15-worker] scheduled sync error:', e?.message || e);
     } finally {
+      try {
+        await broadcaster.sendPendingVaultExpiryReminders({ predictionEngine, nowSec });
+      } catch (remErr) {
+        console.error('[a9mini-v15-worker] vault expiry reminder error:', remErr?.message || remErr);
+      }
       // 定期清理过期超过 24 小时的 ton_proof 挑战记录，防止 D1 存储被恶意刷爆
       if (hasD1) {
         try {

@@ -562,4 +562,76 @@ export class TelegramBroadcaster {
       hasMore: pending.length >= limit,
     };
   }
+
+  /** ⑦ 48H 待激活金库到期前 6 小时温和私聊提醒（按 (userId, pendingExpiresAt) 去重，每个过期周期仅触达一次） */
+  async sendPendingVaultExpiryReminders({
+    predictionEngine = null,
+    windowSec = 6 * 3600,
+    limit = 25,
+    nowSec = Math.floor(Date.now() / 1000),
+  } = {}) {
+    if (!this._canSend()) return { skipped: true, reason: 'DISABLED', sentCount: 0 };
+    if (!predictionEngine || typeof predictionEngine.listExpiringPendingVaults !== 'function') {
+      return { skipped: true, reason: 'NO_PREDICTION_ENGINE', sentCount: 0 };
+    }
+    const nowMs = Number(nowSec) * 1000;
+    const windowMs = Math.max(60, Number(windowSec || 6 * 3600)) * 1000;
+    const candidates = await predictionEngine.listExpiringPendingVaults({ nowMs, windowMs, limit });
+    if (!candidates || !candidates.length) {
+      return { skipped: true, reason: 'NO_EXPIRING_VAULTS', sentCount: 0 };
+    }
+
+    const url = buildTeamDeepLink({ botHandle: this.botHandle, fallbackParam: 'market' });
+    let sentCount = 0;
+    let skippedDuplicateCount = 0;
+    let failedPermanentCount = 0;
+
+    for (let i = 0; i < candidates.length; i += 1) {
+      const item = candidates[i];
+      const uid = String(item?.userId || '').trim();
+      if (!/^\d{1,20}$/.test(uid)) continue;
+      const expMs = Number(item?.pendingExpiresAt || 0);
+      if (!Number.isFinite(expMs) || expMs <= nowMs) continue;
+
+      const eventKey = `vault_exp:${uid}:${expMs}`;
+      const claimed = await this.dedupLog.tryClaim(eventKey, 'VAULT_EXPIRY_6H', nowSec);
+      if (!claimed) {
+        skippedDuplicateCount += 1;
+        continue;
+      }
+
+      if (sentCount > 0 && this.delayMs > 0) await sleep(this.delayMs);
+      const hoursLeft = Math.max(1, Math.ceil((expMs - nowMs) / 3600000));
+      const a9Text = formatGroupedUnits(BigInt(String(item.pendingActivationRaw || '0')), 9);
+
+      try {
+        await this._sendTelegram({
+          chatId: uid,
+          text: [
+            `待激活金库到期提醒：你还有 ${a9Text} A9 免费奖励将在约 ${hoursLeft} 小时后过期`,
+            `在宝箱商城购任意宝箱（0.99 GRAM 起）、参与链上质押，或直邀 1 位好友购箱，即可立即激活入账并永久保留。`,
+          ].join('\n'),
+          buttonText: '前往激活待领 A9 奖励',
+          buttonUrl: url,
+        });
+        await this.dedupLog.markSent(eventKey, 1);
+        sentCount += 1;
+      } catch (e) {
+        const st = Number(e?.status || 0);
+        if (st === 400 || st === 403) {
+          failedPermanentCount += 1;
+        }
+        this.logger?.error?.(`[tg-broadcaster] vault expiry reminder -> ${uid} failed:`, e?.message || e);
+      }
+    }
+
+    return {
+      skipped: false,
+      eventType: 'VAULT_EXPIRY_6H',
+      sentCount,
+      skippedDuplicateCount,
+      failedPermanentCount,
+      attempted: candidates.length,
+    };
+  }
 }

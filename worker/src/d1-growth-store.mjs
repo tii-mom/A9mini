@@ -1459,6 +1459,33 @@ export class D1PredictionEngine {
     };
   }
 
+  async listExpiringPendingVaults({ nowMs = Date.now(), windowMs = 6 * 3600 * 1000, limit = 50 } = {}) {
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(Number(limit) || 50)));
+    const deadlineMs = Number(nowMs) + Number(windowMs);
+    const res = await this.db
+      .prepare(
+        `SELECT user_id, pending_activation_raw, pending_expires_at
+         FROM prediction_rewards
+         WHERE pending_activation_raw != '0'
+           AND pending_expires_at IS NOT NULL
+           AND pending_expires_at > ?
+           AND pending_expires_at <= ?
+         ORDER BY pending_expires_at ASC
+         LIMIT ?`,
+      )
+      .bind(Number(nowMs), deadlineMs, safeLimit)
+      .all();
+    return (res?.results || [])
+      .filter((r) => {
+        try { return BigInt(r.pending_activation_raw || '0') > 0n; } catch { return false; }
+      })
+      .map((r) => ({
+        userId: String(r.user_id),
+        pendingActivationRaw: String(r.pending_activation_raw),
+        pendingExpiresAt: Number(r.pending_expires_at),
+      }));
+  }
+
   async _getUserStatsRow(uid) {
     const row = await this.db
       .prepare('SELECT * FROM prediction_rewards WHERE user_id = ?')

@@ -726,36 +726,47 @@ async function openChestAssistModal(chestId) {
   openModal(`
     <div class="sheet-handle"></div>
     <div class="row-between" style="margin-bottom:8px;">
-      <div class="card-title">${icon('bolt', 15, 'text-gold')} ${L('双人同行礼 · 开启 A9 宝箱', 'Co-Op Chest Gift · A9')}</div>
+      <div class="card-title">${icon('bolt', 15, 'text-gold')} ${isBoost ? L('A9 付费随机暴击箱', 'A9 Paid Crit Chest') : L('双人同行礼 · 开启 A9 宝箱', 'Co-Op Chest Gift · A9')}</div>
       <button class="icon-btn" id="chest-assist-close" aria-label="Close">${icon('x', 15)}</button>
     </div>
     <div class="sub-tile" style="margin-bottom:12px;">
       <div class="row-between">
         <strong>${escapeHtml(label)}</strong>
-        <span class="chip chip-gold mono">${hasDetail ? `${cur}/${req} ${L('同行', 'co-op')}` : L('待核验', 'Pending')}</span>
+        <span class="chip ${isBoost ? 'chip-green' : 'chip-gold'} mono">${!hasDetail ? L('待核验', 'Pending') : isBoost ? L('免助力暴击', 'No Assist') : `${cur}/${req} ${L('同行', 'co-op')}`}</span>
       </div>
       <div class="num-xs text-sec" style="margin-top:6px;line-height:1.5;">
         ${!hasDetail
           ? L('宝箱详情待核验（暂未拉取到服务端状态），可点击下方重试读取或先连接 TON 钱包。', 'Chest details pending verification. Tap retry below or connect your TON wallet.')
           : isBoost
-            ? L(`双人同行礼：确认同行后，好友宝箱解锁额外膨胀（最高 +${formatNum(rewardA9, 2)} A9，+2%~+5% 区间），同时立即为你激活专属青铜宝箱 #1（300 A9）！`, `Co-op gift: confirm to unlock up to +${formatNum(rewardA9, 2)} A9 (+2%–+5% boost) on your friend's chest, while instantly activating your own Bronze Chest #1 (300 A9)!`)
+            ? L('付费宝箱已升级为免助力随机暴击（100% 固定本金 + 最高 +5%–+30% 暴击），无需好友助力！你也可以免费领取专属青铜宝箱 #1（300 A9）或前往宝箱商城体验。', 'Paid chests now roll instant random crits (100% base + up to +5%–+30% bonus) with no assists needed! Claim your free Bronze Chest #1 (300 A9) or visit Chest Mall.')
             : L(`双人同行礼：与好友结伴开启【${label}】（${formatNum(rewardA9)} A9），双方各有收获——确认后立即为你激活专属青铜宝箱 #1（300 A9）！`, `Co-op gift: team up to unlock [${label}] (${formatNum(rewardA9)} A9)—both players benefit as your own Bronze Chest #1 (300 A9) activates immediately!`)}
       </div>
     </div>
     ${loadFailed ? `<button class="btn btn-secondary" id="btn-retry-chest-detail" type="button" style="margin-bottom:10px;">${L('重试读取宝箱详情', 'Retry Loading Details')}</button>` : ''}
-    <div class="num-xs text-muted" style="margin-bottom:12px;">
-      ${L('链上防刷校验：仅需连接链上已激活 TON 钱包（0 扣款），确认同行后自动激活你的青铜宝箱 #1。', 'On-chain anti-sybil check: active TON wallet required (0 transfer). Automatically activates your Bronze Chest #1.')}
-    </div>
-    <button class="btn btn-primary" id="btn-do-chest-assist" type="button">
-      ${icon(connected ? 'checkCircle' : 'wallet', 15)} ${connected ? L('确认同行 · 领我的青铜宝箱 #1', 'Confirm Co-Op & Claim Bronze #1') : L('连接 TON 钱包 · 开启双人同行礼', 'Connect TON Wallet for Co-Op Gift')}
-    </button>
+    ${isBoost ? `
+      <div class="grid-2" style="gap:8px;">
+        <button class="btn btn-primary btn-sm" id="btn-chest-go-mall" type="button" style="width:100%;min-height:42px;">${icon('bolt', 14)} ${L('前往宝箱商城', 'Chest Mall')}</button>
+        <button class="btn btn-secondary btn-sm" id="btn-chest-go-free" type="button" style="width:100%;min-height:42px;">${icon('trophy', 14)} ${L('免费领青铜箱', 'Free Chest')}</button>
+      </div>
+    ` : `
+      <div class="num-xs text-muted" style="margin-bottom:12px;">
+        ${L('链上防刷校验：仅需连接链上已激活 TON 钱包（0 扣款），确认同行后自动激活你的青铜宝箱 #1。', 'On-chain anti-sybil check: active TON wallet required (0 transfer). Automatically activates your Bronze Chest #1.')}
+      </div>
+      <button class="btn btn-primary" id="btn-do-chest-assist" type="button">
+        ${icon(connected ? 'checkCircle' : 'wallet', 15)} ${connected ? L('确认同行 · 领我的青铜宝箱 #1', 'Confirm Co-Op & Claim Bronze #1') : L('连接 TON 钱包 · 开启双人同行礼', 'Connect TON Wallet for Co-Op Gift')}
+      </button>
+    `}
   `);
 
   document.getElementById('chest-assist-close').onclick = closeModal;
   const retryBtn = document.getElementById('btn-retry-chest-detail');
   if (retryBtn) retryBtn.onclick = () => openChestAssistModal(chestId);
+  const goMallBtn = document.getElementById('btn-chest-go-mall');
+  if (goMallBtn) goMallBtn.onclick = () => { A9Haptic.light(); closeModal(); navigate('/internal/market'); };
+  const goFreeBtn = document.getElementById('btn-chest-go-free');
+  if (goFreeBtn) goFreeBtn.onclick = () => { A9Haptic.light(); closeModal(); navigate('/internal/market?tab=free'); };
   const btn = document.getElementById('btn-do-chest-assist');
-  btn.onclick = async () => {
+  if (btn) btn.onclick = async () => {
     if (!store.state.user?.connected) {
       tonConnect.openConnectModal(() => openChestAssistModal(chestId));
       return;

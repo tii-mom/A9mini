@@ -2177,3 +2177,72 @@
   color: var(--ink-soft);
   line-height: 1.45;
 }
+
+/* 宝箱商城顶部实时暴击捷报条 */
+.mall-crit-ticker {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  border: 1.5px solid var(--gold-border);
+  border-left: 3.5px solid var(--nt-gold);
+  background: var(--card-bg);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  box-shadow: var(--surface-shadow);
+  transition: transform 0.1s ease;
+}
+
+.mall-crit-ticker:active {
+  transform: translateY(1px);
+}
+
+.mall-crit-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.mall-crit-badge.is-legend {
+  background: var(--nt-gold);
+  color: #171920;
+}
+
+.mall-crit-badge.is-epic {
+  background: var(--nt-green-soft);
+  color: var(--nt-green);
+  border: 1px solid rgba(18, 168, 93, 0.34);
+}
+
+.mall-crit-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mall-crit-text b {
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.mall-crit-idx {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--ink-muted);
+  flex-shrink: 0;
+}

@@ -2494,3 +2494,109 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* 新手前 60 秒 3 步单行道引导条 */
+.plaza-onboarding-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 11px;
+  border-radius: 15px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  box-shadow: var(--surface-shadow);
+}
+
+.plaza-onboard-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.plaza-onboard-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.plaza-onboard-close {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid var(--card-border);
+  background: var(--paper-tray);
+  color: var(--ink-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.plaza-onboard-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.plaza-onboard-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 4px 5px;
+  border-radius: 10px;
+  border: 1px solid var(--card-border);
+  background: var(--paper-tray);
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plaza-onboard-step i {
+  font-style: normal;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.plaza-onboard-step.is-next {
+  border-color: var(--nt-red);
+  background: var(--nt-red-soft);
+  color: var(--nt-red);
+}
+
+.plaza-onboard-step.is-next i {
+  background: var(--nt-red);
+  border-color: var(--nt-red);
+  color: #FFFFFF;
+}
+
+.plaza-onboard-step.is-done {
+  border-color: rgba(18, 168, 93, 0.34);
+  background: var(--nt-green-soft);
+  color: var(--nt-green);
+}
+
+.plaza-onboard-step.is-done i {
+  background: var(--nt-green);
+  border-color: var(--nt-green);
+  color: #FFFFFF;
+}

@@ -7,6 +7,7 @@ import { BudgetError } from './promo-budget.mjs';
 import {
   ChestError,
   CHEST_MALL_CATALOG,
+  PAID_CHEST_CRIT_TIERS,
   FREE_CHEST_CHAIN,
   CAPTAIN_FOUNDING_BONUS_RAW,
   CAPTAIN_MIN_TG_MEMBERS,
@@ -260,6 +261,7 @@ export function createApiRouter({
         base.chestMall = {
           enabled: Boolean(chestEngine),
           skus: Object.values(CHEST_MALL_CATALOG),
+          critTiers: PAID_CHEST_CRIT_TIERS,
           deliveryFeeGram: CHEST_DELIVERY_GAS_GRAM,
           deliveryFeeNano: CHEST_DELIVERY_GAS_NANO,
           refundFeeGram: CHEST_REFUND_GAS_GRAM,
@@ -914,6 +916,7 @@ export function createApiRouter({
         });
         return ok({
           catalog: Object.values(CHEST_MALL_CATALOG),
+          critTiers: PAID_CHEST_CRIT_TIERS,
           freeTiers: FREE_CHEST_CHAIN,
           ...lists,
           chestHoldings,
@@ -927,6 +930,26 @@ export function createApiRouter({
         return ok(
           await chestEngine.claimStarterBronzeChests(
             { userId: id.telegramUserId, walletAddress: binding?.walletAddress || null },
+            nowSec,
+          ),
+        );
+      }
+
+      if (method === 'POST' && pathname === '/api/chests/open-all') {
+        if (!chestEngine) return err('CHEST_DISABLED', 'chest engine not configured', 503);
+        if (env.A9_CHEST_OPEN_ENABLED !== '1') {
+          return err('CHEST_OPEN_DISABLED', '当前真实模式处于只读验收阶段，宝箱开箱入账暂未开放', 403);
+        }
+        const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
+        return ok(
+          await chestEngine.openAllChests(
+            {
+              userId: identity.telegramUserId,
+              walletAddress,
+              tier: body?.tier ? String(body.tier).trim().toLowerCase() : null,
+              promoEngine,
+              budgetLedger,
+            },
             nowSec,
           ),
         );
@@ -1048,6 +1071,14 @@ export function createApiRouter({
             nowSec,
           ),
         );
+      }
+
+      if (method === 'GET' && pathname === '/api/chests/crit-feed') {
+        if (!chestEngine) return err('CHEST_DISABLED', 'chest engine not configured', 503);
+        const list = typeof chestEngine.listRecentCritFeed === 'function'
+          ? await chestEngine.listRecentCritFeed({ limit: Number(query.limit) || 12 })
+          : [];
+        return ok({ items: list });
       }
 
       const chestGetMatch = method === 'GET' && pathname.match(/^\/api\/chests\/([^/]+)$/);

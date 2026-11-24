@@ -28,6 +28,12 @@ const link = (path, label, glyph) =>
 const waiting = () => L('待核验', 'Awaiting verification');
 
 let activeGallerySeries = 'activity';
+let onboardingDismissed = false;
+let onboardingChestCache = {
+  loaded: false,
+  hasOpenedFree: false,
+  hasShopChest: false,
+};
 let galleryChestCache = {
   loaded: false,
   counts: summarizeChestCounts(null),
@@ -438,8 +444,11 @@ export function city() {
   const curBet = pred?.currentBet || null;
   const predSettled = Boolean(pred?.settled || r.stage === 'settlement_success' || r.stage === 'settlement_burn');
 
+  const onboardHtml = renderPlazaOnboardingStrip(pred, r);
+
   return `<section class="wv-hero game-city anim-page-enter">
     ${renderPlazaCompactBanner(pred, r)}
+    ${onboardHtml}
 
     <div class="diorama-stage city-hub-stage${isRedAlert ? ' alert-red-mode' : ''}" data-mood="${sandtableMood}">
 
@@ -783,8 +792,10 @@ export function renderCity(root, navigate) {
   }
   root.innerHTML = city();
   bindHandbookStampEvents(root, navigate);
+  bindOnboardingStrip(root);
   syncProgressionState(root, navigate);
   hydrateCityWarmupCard(root);
+  hydrateOnboardingStrip(root);
 
   const trustBtn = root.querySelector('#btn-plaza-trust-badge');
   if (trustBtn) {
@@ -864,6 +875,7 @@ export function renderCity(root, navigate) {
             `;
             bindPlazaFollowup();
           }
+          repaintOnboardingStrip(root);
         }
       } catch (err) {
         A9Haptic.error();
@@ -922,6 +934,95 @@ async function hydrateCityWarmupCard(root) {
     const countEl = card.querySelector('#city-warmup-count');
     if (countEl && card.isConnected) countEl.textContent = L('点击进入下一轮预热预约与宝箱页', 'Tap to open Next Round Warm-Up & Chest');
   }
+}
+
+function renderPlazaOnboardingStrip(pred, r) {
+  if (onboardingDismissed) return '';
+  const isLiveVeteran = !config.isDemo && Number(r?.myStakeTon || 0) > 0;
+  if (isLiveVeteran) return '';
+  const step1Done = onboardingChestCache.hasOpenedFree;
+  const step2Done = Boolean(pred?.currentBet);
+  const step3Done = onboardingChestCache.hasShopChest || (!config.isDemo && Number(r?.myStakeTon || 0) > 0);
+  const doneCount = (step1Done ? 1 : 0) + (step2Done ? 1 : 0) + (step3Done ? 1 : 0);
+  if (doneCount >= 3) return '';
+  const nextStep = !step1Done ? 1 : !step2Done ? 2 : 3;
+  return `
+    <section class="plaza-onboarding-strip" id="plaza-onboarding-strip" aria-label="${L('新手前 60 秒引导', '60s Quick Start')}">
+      <div class="plaza-onboard-head">
+        <span class="plaza-onboard-title">${icon('bolt', 12, 'text-gold')} ${L('新手 60 秒单行道', '60s Quick Start')} <b class="mono">${doneCount}/3</b></span>
+        <button type="button" class="plaza-onboard-close" id="btn-dismiss-onboarding" aria-label="${L('收起引导', 'Dismiss guide')}">${icon('x', 12)}</button>
+      </div>
+      <div class="plaza-onboard-steps">
+        <a href="#/internal/market?tab=free" class="plaza-onboard-step ${step1Done ? 'is-done' : nextStep === 1 ? 'is-next' : ''}">
+          <i class="mono">${step1Done ? '✓' : '1'}</i>
+          <span>${L('领青铜箱#1', 'Free Chest')}</span>
+        </a>
+        <button type="button" data-onboard-scroll="pred" class="plaza-onboard-step ${step2Done ? 'is-done' : nextStep === 2 ? 'is-next' : ''}">
+          <i class="mono">${step2Done ? '✓' : '2'}</i>
+          <span>${L('0 GRAM预言', '0 GRAM Bet')}</span>
+        </button>
+        <a href="#/internal/market" class="plaza-onboard-step ${step3Done ? 'is-done' : nextStep === 3 ? 'is-next' : ''}">
+          <i class="mono">${step3Done ? '✓' : '3'}</i>
+          <span>${L('购箱/质押', 'Buy/Stake')}</span>
+        </a>
+      </div>
+    </section>
+  `;
+}
+
+function bindOnboardingStrip(root) {
+  const strip = root.querySelector('#plaza-onboarding-strip');
+  if (!strip) return;
+  const closeBtn = strip.querySelector('#btn-dismiss-onboarding');
+  if (closeBtn) {
+    closeBtn.onclick = () => {
+      A9Haptic.light();
+      onboardingDismissed = true;
+      strip.remove();
+    };
+  }
+  const scrollPredBtn = strip.querySelector('[data-onboard-scroll="pred"]');
+  if (scrollPredBtn) {
+    scrollPredBtn.onclick = () => {
+      A9Haptic.light();
+      root.querySelector('#city-pred-jump')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+  }
+}
+
+function repaintOnboardingStrip(root) {
+  const existing = root.querySelector('#plaza-onboarding-strip');
+  const nextHtml = renderPlazaOnboardingStrip(store.state.prediction, store.state.round).trim();
+  if (!nextHtml) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = nextHtml;
+    const nextEl = wrap.firstElementChild;
+    if (nextEl) {
+      existing.replaceWith(nextEl);
+      bindOnboardingStrip(root);
+    }
+  }
+}
+
+async function hydrateOnboardingStrip(root) {
+  if (onboardingDismissed) return;
+  try {
+    const res = await fetchMyChests();
+    if (!root.isConnected || !res) return;
+    const freeList = Array.isArray(res.freeChests) ? res.freeChests : [];
+    const shopList = Array.isArray(res.shopChests) ? res.shopChests : [];
+    const hasOpenedFree = freeList.some((c) => c.status === 'OPENED');
+    const hasShopChest = shopList.length > 0;
+    const changed = !onboardingChestCache.loaded
+      || onboardingChestCache.hasOpenedFree !== hasOpenedFree
+      || onboardingChestCache.hasShopChest !== hasShopChest;
+    onboardingChestCache = { loaded: true, hasOpenedFree, hasShopChest };
+    if (changed) repaintOnboardingStrip(root);
+  } catch (_) {}
 }
 
 function demoProgressionInitSnapshot(uid, roundId) {

@@ -21,6 +21,8 @@ import {
   demoGetChest,
   demoAssistChest,
   demoOpenChest,
+  demoOpenAllChests,
+  demoChestCritFeed,
   demoWarmupCurrent,
   demoWarmupRegister,
   demoWarmupCancel,
@@ -32,8 +34,8 @@ import { A9TMA } from './tma.js';
 export const PROTOCOL_SPECS = Object.freeze({
   version: 'v16.1',
   referralPct: 6,
-  chestBoostMinPct: 2,
-  chestBoostMaxPct: 5,
+  chestBoostMinPct: 5,
+  chestBoostMaxPct: 30,
   deliveryFeeGram: 0.06,
   refundGasGram: 0.03,
   stakeGasGram: 0.30,
@@ -85,6 +87,8 @@ export const ENDPOINTS = Object.freeze({
   chestDetail: (id) => `/api/chests/${encodeURIComponent(id)}`,
   chestAssist: (id) => `/api/chests/${encodeURIComponent(id)}/assist`,
   chestOpen: (id) => `/api/chests/${encodeURIComponent(id)}/open`,
+  chestsOpenAll: '/api/chests/open-all',
+  chestsCritFeed: (limit = 12) => `/api/chests/crit-feed?limit=${encodeURIComponent(limit)}`,
   me: '/api/me',
   tonProofPayload: '/api/auth/ton-proof/payload',
   tonProofVerify: '/api/auth/ton-proof/verify'
@@ -688,6 +692,26 @@ export async function openChestById(chestId, stateForDemo = null, walletAddress 
   assertFundsAllowedInMode();
   if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开后开箱');
   return request(ENDPOINTS.chestOpen(chestId), { method: 'POST', body: { walletAddress: walletAddress || null } });
+}
+
+/** 宝箱批量一键开启（支持全开或按档位全开；live 只读阶段统一拦截） */
+export async function openAllChests({ tier = null, stateForDemo = null, walletAddress = null } = {}) {
+  if (config.isDemo) {
+    try { return demoOpenAllChests(stateForDemo, tier); } catch (e) { throw new ApiError('DEMO_OPEN_ALL_ERR', e.message); }
+  }
+  assertFundsAllowedInMode();
+  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开后一键开箱');
+  return request(ENDPOINTS.chestsOpenAll, {
+    method: 'POST',
+    body: { walletAddress: walletAddress || null, tier: tier || null }
+  });
+}
+
+/** 宝箱商城实时暴击捷报（公开只读；Live 模式空态返回空数组，绝不伪造） */
+export async function fetchChestCritFeed(limit = 12) {
+  if (config.isDemo) return demoChestCritFeed(limit)?.items || [];
+  const data = await request(ENDPOINTS.chestsCritFeed(limit));
+  return Array.isArray(data?.items) ? data.items : [];
 }
 
 /** 宝箱商城下单（live 只读阶段统一拦截，不发网络订单请求） */
