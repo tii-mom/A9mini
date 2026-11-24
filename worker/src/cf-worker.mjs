@@ -293,6 +293,7 @@ const RATE_LIMIT_RULES = Object.freeze([
   { method: 'POST', prefix: '/api/progression/claim', limit: 30, windowSec: 60 },
   { method: 'POST', prefix: '/api/referral/attribution', limit: 30, windowSec: 60 },
   { method: 'POST', prefix: '/api/chests/starter', limit: 30, windowSec: 60 },
+  { method: 'POST', prefix: '/api/chests/open-all', limit: 10, windowSec: 60 },
   { method: 'POST', prefix: '/api/chests/', limit: 30, windowSec: 60 },
   { method: 'GET', prefix: '/api/user/', limit: 30, windowSec: 60 },
   { method: 'GET', prefix: '/c/img/', limit: 60, windowSec: 60 },

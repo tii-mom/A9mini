@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { createApiRouter } from '../src/api.mjs';
 import { MemoryIdentityStore, D1IdentityStore, REBIND_DELAY_SEC } from '../src/auth.mjs';
-import { ChestEngine, CHEST_MALL_CATALOG, FREE_CHEST_CHAIN, CAPTAIN_FOUNDING_BONUS_RAW, CAPTAIN_MIN_TEAM_MEMBERS } from '../src/chest-engine.mjs';
+import { ChestEngine, CHEST_MALL_CATALOG, PAID_CHEST_CRIT_TIERS, FREE_CHEST_CHAIN, CAPTAIN_FOUNDING_BONUS_RAW, CAPTAIN_MIN_TEAM_MEMBERS } from '../src/chest-engine.mjs';
 import { D1ChestEngine } from '../src/d1-chest-store.mjs';
 import { PresaleHotWalletEngine, REFERRAL_BPS } from '../src/presale-hotwallet.mjs';
 import { PromoHotWalletEngine } from '../src/promo-hotwallet.mjs';
@@ -85,13 +85,20 @@ async function buildStack(backend, { budgetOverrides = null, walletStateResolver
 
 console.log('Running A9 v16.1 Actuarial & Anti-Abuse Hardening tests (Memory + D1 0001..0012)...');
 
-await test('M-4 constants & warmup leaderboard alignment (6% referral, +2%~+5% boost, 6k/50k/120k/500k free chests, 300M budget cap)', async () => {
+await test('M-4 constants & warmup leaderboard alignment (6% referral, +5%~+30% crit cap & EV guard, 6k/50k/120k/500k free chests, 300M budget cap)', async () => {
   assert.equal(REFERRAL_BPS, 6n);
-  assert.equal(CHEST_MALL_CATALOG.chest_bronze.maxBoostBps, 200);
-  assert.equal(CHEST_MALL_CATALOG.chest_silver.maxBoostBps, 300);
-  assert.equal(CHEST_MALL_CATALOG.chest_gold.maxBoostBps, 400);
-  assert.equal(CHEST_MALL_CATALOG.chest_platinum.maxBoostBps, 450);
-  assert.equal(CHEST_MALL_CATALOG.chest_diamond.maxBoostBps, 500);
+  assert.equal(CHEST_MALL_CATALOG.chest_bronze.maxBoostBps, 500);
+  assert.equal(CHEST_MALL_CATALOG.chest_silver.maxBoostBps, 1000);
+  assert.equal(CHEST_MALL_CATALOG.chest_gold.maxBoostBps, 1500);
+  assert.equal(CHEST_MALL_CATALOG.chest_platinum.maxBoostBps, 2000);
+  assert.equal(CHEST_MALL_CATALOG.chest_diamond.maxBoostBps, 3000);
+
+  const totalCritWeight = PAID_CHEST_CRIT_TIERS.reduce((s, t) => s + Number(t.weight || 0), 0);
+  assert.equal(totalCritWeight, 100);
+  const expectedRatio = PAID_CHEST_CRIT_TIERS.reduce((s, t) => s + (t.weight / 100) * ((t.minRatio + t.maxRatio) / 2), 0);
+  assert.ok(expectedRatio <= 0.15, `expectedRatio ${expectedRatio} exceeded 0.15`);
+  const diamondExpectedBoost = (CHEST_MALL_CATALOG.chest_diamond.maxBoostBps / 10000) * expectedRatio;
+  assert.ok(diamondExpectedBoost < 0.045, `diamondExpectedBoost ${diamondExpectedBoost} exceeded 0.045`);
   assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'silver').rewardA9Raw, String(6_000n * A9));
   assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'silver').minVolumeNano, String(100n * A9));
   assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'gold').rewardA9Raw, String(50_000n * A9));
