@@ -10,7 +10,6 @@
 
 export const V15_OPCODES = Object.freeze({
   JETTON_TRANSFER: 0x0f8a7ea5,
-  STAKE_DEPOSIT: 0x5254000f,
   STAKE_DEPOSIT_V16: 0x52540010,
   TICKET_CLAIM: 0x52540303,
 });
@@ -211,15 +210,14 @@ export function encodeStakeJettonTransferBoc({
 }) {
   if (!roundController || !responseDestination) throw new Error('roundController and responseDestination required');
   if (BigInt(amountA9Raw) <= 0n) throw new Error('amountA9Raw must be positive');
-  if (protocolVersion !== 'v15' && protocolVersion !== 'v16') throw new Error('unsupported stake protocol version');
-  const wideRoundId = protocolVersion === 'v16';
-  const maxRoundId = wideRoundId ? 0xffffffff : 255;
+  if (protocolVersion !== 'v16') throw new Error(`unsupported stake protocol version: ${protocolVersion}`);
+  const maxRoundId = 0xffffffff;
   const rId = Number(roundId);
   if (!Number.isInteger(rId) || rId < 1 || rId > maxRoundId) throw new Error(`roundId must be 1..${maxRoundId}`);
 
   const forwardCell = new BitBuilder()
-    .storeUint(wideRoundId ? 0x52540010 : V15_OPCODES.STAKE_DEPOSIT, 32)
-    .storeUint(rId, wideRoundId ? 32 : 8)
+    .storeUint(V15_OPCODES.STAKE_DEPOSIT_V16, 32)
+    .storeUint(rId, 32)
     .storeUint(0, 2); // beneficiary = addr_none (uses transferInitiator)
 
   const root = new BitBuilder()

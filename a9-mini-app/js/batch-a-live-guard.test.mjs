@@ -303,7 +303,7 @@ test('Live mode allows Plaza & Chest Mall read-only view when /api/config is hea
               return {
                 ok: true,
                 data: {
-                  protocolVersion: 'v15',
+                  protocolVersion: 'v16',
                   network: 'mainnet',
                   presaleHotWallet: { enabled: true, open: false },
                   poolState: { dataAvailable: false, currentRoundId: null, poolRemainingRaw: null },

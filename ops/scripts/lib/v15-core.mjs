@@ -9,12 +9,10 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const OPS_ROOT = resolve(__dirname, '../..');
-export const V15_ROOT = resolve(OPS_ROOT, '../v15');
 export const V16_ROOT = resolve(OPS_ROOT, '../v16');
 export function resolveProtocolRoot(protocolVersion = 'v16') {
   if (protocolVersion === 'v16') return V16_ROOT;
-  if (protocolVersion === 'v15') return V15_ROOT;
-  throw new Error(`--protocol must be v16 or v15, got ${protocolVersion}`);
+  throw new Error(`--protocol must be v16, got ${protocolVersion}`);
 }
 
 
@@ -490,7 +488,7 @@ export function verifyActonWalletsReadOnly({
     OPS_CONFIRM: '',
     OPS_CONFIRM_MAINNET: '',
   };
-  const deployScript = protocol === 'v16' ? '../ops/tolk/deploy_v16.tolk' : '../ops/tolk/deploy_v15.tolk';
+  const deployScript = '../ops/tolk/deploy_v16.tolk';
   const res = spawnImpl('acton', ['script', '--net', params.network, deployScript], {
     cwd: protocolRoot,
     env: dryEnv,

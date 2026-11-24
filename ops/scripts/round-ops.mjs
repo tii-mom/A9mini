@@ -44,7 +44,7 @@ if (!args.action) {
 }
 
 const protocolRoot = resolveProtocolRoot(args.protocol);
-const maxRoundId = args.protocol === 'v16' ? 0xffffffff : 255;
+const maxRoundId = 0xffffffff;
 if (args.round !== undefined && (!Number.isInteger(args.round) || args.round < 1 || args.round > maxRoundId)) {
   throw new Error(`--round must be 1..${maxRoundId} for ${args.protocol}`);
 }
@@ -125,7 +125,7 @@ if (p.network === 'mainnet' && process.env.OPS_CONFIRM_MAINNET !== 'YES') {
 }
 
 env.OPS_EXECUTE = 'true';
-const res = spawnSync('acton', ['script', '--net', p.network, `../ops/tolk/round_ops_${args.protocol}.tolk`], {
+const res = spawnSync('acton', ['script', '--net', p.network, '../ops/tolk/round_ops_v16.tolk'], {
   cwd: protocolRoot,
   env,
   stdio: 'inherit',

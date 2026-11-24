@@ -80,7 +80,7 @@ const env = {
   OPS_EXECUTE: 'true',
 };
 
-const deployScript = args.protocol === 'v16' ? '../ops/tolk/deploy_v16.tolk' : '../ops/tolk/deploy_v15.tolk';
+const deployScript = '../ops/tolk/deploy_v16.tolk';
 const res = spawnSync('acton', ['script', '--net', p.network, deployScript], {
   cwd: protocolRoot,
   env,

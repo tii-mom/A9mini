@@ -72,8 +72,8 @@ export function mapV15RoundDetail(roundId, round, candles = [], nowSec = Math.fl
 export function resolveProtocolVersion(rawValue, defaultVersion = 'v16') {
   const raw = String(rawValue ?? '').trim().toLowerCase();
   if (!raw) return defaultVersion;
-  if (raw === 'v16' || raw === 'v15') return raw;
-  throw new Error(`Unsupported A9_PROTOCOL_VERSION: "${rawValue}" (expected "v16" or "v15")`);
+  if (raw === 'v16') return 'v16';
+  throw new Error(`Unsupported A9_PROTOCOL_VERSION: "${rawValue}" (expected "v16")`);
 }
 
 export function buildV15ConfigPayload(env = {}, protocolState = null) {

@@ -29,7 +29,8 @@ console.log('Running A9 v15 ops offline self-test...');
 test('v16 compiled artifacts match ci/artifacts.sha256 (4 contracts) and invalid protocol throws', () => {
   const list = verifyV15Artifacts();
   assert.equal(list.length, 4);
-  assert.throws(() => resolveProtocolRoot('v14'), /must be v16 or v15/);
+  assert.throws(() => resolveProtocolRoot('v15'), /must be v16/);
+  assert.throws(() => resolveProtocolRoot('v14'), /must be v16/);
 });
 
 test('testnet / testnet-fast / mainnet param profiles validate cleanly', () => {

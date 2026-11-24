@@ -73,7 +73,7 @@ test('buildV15StakeTx builds valid 2-cell TEP-74 AskToTransfer BOC with 0x525400
   assert.equal(raw.readBigUInt64BE(17), 77n);
 });
 
-test('v16 stake is default and encodes full 32-bit round IDs while keeping explicit v15 distinct', () => {
+test('v16 stake is the sole protocol and encodes full 32-bit round IDs while rejecting legacy/invalid versions', () => {
   const address = '0:' + 'ab'.repeat(32);
   const stake = {
     userJettonWallet: address,
@@ -87,8 +87,7 @@ test('v16 stake is default and encodes full 32-bit round IDs while keeping expli
   );
   assert.equal(encode(256).subarray(-9).toString('hex'), '525400100000010020');
   assert.equal(encode(0xffffffff).subarray(-9).toString('hex'), '52540010ffffffff20');
-  assert.equal(encode(255, 'v15').subarray(-6).toString('hex'), '5254000fff20');
-  assert.throws(() => encode(256, 'v15'), /1\.\.255/);
+  assert.throws(() => encode(255, 'v15'), /unsupported stake protocol version/);
   assert.throws(() => encode(0x100000000), /1\.\.4294967295/);
   assert.throws(() => encode(1, 'v14'), /unsupported stake protocol version/);
 });

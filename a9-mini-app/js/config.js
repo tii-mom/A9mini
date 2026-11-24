@@ -112,8 +112,8 @@ export const BAM_SOURCE = V15_SOURCE;
 function resolveStakeProtocolVersion(raw) {
   if (raw === undefined || raw === null || raw === '') return 'v16';
   const v = String(raw).trim().toLowerCase();
-  if (v === 'v16' || v === 'v15') return v;
-  throw new Error(`不支持的质押协议版本配置: ${raw}（仅允许 v16 或 v15）`);
+  if (v === 'v16') return 'v16';
+  throw new Error(`不支持的质押协议版本配置: ${raw}（仅允许 v16）`);
 }
 
 const resolvedMode = readMode();
