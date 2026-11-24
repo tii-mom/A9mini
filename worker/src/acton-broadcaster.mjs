@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_V15_ROOT = resolve(__dirname, '../../v15');
+const DEFAULT_PROTOCOL_ROOT = resolve(__dirname, '../../v16');
 
 async function runActonScript({ network, scriptRelPath, cwd, env, spawnImpl }) {
   if (typeof spawnImpl === 'function') {
@@ -40,7 +40,7 @@ export function createActonPromoBroadcaster({
   hotWalletName = process.env.A9_PROMO_HOT_WALLET_NAME || 'promoHotWallet',
   jettonMasterAddress = process.env.A9_JETTON_MASTER_ADDRESS,
   transferGasNano = process.env.A9_PROMO_TRANSFER_GAS_NANO || '50000000',
-  projectRoot = DEFAULT_V15_ROOT,
+  projectRoot = DEFAULT_PROTOCOL_ROOT,
   scriptPath = '../ops/tolk/promo_payout_v15.tolk',
   baseEnv = process.env,
   spawnImpl = null,
@@ -78,7 +78,7 @@ export function createActonPromoBroadcaster({
 export function createActonGramRefundBroadcaster({
   network = process.env.A9_NETWORK || 'testnet',
   hotWalletName = process.env.A9_PRESALE_HOT_WALLET_NAME || '',
-  projectRoot = DEFAULT_V15_ROOT,
+  projectRoot = DEFAULT_PROTOCOL_ROOT,
   scriptPath = '../ops/tolk/gram_refund_v15.tolk',
   baseEnv = process.env,
   spawnImpl = null,
