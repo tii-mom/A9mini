@@ -9,6 +9,28 @@ const execFileAsync = promisify(execFile);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PROTOCOL_ROOT = resolve(__dirname, '../../v16');
 
+function withActonNetworkKeyEnv(network, baseEnv = process.env) {
+  const fallback = String(baseEnv?.TONCENTER_API_KEY || '').trim();
+  if (network === 'mainnet') {
+    const k = String(baseEnv?.TONCENTER_MAINNET_API_KEY || fallback).trim();
+    return { ...baseEnv, ...(k ? { TONCENTER_MAINNET_API_KEY: k } : {}) };
+  }
+  if (network === 'testnet') {
+    const k = String(baseEnv?.TONCENTER_TESTNET_API_KEY || fallback).trim();
+    return { ...baseEnv, ...(k ? { TONCENTER_TESTNET_API_KEY: k } : {}) };
+  }
+  return { ...baseEnv };
+}
+
+function normalizeFullTxHashHex(rawHex) {
+  const clean = String(rawHex || '').replace(/^0x/i, '').toLowerCase();
+  return `0x${clean.padStart(64, '0')}`;
+}
+
+function isDeterministicPreSendFailure(detail) {
+  return /insufficient hot wallet|not deployed yet|wallet address mismatch|ops_confirm|missing positive|missing a9_|exceeds single-cell|enoent/i.test(String(detail || ''));
+}
+
 async function runActonScript({ network, scriptRelPath, cwd, env, spawnImpl }) {
   if (typeof spawnImpl === 'function') {
     const res = spawnImpl('acton', ['script', '--net', network, scriptRelPath], {
@@ -17,7 +39,10 @@ async function runActonScript({ network, scriptRelPath, cwd, env, spawnImpl }) {
       encoding: 'utf8',
     });
     if (res.status !== 0) {
-      throw new Error(`acton script failed (exit=${res.status}): ${res.stderr || res.stdout || ''}`.trim());
+      const detail = `${res.stderr || res.stdout || ''}`.trim();
+      const err = new Error(`acton script failed (exit=${res.status}): ${detail}`.trim());
+      if (isDeterministicPreSendFailure(detail)) err.notSent = true;
+      throw err;
     }
     return String(res.stdout || '');
   }
@@ -26,18 +51,23 @@ async function runActonScript({ network, scriptRelPath, cwd, env, spawnImpl }) {
       cwd,
       env,
       encoding: 'utf8',
-      timeout: 120000,
+      timeout: 180000,
     });
     return String(res.stdout || '');
   } catch (err) {
     const detail = String(err?.stderr || err?.stdout || err?.message || err).trim();
-    throw new Error(`acton script failed (${scriptRelPath}): ${detail}`);
+    const outErr = new Error(`acton script failed (${scriptRelPath}): ${detail}`);
+    if (isDeterministicPreSendFailure(detail) || err?.code === 'ENOENT') {
+      outErr.notSent = true;
+    }
+    throw outErr;
   }
 }
 
 export function createActonPromoBroadcaster({
   network = process.env.A9_NETWORK || 'testnet',
   hotWalletName = process.env.A9_PROMO_HOT_WALLET_NAME || 'promoHotWallet',
+  expectedHotWalletAddress = process.env.A9_PROMO_HOT_WALLET_ADDRESS || null,
   jettonMasterAddress = process.env.A9_JETTON_MASTER_ADDRESS,
   transferGasNano = process.env.A9_PROMO_TRANSFER_GAS_NANO || '50000000',
   projectRoot = DEFAULT_PROTOCOL_ROOT,
@@ -51,10 +81,11 @@ export function createActonPromoBroadcaster({
   return async function broadcastPromoPayout(payoutInstruction) {
     const queryId = payoutInstruction.queryId ? String(payoutInstruction.queryId) : String(Date.now());
     const env = {
-      ...baseEnv,
+      ...withActonNetworkKeyEnv(network, baseEnv),
       OPS_EXECUTE: 'true',
       A9_NETWORK: network,
       A9_PROMO_HOT_WALLET_NAME: hotWalletName,
+      ...(expectedHotWalletAddress ? { A9_EXPECTED_HOT_WALLET_ADDRESS: expectedHotWalletAddress } : {}),
       A9_JETTON_MASTER_ADDRESS: jettonMasterAddress,
       A9_PAYOUT_RECIPIENT: payoutInstruction.recipient,
       A9_PAYOUT_AMOUNT_RAW: String(payoutInstruction.jettonAmountRaw),
@@ -67,7 +98,7 @@ export function createActonPromoBroadcaster({
     if (!match) {
       throw new Error('acton promo payout completed without emitting PROMO_PAYOUT_TX hash');
     }
-    return { txHash: match[1] };
+    return { txHash: normalizeFullTxHashHex(match[1]) };
   };
 }
 
@@ -78,6 +109,7 @@ export function createActonPromoBroadcaster({
 export function createActonGramRefundBroadcaster({
   network = process.env.A9_NETWORK || 'testnet',
   hotWalletName = process.env.A9_PRESALE_HOT_WALLET_NAME || '',
+  expectedHotWalletAddress = process.env.A9_PRESALE_HOT_WALLET_ADDRESS || null,
   projectRoot = DEFAULT_PROTOCOL_ROOT,
   scriptPath = '../ops/tolk/gram_refund_v15.tolk',
   baseEnv = process.env,
@@ -93,10 +125,11 @@ export function createActonGramRefundBroadcaster({
     }
     const memo = instruction.memo || (instruction.queryId ? `refund:${instruction.queryId}` : '');
     const env = {
-      ...baseEnv,
+      ...withActonNetworkKeyEnv(network, baseEnv),
       OPS_EXECUTE: 'true',
       A9_NETWORK: network,
       A9_PRESALE_HOT_WALLET_NAME: hotWalletName,
+      ...(expectedHotWalletAddress ? { A9_EXPECTED_HOT_WALLET_ADDRESS: expectedHotWalletAddress } : {}),
       A9_REFUND_RECIPIENT: instruction.recipient,
       A9_REFUND_TON_NANO: tonNano.toString(),
       A9_REFUND_MEMO: memo,
@@ -107,6 +140,6 @@ export function createActonGramRefundBroadcaster({
     if (!match) {
       throw new Error('acton GRAM refund completed without emitting GRAM_REFUND_TX hash');
     }
-    return { txHash: match[1] };
+    return { txHash: normalizeFullTxHashHex(match[1]) };
   };
 }

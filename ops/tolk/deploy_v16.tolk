@@ -53,6 +53,11 @@ fun sendAndVerify(from: address, msg: OutMessage, label: string) {
                 if (exitCode != 0 && exitCode != 1) {
                     Assert.fail(format("{}: tx[{}] failed compute exitCode={}", label, i, exitCode));
                 }
+            } else {
+                val skip = c.reason;
+                if (!(skip is TlbCSkipNoState) || !(descr.bounce is TlbNone)) {
+                    Assert.fail(format("{}: tx[{}] compute skipped unexpectedly", label, i));
+                }
             }
             val act = descr.action;
             if (!(act is TlbNone)) {
@@ -77,6 +82,12 @@ fun main() {
     val keeper = reqAddr("A9_KEEPER_ADDRESS");
     val roundOpener = env<address>("A9_ROUND_OPENER_ADDRESS") ?? keeper;
     val teamWallet = reqAddr("A9_TEAM_WALLET_ADDRESS");
+    if (deployer.address.getWorkchain() != BASECHAIN || treasury.address.getWorkchain() != BASECHAIN) {
+        Assert.fail("deployer and treasury wallets must reside on Basechain (workchain 0)");
+    }
+    if (keeper.getWorkchain() != BASECHAIN || roundOpener.getWorkchain() != BASECHAIN || teamWallet.getWorkchain() != BASECHAIN) {
+        Assert.fail("keeper, roundOpener, and teamWallet must reside on Basechain (workchain 0)");
+    }
 
     val masterCode = build("JettonMaster");
     val walletCode = build("JettonWallet");
@@ -208,6 +219,10 @@ fun main() {
         if (scripts.fetchAccountBalance(treasury.address) < needTreasury) {
             Assert.fail(format("insufficient treasury balance for MintOnce (need >= {})", needTreasury));
         }
+        if (mintTotal < mintFwd + ton("0.10")) {
+            Assert.fail("A9_TON_MINT_TOTAL must exceed A9_TON_MINT_FORWARD by >= 0.10 GRAM");
+        }
+        val mintMsgTotal = mintFwd + ton("0.05");
         println("[2/4] Minting 10B A9 once and renouncing admin...");
         val mintBody = beginCell()
             .storeUint(0x00000015, 32)
@@ -215,7 +230,7 @@ fun main() {
             .storeAddress(treasury.address)
             .storeCoins(mintFwd)
             .storeCoins(totalSupply)
-            .storeCoins(mintTotal)
+            .storeCoins(mintMsgTotal)
             .storeUint(0, 1)
             .endCell();
         sendAndVerify(treasury.address, createMessage({ bounce: true, value: mintTotal, dest: master, body: mintBody }), "step2-mint-once");

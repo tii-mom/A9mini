@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // A9 Protocol v15 — Minimalist 4-contract deployment CLI (default dry-run).
 import { spawnSync } from 'node:child_process';
-import { validateDeployPreflight } from './lib/v15-core.mjs';
+import { validateDeployPreflight, withActonNetworkKeyEnv } from './lib/v15-core.mjs';
 
 function parseArgs(argv) {
   const out = {
     profile: process.env.A9_PROFILE || process.env.A9_NETWORK || 'testnet',
     execute: false,
     strict: false,
+    skipMetadataProbe: false,
     protocol: process.env.A9_PROTOCOL_VERSION || 'v16',
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -15,9 +16,35 @@ function parseArgs(argv) {
     else if (argv[i] === '--protocol') out.protocol = argv[++i];
     else if (argv[i] === '--execute') out.execute = true;
     else if (argv[i] === '--strict') out.strict = true;
+    else if (argv[i] === '--skip-metadata-probe') out.skipMetadataProbe = true;
     else if (argv[i] === '--dry-run') out.execute = false;
   }
   return out;
+}
+
+async function probeMainnetMetadataUri(uri) {
+  const res = await fetch(uri, { method: 'GET', signal: AbortSignal.timeout(10000) });
+  if (!res.ok) {
+    throw new Error(`A9_METADATA_URI returned HTTP ${res.status} (${uri})`);
+  }
+  let meta;
+  try {
+    meta = await res.json();
+  } catch {
+    throw new Error(`A9_METADATA_URI did not return valid JSON (${uri})`);
+  }
+  if (!meta || typeof meta !== 'object') throw new Error('metadata JSON is not an object');
+  if (String(meta.symbol || '').trim() !== 'A9') throw new Error(`metadata.symbol must be "A9", got "${meta.symbol}"`);
+  if (String(meta.decimals ?? '').trim() !== '9') throw new Error(`metadata.decimals must be "9", got "${meta.decimals}"`);
+  if (!String(meta.name || '').trim()) throw new Error('metadata.name is empty');
+  const imgUrl = String(meta.image || '').trim();
+  if (!/^https:\/\//i.test(imgUrl)) throw new Error(`metadata.image must be https:// URL, got "${imgUrl}"`);
+  const imgRes = await fetch(imgUrl, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
+  if (!imgRes.ok) {
+    const getRes = await fetch(imgUrl, { method: 'GET', signal: AbortSignal.timeout(10000) });
+    if (!getRes.ok) throw new Error(`metadata.image unreachable (HTTP ${getRes.status}): ${imgUrl}`);
+  }
+  return meta;
 }
 
 const args = parseArgs(process.argv.slice(2));
@@ -29,6 +56,17 @@ const preflight = validateDeployPreflight({
   strict: args.strict,
 });
 const { profile, params: p, protocolRoot, artifacts } = preflight;
+
+const metadataUri = String(process.env.A9_METADATA_URI || '').trim();
+if (p.network === 'mainnet' && !args.skipMetadataProbe && (args.strict || args.execute) && /^https:\/\//i.test(metadataUri)) {
+  try {
+    const probed = await probeMainnetMetadataUri(metadataUri);
+    console.log(`[${args.protocol}-deploy] Metadata probe OK: ${probed.name} (${probed.symbol}, decimals=${probed.decimals})`);
+  } catch (e) {
+    console.error(`[${args.protocol}-deploy] Metadata probe FAILED: ${e?.message || e}`);
+    process.exit(1);
+  }
+}
 
 console.log(`[${args.protocol}-deploy] Verified ${artifacts.length} compiled artifacts against ci/artifacts.sha256`);
 console.log(`[${args.protocol}-deploy] Profile loaded: ${profile} (network=${p.network})`);
@@ -53,7 +91,7 @@ if (!args.execute) {
 }
 
 const env = {
-  ...process.env,
+  ...withActonNetworkKeyEnv(p.network, process.env),
   A9_NETWORK: p.network,
   A9_PROTOCOL_VERSION: args.protocol,
   A9_METADATA_URI: process.env.A9_METADATA_URI || '',

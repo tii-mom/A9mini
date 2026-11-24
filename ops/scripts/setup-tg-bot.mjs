@@ -105,6 +105,7 @@ export function buildBotSetupPlan({
 export async function executeBotSetup({
   execute = false,
   opsExecuteEnv = process.env.OPS_EXECUTE || '',
+  opsConfirmEnv = process.env.OPS_CONFIRM || '',
   botToken = '',
   webhookUrl = '',
   appUrl = '',
@@ -116,8 +117,8 @@ export async function executeBotSetup({
   const plan = buildBotSetupPlan({ webhookUrl, appUrl, secretToken, deleteWebhook });
   const isLive = Boolean(execute);
   if (isLive) {
-    if (String(opsExecuteEnv).trim() !== '1') {
-      throw new Error('Refusing --execute without OPS_EXECUTE=1');
+    if (String(opsExecuteEnv).trim() !== '1' || String(opsConfirmEnv).trim() !== 'YES') {
+      throw new Error('Refusing --execute without OPS_EXECUTE=1 and OPS_CONFIRM=YES');
     }
     if (!String(botToken || '').trim()) {
       throw new Error('botToken (A9_BOT_TOKEN) is required in --execute mode');
@@ -147,6 +148,7 @@ export async function executeBotSetup({
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(call.body),
+      signal: AbortSignal.timeout(15000),
     });
     const json = await res.json().catch(() => null);
     if (!res.ok || !json?.ok) {

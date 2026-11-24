@@ -46,6 +46,11 @@ fun assertSingleTxOk(item: SendResult, idx: int) {
             if (exitCode != 0 && exitCode != 1) {
                 Assert.fail(format("tx[{}] failed compute exitCode={}", idx, exitCode));
             }
+        } else {
+            val skip = c.reason;
+            if (!(skip is TlbCSkipNoState) || !(descr.bounce is TlbNone)) {
+                Assert.fail(format("tx[{}] compute skipped unexpectedly", idx));
+            }
         }
         val act = descr.action;
         if (!(act is TlbNone)) {
@@ -83,11 +88,15 @@ fun main() {
     }
 
     val hotWallet = scripts.wallet(reqStr("A9_PROMO_HOT_WALLET_NAME"));
+    val expectedHot = env<address>("A9_EXPECTED_HOT_WALLET_ADDRESS");
+    if (expectedHot != null && hotWallet.address != expectedHot!) {
+        Assert.fail(format("hot wallet address mismatch: {} != {}", hotWallet.address, expectedHot!));
+    }
     val master = reqAddr("A9_JETTON_MASTER_ADDRESS");
     val recipient = reqAddr("A9_PAYOUT_RECIPIENT");
     val amountRaw = reqInt("A9_PAYOUT_AMOUNT_RAW") as coins;
     val gasNano = (env<int>("A9_PROMO_TRANSFER_GAS_NANO") ?? 50000000) as coins;
-    val qid = (env<int>("A9_QUERY_ID") ?? 1) as uint64;
+    val qid = reqInt("A9_QUERY_ID") as uint64;
 
     val bal = scripts.fetchAccountBalance(hotWallet.address);
     val minRequired = gasNano + ton("0.05");

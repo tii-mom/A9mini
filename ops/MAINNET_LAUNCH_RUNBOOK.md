@@ -10,8 +10,8 @@
 |---|---|---|---|
 | 1 | 正式域名 | 前端域名（如 `https://app.<domain>`）与 API 域名（如 `https://api.<domain>`） | Cloudflare DNS 接入正式域名并开启 HTTPS 代理 |
 | 2 | 正式 Telegram Bot | `A9_BOT_TOKEN`（Secret）、`A9_TG_WEBHOOK_SECRET`（Secret，>=16位）与 `A9_TG_BOT_HANDLE`（不含 `@`） | `@BotFather` 执行 `/newbot` 与 `/newapp` 绑定前端域名；`openssl rand -hex 24` 生成 Webhook Secret |
-| 3 | 主网 TonCenter Key | `TONCENTER_API_KEY`（Secret，Mainnet 档位，建议 >= 10 RPS） | `@tonapibot` 或 toncenter.com 申请 Mainnet Key |
-| 4 | 5 个独立主网钱包 | `deployer`、`treasury`、`keeper/opener`、`presaleHotWallet`、`promoHotWallet`（**严禁复用或混用**） | 本机执行 `acton wallet new <name>`；助记词离线冷备 |
+| 3 | 主网 TonCenter Key | `TONCENTER_API_KEY`（Worker Secret）与 `TONCENTER_MAINNET_API_KEY`（Acton 1.1.0 主网 Key，建议 >= 10 RPS） | `@tonapibot` 或 toncenter.com 申请 Mainnet Key（CLI 会自动从 `TONCENTER_API_KEY` 映射） |
+| 4 | 6 个独立主网钱包 | `deployer`、`treasury`、`opener`、`keeper`（强建议与 `opener` 物理分离且 `keeper` 使用硬件/多签）、`presaleHotWallet`、`promoHotWallet`（**严禁复用或混用**） | 本机执行 `acton wallet new --name <NAME> --version v4r2` 或 `acton wallet import`；助记词离线冷备 |
 | 5 | 团队多签/硬件地址 | `A9_TEAM_WALLET_ADDRESS`（主网部署 `RoundController` 时永久固化） | 硬件钱包或 TON Multisig 主网地址 |
 | 6 | 管理与 D1 Token | `A9_ADMIN_TOKEN`（Secret）与 `CLOUDFLARE_API_TOKEN`（仅 `Account: D1: Edit` 权限） | `openssl rand -hex 32` 与 Cloudflare Dashboard API Tokens |
 | 7 | 代币元数据 JSON | `A9_METADATA_URI`（如 `https://app.a9.lat/a9.json`） | 上传符合 TEP-64 的 `a9.json`（精度 9、名称、Logo）至正式前端静态域 |
@@ -112,11 +112,12 @@ npx wrangler deploy --env production
   - `CLOUDFLARE_API_TOKEN=<d1_edit_token>`
   - `TONCENTER_API_BASE=https://toncenter.com/api/v2`
   - `TONCENTER_V3_API_BASE=https://toncenter.com/api/v3`（可选，默认自动派生）
-  - `TONCENTER_API_KEY=<mainnet_key>`
+  - `TONCENTER_API_KEY=<mainnet_key>`（与 `TONCENTER_MAINNET_API_KEY=<mainnet_key>`）
   - `A9_JETTON_MASTER_ADDRESS=<master_addr>`
   - `A9_PROMO_HOT_WALLET_ADDRESS=<promo_addr>` / `A9_PROMO_HOT_WALLET_NAME=<promo_wallet_name>`
   - `A9_PRESALE_HOT_WALLET_ADDRESS=<presale_addr>` / `A9_PRESALE_HOT_WALLET_NAME=<presale_wallet_name>`
   - `A9_PRESALE_OPEN=1`、`A9_RUNNER_ID=mainnet-payout-daemon-1`、`A9_DAEMON_INTERVAL_MS=10000`、`A9_DAEMON_HEALTH_PORT=18788`
+  - 若开启波次 2 战报播报：同时配置 `A9_BROADCAST_ENABLED=1`、`A9_BOT_TOKEN=<bot_token>`、`A9_TG_BOT_HANDLE=<BotUsername>`、`A9_PUBLIC_ORIGIN=https://app.a9.lat`、`A9_API_ORIGIN=https://api.a9.lat`、`A9_BROADCAST_WHALE_MIN_GRAM=50`
 
 ### 2.1 独立签名主机启动 `payout-daemon.mjs`
 先干跑验证连接生产 D1 与主网 TonCenter v3（零广播）：
@@ -147,7 +148,7 @@ node scripts/setup-tg-bot.mjs --dry-run \
   --webhook-url https://api.<domain>/api/telegram/webhook \
   --app-url https://app.<domain>
 # 业主授权后真实注册：
-OPS_EXECUTE=1 node scripts/setup-tg-bot.mjs --execute \
+OPS_EXECUTE=1 OPS_CONFIRM=YES node scripts/setup-tg-bot.mjs --execute \
   --webhook-url https://api.<domain>/api/telegram/webhook \
   --app-url https://app.<domain>
 ```
@@ -167,16 +168,16 @@ OPS_EXECUTE=1 node scripts/setup-tg-bot.mjs --execute \
 cd /Users/yu1/Desktop/A9mini/ops
 export A9_ROUND_CONTROLLER_ADDRESS="<mainnet_v16_rc_addr>"
 
-# 开轮（必须显式指定 --round，目标价须严格落在 [1.50x, 2.50x] 走廊内）
+# 开轮（必须显式指定 --round，目标价须严格落在 [1.50x, 2.50x] 走廊内；由 A9_OPENER_WALLET 或 --signer 指定独立开轮钱包）
 OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
   node scripts/round-ops.mjs --protocol v16 --profile mainnet --action open-round \
-    --round 1 --twap 116000 --target 232000 --signer opener --execute
+    --round 1 --twap 116000 --target 232000 --execute
 
-# 单笔结算（主网强制 --candles-file 与 --stake-close-at，校验 24 根连续 K 线对齐 86400s 观察窗）
+# 单笔结算（主网强制 --candles-file 与 --stake-close-at，自动与链上 get_round 交叉核验 target/stakeCloseAt；由 A9_KEEPER_WALLET 或 --signer 指定独立结算钱包）
 OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
   node scripts/round-ops.mjs --protocol v16 --profile mainnet --action settle-round \
     --round 1 --target 232000 --candles-file /path/to/r1-candles.json \
-    --stake-close-at <unix_sec> --signer keeper --execute
+    --stake-close-at <unix_sec> --execute
 ```
 
 ---

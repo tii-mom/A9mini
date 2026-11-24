@@ -505,7 +505,8 @@ await test('ops/scripts/setup-tg-bot.mjs enforces dry-run, HTTPS/secret validati
 
   await assert.rejects(() => executeBotSetup({
     execute: true,
-    opsExecuteEnv: '',
+    opsExecuteEnv: '1',
+    opsConfirmEnv: '',
     botToken: fakeToken,
     webhookUrl: 'https://api.a9.lat/api/telegram/webhook',
     appUrl: 'https://app.a9.lat',
@@ -518,6 +519,7 @@ await test('ops/scripts/setup-tg-bot.mjs enforces dry-run, HTTPS/secret validati
   const liveRes = await executeBotSetup({
     execute: true,
     opsExecuteEnv: '1',
+    opsConfirmEnv: 'YES',
     botToken: fakeToken,
     webhookUrl: 'https://api.a9.lat/api/telegram/webhook',
     appUrl: 'https://app.a9.lat',

@@ -8,11 +8,15 @@ import {
   assertTargetInCorridor,
   aggregateCandles,
   resolveProtocolRoot,
+  parseTonAddressForOps,
+  withActonNetworkKeyEnv,
 } from './lib/v15-core.mjs';
 
 function parseArgs(argv) {
   const out = {
     execute: false,
+    offline: false,
+    strict: false,
     protocol: process.env.A9_PROTOCOL_VERSION || 'v16',
     profile: process.env.A9_PROFILE || process.env.A9_NETWORK || 'testnet',
     queryId: String(Date.now()),
@@ -32,6 +36,8 @@ function parseArgs(argv) {
     else if (a === '--signer') out.signer = argv[++i];
     else if (a === '--query-id') out.queryId = argv[++i];
     else if (a === '--execute') out.execute = true;
+    else if (a === '--offline') out.offline = true;
+    else if (a === '--strict') out.strict = true;
     else if (a === '--dry-run') out.execute = false;
   }
   return out;
@@ -49,7 +55,12 @@ if (args.round !== undefined && (!Number.isInteger(args.round) || args.round < 1
   throw new Error(`--round must be 1..${maxRoundId} for ${args.protocol}`);
 }
 const { data: p } = loadParams(args.profile);
-const env = { ...process.env, A9_NETWORK: p.network, A9_OP_ACTION: args.action, A9_QUERY_ID: args.queryId };
+const env = {
+  ...withActonNetworkKeyEnv(p.network, process.env),
+  A9_NETWORK: p.network,
+  A9_OP_ACTION: args.action,
+  A9_QUERY_ID: args.queryId,
+};
 
 if (args.action === 'open-round') {
   if (!args.round) {
@@ -61,6 +72,7 @@ if (args.action === 'open-round') {
   if (!target) throw new Error('--target <usd_e8> is required');
   const check = assertTargetInCorridor(roundId, twap, target, p.econ.p0UsdE8);
   console.log(`[round-ops] OpenRound #${roundId} corridor OK: base=${check.base}, target=${check.target} in [${check.minTarget}, ${check.maxTarget}]`);
+  env.A9_EXPECTED_ROUND_ID = String(roundId);
   env.A9_TWAP_24H_USD_E8 = String(twap);
   env.A9_TARGET_PRICE_USD_E8 = String(target);
   env.A9_SIGNER_WALLET = args.signer || process.env.A9_OPENER_WALLET || 'opener';
@@ -101,6 +113,11 @@ if (args.action === 'open-round') {
     throw new Error(`--qualified must be an integer in 0..${p.timing.candleCount}, got ${qualified}`);
   }
   env.A9_ROUND_ID = String(args.round);
+  env.A9_EXPECTED_ROUND_ID = String(args.round);
+  if (args.target) env.A9_EXPECTED_TARGET_USD_E8 = String(args.target);
+  if (Number.isInteger(args.stakeCloseAt) && args.stakeCloseAt > 0) {
+    env.A9_EXPECTED_STAKE_CLOSE_AT = String(args.stakeCloseAt);
+  }
   env.A9_QUALIFIED_CANDLES = String(qualified);
   env.A9_CANDLE_HASH = candleHashDec;
   env.A9_SIGNER_WALLET = args.signer || process.env.A9_KEEPER_WALLET || 'keeper';
@@ -110,11 +127,40 @@ if (args.action === 'open-round') {
   throw new Error(`unknown action: ${args.action}`);
 }
 
+const rcAddr = String(env.A9_ROUND_CONTROLLER_ADDRESS || '').trim();
+if (rcAddr) {
+  const parsedRc = parseTonAddressForOps(rcAddr);
+  if (!parsedRc || parsedRc.workchain !== 0) {
+    throw new Error(`Invalid A9_ROUND_CONTROLLER_ADDRESS: ${rcAddr}`);
+  }
+  if (p.network === 'mainnet' && parsedRc.testOnly === true) {
+    throw new Error('A9_ROUND_CONTROLLER_ADDRESS cannot be a testnet address on mainnet');
+  }
+}
+
 if (!args.execute) {
+  if (!args.offline && rcAddr) {
+    env.OPS_EXECUTE = 'false';
+    const dryRes = spawnSync('acton', ['script', '--net', p.network, '../ops/tolk/round_ops_v16.tolk'], {
+      cwd: protocolRoot,
+      env,
+      stdio: 'inherit',
+    });
+    if (dryRes.status !== 0) process.exit(dryRes.status ?? 1);
+  } else if (args.strict && !rcAddr) {
+    console.error('Refusing strict dry-run without A9_ROUND_CONTROLLER_ADDRESS');
+    process.exit(1);
+  } else {
+    console.log('[round-ops] Offline DRY-RUN parameter check complete (set A9_ROUND_CONTROLLER_ADDRESS to run on-chain cross-checks).');
+  }
   console.log('[round-ops] DRY-RUN complete. Re-run with --execute OPS_EXECUTE=1 OPS_CONFIRM=YES to broadcast.');
   process.exit(0);
 }
 
+if (!rcAddr) {
+  console.error('Refusing --execute: A9_ROUND_CONTROLLER_ADDRESS is required');
+  process.exit(1);
+}
 if (process.env.OPS_EXECUTE !== '1' || process.env.OPS_CONFIRM !== 'YES') {
   console.error('Refusing --execute: set OPS_EXECUTE=1 and OPS_CONFIRM=YES');
   process.exit(1);

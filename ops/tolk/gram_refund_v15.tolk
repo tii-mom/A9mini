@@ -94,6 +94,10 @@ fun main() {
 
     val hotWalletName = reqStr("A9_PRESALE_HOT_WALLET_NAME");
     val hotWallet = scripts.wallet(hotWalletName);
+    val expectedHot = env<address>("A9_EXPECTED_HOT_WALLET_ADDRESS");
+    if (expectedHot != null && hotWallet.address != expectedHot!) {
+        Assert.fail(format("hot wallet address mismatch: {} != {}", hotWallet.address, expectedHot!));
+    }
     val recipient = reqAddr("A9_REFUND_RECIPIENT");
     val refundNano = reqInt("A9_REFUND_TON_NANO") as coins;
     val memo = env<string>("A9_REFUND_MEMO") ?? "";

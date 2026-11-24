@@ -222,7 +222,9 @@ await test('createActonPromoBroadcaster passes --net and parses PROMO_PAYOUT_TX 
   const broadcast = createActonPromoBroadcaster({
     network: 'testnet',
     hotWalletName: 'promoHotWallet',
+    expectedHotWalletAddress: 'kQ_EXPECTED_HOT',
     jettonMasterAddress: 'EQ_MASTER_DEMO',
+    baseEnv: { TONCENTER_API_KEY: 'key_t_999' },
     spawnImpl: (cmd, args, opts) => {
       captured = { cmd, args, env: opts.env };
       return { status: 0, stdout: 'PROMO_PAYOUT_TX=0xdeadbeef1234\n', stderr: '' };
@@ -236,7 +238,20 @@ await test('createActonPromoBroadcaster passes --net and parses PROMO_PAYOUT_TX 
   assert.equal(captured.cmd, 'acton');
   assert.deepEqual(captured.args, ['script', '--net', 'testnet', '../ops/tolk/promo_payout_v15.tolk']);
   assert.equal(captured.env.A9_PAYOUT_RECIPIENT, 'EQ_USER_1');
-  assert.equal(res.txHash, '0xdeadbeef1234');
+  assert.equal(captured.env.A9_EXPECTED_HOT_WALLET_ADDRESS, 'kQ_EXPECTED_HOT');
+  assert.equal(captured.env.TONCENTER_TESTNET_API_KEY, 'key_t_999');
+  assert.equal(res.txHash, `0x${'deadbeef1234'.padStart(64, '0')}`);
+
+  const preFailBc = createActonPromoBroadcaster({
+    network: 'testnet',
+    hotWalletName: 'promoHotWallet',
+    jettonMasterAddress: 'EQ_MASTER_DEMO',
+    spawnImpl: () => ({ status: 1, stdout: '', stderr: 'Assert failed: insufficient hot wallet balance' }),
+  });
+  await assert.rejects(
+    () => preFailBc({ recipient: 'EQ_USER_1', jettonAmountRaw: '1000', attachedTonNano: '50000000' }),
+    (e) => e.notSent === true,
+  );
 });
 
 await test('PresaleHotWalletEngine handles valid fill, passive free refund, no-order anomaly (no auto fee), and dust ignore', async () => {
@@ -1604,14 +1619,14 @@ await test('W2-4: D1PromoStore + PromoPayoutRunner recoverable state machine & p
     /Hot wallet isolation violated/,
   );
 
-  // 2) createActonGramRefundBroadcaster parses GRAM_REFUND_TX cleanly and fails without hash
+  // 2) createActonGramRefundBroadcaster parses GRAM_REFUND_TX cleanly (zero-padded to 64 hex) and fails without hash
   const refundB = createActonGramRefundBroadcaster({
     network: 'testnet',
     hotWalletName: 'presaleHot',
     spawnImpl: () => ({ status: 0, stdout: 'GRAM_REFUND_TX=0xdeadbeef01\n', stderr: '' }),
   });
   const rOut = await refundB({ recipient: USER, tonNano: '990000000', queryId: '900' });
-  assert.equal(rOut.txHash, '0xdeadbeef01');
+  assert.equal(rOut.txHash, `0x${'deadbeef01'.padStart(64, '0')}`);
 
   // 3) Full D1PromoStore + PromoPayoutRunner recoverable payout + crash/retry + daemon heartbeat
   const db = createSqliteD1(MIGRATIONS);

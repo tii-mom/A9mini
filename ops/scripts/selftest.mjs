@@ -15,6 +15,7 @@ import {
   aggregateCandles,
   previewWinSettlement,
   validateDeployPreflight,
+  withActonNetworkKeyEnv,
 } from './lib/v15-core.mjs';
 
 let passed = 0;
@@ -240,6 +241,59 @@ test('W2: round-ops enforces explicit --round on open-round, blocks mainnet cand
   ], { encoding: 'utf8' });
   assert.notEqual(rBadQual.status, 0);
   assert.match(rBadQual.stderr, /--qualified must be an integer in 0\.\.24/);
+});
+
+test('Mainnet preflight hardening: Acton network API key mapping, ample mainnet deployTon, and Basechain-only role guard', () => {
+  const m = loadParams('mainnet').data;
+  assert.equal(m.version, '16.1.0');
+  assert.ok(BigInt(m.deployTon.jettonMaster) >= 500_000_000n);
+  assert.ok(BigInt(m.deployTon.mintTotal) >= BigInt(m.deployTon.mintForward) + 100_000_000n);
+  assert.ok(BigInt(m.deployTon.roundController) >= 1_500_000_000n);
+
+  const mappedMainnet = withActonNetworkKeyEnv('mainnet', { TONCENTER_API_KEY: 'key_main_123' });
+  assert.equal(mappedMainnet.TONCENTER_MAINNET_API_KEY, 'key_main_123');
+  const mappedTestnet = withActonNetworkKeyEnv('testnet', { TONCENTER_API_KEY: 'key_test_456' });
+  assert.equal(mappedTestnet.TONCENTER_TESTNET_API_KEY, 'key_test_456');
+
+  const hash = new Uint8Array(32).fill(0x33);
+  const MAINNET_ADDR = formatTonAddress(0, hash, { bounceable: true, testOnly: false });
+  const MASTERCHAIN_ADDR = `-1:${'33'.repeat(32)}`;
+  const okSpawn = () => ({
+    status: 0,
+    stdout: 'Deployer = EQ_mock\nTreasury = EQ_mock\nDRY-RUN: no on-chain messages sent.\n',
+    stderr: '',
+  });
+
+  // Mainnet strict mode must reject missing TONCENTER_MAINNET_API_KEY / TONCENTER_API_KEY
+  assert.throws(() => validateDeployPreflight({
+    protocol: 'v16',
+    profile: 'mainnet',
+    env: {
+      A9_METADATA_URI: 'https://app.a9.lat/a9.json',
+      A9_DEPLOY_WALLET: 'deployer',
+      A9_TREASURY_WALLET: 'treasury',
+      A9_KEEPER_ADDRESS: MAINNET_ADDR,
+      A9_TEAM_WALLET_ADDRESS: MAINNET_ADDR,
+    },
+    strict: true,
+    spawnImpl: okSpawn,
+  }), /TONCENTER_MAINNET_API_KEY/);
+
+  // Masterchain (-1) role address must be rejected
+  assert.throws(() => validateDeployPreflight({
+    protocol: 'v16',
+    profile: 'mainnet',
+    env: {
+      A9_METADATA_URI: 'https://app.a9.lat/a9.json',
+      A9_DEPLOY_WALLET: 'deployer',
+      A9_TREASURY_WALLET: 'treasury',
+      A9_KEEPER_ADDRESS: MAINNET_ADDR,
+      A9_TEAM_WALLET_ADDRESS: MASTERCHAIN_ADDR,
+      TONCENTER_API_KEY: 'key_main_123',
+    },
+    strict: true,
+    spawnImpl: okSpawn,
+  }), /Basechain workchain=0/);
 });
 
 console.log(`All ${passed} v15 ops self-tests passed.`);

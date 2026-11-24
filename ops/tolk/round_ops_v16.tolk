@@ -45,6 +45,11 @@ fun assertSingleTxOk(item: SendResult, idx: int) {
             if (exitCode != 0 && exitCode != 1) {
                 Assert.fail(format("tx[{}] failed compute exitCode={}", idx, exitCode));
             }
+        } else {
+            val skip = c.reason;
+            if (!(skip is TlbCSkipNoState) || !(descr.bounce is TlbNone)) {
+                Assert.fail(format("tx[{}] compute skipped unexpectedly", idx));
+            }
         }
         val act = descr.action;
         if (!(act is TlbNone)) {
@@ -76,12 +81,59 @@ fun main() {
     val qid = (env<int>("A9_QUERY_ID") ?? 1) as uint64;
     val signerBal = scripts.fetchAccountBalance(signer.address);
 
+    val stBefore = net.runGetMethod<ProtocolStateView>(rc, "get_protocol_state");
+    val expectedRoundOpt = env<int>("A9_EXPECTED_ROUND_ID");
+    val expectedTargetOpt = env<int>("A9_EXPECTED_TARGET_USD_E8");
+    val expectedCloseAtOpt = env<int>("A9_EXPECTED_STAKE_CLOSE_AT");
+    var targetRoundForCheck: uint32 = 0;
+
+    if (action.equalTo("open-round")) {
+        if (stBefore.endAt != 0) {
+            Assert.fail("cannot open-round: protocol reward pool already ended");
+        }
+        if (expectedRoundOpt != null) {
+            val expR = expectedRoundOpt! as uint32;
+            if (stBefore.currentRoundId + 1 != expR) {
+                Assert.fail(format("open-round mismatch: on-chain currentRoundId={} but expected next={}", stBefore.currentRoundId, expR));
+            }
+            targetRoundForCheck = expR;
+        } else {
+            targetRoundForCheck = stBefore.currentRoundId + 1;
+        }
+    } else if (action.equalTo("settle-round")) {
+        val reqRound = reqInt("A9_ROUND_ID") as uint32;
+        if (stBefore.currentRoundId != reqRound) {
+            Assert.fail(format("settle-round mismatch: on-chain currentRoundId={} != A9_ROUND_ID={}", stBefore.currentRoundId, reqRound));
+        }
+        val rdBefore = net.runGetMethod<RoundView>(rc, "get_round", [reqRound]);
+        if (rdBefore.status != STATUS_ACTIVE) {
+            Assert.fail(format("settle-round blocked: round #{} is not ACTIVE (status={})", reqRound, rdBefore.status));
+        }
+        if (expectedTargetOpt != null && rdBefore.targetPriceUsdE8 != (expectedTargetOpt! as uint128)) {
+            Assert.fail(format("settle-round target mismatch: on-chain={} != expected={}", rdBefore.targetPriceUsdE8, expectedTargetOpt!));
+        }
+        if (expectedCloseAtOpt != null && rdBefore.stakeCloseAt != (expectedCloseAtOpt! as uint64)) {
+            Assert.fail(format("settle-round stakeCloseAt mismatch: on-chain={} != expected={}", rdBefore.stakeCloseAt, expectedCloseAtOpt!));
+        }
+        targetRoundForCheck = reqRound;
+    } else if (action.equalTo("abort-round")) {
+        if (stBefore.currentRoundId == 0) {
+            Assert.fail("cannot abort-round: no round opened on-chain");
+        }
+        val rdBefore = net.runGetMethod<RoundView>(rc, "get_round", [stBefore.currentRoundId]);
+        if (rdBefore.status != STATUS_ACTIVE) {
+            Assert.fail(format("abort-round blocked: current round #{} status={}", stBefore.currentRoundId, rdBefore.status));
+        }
+        targetRoundForCheck = stBefore.currentRoundId;
+    }
+
     println("=== A9 v16 Round Op: {} ({}) ===", action, network);
     println("RC      = {}", rc);
     println("Signer  = {} (balance={})", signer.address, signerBal);
+    println("OnChain = round={} wins={} endAt={}", stBefore.currentRoundId, stBefore.successCount, stBefore.endAt);
 
     if (!(env<bool>("OPS_EXECUTE") ?? false)) {
-        println("DRY-RUN: no on-chain message sent.");
+        println("DRY-RUN: pre-flight on-chain state cross-check OK; no on-chain message sent.");
         return;
     }
     if (!(env<string>("OPS_CONFIRM") ?? "").equalTo("YES")) {
@@ -151,6 +203,20 @@ fun main() {
         val first = sent.waitForFirstTransaction(false, 15, 2500);
         if (first == null) { Assert.fail("round op transaction unavailable"); }
         assertSingleTxOk(first!, 0);
+        val stFallback = net.runGetMethod<ProtocolStateView>(rc, "get_protocol_state");
+        if (action.equalTo("open-round") && stFallback.currentRoundId < targetRoundForCheck) {
+            Assert.fail(format("open-round fallback verify failed: currentRoundId={} < {}", stFallback.currentRoundId, targetRoundForCheck));
+        } else if (action.equalTo("settle-round")) {
+            val rdAfter = net.runGetMethod<RoundView>(rc, "get_round", [targetRoundForCheck]);
+            if (rdAfter.status != STATUS_SUCCEEDED && rdAfter.status != STATUS_FAILED) {
+                Assert.fail(format("settle-round fallback verify failed: round #{} still status={}", targetRoundForCheck, rdAfter.status));
+            }
+        } else if (action.equalTo("abort-round")) {
+            val rdAfter = net.runGetMethod<RoundView>(rc, "get_round", [targetRoundForCheck]);
+            if (rdAfter.status != STATUS_ABORTED) {
+                Assert.fail(format("abort-round fallback verify failed: round #{} status={}", targetRoundForCheck, rdAfter.status));
+            }
+        }
     }
     val st = net.runGetMethod<ProtocolStateView>(rc, "get_protocol_state");
     println("State after op: round={} wins={} poolRemaining={} carry={} endAt={}",

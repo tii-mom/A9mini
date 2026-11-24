@@ -50,7 +50,7 @@ const PROD_TIMING = {
 
 export const PROFILES = {
   testnet: {
-    version: '15.0.0',
+    version: '16.1.0',
     network: 'testnet',
     profile: 'testnet',
     supply: SHARED_SUPPLY,
@@ -66,7 +66,7 @@ export const PROFILES = {
     promoHotWallet: { userFeeTon: '0.06', transferGasTon: '0.05' },
   },
   'testnet-fast': {
-    version: '15.0.0',
+    version: '16.1.0',
     network: 'testnet',
     profile: 'testnet-fast',
     supply: SHARED_SUPPLY,
@@ -90,18 +90,18 @@ export const PROFILES = {
     promoHotWallet: { userFeeTon: '0.06', transferGasTon: '0.05' },
   },
   mainnet: {
-    version: '15.0.0',
+    version: '16.1.0',
     network: 'mainnet',
     profile: 'mainnet',
     supply: SHARED_SUPPLY,
     econ: SHARED_ECON,
     timing: PROD_TIMING,
     deployTon: {
-      jettonMaster: String(150_000_000n),
-      mintTotal: String(220_000_000n),
-      mintForward: String(120_000_000n),
-      roundController: String(350_000_000n),
-      fundingTransfer: String(120_000_000n),
+      jettonMaster: String(500_000_000n),
+      mintTotal: String(500_000_000n),
+      mintForward: String(250_000_000n),
+      roundController: String(1_500_000_000n),
+      fundingTransfer: String(250_000_000n),
     },
     promoHotWallet: { userFeeTon: '0.06', transferGasTon: '0.05' },
   },
@@ -115,7 +115,7 @@ export function loadParams(profileName = 'testnet') {
 }
 
 export function validateParams(p) {
-  if (p.version !== '15.0.0') throw new Error(`unexpected version: ${p.version}`);
+  if (p.version !== '16.1.0') throw new Error(`unexpected version: ${p.version}`);
   if (p.network !== 'testnet' && p.network !== 'mainnet') {
     throw new Error(`network must be testnet or mainnet, got ${p.network}`);
   }
@@ -449,6 +449,23 @@ export function discoverActonWallets(protocolRoot, env = process.env, explicitWa
 }
 
 /**
+ * 将 TONCENTER_API_KEY 自动映射为 Acton 1.1.0 实际读取的
+ * TONCENTER_MAINNET_API_KEY / TONCENTER_TESTNET_API_KEY，防止静默退回 1 RPS 匿名限流。
+ */
+export function withActonNetworkKeyEnv(network, baseEnv = process.env) {
+  const fallback = String(baseEnv?.TONCENTER_API_KEY || '').trim();
+  if (network === 'mainnet') {
+    const k = String(baseEnv?.TONCENTER_MAINNET_API_KEY || fallback).trim();
+    return { ...baseEnv, ...(k ? { TONCENTER_MAINNET_API_KEY: k } : {}) };
+  }
+  if (network === 'testnet') {
+    const k = String(baseEnv?.TONCENTER_TESTNET_API_KEY || fallback).trim();
+    return { ...baseEnv, ...(k ? { TONCENTER_TESTNET_API_KEY: k } : {}) };
+  }
+  return { ...baseEnv };
+}
+
+/**
  * Invoke the exact deployment script (`ops/tolk/deploy_v15.tolk` or `ops/tolk/deploy_v16.tolk`)
  * with OPS_EXECUTE=false so Acton itself resolves A9_DEPLOY_WALLET and A9_TREASURY_WALLET via
  * `scripts.wallet(...)` in read-only mode without broadcasting any on-chain message.
@@ -461,7 +478,7 @@ export function verifyActonWalletsReadOnly({
   spawnImpl = spawnSync,
 }) {
   const dryEnv = {
-    ...env,
+    ...withActonNetworkKeyEnv(params.network, env),
     A9_NETWORK: params.network,
     A9_PROTOCOL_VERSION: protocol,
     A9_TOTAL_SUPPLY_RAW: params.supply.totalSupplyRaw,
@@ -563,6 +580,10 @@ export function validateDeployPreflight({
       invalid.push(`${key}="${val}" (not a valid TON address)`);
       return;
     }
+    if (parsed.workchain !== 0) {
+      invalid.push(`${key}="${val}" (must be Basechain workchain=0; Masterchain -1 is unsupported)`);
+      return;
+    }
     if (params.network === 'mainnet' && parsed.testOnly === true) {
       invalid.push(`${key}="${val}" (testnet-only address cannot be used on mainnet)`);
     } else if (params.network === 'testnet' && parsed.testOnly === false) {
@@ -576,6 +597,10 @@ export function validateDeployPreflight({
     validateRoleAddress('A9_ROUND_OPENER_ADDRESS', false);
   } else {
     warnings.push('A9_ROUND_OPENER_ADDRESS unset (will default to A9_KEEPER_ADDRESS)');
+  }
+
+  if (params.network === 'mainnet' && !String(env.TONCENTER_MAINNET_API_KEY || env.TONCENTER_API_KEY || '').trim()) {
+    missing.push('TONCENTER_MAINNET_API_KEY (or TONCENTER_API_KEY) required for mainnet Acton deployment');
   }
 
   for (const key of ['A9_DEPLOY_WALLET', 'A9_TREASURY_WALLET']) {
