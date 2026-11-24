@@ -432,30 +432,53 @@ function openTransactionSheet(amount, view, { assetSymbol = 'GRAM', gasNote = ''
   };
 }
 
-/** P1-4：可视化收益与回本推演器（纯模拟推演，严禁承诺收益，按链上实际结算为准） */
-function renderStakePaybackCalcHtml({ amountA9, round, weightMultiplier = 2.0, prefix = 'demo' }) {
+/** P1-4：合并精简版质押与回本推演卡（含 PASS/BURN 对称风险、15× 稀释提示、可折叠三档解锁曲线与细粒度 DOM 更新） */
+function computeStakeSummaryMetrics({ amountA9, round, weightMultiplier = 2.0 }) {
   const amt = Math.max(0, Number(amountA9) || 0);
   const mult = [2.0, 1.4, 1.0].includes(Number(weightMultiplier)) ? Number(weightMultiplier) : 2.0;
   const estTotalRaw = amt > 0 ? estimateRewardA9(amt, round, { weightMultiplier: mult }) : null;
   const estTotal = estTotalRaw !== null && Number.isFinite(estTotalRaw) ? Math.round(estTotalRaw) : null;
   const successes = Number.isInteger(round?.successCount) ? round.successCount : 0;
   const curTierPct = successes < 5 ? 20 : successes < 10 ? 40 : 100;
-  const firstRound20 = estTotal !== null ? Math.round(estTotal * 0.2) : null;
-  const curInstant = estTotal !== null ? Math.round(estTotal * (curTierPct / 100)) : null;
-  const coverPct20 = (firstRound20 !== null && amt > 0) ? Math.round((firstRound20 / amt) * 100) : null;
+  const curInstantReward = estTotal !== null ? Math.round(estTotal * (curTierPct / 100)) : null;
+  const curLockedReward = (estTotal !== null && curInstantReward !== null) ? Math.max(0, estTotal - curInstantReward) : null;
+  const passCashIn = (curInstantReward !== null && amt > 0) ? Math.round(amt + curInstantReward) : null;
+  const instantRoiPct = (curInstantReward !== null && amt > 0) ? ((curInstantReward / amt) * 100) : null;
+  const capA9 = amt > 0 ? Math.round(amt * 15) : 0;
+  const hitCap = estTotal !== null && amt > 0 && estTotal >= capA9;
 
-  const curveSteps = [
-    { label: L('第 1 轮通关', 'Win 1'), pct: 20, amt: estTotal !== null ? Math.round(estTotal * 0.2) : null },
-    { label: L('连胜 2 轮', '2 Wins'), pct: 40, amt: estTotal !== null ? Math.round(estTotal * 0.4) : null },
-    { label: L('连胜 3 轮', '3 Wins'), pct: 60, amt: estTotal !== null ? Math.round(estTotal * 0.6) : null },
-    { label: L('连胜 5 轮', '5 Wins'), pct: 100, amt: estTotal !== null ? estTotal : null },
-  ];
+  return {
+    amt,
+    mult,
+    estTotal,
+    successes,
+    curTierPct,
+    curInstantReward,
+    curLockedReward,
+    passCashIn,
+    instantRoiPct,
+    capA9,
+    hitCap,
+    curve: [
+      { key: 'w1', pct: 20, amt: estTotal !== null ? Math.round(estTotal * 0.2) : null },
+      { key: 'w2', pct: 40, amt: estTotal !== null ? Math.round(estTotal * 0.4) : null },
+      { key: 'w3', pct: 60, amt: estTotal !== null ? Math.round(estTotal * 0.6) : null },
+      { key: 'w5', pct: 100, amt: estTotal !== null ? estTotal : null },
+    ],
+  };
+}
+
+function renderStakeSummaryCardHtml({ amountA9, round, weightMultiplier = 2.0, prefix = 'demo', minStakeA9 = 1000, roundController = null }) {
+  const m = computeStakeSummaryMetrics({ amountA9, round, weightMultiplier });
+  const hasEst = m.estTotal !== null;
+  const fmtOrPending = (v, suffix = ' A9') =>
+    v === null || v === undefined ? L('待链上奖池同步', 'Awaiting pool') : `${formatNum(v)}${suffix}`;
 
   return `
-    <section class="card payback-calc-card" id="${prefix}-payback-calc">
+    <section class="card payback-calc-card" id="${prefix}-stake-summary-card">
       <div class="row-between" style="margin-bottom:8px;">
-        <div class="card-title">${icon('radar', 15, 'text-gold')} ${L('收益与回本推演器', 'Reward & Unlock Estimator')}</div>
-        <span class="chip chip-gold mono">${L('上限 15×', '15× Cap')}</span>
+        <div class="card-title">${icon('radar', 15, 'text-gold')} ${L('收益回本推演 · 入场核对', 'Payback & Entry Summary')}</div>
+        <a class="chip chip-green" href="#/risk/audit" style="text-decoration:none;">${icon('shieldCheck', 11)} ${L('v16.1 已弃权', 'v16.1 Renounced')}</a>
       </div>
 
       <div class="payback-weight-tabs" role="group" aria-label="${L('模拟早鸟权重', 'Simulate early weight')}">
@@ -464,46 +487,128 @@ function renderStakePaybackCalcHtml({ amountA9, round, weightMultiplier = 2.0, p
           [1.4, L('1.4× 中段', '1.4× Mid')],
           [1.0, L('1.0× 末段', '1.0× Late')],
         ].map(([w, lbl]) => `
-          <button type="button" class="payback-w-btn ${mult === w ? 'active' : ''}" data-calc-weight="${w}" aria-pressed="${mult === w}">${lbl}</button>
+          <button type="button" class="payback-w-btn ${m.mult === w ? 'active' : ''}" data-calc-weight="${w}" aria-pressed="${m.mult === w}">${lbl}</button>
         `).join('')}
       </div>
 
-      <div class="payback-kpi-grid">
-        <div class="payback-kpi-box">
-          <small>${L(`当前 ${mult.toFixed(1)}× 预估总回报`, `Est. Total (${mult.toFixed(1)}×)`)}</small>
-          <strong class="mono text-green">${estTotal === null ? L('待核验', 'Pending') : `~${formatNum(estTotal)} A9`}</strong>
+      <div class="payback-outcome-grid">
+        <div class="payback-outcome-box is-pass">
+          <div class="row-between">
+            <small class="text-green" style="font-weight:800;">${L('通关 PASS（≥ 16/24 格）', 'PASS (≥ 16/24 Slots)')}</small>
+            <span class="mono num-xs text-green" data-field="instant-roi">${m.instantRoiPct !== null ? `+${m.instantRoiPct.toFixed(1)}%` : '—'}</span>
+          </div>
+          <div class="payback-outcome-main mono text-green" data-field="pass-cashin">${fmtOrPending(m.passCashIn)}</div>
+          <div class="num-xs text-sec" data-field="pass-breakdown">
+            ${hasEst
+              ? L(`100% 本金退回 ${formatNum(m.amt)} + 即时 ${m.curTierPct}% 奖励 ${formatNum(m.curInstantReward)} A9`, `100% principal ${formatNum(m.amt)} + ${m.curTierPct}% instant ${formatNum(m.curInstantReward)} A9`)
+              : L(`100% 本金退回 ${formatNum(m.amt)} A9 + 当轮即时奖励`, `100% principal ${formatNum(m.amt)} A9 + instant reward`)}
+          </div>
         </div>
-        <div class="payback-kpi-box">
-          <small>${L('本轮通关 20% 即时落袋', '20% Instant on Pass')}</small>
-          <strong class="mono text-gold">${firstRound20 === null ? L('待核验', 'Pending') : `${formatNum(firstRound20)} A9`}</strong>
-          ${coverPct20 !== null ? `<span class="num-xs text-muted">${L(`约占本金 ${coverPct20}%`, `~${coverPct20}% of stake`)}</span>` : ''}
+
+        <div class="payback-outcome-box is-burn">
+          <div class="row-between">
+            <small class="text-red" style="font-weight:800;">${L('未通关 BURN（< 16/24 格）', 'BURN (< 16/24 Slots)')}</small>
+            <span class="mono num-xs text-red">-100%</span>
+          </div>
+          <div class="payback-outcome-main mono text-red" data-field="burn-loss">-${formatNum(m.amt)} A9</div>
+          <div class="num-xs text-sec">${L('当轮质押本金按合约销毁；0.30 GRAM Gas 余量原路退回', 'Staked principal burned on-chain; unused 0.30 GRAM gas refunded')}</div>
         </div>
       </div>
 
-      ${curTierPct > 20 && curInstant !== null ? `
-        <div class="num-xs text-green" style="margin-bottom:8px;font-weight:700;">${L(`当前全网累计 ${successes} 胜 · 本轮按 ${curTierPct}% 即时解锁约 ${formatNum(curInstant)} A9`, `Global ${successes} wins · current tier unlocks ${curTierPct}% (~${formatNum(curInstant)} A9) immediately`)}</div>
-      ` : ''}
-
-      <div class="payback-curve-box">
-        <div class="row-between num-xs text-muted" style="margin-bottom:6px;">
-          <span>${L('1–5 胜阶梯解锁累计到手曲线（20% + 4×20%）', 'Wins 1–5 Cumulative Unlock Curve (20% + 4×20%)')}</span>
+      <div class="check-list" style="margin-top:8px;">
+        <div class="check-row">
+          <span class="text-sec">${L('质押本金 / 最低门槛', 'Stake / Minimum')}</span>
+          <span class="mono" style="font-weight:700;" data-field="chk-amt">${formatNum(m.amt)} A9 (≥ ${formatNum(minStakeA9)} A9)</span>
         </div>
-        <div class="payback-curve-list">
-          ${curveSteps.map((s) => `
-            <div class="payback-curve-row">
-              <span class="payback-curve-lbl">${s.label}</span>
-              <div class="payback-curve-track"><div class="payback-curve-bar" style="width:${s.pct}%;"></div></div>
-              <span class="payback-curve-val mono">${s.amt === null ? `${s.pct}%` : `${formatNum(s.amt)} A9`}</span>
-            </div>
-          `).join('')}
+        <div class="check-row">
+          <span class="text-sec">${L('预估总奖励（含待解锁）', 'Est. Total Reward (incl. locked)')}</span>
+          <span class="mono text-green" style="font-weight:700;" data-field="est-total">${hasEst ? `~${formatNum(m.estTotal)} A9` : L('待链上奖池同步', 'Awaiting pool')}</span>
         </div>
+        <div class="check-row">
+          <span class="text-sec">${L(`预计即时 (${m.curTierPct}%) / 待解锁`, `Est. Instant (${m.curTierPct}%) / Locked`)}</span>
+          <span class="mono num-xs"><span data-field="est-instant">${hasEst ? `${formatNum(m.curInstantReward)} A9` : '—'}</span> / <span data-field="est-locked">${hasEst ? `${formatNum(m.curLockedReward)} A9` : '—'}</span></span>
+        </div>
+        <div class="check-row">
+          <span class="text-sec">${L('附带 Gas / 目标底价 / 上限', 'Gas / Target / Cap')}</span>
+          <span class="mono num-xs">0.30 GRAM · ${round.targetPrice === null ? L('待定', 'TBD') : '$' + round.targetPrice.toFixed(4)} · 15×</span>
+        </div>
+        ${roundController ? `
+          <div class="check-row">
+            <span class="text-sec">${L('合约 RoundController', 'RoundController')}</span>
+            <span class="mono num-xs">${escapeHtml(`${roundController.slice(0, 6)}…${roundController.slice(-6)}`)}</span>
+          </div>
+        ` : ''}
       </div>
 
-      <div class="num-xs text-muted" style="margin-top:8px;line-height:1.45;">
-        ${L('注：以上按当前奖池与早鸟权重模拟推演，非收益承诺；未达 16/24 时段将按合约规则销毁本金，最终以链上实际结算为准。', 'Note: Simulated from current pool & weight, not a guaranteed return. Failing 16/24 burns staked principal; final payout settles on-chain.')}
+      <div class="payback-dilution-note num-xs text-muted" data-field="dilution-note" style="margin-top:8px;line-height:1.45;">
+        ${m.hitCap
+          ? L(`当前推演已触及 15× 单轮硬顶（${formatNum(m.capA9)} A9）；随后续新玩家入场，单份奖励将被动态稀释，不构成收益承诺，最终以链上结算为准。`, `Estimate hits the 15× cap (${formatNum(m.capA9)} A9); later entries will dilute per-share rewards. Not a guarantee; final payout settles on-chain.`)
+          : L('注：以上按当前奖池与早鸟权重动态推演，随后续参与者增加会被稀释，不构成收益承诺；最终以链上实际结算为准。', 'Note: Dynamic estimate from current pool & weight; diluted as more participants join. Not a guarantee; final payout settles on-chain.')}
       </div>
+
+      <details class="payback-details" data-field="vesting-details" ${hasEst ? '' : 'hidden'}>
+        <summary>
+          <span>${L('查看三档连胜解锁曲线（1–5 胜 / 6–10 胜 / 11+ 胜）', 'View 3-Tier Vesting Curve (1–5w / 6–10w / 11+w)')}</span>
+          <span class="faq-arrow">${icon('chevronDown', 13)}</span>
+        </summary>
+        <div class="payback-curve-box" style="margin-top:8px;">
+          <div class="num-xs text-sec" style="margin-bottom:6px;line-height:1.45;">
+            ${L('1–5 胜：20% 即时 + 4×20% · 6–10 胜：40% 即时 + 2×30% · 11 胜起：100% 即时（零质押达标轮不推进胜场）', '1–5w: 20% + 4×20% · 6–10w: 40% + 2×30% · 11+w: 100% instant (zero-stake rounds do not advance wins)')}
+          </div>
+          <div class="payback-curve-list">
+            ${[
+              ['w1', L('第 1 轮通关', 'Win 1'), 20],
+              ['w2', L('连胜 2 轮', '2 Wins'), 40],
+              ['w3', L('连胜 3 轮', '3 Wins'), 60],
+              ['w5', L('连胜 5 轮', '5 Wins'), 100],
+            ].map(([key, label, pct], idx) => `
+              <div class="payback-curve-row">
+                <span class="payback-curve-lbl">${label}</span>
+                <div class="payback-curve-track"><div class="payback-curve-bar" data-curve-bar="${key}" style="width:${pct}%;"></div></div>
+                <span class="payback-curve-val mono" data-curve-val="${key}">${m.curve[idx].amt === null ? `${pct}%` : `${formatNum(m.curve[idx].amt)} A9`}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </details>
     </section>
   `;
+}
+
+function updateStakeSummaryCardDom(cardEl, { amountA9, round, weightMultiplier = 2.0, minStakeA9 = 1000 }) {
+  if (!cardEl) return;
+  const m = computeStakeSummaryMetrics({ amountA9, round, weightMultiplier });
+  const hasEst = m.estTotal !== null;
+  const setText = (sel, text) => { const el = cardEl.querySelector(sel); if (el) el.textContent = text; };
+
+  cardEl.querySelectorAll('[data-calc-weight]').forEach((b) => {
+    const active = Number(b.dataset.calcWeight) === m.mult;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
+
+  setText('[data-field="instant-roi"]', m.instantRoiPct !== null ? `+${m.instantRoiPct.toFixed(1)}%` : '—');
+  setText('[data-field="pass-cashin"]', m.passCashIn !== null ? `${formatNum(m.passCashIn)} A9` : L('待链上奖池同步', 'Awaiting pool'));
+  setText('[data-field="pass-breakdown"]', hasEst
+    ? L(`100% 本金退回 ${formatNum(m.amt)} + 即时 ${m.curTierPct}% 奖励 ${formatNum(m.curInstantReward)} A9`, `100% principal ${formatNum(m.amt)} + ${m.curTierPct}% instant ${formatNum(m.curInstantReward)} A9`)
+    : L(`100% 本金退回 ${formatNum(m.amt)} A9 + 当轮即时奖励`, `100% principal ${formatNum(m.amt)} A9 + instant reward`));
+  setText('[data-field="burn-loss"]', `-${formatNum(m.amt)} A9`);
+  setText('[data-field="chk-amt"]', `${formatNum(m.amt)} A9 (≥ ${formatNum(minStakeA9)} A9)`);
+  setText('[data-field="est-total"]', hasEst ? `~${formatNum(m.estTotal)} A9` : L('待链上奖池同步', 'Awaiting pool'));
+  setText('[data-field="est-instant"]', hasEst ? `${formatNum(m.curInstantReward)} A9` : '—');
+  setText('[data-field="est-locked"]', hasEst ? `${formatNum(m.curLockedReward)} A9` : '—');
+  setText('[data-field="dilution-note"]', m.hitCap
+    ? L(`当前推演已触及 15× 单轮硬顶（${formatNum(m.capA9)} A9）；随后续新玩家入场，单份奖励将被动态稀释，不构成收益承诺，最终以链上结算为准。`, `Estimate hits the 15× cap (${formatNum(m.capA9)} A9); later entries will dilute per-share rewards. Not a guarantee; final payout settles on-chain.`)
+    : L('注：以上按当前奖池与早鸟权重动态推演，随后续参与者增加会被稀释，不构成收益承诺；最终以链上实际结算为准。', 'Note: Dynamic estimate from current pool & weight; diluted as more participants join. Not a guarantee; final payout settles on-chain.'));
+
+  const detailsEl = cardEl.querySelector('[data-field="vesting-details"]');
+  if (detailsEl) detailsEl.hidden = !hasEst;
+
+  m.curve.forEach((step) => {
+    const bar = cardEl.querySelector(`[data-curve-bar="${step.key}"]`);
+    if (bar) bar.style.width = `${step.pct}%`;
+    setText(`[data-curve-val="${step.key}"]`, step.amt === null ? `${step.pct}%` : `${formatNum(step.amt)} A9`);
+  });
 }
 
 export function renderParticipateConfirm(root, navigate) {
@@ -521,29 +626,6 @@ export function renderParticipateConfirm(root, navigate) {
   let calcWeight = [2.0, 1.4, 1.0].includes(Number(round.myEarlyTier)) ? Number(round.myEarlyTier) : 2.0;
   let riskAgreed = false;
   let submitting = false;
-
-  const paintEstimate = () => {
-    const est = estimateRewardA9(amount, round, { weightMultiplier: calcWeight });
-    const successes = round.successCount;
-    const fraction = successes === null ? null : successes < 5 ? 0.2 : successes < 10 ? 0.4 : 1;
-    const inst = est === null || fraction === null ? null : Math.round(est * fraction);
-    const lock = inst === null ? null : Math.round(est) - inst;
-    const set = (id, val) => { const el = root.querySelector(id); if (el) el.textContent = val; };
-    set('#est-instant', inst === null ? '—' : `${formatNum(inst)} A9`);
-    set('#est-locked', lock === null ? '—' : `${formatNum(lock)} A9`);
-    set('#est-total', est === null ? '—' : `~${formatNum(Math.round(est))} A9`);
-    const calcMount = root.querySelector('#demo-payback-calc-mount');
-    if (calcMount) {
-      calcMount.innerHTML = renderStakePaybackCalcHtml({ amountA9: amount, round, weightMultiplier: calcWeight, prefix: 'demo' });
-      calcMount.querySelectorAll('[data-calc-weight]').forEach((b) => {
-        b.onclick = () => {
-          A9Haptic.tick();
-          calcWeight = Number(b.dataset.calcWeight) || 2.0;
-          paintEstimate();
-        };
-      });
-    }
-  };
 
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
@@ -564,19 +646,7 @@ export function renderParticipateConfirm(root, navigate) {
         </div>
       </div>
 
-      <div id="demo-payback-calc-mount"></div>
-
-      <div class="card">
-        <div class="card-title" style="margin-bottom:6px;">${icon('receipt', 15, 'text-green')} ${L('核对入场清单', 'Entry Checklist')}</div>
-        <div class="check-list">
-          <div class="check-row"><span class="text-sec">${L('质押资产 / 数量', 'Asset / Amount')}</span><span class="mono" id="chk-amt" style="font-weight:700;">${formatNum(amount)} A9</span></div>
-          <div class="check-row"><span class="text-sec">${L('附带链上 Gas（余量退回）', 'Attached Gas (Excess Refunded)')}</span><span class="mono text-sec">0.30 GRAM</span></div>
-          <div class="check-row"><span class="text-sec">${L('预计总奖励（估算）', 'Est. Total (est.)')}</span><span class="mono text-green" id="est-total" style="font-weight:700;">—</span></div>
-          <div class="check-row"><span class="text-sec">${L('预计即时 / 待解锁', 'Est. immediate / locked')}</span><span class="mono num-xs"><span id="est-instant">—</span> / <span id="est-locked">—</span></span></div>
-          <div class="check-row"><span class="text-sec">${L('目标底价 / 奖励上限', 'Target / Cap')}</span><span class="mono num-xs">${round.targetPrice === null ? L('待定', 'TBD') : '$' + round.targetPrice.toFixed(4)} · 15x</span></div>
-        </div>
-        <div class="num-xs text-muted" style="margin-top:8px;">${L('以上奖励为当前参与量估算，结算后以实际到账为准。', 'Estimated from current pool; settled on-chain at round close.')}</div>
-      </div>
+      ${renderStakeSummaryCardHtml({ amountA9: amount, round, weightMultiplier: calcWeight, prefix: 'demo', minStakeA9: 1000 })}
 
       <div class="risk-check" id="risk-consent-row" role="checkbox" aria-checked="false" tabindex="0">
         <span class="risk-box" id="risk-box-ic"></span>
@@ -592,13 +662,20 @@ export function renderParticipateConfirm(root, navigate) {
   `;
 
   const input = root.querySelector('#stake-input');
+  const summaryCard = root.querySelector('#demo-stake-summary-card');
   const sliderMount = root.querySelector('#stake-slider-mount');
   const accBtn = root.querySelector('#btn-confirm-accessible');
   const accLbl = root.querySelector('#acc-confirm-lbl');
-  const chkAmt = root.querySelector('#chk-amt');
   const riskRow = root.querySelector('#risk-consent-row');
   const riskBox = root.querySelector('#risk-box-ic');
-  paintEstimate();
+
+  summaryCard?.querySelectorAll('[data-calc-weight]').forEach((b) => {
+    b.onclick = () => {
+      A9Haptic.tick();
+      calcWeight = Number(b.dataset.calcWeight) || 2.0;
+      updateStakeSummaryCardDom(summaryCard, { amountA9: amount, round, weightMultiplier: calcWeight, minStakeA9: 1000 });
+    };
+  });
 
   const toggleRisk = () => {
     A9Haptic.tick();
@@ -612,8 +689,7 @@ export function renderParticipateConfirm(root, navigate) {
 
   const syncAll = (val) => {
     amount = Math.max(0, Number(val) || 0);
-    paintEstimate();
-    if (chkAmt) chkAmt.textContent = `${formatNum(amount)} A9`;
+    updateStakeSummaryCardDom(summaryCard, { amountA9: amount, round, weightMultiplier: calcWeight, minStakeA9: 1000 });
     if (accLbl && store.fundsEnabled) accLbl.textContent = L(`无法滑动？点此无障碍确认质押 ${formatNum(amount)} A9`, `Can’t slide? Tap to confirm ${formatNum(amount)} A9`);
     const maxBal = user.a9Available !== null && user.a9Available !== undefined ? Math.floor(Number(user.a9Available) || 0) : 0;
     root.querySelectorAll('[data-amt]').forEach(b => {
@@ -721,7 +797,7 @@ export function renderParticipateConfirm(root, navigate) {
 
 /**
  * Live 实盘 A9 Jetton 质押确认页（仅在 config.liveFundsEnabled === true 时激活）。
- * 严格按 v15/v16 合约口径质押 A9 Jetton（附 0.30 GRAM Gas），绝不把 GRAM 当质押本金。
+ * 严格按 v15/v16.1 合约口径质押 A9 Jetton（附 0.30 GRAM Gas），绝不把 GRAM 当质押本金。
  */
 function renderLiveStakeConfirm(root, navigate) {
   const round = store.state.round;
@@ -729,7 +805,7 @@ function renderLiveStakeConfirm(root, navigate) {
   const roundController = cfg.contracts?.roundController || null;
   const minStakeRaw = BigInt(String(cfg.minStakeRaw || '1000000000000'));
   const minStakeA9 = Number(minStakeRaw / 1_000_000_000n) || 1000;
-  const protocolVer = cfg.stakeProtocolVersion || (cfg.protocolVersion === 'v16' ? 'v16' : config.stakeProtocolVersion);
+  const protocolVer = cfg.stakeProtocolVersion || (cfg.protocolVersion === 'v16' ? 'v16.1' : config.stakeProtocolVersion);
 
   let portfolio = null;
   let loadError = null;
@@ -743,19 +819,6 @@ function renderLiveStakeConfirm(root, navigate) {
     if (!/^\d+(?:\.\d{1,9})?$/.test(s)) return null;
     const [whole, frac = ''] = s.split('.');
     return BigInt(whole) * 1_000_000_000n + BigInt(frac.padEnd(9, '0'));
-  };
-
-  const syncLiveCalc = () => {
-    const mount = root.querySelector('#live-payback-calc-mount');
-    if (!mount) return;
-    mount.innerHTML = renderStakePaybackCalcHtml({ amountA9, round, weightMultiplier: calcWeight, prefix: 'live' });
-    mount.querySelectorAll('[data-calc-weight]').forEach((b) => {
-      b.onclick = () => {
-        A9Haptic.tick();
-        calcWeight = Number(b.dataset.calcWeight) || 2.0;
-        syncLiveCalc();
-      };
-    });
   };
 
   const paint = () => {
@@ -789,17 +852,7 @@ function renderLiveStakeConfirm(root, navigate) {
           ${loadError ? `<div class="num-xs text-red" style="margin-top:8px;">${escapeHtml(loadError)}</div>` : ''}
         </div>
 
-        <div id="live-payback-calc-mount"></div>
-
-        <div class="card">
-          <div class="card-title" style="margin-bottom:6px;">${icon('receipt', 15, 'text-green')} ${L('链上质押核对清单（A9 本位）', 'On-Chain A9 Stake Checklist')}</div>
-          <div class="check-list">
-            <div class="check-row"><span class="text-sec">${L('质押资产 / 最低门槛', 'Asset / Minimum')}</span><span id="live-stake-check-amt" class="mono" style="font-weight:700;">${formatNum(amountA9)} A9 (≥ ${formatNum(minStakeA9)} A9)</span></div>
-            <div class="check-row"><span class="text-sec">${L('附带链上 Gas（多退少补）', 'Attached Gas (Excess Refunded)')}</span><span class="mono text-sec">0.30 GRAM</span></div>
-            <div class="check-row"><span class="text-sec">${L('目标底价 / 奖励上限', 'Target / Cap')}</span><span class="mono num-xs">${round.targetPrice === null ? L('待定', 'TBD') : '$' + round.targetPrice.toFixed(4)} · 15x</span></div>
-            <div class="check-row"><span class="text-sec">${L('合约地址', 'RoundController')}</span><span class="mono num-xs">${roundController ? escapeHtml(`${roundController.slice(0, 6)}…${roundController.slice(-6)}`) : L('未配置', 'Not configured')}</span></div>
-          </div>
-        </div>
+        ${renderStakeSummaryCardHtml({ amountA9, round, weightMultiplier: calcWeight, prefix: 'live', minStakeA9, roundController })}
 
         ${!store.fundsEnabled ? `
           <div class="card" id="live-readonly-stake-notice" style="border-color:var(--gold-border);">
@@ -822,16 +875,22 @@ function renderLiveStakeConfirm(root, navigate) {
       </div>
     `;
 
-    syncLiveCalc();
+    const summaryCard = root.querySelector('#live-stake-summary-card');
+    summaryCard?.querySelectorAll('[data-calc-weight]').forEach((b) => {
+      b.onclick = () => {
+        A9Haptic.tick();
+        calcWeight = Number(b.dataset.calcWeight) || 2.0;
+        updateStakeSummaryCardDom(summaryCard, { amountA9, round, weightMultiplier: calcWeight, minStakeA9 });
+      };
+    });
+
     const inputEl = root.querySelector('#live-stake-a9-input');
     if (inputEl) {
       inputEl.oninput = (e) => {
         amountA9 = Math.max(0, Number(e.target.value) || 0);
-        syncLiveCalc();
-        const chk = root.querySelector('#live-stake-check-amt');
-        if (chk) chk.textContent = `${formatNum(amountA9)} A9 (≥ ${formatNum(minStakeA9)} A9)`;
+        updateStakeSummaryCardDom(summaryCard, { amountA9, round, weightMultiplier: calcWeight, minStakeA9 });
         const btn = root.querySelector('#btn-live-stake-submit');
-        if (btn && !submitting) {
+        if (btn && !submitting && !pendingTxManager.isLocked('stake')) {
           btn.innerHTML = `${icon('bolt', 16)} ${L(`签名质押 ${formatNum(amountA9)} A9（+ 0.30 GRAM Gas）`, `Sign & Stake ${formatNum(amountA9)} A9 (+ 0.30 GRAM Gas)`)}`;
         }
       };
@@ -843,7 +902,12 @@ function renderLiveStakeConfirm(root, navigate) {
           ? (balA9 !== null ? Math.floor(balA9) : minStakeA9)
           : Number(b.dataset.liveAmt);
         amountA9 = Math.max(minStakeA9, v);
-        paint();
+        if (inputEl) inputEl.value = amountA9;
+        updateStakeSummaryCardDom(summaryCard, { amountA9, round, weightMultiplier: calcWeight, minStakeA9 });
+        const btn = root.querySelector('#btn-live-stake-submit');
+        if (btn && !submitting && !pendingTxManager.isLocked('stake')) {
+          btn.innerHTML = `${icon('bolt', 16)} ${L(`签名质押 ${formatNum(amountA9)} A9（+ 0.30 GRAM Gas）`, `Sign & Stake ${formatNum(amountA9)} A9 (+ 0.30 GRAM Gas)`)}`;
+        }
       };
     });
     const rRow = root.querySelector('#live-risk-row');

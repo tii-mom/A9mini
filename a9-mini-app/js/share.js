@@ -138,12 +138,12 @@ function buildAngles(type, id, ctx = {}) {
         label: L('双人同行礼', 'Co-Op Gift'),
         text: isBoost
           ? L(
-              `A9 双人同行礼：我的【${label}】正在 24H 膨胀窗口（+2%~+5% 区间，还差 ${need} 位同路人），连接活跃 TON 钱包结伴同行，双方各有收获——你立领专属青铜宝箱 #1（300 A9）！`,
-              `A9 Co-Op Gift: my [${label}] is in a 24H boost window (+2%–+5%, ${need} partner(s) left). Connect an active TON wallet to team up and unlock your own Bronze Chest #1 (300 A9).`
+              `A9 双人同行礼：我的【${label}】正在 24H 膨胀窗口（+2%~+5% 区间，还差 ${need} 位活跃钱包同路人），绑活跃 TON 钱包结伴同行，你也将开启自己的青铜宝箱 #1（300 A9）并可 0 GRAM 参加 24H 预言擂台！`,
+              `A9 Co-Op Gift: my [${label}] is in a 24H boost window (+2%–+5%, ${need} active-wallet partner(s) left). Connect an active TON wallet to team up, start your own Bronze Chest #1 (300 A9), and call PASS vs BURN in the 0 GRAM 24H Arena.`
             )
           : L(
-              `A9 双人同行礼：一起开启 TON 生态【${label}】（${rewardText}，还差 ${need} 位同路人），确认同行即为你自动激活专属青铜宝箱 #1（300 A9）！`,
-              `A9 Co-Op Gift: team up to unlock [${label}] (${rewardText}, ${need} partner(s) left) and instantly activate your own Bronze Chest #1 (300 A9).`
+              `A9 双人同行礼：一起累计活跃钱包进度开启【${label}】（${rewardText}，还差 ${need} 位同路人），确认同行后自动为你发放青铜宝箱 #1（300 A9，按规则激活）！`,
+              `A9 Co-Op Gift: team up with an active TON wallet to unlock [${label}] (${rewardText}, ${need} partner(s) left) and start your own Bronze Chest #1 (300 A9).`
             )
       },
       {

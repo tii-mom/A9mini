@@ -30,6 +30,54 @@ function priceOrDash(v) {
 /**
  * 第一刀 ①：待提现奖金金库高亮条（真实二步进度 + 48h 作废倒计时 + 直连宝箱商城 0.99 GRAM 起）
  */
+export function renderPlazaCompactBanner(pred, round) {
+  const p = pred || {};
+  const pendingA9 = rawToA9(p.pendingActivationRaw) || 0;
+  const showVault = pendingA9 > 0 && (config.isDemo || p.loaded);
+  if (showVault) {
+    const rawExp = Number(p.pendingExpiresAt);
+    const expAtMs = (Number.isFinite(rawExp) && rawExp > 0) ? (rawExp < 1e12 ? rawExp * 1000 : rawExp) : 0;
+    const expRemSec = expAtMs > Date.now() ? Math.floor((expAtMs - Date.now()) / 1000) : null;
+    const firstOrderTotalA9 = Number((1981.98 + pendingA9).toFixed(2));
+    const dec = firstOrderTotalA9 % 1 === 0 ? 0 : 2;
+    return `
+      <a class="plaza-compact-strip is-vault" id="a9-pending-vault-banner" href="#/internal/market">
+        <span class="plaza-compact-left">
+          <span class="chip chip-gold" style="min-height:20px;font-size:10px;padding:0 6px;">${L('首单加赠', 'BONUS')}</span>
+          <span class="plaza-compact-text">${L(`0.99 GRAM 得 ${formatNum(firstOrderTotalA9, dec)} A9（含 ${formatNum(pendingA9)} 赠金）`, `0.99 GRAM → ${formatNum(firstOrderTotalA9, dec)} A9 (+${formatNum(pendingA9)} bonus)`)}</span>
+        </span>
+        <span class="plaza-compact-right mono">${expRemSec !== null ? formatTimer(expRemSec) : '48H'} ›</span>
+      </a>
+    `;
+  }
+
+  if (round && round.stage === 'participation') {
+    const openAt = toUnixSec(round.stakeOpenAt);
+    const closeAt = toUnixSec(round.stakeCloseAt);
+    const nowSec = Math.floor(Date.now() / 1000);
+    let remSec = null;
+    if (openAt > 0 && closeAt > openAt) {
+      const earlyEnd = openAt + Math.floor((closeAt - openAt) / 3);
+      if (nowSec < earlyEnd) remSec = earlyEnd - nowSec;
+    }
+    if ((remSec === null || remSec <= 0) && config.isDemo && Number(round.earlyBirdSec) > 0) {
+      remSec = Math.floor(Number(round.earlyBirdSec));
+    }
+    if (remSec !== null && remSec > 0) {
+      return `
+        <a class="plaza-compact-strip is-early" id="a9-early-bird-banner" data-early-rem="${remSec}" href="#/challenge/confirm">
+          <span class="plaza-compact-left">
+            <span class="chip chip-gold" style="min-height:20px;font-size:10px;padding:0 6px;">2.0×</span>
+            <span class="plaza-compact-text">${L('早鸟黄金窗口进行中 · 同额双倍权重', '2.0× Early Window Live · Double Share')}</span>
+          </span>
+          <span class="plaza-compact-right mono" id="early-window-cd">${formatTimer(remSec)} ›</span>
+        </a>
+      `;
+    }
+  }
+  return '';
+}
+
 export function renderPendingVaultBanner(pred, round) {
   const p = pred || {};
   const pendingA9 = rawToA9(p.pendingActivationRaw) || 0;
@@ -41,30 +89,33 @@ export function renderPendingVaultBanner(pred, round) {
   const expRemSec = expAtMs > Date.now() ? Math.floor((expAtMs - Date.now()) / 1000) : null;
   const refPrice = (round?.priceValid !== false) ? Number(round?.livePrice || round?.twap24h || 0) : 0;
   const usdEst = refPrice > 0 ? pendingA9 * refPrice : null;
+  const firstOrderTotalA9 = Number((1981.98 + pendingA9).toFixed(2));
+  const dec = firstOrderTotalA9 % 1 === 0 ? 0 : 2;
+  const bonusPct = Math.round((pendingA9 / 1981.98) * 100);
 
   return `
     <section class="card vault-unlock-banner" id="a9-pending-vault-banner">
       <div class="row-between" style="margin-bottom:6px;">
-        <span class="chip chip-gold">${icon('unlock', 12)} ${L('待提现奖金金库 · 差最后 1 步', 'Pending Vault · 1 Step Left')}</span>
+        <span class="chip chip-gold">${icon('unlock', 12)} ${L('首单加赠金库 · 待激活', 'Bonus Vault · Ready to Activate')}</span>
         <span class="num-xs mono text-red" style="font-weight:800;">
           ${expRemSec !== null ? `<span data-pred-exp-cd="vault">${L('作废倒计时', 'Expires')} ${formatTimer(expRemSec)}</span>` : L('48H 未激活自动作废', 'Expires in 48H')}
         </span>
       </div>
       <div class="row-between" style="align-items:baseline;margin-bottom:8px;">
-        <div class="num-lg text-green mono" style="font-weight:900;">${formatNum(pendingA9)} A9</div>
+        <div class="num-lg text-green mono" style="font-weight:900;">+${formatNum(pendingA9)} A9</div>
         ${usdEst !== null ? `<span class="num-xs text-sec mono">${L('参考估值约', 'Est.')} $${formatNum(usdEst, 2)}</span>` : ''}
       </div>
       <div class="vault-two-step" role="status" aria-label="${L('解锁进度', 'Unlock progress')}">
-        <span class="vault-step done">1/2 ${L('已到账金库', 'In Vault')}</span>
+        <span class="vault-step done">1/2 ${L('赠金已入库', 'Bonus Credited')}</span>
         <span class="vault-step-line" aria-hidden="true"></span>
-        <span class="vault-step next">2/2 ${L('差 1 步激活提现', '1 Step to Unlock')}</span>
+        <span class="vault-step next">2/2 ${L('首单加赠或 0 元激活', 'Activate with Order / 0-Cost')}</span>
       </div>
       <p class="num-xs text-sec" style="margin:6px 0 10px;line-height:1.45;">
-        ${L('本人购任意宝箱（0.99 GRAM 起）、链上参与，或直邀 1 位好友购箱即可 0 元全额解锁。', 'Buy any chest (from 0.99 GRAM), stake on-chain, or invite 1 paid friend to unlock for 0 GRAM.')}
+        ${L(`首单加赠：0.99 GRAM 购箱实际到手 ${formatNum(firstOrderTotalA9, dec)} A9（含 +${bonusPct}% 赠金）；也可通过链上质押（≥ 1,000 A9）或直邀 1 位好友购箱 0 元全额激活。`, `First-order bonus: 0.99 GRAM chest yields ${formatNum(firstOrderTotalA9, dec)} A9 (+${bonusPct}% bonus), or unlock at 0 cost via on-chain stake (≥ 1,000 A9) or 1 paid invite.`)}
       </p>
       <div class="grid-2" style="gap:8px;">
-        <button class="btn btn-primary btn-sm" data-nav="/internal/market" type="button" style="width:100%;min-height:40px;white-space:nowrap;">${icon('swap', 14)} ${L('去宝箱商城解锁', 'Chest Mall Unlock')}</button>
-        <button class="btn btn-secondary btn-sm" data-nav="/internal/market?tab=free" type="button" style="width:100%;min-height:40px;white-space:nowrap;">${icon('send', 14)} ${L('领免费宝箱', 'Free Chests')}</button>
+        <button class="btn btn-primary btn-sm" data-nav="/internal/market" type="button" style="width:100%;min-height:40px;white-space:nowrap;">${icon('swap', 14)} ${L('首单加赠领箱', 'Claim with Bonus')}</button>
+        <button class="btn btn-secondary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:40px;white-space:nowrap;">${icon('send', 14)} ${L('邀 1 友 0 元解锁', '0-Cost Invite')}</button>
       </div>
     </section>
   `;

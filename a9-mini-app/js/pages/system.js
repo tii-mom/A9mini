@@ -8,12 +8,14 @@ import { store } from '../store.js';
 import { config } from '../config.js';
 import { A9Haptic } from '../tma.js';
 import { A9Audio } from '../audio.js';
-import { showToast, openModal, closeModal } from '../components.js';
+import { showToast, openModal, closeModal, formatNum, copyText, escapeHtml } from '../components.js';
 import { icon } from '../icons.js';
 import { L, LANGUAGES } from '../i18n.js';
 import { openChoiceSheet } from '../components.js';
 import { tonConnect } from '../tonconnect.js';
 import { renderCurrentRoute, getTheme, toggleTheme } from '../app.js';
+import { PROTOCOL_SPECS, rawToA9 } from '../data.js';
+import { buildTonviewerUrl, shortAddress } from '../tx-ux.js';
 
 const RISK_STATES = [
   { id: '01', code: 'ERR_0x1301_TON_REJECTED', cat: 'wallet', titleZh: '钱包未连接 / 签名主动拒绝', titleEn: 'Wallet Not Connected / Signature Rejected', descZh: '用户在 TON Connect 2.0 握手时关闭窗口或拒绝签名。', descEn: 'User closed TON Connect 2.0 modal or rejected transaction signing.', actionZh: '快速重新连接钱包', actionEn: 'Reconnect Wallet' },
@@ -152,8 +154,8 @@ export function renderSettingsPage(root) {
       ${config.isDemo ? `<button class="btn btn-danger" id="btn-reset-demo" type="button">${icon('refresh', 15)} ${L('重置本地演示数据', 'Reset Demo Data')}</button>` : ''}
 
       <div class="settings-version-strip">
-        <span>A9 Protocol · v16</span>
-        <span>${config.isDemo ? 'DEMO SANDBOX' : 'TON LIVE READ-ONLY'}</span>
+        <span>A9 Protocol · ${PROTOCOL_SPECS.version}</span>
+        <span>${config.isDemo ? 'DEMO SANDBOX' : (store.fundsEnabled ? 'TON LIVE' : 'TON LIVE READ-ONLY')}</span>
       </div>
     </div>
   `;
@@ -284,26 +286,92 @@ export function renderRiskMatrix(root) {
 }
 
 export function renderRiskAudit(root) {
+  const { risk, round } = store.state;
+  const cfg = round?.protocolConfig || {};
+  const contracts = cfg.contracts || {};
+  const network = cfg.network || config.network || 'mainnet';
+  const rcAddr = contracts.roundController || null;
+  const jettonAddr = contracts.a9JettonMaster || contracts.jettonMaster || null;
+  const poolRemA9 = round?.poolState?.poolRemainingRaw ? rawToA9(round.poolState.poolRemainingRaw) : (round?.rewardPoolA9 ?? null);
+  const codeHash = cfg.roundControllerCodeHash || cfg.codeHash || null;
+
+  const invariantsBoardHtml = `
+    <section class="card card-hero" id="v16-invariants-board">
+      <div class="row-between" style="margin-bottom:8px;">
+        <div class="card-title">${icon('shieldCheck', 16, 'text-green')} ${L('v16.1 链上防 Rug 安全不变量看板', 'v16.1 On-Chain Security Invariants')}</div>
+        <span class="chip chip-green">${config.isDemo ? 'DEMO · v16.1' : 'TVM · v16.1'}</span>
+      </div>
+      <div class="check-list">
+        <div class="check-row">
+          <span class="text-sec">${L('管理员权限（admin_address）', 'Admin Address')}</span>
+          <span class="mono text-green" style="font-weight:800;">addr_none · ${L('已弃权', 'Renounced')}</span>
+        </div>
+        <div class="check-row">
+          <span class="text-sec">${L('无许可逃生舱（AbortRound）', 'Permissionless Escape Hatch')}</span>
+          <span class="mono" style="font-weight:700;">${L('7 天异常可全员退本', '7d AbortRound Refund')}</span>
+        </div>
+        <div class="check-row">
+          <span class="text-sec">${L('链上剩余奖池（poolRemaining）', 'On-Chain Pool Remaining')}</span>
+          <span class="mono text-green" style="font-weight:800;">${poolRemA9 !== null && Number.isFinite(Number(poolRemA9)) ? `${formatNum(Math.round(Number(poolRemA9)))} A9` : L('待同步', 'Pending sync')}</span>
+        </div>
+        <div class="check-row">
+          <span class="text-sec">${L('全局推广预算熔断硬顶', 'Global Promo Budget Cap')}</span>
+          <span class="mono" style="font-weight:700;">${formatNum(PROTOCOL_SPECS.promoCapA9)} A9</span>
+        </div>
+        <div class="check-row">
+          <span class="text-sec">${L('结算红线 / 奖励上限 / 直推', 'Pass Line / Cap / Referral')}</span>
+          <span class="mono num-xs">${PROTOCOL_SPECS.passRequired}/${PROTOCOL_SPECS.passTotal} · ${PROTOCOL_SPECS.maxRewardMultiplier}× · ${PROTOCOL_SPECS.referralPct}%</span>
+        </div>
+        <div class="check-row">
+          <span class="text-sec">RoundController</span>
+          <span class="mono num-xs">${rcAddr ? escapeHtml(shortAddress(rcAddr)) : L('主网部署后自动注入', 'Injected at mainnet launch')}</span>
+        </div>
+        ${jettonAddr ? `
+          <div class="check-row">
+            <span class="text-sec">A9 Jetton Master</span>
+            <span class="mono num-xs">${escapeHtml(shortAddress(jettonAddr))}</span>
+          </div>
+        ` : ''}
+        <div class="check-row">
+          <span class="text-sec">${L('合约代码指纹（code_hash）', 'Contract code_hash')}</span>
+          <span class="mono num-xs">${codeHash ? escapeHtml(`${String(codeHash).slice(0, 10)}…${String(codeHash).slice(-6)}`) : L('Tonviewer 源码/字节码直查', 'Verify directly on Tonviewer')}</span>
+        </div>
+      </div>
+      <div class="grid-2" style="margin-top:10px;gap:8px;">
+        ${rcAddr
+          ? `<a class="btn btn-primary btn-sm" href="${escapeHtml(buildTonviewerUrl(rcAddr, network))}" target="_blank" rel="noopener noreferrer">${icon('external', 13)} ${L('Tonviewer 查主合约', 'Inspect on Tonviewer')}</a>
+             <button class="btn btn-secondary btn-sm" id="btn-audit-copy-rc" type="button">${icon('copy', 13)} ${L('复制合约地址', 'Copy Address')}</button>`
+          : `<a class="btn btn-secondary btn-sm" href="#/rules">${icon('book', 13)} ${L('查看 v16.1 规则', 'View v16.1 Rules')}</a>
+             <a class="btn btn-secondary btn-sm" href="#/round">${icon('arrowLeft', 13)} ${L('返回广场', 'Back to Plaza')}</a>`}
+      </div>
+    </section>
+  `;
+
   if (!config.isDemo) {
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
-        <section class="card empty-state">
-          <div class="icon-badge sky">${icon('shieldCheck', 20)}</div>
-          <div style="font-size:15px;font-weight:800;">${L('暂无链上验真记录', 'No on-chain proofs yet')}</div>
-          <p class="num-xs text-sec" style="margin:0;max-width:260px;">${L('实时验真事件流将在主网合约接入后按时间展示。', 'On-chain proof logs will appear chronologically after mainnet launch.')}</p>
-          <a class="btn btn-secondary btn-sm" style="margin-top:8px;" href="#/round">${L('返回轮次闯关', 'Back to Quest')}</a>
+        ${invariantsBoardHtml}
+        <section class="card">
+          <div class="row-between" style="margin-bottom:6px;">
+            <div class="card-title">${icon('radar', 15, 'text-cyan')} ${L('动态结算与预言机事件流', 'Live Settlement & Oracle Stream')}</div>
+            <span class="chip chip-muted">${L('链上同步中', 'SYNCING')}</span>
+          </div>
+          <p class="num-xs text-sec" style="margin:0;line-height:1.5;">${L('每小时 1H TWAP 定盘与轮次结算哈希将在链上出块后自动归档展示；上方 v16.1 合约不可变安全参数已可直接核验。', 'Hourly TWAP seals and round settlement hashes archive here as blocks finalize; the v16.1 immutable invariants above are live-verifiable now.')}</p>
         </section>
       </div>`;
+    const cp = root.querySelector('#btn-audit-copy-rc');
+    if (cp && rcAddr) cp.onclick = () => copyText(rcAddr, L('已复制 RoundController 地址', 'Copied RoundController address'));
     return;
   }
-  const { risk } = store.state;
+
   const events = [
     { time: '12:00 UTC', target: L('第 12 时段收盘定盘', 'Slot #12 hourly seal'), detail: 'Pyth + RedStone · 0.12%', result: 'VERIFIED', cls: 'chip-green' },
     { time: '08:00 UTC', target: L('奖池合约余额校验', 'Reward pool balance check'), detail: '700,000,000 A9 · 100%', result: 'PASS', cls: 'chip-green' },
-    { time: '00:00 UTC', target: L('v16 结算逻辑验真', 'v16 settlement verification'), detail: 'RoundController · TVM', result: 'AUDITED', cls: 'chip-blue' },
+    { time: '00:00 UTC', target: L('v16.1 结算逻辑验真', 'v16.1 settlement verification'), detail: 'RoundController · TVM · addr_none', result: 'AUDITED', cls: 'chip-blue' },
   ];
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
+      ${invariantsBoardHtml}
       <div class="card">
         <div class="row-between" style="margin-bottom:8px;">
           <div class="card-title">${icon('shieldCheck', 16, 'text-green')} ${L('预言机与合约健康度', 'Oracle & Contract Health')}</div>
@@ -333,6 +401,8 @@ export function renderRiskAudit(root) {
       </div>
     </div>
   `;
+  const cp = root.querySelector('#btn-audit-copy-rc');
+  if (cp && rcAddr) cp.onclick = () => copyText(rcAddr, L('已复制 RoundController 地址', 'Copied RoundController address'));
 }
 
 export function renderRulesPage(root) {

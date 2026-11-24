@@ -273,6 +273,69 @@
   z-index: 999;
 }
 
+/* 宝箱开箱爆 A9 金币动效系统 */
+@keyframes burst-lid-fling {
+  0%   { transform: translateY(14px) rotate(0deg); }
+  45%  { transform: translateY(-20px) rotate(-18deg); }
+  72%  { transform: translateY(-12px) rotate(-10deg); }
+  100% { transform: translateY(-15px) rotate(-13deg); }
+}
+
+@keyframes burst-base-bounce {
+  0%   { transform: scale(1, 1); }
+  25%  { transform: scale(1.10, 0.88) translateY(5px); }
+  55%  { transform: scale(0.95, 1.06) translateY(-4px); }
+  100% { transform: scale(1, 1) translateY(0); }
+}
+
+@keyframes burst-coin-erupt {
+  0%   { opacity: 0; transform: translate(0, 44px) scale(0.35) rotate(0deg); }
+  52%  { opacity: 1; transform: translate(var(--cx, 0px), var(--cy, -30px)) scale(1.12) rotate(var(--cr, 12deg)); }
+  78%  { opacity: 1; transform: translate(calc(var(--cx, 0px) * 0.92), calc(var(--cy, -30px) * 0.78)) scale(0.96) rotate(var(--cr, 12deg)); }
+  100% { opacity: 1; transform: translate(calc(var(--cx, 0px) * 0.95), calc(var(--cy, -30px) * 0.85)) scale(1) rotate(var(--cr, 12deg)); }
+}
+
+@keyframes burst-rays-pop {
+  0%   { opacity: 0; transform: scale(0.45); }
+  55%  { opacity: 0.95; transform: scale(1.06); }
+  100% { opacity: 0.82; transform: scale(1); }
+}
+
+@keyframes burst-stars-twinkle {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50%      { opacity: 1; transform: scale(1.12); }
+}
+
+.nt-chest-burst-svg .burst-lid {
+  transform-box: fill-box;
+  transform-origin: 20% 90%;
+  animation: burst-lid-fling 520ms var(--ease-spring) both;
+}
+
+.nt-chest-burst-svg .burst-base {
+  transform-box: fill-box;
+  transform-origin: 50% 95%;
+  animation: burst-base-bounce 460ms var(--ease-spring) both;
+}
+
+.nt-chest-burst-svg .burst-rays {
+  transform-box: fill-box;
+  transform-origin: 50% 80%;
+  animation: burst-rays-pop 480ms var(--ease-spring) both;
+}
+
+.nt-chest-burst-svg .burst-coin {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: burst-coin-erupt 620ms var(--ease-spring) both;
+}
+
+.nt-chest-burst-svg .burst-stars {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: burst-stars-twinkle 1.8s ease-in-out 420ms infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;

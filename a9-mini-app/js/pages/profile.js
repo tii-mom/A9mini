@@ -32,29 +32,50 @@ function parseA9Number(str) {
   return m ? Number(m[0]) : 0;
 }
 
-/** 统一「金库 / 领奖中心」聚合卡片（不破坏原有 /claim、/rewards、/team/invite 路由与只读门禁） */
+let profileRenderSeq = 0;
+
+/** 统一「金库 / 领奖中心」聚合卡片（消灭双卡重影，兼容 Demo active/empty 与 Live 统一并发读取） */
 function renderUnifiedVaultHtml({
+  availA9 = null,
   roundClaimableA9 = null,
   roundLockedA9 = null,
   promoClaimableA9 = null,
   predActivatedA9 = null,
   predPendingA9 = null,
+  activeTicketsCount = null,
+  stakedPrincipalA9 = null,
+  certsCount = null,
   isLive = false,
   hasWallet = false,
   loading = false,
   fundsEnabled = false,
+  showQuickSlider = false,
+  loadError = false,
 } = {}) {
-  const fmtA9 = (val) => (val === null || val === undefined || !Number.isFinite(Number(val)))
-    ? L('待核验', 'Pending')
-    : `${formatNum(Number(val), Number(val) % 1 === 0 ? 0 : 2)} A9`;
+  const fmtA9 = (val, fallback = L('待核验', 'Pending')) =>
+    (val === null || val === undefined || !Number.isFinite(Number(val)))
+      ? fallback
+      : `${formatNum(Number(val), Number(val) % 1 === 0 ? 0 : 2)} A9`;
 
   const claimParts = [roundClaimableA9, promoClaimableA9].filter((v) => v !== null && v !== undefined && Number.isFinite(Number(v)));
   const hasAnySum = claimParts.length > 0;
   const totalReadyA9 = hasAnySum ? claimParts.reduce((s, n) => s + Number(n), 0) : null;
   const hasPendingVault = predPendingA9 !== null && predPendingA9 !== undefined && Number(predPendingA9) > 0;
 
+  const roundValDisplay = roundClaimableA9 !== null && roundClaimableA9 !== undefined
+    ? fmtA9(roundClaimableA9)
+    : (activeTicketsCount !== null && activeTicketsCount > 0
+      ? L(`${activeTicketsCount} 张凭证可查`, `${activeTicketsCount} ticket(s)`)
+      : fmtA9(null));
+
+  const lockedValDisplay = roundLockedA9 !== null && roundLockedA9 !== undefined
+    ? fmtA9(roundLockedA9)
+    : (stakedPrincipalA9 !== null && stakedPrincipalA9 > 0
+      ? `${L('质押中', 'Staked')} ${fmtA9(stakedPrincipalA9)}`
+      : fmtA9(null));
+
   return `
-    <section class="card unified-vault-card" id="profile-unified-vault">
+    <section class="card card-hero unified-vault-card" id="profile-unified-vault">
       <div class="row-between" style="margin-bottom:8px;">
         <div class="card-title">${icon('wallet', 15, 'text-gold')} ${L('统一金库 / 领奖中心', 'Unified Vault & Claim Center')}</div>
         <span class="chip ${isLive ? (fundsEnabled ? 'chip-green' : 'chip-muted') : 'chip-gold'}">${isLive ? (fundsEnabled ? L('链上可领', 'LIVE') : L('只读模式', 'READ-ONLY')) : 'DEMO'}</span>
@@ -62,7 +83,24 @@ function renderUnifiedVaultHtml({
 
       <div class="unified-vault-total">
         <span class="num-xs text-muted">${L('当前聚合可领总额（轮次已解锁 + 推广余额，含已激活预言）', 'Total Ready to Claim (Round + Promo Balance, incl. activated prediction)')}</span>
-        <div class="num-lg text-green mono" style="font-weight:900;margin-top:3px;">${loading && !hasAnySum ? L('读取中…', 'Loading…') : fmtA9(totalReadyA9)}</div>
+        <div class="num-lg text-green mono" style="font-weight:900;margin-top:3px;">${loading && !hasAnySum ? L('同步中…', 'Syncing…') : (showQuickSlider && roundClaimableA9 > 0 ? `<span id="a9-claim-num">${formatNum(totalReadyA9 ?? 0)}</span> A9` : fmtA9(totalReadyA9))}</div>
+      </div>
+
+      ${showQuickSlider && fundsEnabled && roundClaimableA9 > 0 ? `<div id="profile-quick-slider" style="margin:8px 0;"></div>` : ''}
+
+      <div class="profile-asset-telemetry" style="margin:8px 0 10px;">
+        <div class="profile-telemetry-cell">
+          <small>${L('可用 A9', 'Available')}</small>
+          <strong class="mono">${availA9 !== null && availA9 !== undefined ? formatNum(availA9, availA9 % 1 === 0 ? 0 : 2) : (loading ? '…' : '—')}</strong>
+        </div>
+        <div class="profile-telemetry-cell">
+          <small>${isLive ? L('质押本金', 'Staked') : L('待解锁', 'Locked')}</small>
+          <strong class="mono">${isLive ? (stakedPrincipalA9 !== null ? formatNum(stakedPrincipalA9, stakedPrincipalA9 % 1 === 0 ? 0 : 2) : (loading ? '…' : '—')) : formatNum(roundLockedA9 ?? 0)}</strong>
+        </div>
+        <div class="profile-telemetry-cell">
+          <small>${L('凭证数', 'Passes')}</small>
+          <strong class="text-cyan mono">${certsCount !== null && certsCount !== undefined ? `${certsCount} ${L('张', '')}` : (activeTicketsCount !== null ? `${activeTicketsCount} ${L('张', '')}` : (loading ? '…' : '—'))}</strong>
+        </div>
       </div>
 
       <div class="unified-vault-list">
@@ -72,7 +110,7 @@ function renderUnifiedVaultHtml({
             <div class="num-xs text-muted">${L('StakeTicket 链上领奖 · 附 0.22 GRAM Gas', 'StakeTicket claim · 0.22 GRAM gas')}</div>
           </div>
           <div class="unified-vault-val">
-            <b class="mono text-green">${fmtA9(roundClaimableA9)}</b>
+            <b class="mono text-green">${roundValDisplay}</b>
             <span>${L('去领取', 'Claim')} ›</span>
           </div>
         </a>
@@ -105,7 +143,7 @@ function renderUnifiedVaultHtml({
             <div class="num-xs text-muted">${L('1–5 胜 20% / 6–10 胜 40% / 11 胜起 100%', '1–5w 20% / 6–10w 40% / 11+w 100%')}</div>
           </div>
           <div class="unified-vault-val">
-            <b class="mono">${fmtA9(roundLockedA9)}</b>
+            <b class="mono">${lockedValDisplay}</b>
             <span>${L('看档位', 'Tiers')} ›</span>
           </div>
         </a>
@@ -116,22 +154,52 @@ function renderUnifiedVaultHtml({
         <a class="btn btn-secondary btn-sm" href="#/team/invite" style="width:100%;min-height:38px;">${L('推广领奖', 'Promo')}</a>
         <a class="btn btn-secondary btn-sm" href="#/rewards" style="width:100%;min-height:38px;">${L('解锁档位', 'Vesting')}</a>
       </div>
-      ${isLive && !hasWallet ? `<div class="num-xs text-muted" style="margin-top:8px;">${L('连接并验证 TON 钱包后自动同步真实链上与推广余额。', 'Connect & verify your TON wallet to sync live balances.')}</div>` : ''}
+      ${isLive && !hasWallet ? `<div class="row-between" style="margin-top:8px;gap:8px;"><span class="num-xs text-muted">${L('连接并验证 TON 钱包后自动同步链上凭证与余额。', 'Connect & verify your TON wallet to sync live balances.')}</span><button class="btn btn-secondary btn-sm" id="profile-live-connect" type="button">${L('连接钱包', 'Connect')}</button></div>` : ''}
+      ${isLive && hasWallet && loadError ? `<div class="row-between" style="margin-top:8px;gap:8px;"><span class="num-xs text-red">${L('部分链上数据同步超时', 'Some on-chain data failed to sync')}</span><button class="btn btn-secondary btn-sm" id="profile-live-retry" type="button">${L('重试', 'Retry')}</button></div>` : ''}
     </section>
   `;
 }
 
 export function renderProfileHome(root, navigate) {
   if (!config.isDemo) {
+    const seq = ++profileRenderSeq;
     const u = store.state.user;
     const addrLabel = u.shortAddress || (u.address ? (u.address.length > 12 ? `${u.address.slice(0, 4)}...${u.address.slice(-4)}` : u.address) : null);
     const walletAddr = addrLabel || L('未连接钱包', 'Not connected');
     const gramText = u.tonBalance !== null && u.tonBalance !== undefined ? `${formatNum(u.tonBalance, 2)} GRAM` : '— GRAM';
-    root.innerHTML = `<div class="col-gap anim-page-enter">${identityStage({ walletAddr, gramText })}<div id="profile-unified-vault-mount"></div></div>`;
+
+    root.innerHTML = `
+      <div class="col-gap anim-page-enter">
+        ${identityStage({ walletAddr, gramText })}
+        <div id="profile-unified-vault-mount"></div>
+        <div class="profile-dock-grid" aria-label="${L('快捷功能', 'Quick Actions')}">
+          <button class="profile-dock-tile" data-nav="/proof" type="button">
+            <span class="profile-dock-icon tone-red">${icon('shieldCheck', 18)}</span>
+            <span class="profile-dock-label">${L('凭证', 'Pass')}</span>
+            <span class="profile-dock-sub" id="live-dock-passes">—</span>
+          </button>
+          <button class="profile-dock-tile" data-nav="/ledger" type="button">
+            <span class="profile-dock-icon tone-green">${icon('receipt', 18)}</span>
+            <span class="profile-dock-label">${L('账本', 'Ledger')}</span>
+            <span class="profile-dock-sub">${L('明细', 'Log')}</span>
+          </button>
+          <button class="profile-dock-tile" data-nav="/renew" type="button">
+            <span class="profile-dock-icon tone-blue">${icon('refresh', 18)}</span>
+            <span class="profile-dock-label">${L('连闯', 'Auto')}</span>
+            <span class="profile-dock-sub" style="color:${u.autoRenew ? 'var(--nt-green)' : 'var(--ink-muted)'};">${u.autoRenew ? L('已开', 'ON') : L('已关', 'OFF')}</span>
+          </button>
+          <button class="profile-dock-tile" data-nav="/settings" type="button">
+            <span class="profile-dock-icon tone-slate">${icon('settings', 18)}</span>
+            <span class="profile-dock-label">${L('设置', 'Settings')}</span>
+            <span class="profile-dock-sub">${L('偏好', 'Prefs')}</span>
+          </button>
+        </div>
+      </div>
+    `;
 
     const vaultMount = root.querySelector('#profile-unified-vault-mount');
     const paintLiveVault = (opts) => {
-      if (!vaultMount || !vaultMount.isConnected) return;
+      if (seq !== profileRenderSeq || !vaultMount || !vaultMount.isConnected) return;
       vaultMount.innerHTML = renderUnifiedVaultHtml({
         ...opts,
         isLive: true,
@@ -146,6 +214,10 @@ export function renderProfileHome(root, navigate) {
           navigate('/round');
         };
       }
+      const connBtn = vaultMount.querySelector('#profile-live-connect');
+      if (connBtn) connBtn.onclick = () => tonConnect.openConnectModal(() => renderProfileHome(root, navigate));
+      const retryBtn = vaultMount.querySelector('#profile-live-retry');
+      if (retryBtn) retryBtn.onclick = () => renderProfileHome(root, navigate);
     };
 
     const addr = store.state.user.address;
@@ -155,27 +227,52 @@ export function renderProfileHome(root, navigate) {
 
     if (addr || uid) {
       Promise.allSettled([
+        addr ? fetchUserPortfolio(addr) : Promise.resolve(null),
         addr ? fetchPromoBalance(addr) : Promise.resolve(null),
         uid ? fetchPredictionUser(uid, roundId) : Promise.resolve(null),
-      ]).then(([promoRes, predRes]) => {
-        if (!root.isConnected || store.state.user.address !== addr) return;
+      ]).then(([portRes, promoRes, predRes]) => {
+        if (seq !== profileRenderSeq || !root.isConnected || store.state.user.address !== addr) return;
+        const portData = portRes.status === 'fulfilled' ? portRes.value : null;
         const promoData = promoRes.status === 'fulfilled' ? promoRes.value : null;
         const predData = predRes.status === 'fulfilled' ? predRes.value : null;
+        const anyErr = (addr && portRes.status === 'rejected') || (addr && promoRes.status === 'rejected');
+
+        const availA9 = (portData && portData.balanceAvailable !== false && portData.a9BalanceRaw !== null && portData.a9BalanceRaw !== undefined)
+          ? rawToA9(portData.a9BalanceRaw)
+          : null;
+        const tickets = Array.isArray(portData?.tickets) ? portData.tickets : [];
+        const activeTickets = tickets.filter((t) => !t?.principalDone && /^\d+$/.test(String(t?.amountRaw || '')));
+        const stakedPrincipalA9 = activeTickets.length
+          ? activeTickets.reduce((sum, t) => sum + (rawToA9(t.amountRaw) || 0), 0)
+          : (portData ? 0 : null);
+        const roundClaimableA9 = (portData && portData.claimableRaw !== undefined && portData.claimableRaw !== null)
+          ? rawToA9(portData.claimableRaw)
+          : null;
+        const roundLockedA9 = (portData && portData.lockedRaw !== undefined && portData.lockedRaw !== null)
+          ? rawToA9(portData.lockedRaw)
+          : null;
         const promoClaimableA9 = promoData && promoData.claimableRaw !== undefined ? rawToA9(promoData.claimableRaw) : null;
         const predActivatedA9 = predData && predData.activatedRaw !== undefined ? rawToA9(predData.activatedRaw) : null;
         const predPendingA9 = predData && predData.pendingActivationRaw !== undefined ? rawToA9(predData.pendingActivationRaw) : null;
+
+        const dockPasses = root.querySelector('#live-dock-passes');
+        if (dockPasses) dockPasses.textContent = portData ? `${tickets.length} ${L('张', 'SBT')}` : '—';
+
         paintLiveVault({
-          roundClaimableA9: null,
-          roundLockedA9: null,
+          availA9,
+          roundClaimableA9,
+          roundLockedA9,
           promoClaimableA9,
           predActivatedA9,
           predPendingA9,
+          activeTicketsCount: portData ? tickets.length : null,
+          stakedPrincipalA9,
+          certsCount: portData ? tickets.length : null,
           loading: false,
+          loadError: anyErr,
         });
       });
     }
-
-    portfolioPanel(root.firstElementChild);
     return;
   }
 
@@ -187,16 +284,34 @@ export function renderProfileHome(root, navigate) {
   const gramText = user.tonBalance === null || user.tonBalance === undefined ? '— GRAM' : `${formatNum(user.tonBalance, 2)} GRAM`;
 
   if (isEmpty && !unknown) {
+    const emptyVaultHtml = renderUnifiedVaultHtml({
+      availA9: 0,
+      roundClaimableA9: 0,
+      roundLockedA9: 0,
+      promoClaimableA9: 0,
+      predActivatedA9: 0,
+      predPendingA9: 0,
+      certsCount: 0,
+      isLive: false,
+      hasWallet: Boolean(user.connected),
+      loading: false,
+      fundsEnabled: store.fundsEnabled,
+      showQuickSlider: false,
+    });
+
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         ${identityStage({ modePill, walletAddr, gramText })}
-        <div class="card card-hero">
-          <div class="empty-state" style="padding:12px 8px 6px;">
-            <span class="nt-art-badge tone-blue" style="width:64px;height:64px;" aria-hidden="true">${renderNintendoGateIcon('vault', 40)}</span>
-            <div style="font-size:17px;font-weight:900;margin-top:4px;">${L('还没有持仓与收益', 'No Active Position Yet')}</div>
+        ${emptyVaultHtml}
+        <div class="card">
+          <div class="empty-state" style="padding:10px 8px 6px;">
+            <span class="nt-art-badge tone-blue" style="width:52px;height:52px;" aria-hidden="true">${renderNintendoGateIcon('vault', 32)}</span>
+            <div style="font-size:15px;font-weight:900;margin-top:4px;">${L('还没有质押持仓', 'No Active Position Yet')}</div>
             <div class="text-sec" style="font-size:12px;max-width:260px;">${L('最低 1,000 A9 参与，达标瓜分当轮奖池。', 'Stake 1,000+ A9 to split the round pool.')}</div>
-            <button class="btn btn-primary" style="margin-top:10px;" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L('立即参与', 'Stake Now')}</button>
-            <button class="btn btn-secondary" data-nav="/internal/market">${icon('swap', 15)} ${L('前往宝箱商城', 'Open Chest Mall')}</button>
+            <div class="grid-2" style="width:100%;margin-top:10px;gap:8px;">
+              <button class="btn btn-primary btn-sm" data-nav="/challenge/confirm" type="button">${icon('bolt', 14)} ${L('立即参与', 'Stake Now')}</button>
+              <button class="btn btn-secondary btn-sm" data-nav="/internal/market" type="button">${icon('swap', 14)} ${L('宝箱商城', 'Chest Mall')}</button>
+            </div>
           </div>
         </div>
         <div class="profile-dock-grid">
@@ -223,6 +338,14 @@ export function renderProfileHome(root, navigate) {
         </div>
       </div>
     `;
+    const vaultPredBtn = root.querySelector('#btn-vault-go-pred');
+    if (vaultPredBtn) {
+      vaultPredBtn.onclick = () => {
+        A9Haptic.light();
+        store.state.referral.pendingScrollTarget = 'prediction';
+        navigate('/round');
+      };
+    }
   } else {
     const claimable = unknown ? null : (user.a9Claimable || 0);
     const hasClaim = claimable !== null && claimable > 0;
@@ -230,80 +353,22 @@ export function renderProfileHome(root, navigate) {
     const lockedA9 = Number(user.a9Locked || 0);
     const activeFilter = ['all', 'observation', 'settled'].includes(uiMemory.ticketFilter) ? uiMemory.ticketFilter : 'all';
 
-    const todoCardHtml = unknown ? `
-      <div class="card row-between" style="border-color:var(--gold-border);">
-        <div>
-          <div class="row-start" style="font-weight:800;">${icon('shieldAlert', 15, 'text-gold')} ${L('未连接钱包 · 数据待核验', 'Wallet not connected')}</div>
-          <div class="num-xs text-muted" style="margin-top:3px;">${L('连接后查看余额与凭证', 'Connect to view assets')}</div>
-        </div>
-        <button class="btn btn-primary btn-sm" id="profile-connect">${L('连接', 'Connect')}</button>
-      </div>
-    ` : hasClaim ? `
-      <div class="card card-hero vault-claim">
-        <div class="row-between" style="margin-bottom:6px;">
-          <span class="chip chip-gold">${icon('unlock', 11)} ${L('待处理 · 可领取', 'Action · Claimable')}</span>
-          <a class="text-link-btn" href="#/rewards">${L('解锁档位', 'Vesting')} ›</a>
-        </div>
-        <div class="num-hero"><span id="a9-claim-num">${formatNum(claimable)}</span> <span class="num-md text-green">A9</span></div>
-        <div class="num-xs text-muted" style="margin:4px 0 10px;">
-          ${config.isDemo ? L('演示领取 · 实际已结算金额', 'Demo claim · settled amount') : L('真实模式只读 · 签名领取暂未开放', 'Live read-only · claim signing disabled')}
-        </div>
-        ${store.fundsEnabled
-          ? `<div id="profile-quick-slider"></div>`
-          : `<div class="sub-tile row-between"><span class="num-xs text-sec">${L('真实模式只读 · 暂未开放领取签名', 'Live read-only · claiming disabled')}</span><button class="btn btn-secondary btn-sm" data-nav="/claim">${L('明细', 'View')}</button></div>`}
-        <div class="profile-asset-telemetry">
-          <div class="profile-telemetry-cell">
-            <small>${L('可用 A9', 'Available')}</small>
-            <strong>${formatNum(availA9)}</strong>
-          </div>
-          <div class="profile-telemetry-cell">
-            <small>${L('待解锁', 'Locked')}</small>
-            <strong>${formatNum(lockedA9)}</strong>
-          </div>
-          <div class="profile-telemetry-cell">
-            <small>${L('凭证数', 'Passes')}</small>
-            <strong class="text-cyan">${certificates.length} ${L('张', '')}</strong>
-          </div>
-        </div>
-      </div>
-    ` : `
-      <div class="card card-hero">
-        <div class="row-between" style="margin-bottom:6px;">
-          <div class="card-title">${icon('wallet', 15, 'text-gold')} ${L('资产总览', 'Asset Vault')}</div>
-          <a class="text-link-btn" href="#/rewards">${L('解锁档位', 'Vesting')} ›</a>
-        </div>
-        <div class="num-hero">${formatNum(availA9)} <span class="num-md text-green">A9</span></div>
-        <div class="num-xs text-muted" style="margin-top:3px;">${L('当前可用余额 · 随时可参与新轮次', 'Available balance · ready for next round')}</div>
-        <div class="profile-asset-telemetry">
-          <div class="profile-telemetry-cell">
-            <small>${L('当前可领', 'Claimable')}</small>
-            <strong>0 A9</strong>
-          </div>
-          <div class="profile-telemetry-cell">
-            <small>${L('待解锁份额', 'Locked')}</small>
-            <strong>${formatNum(lockedA9)}</strong>
-          </div>
-          <div class="profile-telemetry-cell">
-            <small>${L('自动连闯', 'Auto')}</small>
-            <strong class="${user.autoRenew ? 'text-green' : 'text-muted'}">${user.autoRenew ? 'ON' : 'OFF'}</strong>
-          </div>
-        </div>
-      </div>
-    `;
-
     const promoDemoA9 = Number(store.state.user.promoClaimableA9 ?? store.state.team?.captainHistoryA9 ?? 0) || 0;
     const predActDemoA9 = rawToA9(store.state.prediction?.activatedRaw) || 0;
     const predPendDemoA9 = rawToA9(store.state.prediction?.pendingActivationRaw) || 0;
     const unifiedVaultDemoHtml = renderUnifiedVaultHtml({
+      availA9,
       roundClaimableA9: claimable ?? 0,
       roundLockedA9: lockedA9,
       promoClaimableA9: promoDemoA9,
       predActivatedA9: predActDemoA9,
       predPendingA9: predPendDemoA9,
+      certsCount: certificates.length,
       isLive: false,
       hasWallet: Boolean(user.connected),
       loading: false,
       fundsEnabled: store.fundsEnabled,
+      showQuickSlider: hasClaim,
     });
 
     root.innerHTML = `
@@ -311,8 +376,6 @@ export function renderProfileHome(root, navigate) {
         ${identityStage({ modePill, walletAddr, gramText })}
 
         ${unifiedVaultDemoHtml}
-
-        ${todoCardHtml}
 
         <div class="profile-dock-grid" aria-label="${L('快捷功能', 'Quick Actions')}">
           <button class="profile-dock-tile" data-nav="/proof" type="button">
@@ -384,7 +447,7 @@ export function renderProfileHome(root, navigate) {
       applyTicketFilter(button.dataset.ticketFilter);
     });
     if (hasClaim) {
-      animateSlotCounter(root.querySelector('#a9-claim-num'), claimable, { duration: 420 });
+      animateSlotCounter(root.querySelector('#a9-claim-num'), (claimable || 0) + promoDemoA9, { duration: 420 });
     }
     const sliderEl = root.querySelector('#profile-quick-slider');
     if (sliderEl) {
@@ -405,8 +468,6 @@ export function renderProfileHome(root, navigate) {
         navigate('/round');
       };
     }
-    const connectBtn = root.querySelector('#profile-connect');
-    if (connectBtn) connectBtn.onclick = () => tonConnect.openConnectModal(() => renderProfileHome(root, navigate));
   }
 
   bindIdentityStage(root, () => renderProfileHome(root, navigate));

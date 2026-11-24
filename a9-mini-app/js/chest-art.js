@@ -205,3 +205,102 @@ export function renderChestSvg(tierInput, { size = 64, state = 'normal', classNa
   const cls = ['nt-chest-svg', `tier-${tier}`, `state-${state}`, className].filter(Boolean).join(' ');
   return `<svg class="${cls}" width="${size}" height="${size}" viewBox="0 0 96 92" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${bodies[tier] || bodies.bronze}</svg>`;
 }
+
+/**
+ * 渲染任天堂第一方纯平赛璐璐 A9 金币矢量图标
+ * @param {{ size?: number, className?: string }} opts
+ */
+export function renderA9CoinSvg({ size = 28, className = '' } = {}) {
+  const stroke = 'var(--nt-svg-stroke, #171920)';
+  const cls = ['nt-a9-coin-svg', className].filter(Boolean).join(' ');
+  return `<svg class="${cls}" width="${size}" height="${size}" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <circle cx="20" cy="21.5" r="16" fill="#BA8006" stroke="${stroke}" stroke-width="2.4"/>
+    <circle cx="20" cy="19" r="16" fill="#FFC412" stroke="${stroke}" stroke-width="2.4"/>
+    <circle cx="20" cy="19" r="11.5" fill="#F0AE14" stroke="#FFF08A" stroke-width="2"/>
+    <path d="M12.5 11.5C15 9 18.5 8 22.5 8.5" stroke="#FFF8C4" stroke-width="2.6" stroke-linecap="round"/>
+    <text x="20" y="23.5" text-anchor="middle" fill="#171920" font-family="Rubik, sans-serif" font-weight="900" font-size="12.5" letter-spacing="-0.4">A9</text>
+  </svg>`;
+}
+
+/**
+ * 渲染「宝箱开启爆出 A9 金币」任天堂第一方动作美术资源（SVG 分层动画舞台）
+ * - 含放射线、掀飞箱盖、9 枚分级喷涌的 A9 金币、四角星芒与彩纸碎片
+ * - 完全采用纯平色面 + 粗描边，兼容亮色与 Switch 暗夜双主题
+ * @param {'bronze'|'silver'|'gold'|'platinum'|'diamond'} tierInput
+ * @param {{ size?: number, className?: string }} opts
+ */
+export function renderChestOpenBurstSvg(tierInput, { size = 180, className = '' } = {}) {
+  const tier = resolveChestTier(tierInput);
+  const stroke = 'var(--nt-svg-stroke, #171920)';
+  const palettes = {
+    bronze:   { body: '#C97A42', shade: '#8F4F24', band: '#D99B52', hi: '#E69F68', ray: '#F6C99E', inside: '#5A2E12' },
+    silver:   { body: '#E4EAF2', shade: '#9AA9BE', band: '#8FA3BC', hi: '#FFFFFF', ray: '#CFE2F8', inside: '#485A70' },
+    gold:     { body: '#F7BE2C', shade: '#C97400', band: '#E60012', hi: '#FFF08A', ray: '#FFE899', inside: '#7A4200' },
+    platinum: { body: '#EEF3FF', shade: '#99ACE0', band: '#6D5DF6', hi: '#FFFFFF', ray: '#D7D2FF', inside: '#39327A' },
+    diamond:  { body: '#29C7FF', shade: '#0077CC', band: '#FFD43B', hi: '#B8F3FF', ray: '#B8F3FF', inside: '#004A85' },
+  };
+  const p = palettes[tier] || palettes.gold;
+
+  // 9 枚从箱口喷涌而出的 A9 金币（含坐标、缩放与动画延时变量）
+  const coins = [
+    { cx: 100, cy: 52, r: 17, dx: '0px',   dy: '-34px', rot: '-8deg',  delay: '60ms'  },
+    { cx: 66,  cy: 62, r: 15, dx: '-28px', dy: '-26px', rot: '-22deg', delay: '100ms' },
+    { cx: 134, cy: 62, r: 15, dx: '28px',  dy: '-26px', rot: '22deg',  delay: '110ms' },
+    { cx: 44,  cy: 80, r: 12, dx: '-42px', dy: '-14px', rot: '-35deg', delay: '140ms' },
+    { cx: 156, cy: 80, r: 12, dx: '42px',  dy: '-14px', rot: '35deg',  delay: '150ms' },
+    { cx: 80,  cy: 34, r: 13, dx: '-18px', dy: '-44px', rot: '-16deg', delay: '170ms' },
+    { cx: 122, cy: 34, r: 13, dx: '18px',  dy: '-44px', rot: '16deg',  delay: '180ms' },
+    { cx: 100, cy: 22, r: 11, dx: '0px',   dy: '-52px', rot: '6deg',   delay: '210ms' },
+    { cx: 56,  cy: 42, r: 10, dx: '-34px', dy: '-38px', rot: '-28deg', delay: '220ms' },
+  ];
+
+  const coinsMarkup = coins.map((c, idx) => `
+    <g class="burst-coin burst-coin-${idx + 1}" style="--cx:${c.dx};--cy:${c.dy};--cr:${c.rot};animation-delay:${c.delay};">
+      <circle cx="${c.cx}" cy="${c.cy + 2.2}" r="${c.r}" fill="#BA8006" stroke="${stroke}" stroke-width="2.2"/>
+      <circle cx="${c.cx}" cy="${c.cy}" r="${c.r}" fill="#FFC412" stroke="${stroke}" stroke-width="2.2"/>
+      <circle cx="${c.cx}" cy="${c.cy}" r="${(c.r * 0.72).toFixed(1)}" fill="#F0AE14" stroke="#FFF08A" stroke-width="1.6"/>
+      <text x="${c.cx}" y="${(c.cy + c.r * 0.32).toFixed(1)}" text-anchor="middle" fill="#171920" font-family="Rubik, sans-serif" font-weight="900" font-size="${Math.max(8, Math.round(c.r * 0.72))}" letter-spacing="-0.4">A9</text>
+    </g>
+  `).join('');
+
+  const cls = ['nt-chest-burst-svg', `tier-${tier}`, className].filter(Boolean).join(' ');
+  const h = Math.round(size * 0.88);
+  return `<svg class="${cls}" width="${size}" height="${h}" viewBox="0 0 200 176" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <g class="burst-rays">
+      <polygon points="100,96 76,12 124,12" fill="${p.ray}" opacity="0.55"/>
+      <polygon points="100,96 20,44 48,18" fill="${p.ray}" opacity="0.45"/>
+      <polygon points="100,96 152,18 180,44" fill="${p.ray}" opacity="0.45"/>
+      <polygon points="100,96 10,88 18,62" fill="${p.ray}" opacity="0.35"/>
+      <polygon points="100,96 182,62 190,88" fill="${p.ray}" opacity="0.35"/>
+    </g>
+    <ellipse cx="100" cy="160" rx="54" ry="8.5" fill="rgba(20, 22, 30, 0.16)"/>
+    <g class="burst-lid">
+      <path d="M52 94C52 77 65 68 82 68H118C135 68 148 77 148 94V103H52V94Z" fill="${p.body}" stroke="${stroke}" stroke-width="2.8" stroke-linejoin="round"/>
+      <path d="M62 81C66 76 73 74 84 74H114" stroke="${p.hi}" stroke-width="4.5" stroke-linecap="round"/>
+      <rect x="68" y="68" width="12" height="35" fill="${p.band}" stroke="${stroke}" stroke-width="2.4"/>
+      <rect x="120" y="68" width="12" height="35" fill="${p.band}" stroke="${stroke}" stroke-width="2.4"/>
+    </g>
+    <rect x="54" y="96" width="92" height="20" rx="5" fill="${p.inside}" stroke="${stroke}" stroke-width="2.4"/>
+    <circle cx="76" cy="103" r="9" fill="#FFC412" stroke="${stroke}" stroke-width="2"/>
+    <circle cx="94" cy="101" r="10" fill="#FFD43B" stroke="${stroke}" stroke-width="2"/>
+    <circle cx="112" cy="102" r="9.5" fill="#FFC412" stroke="${stroke}" stroke-width="2"/>
+    <circle cx="126" cy="104" r="8.5" fill="#F0AE14" stroke="${stroke}" stroke-width="2"/>
+    ${coinsMarkup}
+    <g class="burst-base">
+      <rect x="50" y="108" width="100" height="48" rx="11" fill="${p.shade}" stroke="${stroke}" stroke-width="2.8"/>
+      <rect x="50" y="104" width="100" height="44" rx="10" fill="${p.body}" stroke="${stroke}" stroke-width="2.8"/>
+      <rect x="56" y="110" width="38" height="6" rx="3" fill="${p.hi}"/>
+      <rect x="68" y="104" width="12" height="44" fill="${p.band}" stroke="${stroke}" stroke-width="2.4"/>
+      <rect x="120" y="104" width="12" height="44" fill="${p.band}" stroke="${stroke}" stroke-width="2.4"/>
+      <rect x="88" y="100" width="24" height="22" rx="6" fill="#FFFFFF" stroke="${stroke}" stroke-width="2.6"/>
+      <path d="M100 104.5L102 108.8L106.8 109.4L103.3 112.6L104.2 117.3L100 115L95.8 117.3L96.7 112.6L93.2 109.4L98 108.8L100 104.5Z" fill="#FFC412" stroke="${stroke}" stroke-width="1.8" stroke-linejoin="round"/>
+    </g>
+    <g class="burst-stars">
+      <path d="M28 50L31 57L38 60L31 63L28 70L25 63L18 60L25 57L28 50Z" fill="#FFC412" stroke="${stroke}" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M172 48L174.5 53.5L180 56L174.5 58.5L172 64L169.5 58.5L164 56L169.5 53.5L172 48Z" fill="#E60012" stroke="${stroke}" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M148 22L150 26L154 28L150 30L148 34L146 30L142 28L146 26L148 22Z" fill="#12A85D" stroke="${stroke}" stroke-width="1.6" stroke-linejoin="round"/>
+      <rect x="34" y="28" width="8" height="8" rx="2" transform="rotate(-22 34 28)" fill="#2574E8" stroke="${stroke}" stroke-width="1.6"/>
+      <rect x="160" y="88" width="7" height="7" rx="2" transform="rotate(28 160 88)" fill="#FFC412" stroke="${stroke}" stroke-width="1.6"/>
+    </g>
+  </svg>`;
+}

@@ -2285,3 +2285,161 @@
   color: var(--ink);
   white-space: nowrap;
 }
+
+/* 第二轮精修：首屏单行提示条 / 顶部紧凑验真胶囊 / 24H 折叠点阵 / 对称 PASS-BURN 推演 / 弹窗滚动 */
+.plaza-compact-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 40px;
+  max-height: 48px;
+  padding: 6px 11px;
+  border-radius: 13px;
+  border: 1.5px solid var(--nt-gold-edge, rgba(217, 138, 28, 0.50));
+  background: var(--nt-gold-soft);
+  color: var(--ink);
+  text-decoration: none;
+  box-shadow: var(--card-shadow-sm);
+}
+
+.plaza-compact-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.plaza-compact-text {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plaza-compact-right {
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--nt-red);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.plaza-trust-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(18, 168, 93, 0.34);
+  background: var(--nt-green-soft);
+  color: var(--nt-green);
+  font-size: 10.5px;
+  font-weight: 900;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.plaza-trust-capsule:active {
+  transform: translateY(1px);
+}
+
+.plaza-slots-drawer {
+  margin-top: 7px;
+  border-top: 1px dashed var(--card-border);
+  padding-top: 6px;
+}
+
+.plaza-slots-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.plaza-slots-summary::-webkit-details-marker {
+  display: none;
+}
+
+.plaza-slots-drawer[open] .city-slot-strip {
+  margin-top: 8px;
+}
+
+.trust-modal-scroll {
+  max-height: 72dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 2px;
+}
+
+.payback-outcome-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.payback-outcome-box {
+  padding: 9px 10px;
+  border-radius: 13px;
+  border: 1.5px solid var(--card-border);
+  background: var(--paper-tray);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.payback-outcome-box.is-pass {
+  background: var(--nt-green-soft);
+  border-color: rgba(18, 168, 93, 0.32);
+}
+
+.payback-outcome-box.is-burn {
+  background: var(--nt-rose-soft);
+  border-color: rgba(217, 72, 96, 0.32);
+}
+
+.payback-outcome-main {
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.2;
+  word-break: break-all;
+}
+
+.payback-details {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--card-border);
+}
+
+.payback-details summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.payback-details summary::-webkit-details-marker {
+  display: none;
+}
+
+@media (max-width: 400px) {
+  .city-slot-dots {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    row-gap: 6px;
+  }
+  .payback-outcome-grid {
+    grid-template-columns: 1fr;
+  }
+}

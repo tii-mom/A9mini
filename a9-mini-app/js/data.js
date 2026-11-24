@@ -28,6 +28,25 @@ import {
 } from './demo-data.js';
 import { A9TMA } from './tma.js';
 
+/** v16.1 唯一前端展示口径常量源（Single Source of Truth，严禁各页散落旧口径） */
+export const PROTOCOL_SPECS = Object.freeze({
+  version: 'v16.1',
+  referralPct: 6,
+  chestBoostMinPct: 2,
+  chestBoostMaxPct: 5,
+  deliveryFeeGram: 0.06,
+  refundGasGram: 0.03,
+  stakeGasGram: 0.30,
+  claimGasGram: 0.22,
+  maxRewardMultiplier: 15,
+  passRequired: 16,
+  passTotal: 24,
+  promoCapA9: 300_000_000,
+  totalSupplyA9: 10_000_000_000,
+  rewardPoolA9: 7_000_000_000,
+  abortTimeoutDays: 7,
+});
+
 /** 与 A9mini/worker 后端契约保持一致的统一端点表。 */
 export const ENDPOINTS = Object.freeze({
   health: '/api/health',

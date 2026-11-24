@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -817,5 +817,116 @@ test('Wave 2: shouldDeferRouteRender, buildTonviewerUrl, pendingTxManager (sessi
   assert.ok(out.statuses.includes('timeout'));
   assert.deepEqual(out.lsKeys, ['a9_ui_prefs_v1']);
   assert.deepEqual(out.ssKeys, ['a9_pending_tx_v1']);
+});
+
+test('PROTOCOL_SPECS single source of truth & Live renderRiskAudit invariants check', () => {
+  const collectJsFiles = (dir) => {
+    const out = [];
+    for (const entry of readdirSync(dir)) {
+      const p = join(dir, entry);
+      if (entry === 'vendor') continue;
+      const st = statSync(p);
+      if (st.isDirectory()) out.push(...collectJsFiles(p));
+      else if (entry.endsWith('.js')) out.push(p);
+    }
+    return out;
+  };
+  const jsFiles = collectJsFiles(JS_DIR);
+  const referencedKeys = [];
+  for (const file of jsFiles) {
+    const txt = readFileSync(file, 'utf8');
+    for (const m of txt.matchAll(/\bPROTOCOL_SPECS\.([A-Za-z0-9_]+)/g)) {
+      referencedKeys.push({ file, key: m[1] });
+    }
+  }
+  assert.ok(referencedKeys.length > 0, 'expected PROTOCOL_SPECS references');
+
+  const out = runScenario(
+    {
+      href: 'https://app.a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat', liveFundsEnabled: false },
+    },
+    `
+      const mkNode = () => ({
+        addEventListener() {},
+        classList: { add() {}, remove() {}, toggle() {}, contains() { return true; } },
+        querySelector: (sel) => (sel === '#btn-wallet-pill' || sel === '#dock-pill' ? mkNode() : null),
+        querySelectorAll: () => [],
+        insertAdjacentHTML() {},
+        setAttribute() {},
+        getAttribute() { return null; },
+        remove() {},
+        set innerHTML(_v) {},
+        style: {},
+        dataset: {},
+        textContent: '',
+        onclick: null,
+        animate: () => ({ finished: Promise.resolve() }),
+      });
+      const stubEl = mkNode;
+      globalThis.window.addEventListener = () => {};
+      globalThis.window.scrollTo = () => {};
+      Object.defineProperty(globalThis, 'navigator', { value: { language: 'zh-CN' }, configurable: true });
+      globalThis.document = {
+        documentElement: { dataset: { theme: 'light' }, lang: 'zh-CN' },
+        body: { dataset: {}, appendChild() {}, classList: { add() {}, remove() {}, toggle() {} } },
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        getElementById: () => stubEl(),
+        addEventListener: () => {},
+        createElement: () => stubEl(),
+      };
+      globalThis.requestAnimationFrame = () => 0;
+      globalThis.setInterval = () => 0;
+      globalThis.fetch = async (target) => {
+        const u = String(target);
+        if (u.endsWith('/api/config')) {
+          return { ok: true, status: 200, async json() { return { ok: true, data: { protocolVersion: 'v16', network: 'mainnet', poolState: { dataAvailable: true, currentRoundId: 1, poolRemainingRaw: '7000000000000000000' } }, ts: Date.now() }; } };
+        }
+        return { ok: true, status: 200, async json() { return { ok: true, data: [], ts: Date.now() }; } };
+      };
+
+      const { PROTOCOL_SPECS } = await import(JS_URL + '/data.js');
+      const { store } = await import(JS_URL + '/store.js');
+      const { renderRiskAudit } = await import(JS_URL + '/pages/system.js');
+      const { renderPlazaCompactBanner, renderPendingVaultBanner } = await import(JS_URL + '/pages/round_stages.js');
+
+      store.update((s) => {
+        s.settings.language = 'zh-CN';
+        s.round.protocolConfig = {
+          network: 'mainnet',
+          contracts: { roundController: 'UQBqTR8EYSz-uNKIBODC-3z0vOFlqoBGzLJb38wJOvCuiwbX' },
+        };
+        s.round.poolState = { poolRemainingRaw: '7000000000000000000' };
+      });
+
+      const refList = ${JSON.stringify(referencedKeys)};
+      const missingKeys = refList
+        .filter((item) => PROTOCOL_SPECS[item.key] === undefined)
+        .map((item) => item.file + ':' + item.key);
+
+      const auditRoot = { isConnected: true, innerHTML: '', querySelector() { return null; } };
+      renderRiskAudit(auditRoot);
+
+      const compactBanner = renderPlazaCompactBanner({ pendingActivationRaw: '300000000000', loaded: true }, {});
+      const vaultBanner = renderPendingVaultBanner({ pendingActivationRaw: '300000000000', loaded: true }, {});
+
+      console.log(JSON.stringify({
+        missingKeys,
+        hasCap: auditRoot.innerHTML.includes('300,000,000 A9'),
+        hasRules: auditRoot.innerHTML.includes('16/24 · 15× · 6%'),
+        hasUndefined: /\\bundefined\\b/.test(auditRoot.innerHTML),
+        compactExact: compactBanner.includes('2,281.98 A9'),
+        vaultExact: vaultBanner.includes('2,281.98 A9'),
+      }));
+    `,
+  );
+
+  assert.deepEqual(out.missingKeys, []);
+  assert.equal(out.hasCap, true);
+  assert.equal(out.hasRules, true);
+  assert.equal(out.hasUndefined, false);
+  assert.equal(out.compactExact, true);
+  assert.equal(out.vaultExact, true);
 });
 
