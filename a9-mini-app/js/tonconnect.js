@@ -22,7 +22,7 @@ const proofFlowEnabled = () => !config.isDemo && Boolean(TMA.getRawInitData());
 /** 真实模式且生产配置已显式开启实盘资金总闸。 */
 const liveFundsReady = () => !config.isDemo && config.liveFundsEnabled === true;
 
-function canonicalWalletKey(addr) {
+export function canonicalWalletKey(addr) {
   const s = String(addr || '').trim();
   if (!s) return '';
   try {
@@ -60,30 +60,95 @@ class A9TonConnect {
     } catch (_) {}
   }
 
+  getExpectedNetwork() {
+    const raw = String(store.state.round?.protocolConfig?.network || config.network || '').trim().toLowerCase();
+    if (raw === 'mainnet' || raw === 'testnet') return raw;
+    return null;
+  }
+
+  getExpectedChainId() {
+    const net = this.getExpectedNetwork();
+    if (net === 'mainnet') return '-239';
+    if (net === 'testnet') return '-3';
+    return null;
+  }
+
+  /**
+   * 实盘签名前前置守卫：校验实盘总闸、连接态、钱包网络（防错链签名）以及 Telegram 内归属验签与绑定一致性。
+   */
+  assertWalletReadyForLiveTx() {
+    if (config.isDemo) return true;
+    if (!liveFundsReady()) {
+      throw createFundsDisabledError();
+    }
+    if (!this.sdkReady || !this.ui || typeof this.ui.sendTransaction !== 'function') {
+      const err = new Error('TON Connect SDK 尚未就绪，请先刷新或重试加载钱包组件');
+      err.code = 'WALLET_SDK_NOT_READY';
+      throw err;
+    }
+    const u = store.state.user;
+    if (!u.connected || !u.address) {
+      const err = new Error('请先连接非托管 TON 钱包后再发起交易签名');
+      err.code = 'WALLET_NOT_CONNECTED';
+      throw err;
+    }
+    const expectedChain = this.getExpectedChainId();
+    const walletChain = String(this.ui?.wallet?.account?.chain || u.walletChain || '').trim();
+    if (expectedChain && walletChain && walletChain !== expectedChain) {
+      const wantLabel = expectedChain === '-239' ? 'TON 主网 (-239)' : 'TON 测试网 (-3)';
+      const err = new Error(`当前钱包网络 (${walletChain}) 与协议网络不匹配，请切换至 ${wantLabel} 后重试`);
+      err.code = 'WRONG_WALLET_NETWORK';
+      throw err;
+    }
+    if (proofFlowEnabled()) {
+      if (u.walletVerificationState === 'unverified') {
+        const err = new Error('当前钱包尚未完成 Telegram 归属签名校验，请断开后重连钱包完成验签');
+        err.code = 'WALLET_NOT_VERIFIED';
+        throw err;
+      }
+      if (u.serverBoundWallet && canonicalWalletKey(u.address) !== canonicalWalletKey(u.serverBoundWallet)) {
+        const err = new Error('当前连接的钱包与账号已绑定钱包不一致，已拦截签名以防资金错付');
+        err.code = 'WALLET_MISMATCH';
+        throw err;
+      }
+    }
+    return true;
+  }
+
   init() {
     try {
       const globalSDK = window.TON_CONNECT_UI;
       if (globalSDK && globalSDK.TonConnectUI) {
         const manifestUrl = new URL('/tonconnect-manifest.json', window.location.origin).href;
         const isDark = document.documentElement.dataset.theme === 'dark';
+        const botHandle = String(window.__A9_CONFIG__?.botHandle || 'A9_TonBot').replace(/^@/, '').trim() || 'A9_TonBot';
         this.ui = new globalSDK.TonConnectUI({
           manifestUrl,
-          uiPreferences: { theme: isDark ? 'DARK' : 'LIGHT' }
+          uiPreferences: { theme: isDark ? 'DARK' : 'LIGHT' },
+          actionsConfiguration: { twaReturnUrl: `https://t.me/${botHandle}` },
         });
         this.sdkReady = true;
 
         this.ui.onStatusChange(async (wallet) => {
           if (wallet?.account?.address) {
             const addr = wallet.account.address;
+            const chain = wallet.account.chain ? String(wallet.account.chain) : null;
             const short = `${addr.slice(0, 4)}...${addr.slice(-4)}`;
             store.update(s => {
               s.user.connected = true;
               s.user.address = addr;
               s.user.shortAddress = short;
+              s.user.walletChain = chain;
               s.user.walletVerified = false;
               s.user.walletVerificationState = 'unverified';
             });
-            showToast(`TON Connect 2.0 已连接: ${short}`);
+            const expectedChain = this.getExpectedChainId();
+            if (!config.isDemo && expectedChain && chain && chain !== expectedChain) {
+              const wantLabel = expectedChain === '-239' ? 'TON 主网 (-239)' : 'TON 测试网 (-3)';
+              showToast(`检测到错链钱包 (${chain})，请切换至 ${wantLabel}`, 'error');
+            } else {
+              showToast(`TON Connect 2.0 已连接: ${short}`);
+            }
             await this._verifyOwnership(wallet);
           } else {
             // 仅断开本地连接；服务端的长期钱包绑定保持不变（解除绑定需当前钱包签名）。
@@ -91,6 +156,8 @@ class A9TonConnect {
               s.user.connected = false;
               s.user.address = null;
               s.user.shortAddress = null;
+              s.user.walletChain = null;
+              s.user.serverBoundWallet = null;
               s.user.walletVerified = false;
               s.user.walletVerificationState = 'unverified';
             });
@@ -153,6 +220,7 @@ class A9TonConnect {
       let verificationState = 'unverified';
       let pending = false;
       let pendingSwitch = null;
+      let serverBoundWallet = null;
       if (proof && 'error' in proof) {
         const reason = proof.error?.message || proof.error?.code || '钱包未提供归属签名';
         showToast(`钱包未完成归属签名：${reason}`, 'amber');
@@ -168,6 +236,7 @@ class A9TonConnect {
         freshVerified = res?.status === 'BOUND' || res?.status === 'UNCHANGED' || res?.status === 'REBIND_CANCELLED';
         if (freshVerified) verificationState = 'fresh_proof';
         pendingSwitch = res?.wallet?.pendingSwitch || null;
+        serverBoundWallet = res?.wallet?.address || null;
         if (res?.status === 'PENDING_REBIND') {
           pending = true;
           showToast(`换绑申请已提交，将于 ${new Date(res.wallet.pendingSwitch.effectiveAt * 1000).toLocaleString()} 生效；原钱包可签名取消`, 'amber');
@@ -180,6 +249,7 @@ class A9TonConnect {
         // 恢复的本地钱包连接没有本次 ton_proof：不标为本次已重新验证，仅核对服务端既有绑定。
         const me = await fetchMe();
         pendingSwitch = me?.wallet?.pendingSwitch || null;
+        serverBoundWallet = me?.wallet?.address || null;
         const boundKey = me?.wallet?.walletKey || canonicalWalletKey(me?.wallet?.address);
         const restoredKey = canonicalWalletKey(wallet.account.address);
         if (boundKey && restoredKey && boundKey === restoredKey) {
@@ -190,6 +260,7 @@ class A9TonConnect {
         s.user.walletVerified = freshVerified;
         s.user.walletVerificationState = verificationState;
         s.user.pendingSwitch = pendingSwitch;
+        s.user.serverBoundWallet = serverBoundWallet;
       });
       if (verificationState === 'restored_binding') {
         showToast('已恢复连接（沿用服务端历史绑定，本次未重新签名验证）', 'amber');
@@ -365,8 +436,22 @@ class A9TonConnect {
       err.code = 'WALLET_NOT_CONNECTED';
       throw err;
     }
+    const expectedChain = this.getExpectedChainId();
+    const walletChain = String(this.ui?.wallet?.account?.chain || store.state.user.walletChain || '').trim();
+    if (expectedChain && walletChain && walletChain !== expectedChain) {
+      const wantLabel = expectedChain === '-239' ? 'TON 主网 (-239)' : 'TON 测试网 (-3)';
+      const err = new Error(`当前钱包网络 (${walletChain}) 与协议网络不匹配，请切换至 ${wantLabel} 后重试`);
+      err.code = 'WRONG_WALLET_NETWORK';
+      throw err;
+    }
+    const fromAddr = this.ui?.wallet?.account?.address || store.state.user.address || undefined;
+    const outboundTx = {
+      ...tx,
+      ...(expectedChain ? { network: expectedChain } : {}),
+      ...(fromAddr ? { from: fromAddr } : {}),
+    };
     try {
-      const res = await this.ui.sendTransaction(tx);
+      const res = await this.ui.sendTransaction(outboundTx);
       return {
         simulated: false,
         boc: res?.boc || null,
@@ -394,9 +479,10 @@ class A9TonConnect {
     }, 'demo_stake');
   }
 
-  /** v15/v16 质押 A9 Jetton（demo 返回模拟回执；live 仅在 liveFundsEnabled=true 时真实签名）。 */
+  /** v16 质押 A9 Jetton（demo 返回模拟回执；live 仅在 liveFundsEnabled=true 时真实签名）。 */
   async sendV15StakeA9({ userJettonWallet, roundController, userAddress, amountA9Raw, roundId, queryId = BigInt(Date.now()), protocolVersion = null }) {
-    if (!config.isDemo && !liveFundsReady()) throw createFundsDisabledError();
+    if (config.isDemo) return demoWalletSendResult('demo_v15_stake');
+    if (!liveFundsReady()) throw createFundsDisabledError();
     if (!userJettonWallet || !roundController || !userAddress) {
       const err = new Error('缺少 A9 钱包或 RoundController 地址，无法构造质押交易');
       err.code = 'STAKE_PARAMS_MISSING';
@@ -411,35 +497,39 @@ class A9TonConnect {
     return await this._dispatch(buildV15StakeTx({
       userJettonWallet, roundController, userAddress, amountA9Raw, roundId, queryId,
       protocolVersion: resolvedVersion,
+      network: this.getExpectedNetwork(),
     }), 'demo_v15_stake');
   }
 
-  /** v15/v16 领取本金 + 已解锁奖励（StakeTicket TicketClaim，附 0.22 GRAM Gas）。 */
+  /** v16 领取本金 + 已解锁奖励（StakeTicket TicketClaim，附 0.22 GRAM Gas）。 */
   async sendV15TicketClaim(ticketAddress, queryId = BigInt(Date.now())) {
-    if (!config.isDemo && !liveFundsReady()) throw createFundsDisabledError();
-    const target = ticketAddress || (config.isDemo ? 'EQD_DEMO_TICKET' : '');
+    if (config.isDemo) return demoWalletSendResult('demo_v15_claim');
+    if (!liveFundsReady()) throw createFundsDisabledError();
+    const target = ticketAddress || '';
     if (!target) {
       const err = new Error('缺少 StakeTicket 凭证地址，无法发起领奖');
       err.code = 'TICKET_ADDRESS_MISSING';
       throw err;
     }
-    return await this._dispatch(buildV15ClaimTx(target, queryId), 'demo_v15_claim');
+    return await this._dispatch(buildV15ClaimTx(target, queryId, { network: this.getExpectedNetwork() }), 'demo_v15_claim');
   }
 
-  /** v15/v16 邀友奖励 0.06 GRAM 手续费转账（触发推广热钱包自动发 A9）。 */
+  /** v16 邀友奖励 0.06 GRAM 手续费转账（触发推广热钱包自动发 A9）。 */
   async sendV15PromoFee(intent) {
-    if (!config.isDemo && !liveFundsReady()) throw createFundsDisabledError();
+    if (config.isDemo) return demoWalletSendResult('demo_v15_promo');
+    if (!liveFundsReady()) throw createFundsDisabledError();
     if (!intent?.payTo || !intent?.memo) {
       const err = new Error('邀友奖励支付单无效，请重新获取');
       err.code = 'BAD_PROMO_INTENT';
       throw err;
     }
-    return await this._dispatch(buildV15PromoFeeTx(intent), 'demo_v15_promo');
+    return await this._dispatch(buildV15PromoFeeTx({ ...intent, network: this.getExpectedNetwork() }), 'demo_v15_promo');
   }
 
-  /** v15/v16 宝箱商城 / A9 固定兑换 GRAM 支付（memo = buy:<orderId>，实付含 0.06 GRAM 发币 Gas）。 */
+  /** v16 宝箱商城 / A9 固定兑换 GRAM 支付（memo = buy:<orderId>，实付含 0.06 GRAM 发币 Gas）。 */
   async sendV15PresaleTx(order) {
-    if (!config.isDemo && !liveFundsReady()) throw createFundsDisabledError();
+    if (config.isDemo) return demoWalletSendResult('demo_v15_presale');
+    if (!liveFundsReady()) throw createFundsDisabledError();
     const payNano = order?.payTonNano || order?.tonNano;
     if (!order?.payTo || !order?.memo || !payNano) {
       const err = new Error('宝箱商城付款单无效，请重新下单');
@@ -450,6 +540,8 @@ class A9TonConnect {
       payTo: order.payTo,
       tonNano: payNano,
       memo: order.memo,
+      expiresAt: order.expiresAt || null,
+      network: this.getExpectedNetwork(),
     }), 'demo_v15_presale');
   }
 }

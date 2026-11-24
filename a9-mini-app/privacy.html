@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>隐私政策 · Privacy Policy — A9 · 财富大冒险</title>
+  <style>
+    :root { --bg: #F6F6F8; --card: #FFFFFF; --ink: #1C1C22; --muted: #5A5C6A; --red: #E60012; --line: #E2E3EA; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); line-height: 1.65; padding: 24px 16px 48px; }
+    main { max-width: 720px; margin: 0 auto; background: var(--card); border: 2px solid var(--ink); border-radius: 18px; padding: 24px 20px; box-shadow: 0 4px 0 var(--ink); }
+    .badge { display: inline-block; background: var(--red); color: #FFF; font-weight: 800; font-size: 12px; padding: 3px 10px; border-radius: 999px; letter-spacing: .04em; }
+    h1 { font-size: 22px; margin: 12px 0 6px; }
+    h2 { font-size: 16px; margin: 22px 0 8px; border-left: 4px solid var(--red); padding-left: 10px; }
+    p, li { font-size: 14px; color: var(--muted); }
+    ul { padding-left: 20px; }
+    hr { border: 0; border-top: 1px dashed var(--line); margin: 24px 0; }
+    a { color: var(--red); text-decoration: none; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="badge">A9 PROTOCOL v16.1 · PRIVACY</span>
+    <h1>隐私政策 / Privacy Policy</h1>
+    <p>生效版本：v16.1（适用于 <code>https://app.a9.lat</code>、<code>https://api.a9.lat</code> 与 <code>@A9_TonBot</code>）</p>
+
+    <h2>1. 我们收集的最少必要信息</h2>
+    <ul>
+      <li><strong>Telegram 身份验证数据</strong>：通过 Telegram Mini App 官方 <code>initData</code> 签名校验获取你的 Telegram 用户 ID 与公开用户名，用于邀友归因、24H 预言、宝箱账本与可选轮次结算私聊通知。</li>
+      <li><strong>公开链上钱包地址</strong>：你通过 TON Connect 2.0 主动连接并经 <code>ton_proof</code> 验签绑定的公开 TON 钱包地址与公开链上交易记录。我们<strong>绝不</strong>收集或接触你的助记词与私钥。</li>
+      <li><strong>本地界面偏好</strong>：浏览器 <code>localStorage</code> 仅使用单一键 <code>a9_ui_prefs_v1</code> 保存语言、明暗主题与音效开关；不持久化保存资产余额或敏感凭据。</li>
+    </ul>
+
+    <h2>2. 信息用途与权限控制</h2>
+    <ul>
+      <li>用于核验链上入金/出账终局状态、发放直推返佣与待激活金库奖励、及防止女巫刷单与重放攻击。</li>
+      <li>你可以随时在小程序「我的 → 系统设置」中一键关闭轮次结算私聊提醒，或通过当前绑定钱包签名解除服务端钱包绑定。</li>
+    </ul>
+
+    <h2>3. 第三方与链上公开性</h2>
+    <p>TON 区块链上的所有交易记录、余额与合约交互均天然公开。我们不向任何广告商出售你的 Telegram ID 或个人偏好数据。</p>
+
+    <hr />
+
+    <h2>English Summary</h2>
+    <p>A9 Wealth Quest collects only the minimum data necessary to operate: verified Telegram <code>initData</code> user identifiers, your public TON wallet address verified via <code>ton_proof</code>, and public on-chain transaction records. We never access private keys or seed phrases. Local browser storage is limited strictly to UI preferences (<code>a9_ui_prefs_v1</code>). You may opt out of Telegram settlement alerts in Settings or unbind your wallet at any time.</p>
+    <p><a href="/">← 返回 A9 · 财富大冒险 / Back to App</a> · <a href="/terms.html">使用条款 / Terms of Use</a></p>
+  </main>
+</body>
+</html>

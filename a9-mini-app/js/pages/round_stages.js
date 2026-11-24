@@ -374,12 +374,12 @@ export function renderWarmupStage(round, user) {
         ${stagePillTrigger('warmup', round.currentRound)}
         <span class="row-start num-sm text-sec">${icon('clock', 13)} <span id="early-cd" class="mono">${round.earlyBirdSec === null ? '—' : formatTimer(round.earlyBirdSec)}</span></span>
       </div>
-      <div class="num-xs text-muted">${L('本轮开局预热池', 'Pre-Round Pool')}</div>
-      <div class="num-hero" style="margin-top:4px;">8,000,000 <span class="num-md text-green">A9</span></div>
+      <div class="num-xs text-muted">${L('单人预热宝箱上限（免本金）', 'Per-User Pre-Round Chest Cap')}</div>
+      <div class="num-hero" style="margin-top:4px;">300–900 <span class="num-md text-green">A9</span></div>
       <div class="metric-strip cols-3">
-        <div class="metric-cell"><span class="num-xs text-muted">${L('预热总额度', 'Total Budget')}</span><span class="num-sm">80,000,000 A9</span></div>
-        <div class="metric-cell"><span class="num-xs text-muted">${L('我的直邀', 'Invites')}</span><span class="num-sm text-gold">${user.warmupInvites}</span></div>
-        <div class="metric-cell"><span class="num-xs text-muted">${L('有效门槛', 'Min Invites')}</span><span class="num-sm">20</span></div>
+        <div class="metric-cell"><span class="num-xs text-muted">${L('推广总熔断池', 'Promo Cap')}</span><span class="num-sm">300,000,000 A9</span></div>
+        <div class="metric-cell"><span class="num-xs text-muted">${L('我的有效直邀', 'Valid Invites')}</span><span class="num-sm text-gold">${user.warmupInvites}</span></div>
+        <div class="metric-cell"><span class="num-xs text-muted">${L('开箱门槛', 'Unlock Goal')}</span><span class="num-sm">2–5</span></div>
       </div>
       <button class="btn btn-primary" data-nav="/warmup">${icon('flame', 16)} ${user.warmupRegistered ? L('已报名 · 早鸟先锋榜', 'Joined · Early Bird Board') : L('免费报名开局预热', 'Join Pre-Round Free')}</button>
     </div>

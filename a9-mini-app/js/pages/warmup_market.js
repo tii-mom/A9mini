@@ -14,6 +14,8 @@ import {
   cancelWarmup,
   getEffectiveUserId,
   rawToA9,
+  loadSnapshot,
+  mapRoundView,
 } from '../data.js';
 /**
  * Warm-up v2 & Chest Mall Pages
@@ -27,7 +29,7 @@ import {
 
 import { store } from '../store.js';
 import { config } from '../config.js';
-import { tonConnect } from '../tonconnect.js';
+import { tonConnect, canonicalWalletKey } from '../tonconnect.js';
 import { pendingTxManager } from '../tx-ux.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
@@ -1102,7 +1104,8 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
       retrySkusBtn.onclick = async () => {
         retrySkusBtn.disabled = true;
         try {
-          if (typeof store.refreshLive === 'function') await store.refreshLive();
+          const snap = await loadSnapshot();
+          if (snap) store.applyLiveRound(mapRoundView(snap));
         } catch (_) {}
         await loadChests();
       };
@@ -1144,6 +1147,12 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
           showToast(L('已有购箱订单正在链上确认中', 'Chest purchase already confirming'), 'amber');
           return;
         }
+        try {
+          tonConnect.assertWalletReadyForLiveTx();
+        } catch (guardErr) {
+          showToast(guardErr?.message || L('请检查钱包连接与网络状态', 'Check wallet connection and network'), 'error');
+          return;
+        }
         A9Haptic.light();
         buyBusy = true;
         render();
@@ -1154,9 +1163,16 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
             openMode,
             referrerId: store.state.referral.referrerId,
           });
-          const deliveryGram = sel?.deliveryFeeGram || '0.06';
-          const priceGram = sel?.priceGram || formatGramFromNano(order.tonNano).replace(/\s*GRAM$/, '');
-          const totalPayGram = sel?.totalPayGram || formatGramFromNano(order.payTonNano || order.tonNano).replace(/\s*GRAM$/, '');
+          const expectedPresaleHot = store.state.round?.protocolConfig?.presaleHotWallet?.address || '';
+          if (expectedPresaleHot && canonicalWalletKey(order.payTo) !== canonicalWalletKey(expectedPresaleHot)) {
+            throw new Error(L('兑换热钱包地址与协议配置不一致，已拦截签名', 'Presale hot wallet mismatch with protocol config; signature blocked'));
+          }
+          const actualPayNano = BigInt(String(order.payTonNano || order.tonNano || '0'));
+          const basePriceNano = BigInt(String(order.tonNano || '0'));
+          const actualFeeNano = actualPayNano > basePriceNano ? actualPayNano - basePriceNano : 0n;
+          const priceGram = formatGramFromNano(basePriceNano.toString()).replace(/\s*GRAM$/, '');
+          const deliveryGram = formatGramFromNano(actualFeeNano.toString()).replace(/\s*GRAM$/, '');
+          const totalPayGram = formatGramFromNano(actualPayNano.toString()).replace(/\s*GRAM$/, '');
           const orderA9 = rawToA9(order.a9AmountRaw) ?? sel?.baseA9 ?? 0;
           let insufficientReason = '';
           try {
@@ -1195,7 +1211,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
             targetRoute: '/internal/records',
             maxAttempts: 12,
           });
-          const TERMINAL_STATUSES = new Set(['COMPLETED', 'REFUNDED', 'NEEDS_REVIEW', 'PAYMENT_EXCEPTION']);
+          const TERMINAL_STATUSES = new Set(['COMPLETED', 'REFUNDED', 'NEEDS_REVIEW', 'PAYMENT_EXCEPTION', 'EXPIRED', 'CANCELLED']);
           pendingTxManager.pollUntilConfirmed({
             txId: pendingTx?.id,
             intervalMs: 4000,
@@ -1229,6 +1245,8 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
               const st = res.result.order.status;
               if (st === 'REFUNDED') {
                 showToast(L(`订单 ${order.orderId} 已触发原路退款，请在购箱小票查看明细`, `Order ${order.orderId} refunded; check receipts`), 'amber');
+              } else if (st === 'EXPIRED' || st === 'CANCELLED') {
+                showToast(L(`订单 ${order.orderId} 已过期/取消，若已付款将自动原路退款`, `Order ${order.orderId} expired/cancelled; any payment will be refunded`), 'amber');
               } else {
                 showToast(L(`订单 ${order.orderId} 已进入人工复核，请在购箱小票关注处理进度`, `Order ${order.orderId} queued for review`), 'amber');
               }

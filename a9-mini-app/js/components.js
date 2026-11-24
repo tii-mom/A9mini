@@ -156,15 +156,15 @@ export function openChoiceSheet({ title, options, selected, onSelect }) {
   openModal(`
     <div class="sheet-handle"></div>
     <div class="row-between">
-      <div class="card-title">${title}</div>
+      <div class="card-title">${escapeHtml(title)}</div>
       <button class="icon-btn" id="sheet-close" aria-label="Close">${icon('x', 15)}</button>
     </div>
     <div class="col-gap">
       ${options.map(opt => `
-        <div class="list-row clickable ${opt.value === selected ? 'is-me' : ''}" data-choice-val="${opt.value}">
+        <div class="list-row clickable ${opt.value === selected ? 'is-me' : ''}" data-choice-val="${escapeHtml(opt.value)}">
           <div>
-            <div style="font-weight:600;font-size:13.5px;">${opt.label}</div>
-            ${opt.sub ? `<div class="num-xs text-muted" style="margin-top:2px;">${opt.sub}</div>` : ''}
+            <div style="font-weight:600;font-size:13.5px;">${escapeHtml(opt.label)}</div>
+            ${opt.sub ? `<div class="num-xs text-muted" style="margin-top:2px;">${escapeHtml(opt.sub)}</div>` : ''}
           </div>
           ${opt.value === selected ? `<span class="text-green">${icon('check', 16)}</span>` : ''}
         </div>
@@ -249,10 +249,10 @@ export function mountSlider(containerEl, { label = '右滑确认', onConfirm, on
     <div class="a9-slider">
       <div class="a9-slider-fill"></div>
       <div class="a9-slider-label">
-        <span class="slider-text">${label}</span>
+        <span class="slider-text">${escapeHtml(label)}</span>
         <span class="chevron-seq text-green"><span>›</span><span>›</span><span>›</span></span>
       </div>
-      <div class="a9-slider-handle" role="slider" tabindex="0" aria-label="${label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">${icon('arrowRight', 19)}</div>
+      <div class="a9-slider-handle" role="slider" tabindex="0" aria-label="${escapeHtml(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">${icon('arrowRight', 19)}</div>
     </div>
   `;
 

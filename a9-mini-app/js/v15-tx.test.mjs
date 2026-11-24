@@ -92,39 +92,80 @@ test('v16 stake is the sole protocol and encodes full 32-bit round IDs while rej
   assert.throws(() => encode(1, 'v14'), /unsupported stake protocol version/);
 });
 
-test('buildV15ClaimTx and buildV15PromoFeeTx produce valid TON Connect 2.0 message payloads', () => {
-  const claimTx = buildV15ClaimTx('EQ_TICKET_DEMO', 99n);
+test('buildV15ClaimTx and buildV15PromoFeeTx produce valid TON Connect 2.0 message payloads and enforce strict validation', () => {
+  const VALID_TICKET = '0:' + '11'.repeat(32);
+  const VALID_PROMO = '0:' + '22'.repeat(32);
+  const TEST_ONLY = 'kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18';
+  const MASTERCHAIN = '-1:' + '33'.repeat(32);
+
+  const claimTx = buildV15ClaimTx(VALID_TICKET, 99n, { network: 'mainnet' });
   assert.equal(claimTx.messages.length, 1);
   assert.equal(claimTx.messages[0].amount, V15_GAS.CLAIM_NANO);
   assert.ok(claimTx.messages[0].payload.length > 10);
 
+  const nowSec = 1_700_000_000;
   const promoTx = buildV15PromoFeeTx({
-    payTo: 'EQ_PROMO_HOT_DEMO',
+    payTo: VALID_PROMO,
     feeRequiredNano: '60000000',
     memo: 'claim:deadbeef1234',
+    expiresAt: nowSec + 120,
+    network: 'mainnet',
+    nowSec,
   });
-  assert.equal(promoTx.messages[0].address, 'EQ_PROMO_HOT_DEMO');
+  assert.equal(promoTx.messages[0].address, VALID_PROMO);
   assert.equal(promoTx.messages[0].amount, '60000000');
-  assert.throws(() => buildV15PromoFeeTx({ payTo: 'EQ_X', memo: 'bad' }));
+  assert.equal(promoTx.validUntil, nowSec + 90, 'validUntil must clamp to expiresAt - 30');
+
+  assert.throws(() => buildV15ClaimTx('EQ_TICKET_DEMO', 99n), /invalid friendly TON address/);
+  assert.throws(() => buildV15ClaimTx(MASTERCHAIN, 99n), /Basechain/);
+  assert.throws(() => buildV15ClaimTx(TEST_ONLY, 99n, { network: 'mainnet' }), /testnet-only/);
+  assert.throws(() => buildV15PromoFeeTx({ payTo: VALID_PROMO, memo: 'bad' }));
+  assert.throws(() => buildV15PromoFeeTx({ payTo: VALID_PROMO, feeRequiredNano: '0', memo: 'claim:1' }), /positive/);
+  assert.throws(() => buildV15PromoFeeTx({ payTo: VALID_PROMO, feeRequiredNano: '60000000', memo: 'claim:1', expiresAt: nowSec + 20, nowSec }), /过期/);
 });
 
 test('encodeSingleCellBoc rejects payloads > 127 bytes', () => {
   assert.throws(() => encodeSingleCellBoc(new Uint8Array(128)));
 });
 
-test('buildV15PresaleTx builds valid buy:<orderId> TON Connect 2.0 payload and rejects invalid memos', () => {
+test('buildV15PresaleTx builds valid buy:<orderId> TON Connect 2.0 payload, clamps expiresAt, and rejects invalid inputs', () => {
+  const VALID_HOT = '0:' + '44'.repeat(32);
+  const TEST_ONLY = 'kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18';
+  const nowSec = 1_700_000_000;
   const tx = buildV15PresaleTx({
-    payTo: 'EQ_PRESALE_HOT_DEMO',
+    payTo: VALID_HOT,
     tonNano: '990000000',
     memo: 'buy:ord_chest_01',
+    expiresAt: nowSec + 180,
+    network: 'mainnet',
+    nowSec,
   });
   assert.equal(tx.messages.length, 1);
-  assert.equal(tx.messages[0].address, 'EQ_PRESALE_HOT_DEMO');
+  assert.equal(tx.messages[0].address, VALID_HOT);
   assert.equal(tx.messages[0].amount, '990000000');
+  assert.equal(tx.validUntil, nowSec + 150);
   const raw = Buffer.from(tx.messages[0].payload, 'base64');
   assert.equal(raw.subarray(0, 4).toString('hex'), 'b5ee9c72');
-  assert.throws(() => buildV15PresaleTx({ payTo: 'EQ_X', tonNano: '990000000', memo: 'claim:123' }));
-  assert.throws(() => buildV15PresaleTx({ payTo: 'EQ_X', tonNano: '0', memo: 'buy:123' }));
+  assert.throws(() => buildV15PresaleTx({ payTo: VALID_HOT, tonNano: '990000000', memo: 'claim:123' }));
+  assert.throws(() => buildV15PresaleTx({ payTo: VALID_HOT, tonNano: '0', memo: 'buy:123' }));
+  assert.throws(() => buildV15PresaleTx({ payTo: TEST_ONLY, tonNano: '990000000', memo: 'buy:123', network: 'mainnet' }), /testnet-only/);
+  assert.throws(() => buildV15PresaleTx({ payTo: VALID_HOT, tonNano: '990000000', memo: 'buy:123', expiresAt: nowSec + 10, nowSec }), /过期/);
+});
+
+test('parseTonAddress exposes testOnly/bounceable flags and BitBuilder rejects uint/coins overflow', () => {
+  const kq = parseTonAddress('kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18');
+  assert.equal(kq.testOnly, true);
+  assert.equal(kq.bounceable, true);
+  assert.throws(() => encodeTicketClaimBoc(-1n), /out of range/);
+  assert.throws(() => encodeTicketClaimBoc(1n << 64n), /out of range/);
+  assert.throws(() => buildV15StakeTx({
+    userJettonWallet: '0:' + '11'.repeat(32),
+    roundController: '0:' + '22'.repeat(32),
+    userAddress: '0:' + '33'.repeat(32),
+    amountA9Raw: (1n << 120n).toString(),
+    roundId: 1,
+    network: 'mainnet',
+  }), /coins overflow/);
 });
 
 console.log(`All ${passed} v15 frontend tx-builder tests passed.`);

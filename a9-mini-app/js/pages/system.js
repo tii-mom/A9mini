@@ -39,7 +39,7 @@ const RISK_STATES = [
   { id: '10', code: 'ERR_0x2210_NO_CLAIMABLE_BAL', cat: 'quota', titleZh: '待领取奖励为空', titleEn: 'No Claimable Rewards', descZh: '当前可提取额度为 0，其余资产仍在阶梯解锁周期中。', descEn: 'Claimable balance is 0; remaining rewards are still vesting.', actionZh: '查看解锁档位', actionEn: 'View Vesting Tiers' },
   { id: '11', code: 'ERR_0x2211_GAS_ESTIMATE_FAIL', cat: 'quota', titleZh: '智能合约领取 Gas 估算失败', titleEn: 'Claim Gas Estimation Failed', descZh: 'TVM 预执行提示 Gas 不足，建议附带 0.22 GRAM Gas（余量原路退回）。', descEn: 'TVM pre-check warned of low gas; attach 0.22 GRAM (excess refunded).', actionZh: '以 0.22 GRAM 重试', actionEn: 'Retry with 0.22 GRAM' },
   { id: '12', code: 'ERR_0x3312_TG_AUTH_REQUIRED', cat: 'market', titleZh: '未绑定 TG 账号阻断宝箱商城操作', titleEn: 'Telegram Binding Required for Chest Mall', descZh: '独立外部钱包缺少 Telegram InitData 签名校验。', descEn: 'External wallet session lacks Telegram InitData verification.', actionZh: '绑定 Telegram 账号', actionEn: 'Bind Telegram Account' },
-  { id: '13', code: 'ERR_0x3313_PRESALE_SOLD_OUT', cat: 'market', titleZh: '宝箱商城当期额度已售罄 (Sold Out)', titleEn: 'Chest Mall Round Quota Sold Out', descZh: '当期宝箱库存已抢空，后发交易由系统原路免手续费退还。', descEn: 'Current chest allocation is sold out; late txs are refunded fee-free.', actionZh: '查询自动退款流水', actionEn: 'Check Refund Log' },
+  { id: '13', code: 'ERR_0x3313_PRESALE_SOLD_OUT', cat: 'market', titleZh: '宝箱商城当期额度已售罄 (Sold Out)', titleEn: 'Chest Mall Round Quota Sold Out', descZh: '当期宝箱库存已抢空，后发交易扣除 0.03 GRAM 链上退款 Gas 后原路退还。', descEn: 'Current chest allocation is sold out; late txs are refunded minus 0.03 GRAM gas.', actionZh: '查询自动退款流水', actionEn: 'Check Refund Log' },
   { id: '14', code: 'ERR_0x3314_USER_CANCELLATION', cat: 'market', titleZh: '用户主动取消宝箱商城订单', titleEn: 'Chest Mall Order Cancelled by User', descZh: '锁仓前主动撤单，扣除固定链上计算损耗后退回余额。', descEn: 'Order cancelled before lock; balance returned minus gas overhead.', actionZh: '确认撤单规则', actionEn: 'Confirm Cancel Rules' },
   { id: '15', code: 'ERR_0x3315_DUST_NON_REFUNDABLE', cat: 'market', titleZh: '粉尘金额转账 (≤0.1 GRAM 拦截)', titleEn: 'Dust Transfer Blocked (≤ 0.1 GRAM)', descZh: '微小数额低于链上拆单成本，协议直接拦截。', descEn: 'Amount is below minimum on-chain processing threshold.', actionZh: '调整至有效档位', actionEn: 'Select Valid Tier' },
   { id: '16', code: 'ERR_0x4416_CAPTAIN_CANNOT_EXIT', cat: 'team', titleZh: '战队队长试图退队阻断', titleEn: 'Squad Captain Exit Blocked', descZh: '队长绑定分润金库，需先移交队长权限方可离队。', descEn: 'Captain is bound to squad treasury; transfer leadership before leaving.', actionZh: '前往移交队长权限', actionEn: 'Transfer Captaincy' },
@@ -48,7 +48,7 @@ const RISK_STATES = [
   { id: '19', code: 'ERR_0x4419_INVITE_HARDCAP', cat: 'team', titleZh: '邀友奖励达 320,000 A9 单轮硬顶', titleEn: '320,000 A9 Round Invite Cap Reached', descZh: '单地址单轮邀友奖励封顶，多余积分自动转入社区奖池。', descEn: 'Single-address invite reward capped per round; excess goes to community pool.', actionZh: '查看邀友奖励上限', actionEn: 'View Invite Cap' },
   { id: '20', code: 'ERR_0x5520_TG_BOT_PERM_LOST', cat: 'sys', titleZh: 'TG 群组解绑 / Bot 管理员权限丢失', titleEn: 'TG Group Unlinked / Bot Admin Lost', descZh: '关联群组撤销了官方 Bot (@A9_TonBot) 管理员权限。', descEn: 'Linked group revoked official Bot (@A9_TonBot) admin permissions.', actionZh: '重新授权 Bot Admin', actionEn: 'Re-authorize Bot Admin' },
   { id: '21', code: 'ERR_0x5521_RENEWAL_TIMEOUT', cat: 'sys', titleZh: '连闯策略撤销超时 (<30分钟锁定)', titleEn: 'Auto-Continue Lockout (< 30 Mins)', descZh: '已进入新轮开盘前 30 分钟锁定缓冲期。', descEn: 'Locked within 30 minutes prior to the next round open.', actionZh: '等待下轮开盘后调整', actionEn: 'Adjust After Open' },
-  { id: '22', code: 'ERR_0x5522_UPGRADE_PAUSED', cat: 'sys', titleZh: '智能合约升级维护公告态', titleEn: 'Contract Maintenance Window', descZh: '多签理事会正在执行 TVM 无缝升级，暂停读写 15 分钟。', descEn: 'Multisig council is performing a 15-minute TVM upgrade.', actionZh: '订阅官方升级频道', actionEn: 'Subscribe Updates' }
+  { id: '22', code: 'ERR_0x5522_API_MAINTENANCE', cat: 'sys', titleZh: '接口只读维护窗口', titleEn: 'API Maintenance Window', descZh: 'v16.1 链上合约已永久弃权不可升级；当前仅维护边缘只读接口，链上资产与领奖不受影响。', descEn: 'v16.1 contracts are permanently renounced and immutable; only edge read APIs are under brief maintenance.', actionZh: '查看链上验真地址', actionEn: 'Verify On-Chain' }
 ];
 
 export function renderSettingsPage(root) {
@@ -124,7 +124,7 @@ export function renderSettingsPage(root) {
             <span class="icon-badge sky">${icon('wallet', 16)}</span>
             <div>
               <div class="settings-row-title">${L('TON 钱包管理', 'TON Wallet')}</div>
-              <div class="settings-row-sub mono">${user.connected ? (user.shortAddress || user.address) : L('未连接 · TON Connect 2.0', 'Not connected · TON Connect 2.0')}</div>
+              <div class="settings-row-sub mono">${escapeHtml(user.connected ? (user.shortAddress || user.address) : L('未连接 · TON Connect 2.0', 'Not connected · TON Connect 2.0'))}</div>
             </div>
           </div>
           <span class="chip ${user.connected ? 'chip-green' : 'chip-gold'}">${user.connected ? L('已连接', 'Connected') : L('去连接', 'Connect')}</span>
@@ -135,7 +135,7 @@ export function renderSettingsPage(root) {
             <span class="icon-badge sky">${icon('send', 15)}</span>
             <div>
               <div class="settings-row-title">${L('Telegram 账号绑定', 'Telegram Binding')}</div>
-              <div class="settings-row-sub">${user.tgBound ? user.username : L('宝箱商城与战队功能需绑定', 'Required for Chest Mall & Squad')}</div>
+              <div class="settings-row-sub">${escapeHtml(user.tgBound ? user.username : L('宝箱商城与战队功能需绑定', 'Required for Chest Mall & Squad'))}</div>
             </div>
           </div>
           <span class="chip ${user.tgBound ? 'chip-green' : 'chip-gold'}">${user.tgBound ? L('已绑定', 'Bound') : L('立即绑定', 'Bind')}</span>

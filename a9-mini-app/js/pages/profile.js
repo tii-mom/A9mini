@@ -684,36 +684,63 @@ function renderLiveTicketClaimPage(root) {
                     const lockedClaimedA9 = rawToA9(t.lockedClaimedRaw ?? t.rewardClaimedRaw) ?? 0;
                     const immLabel = t.immediateClaimed ? L('已领', 'Claimed') : L('待领', 'Unclaimed');
                     const isPending = Boolean(t.pending);
+                    const hasPreview = typeof t.canClaim === 'boolean';
+                    const canClaim = hasPreview ? t.canClaim : !isPending;
+                    const claimablePrincipalA9 = rawToA9(t.claimablePrincipalRaw) ?? 0;
+                    const claimableRewardA9 = rawToA9(t.claimableRewardRaw) ?? 0;
+                    const claimableTotalA9 = rawToA9(t.claimableTotalRaw) ?? 0;
+                    const lockedRemA9 = rawToA9(t.lockedRemainingRaw) ?? 0;
+                    const rState = String(t.roundState || '').toUpperCase();
                     const isBusy = claimingAddr === t.ticketAddress;
                     const isGlobalClaimLocked = pendingTxManager.isLocked('claim');
-                    const statusChip = isPending
-                      ? `<span class="chip chip-gold">${L('链上处理中', 'Pending')}</span>`
-                      : t.principalDone
-                        ? `<span class="chip chip-green">${L('本金已结 · 可检视后续解锁', 'Principal Done')}</span>`
-                        : `<span class="chip chip-cyan">${L('持有中', 'Active')}</span>`;
+                    const disabled = !canClaim || isPending || isBusy || isGlobalClaimLocked;
+                    let statusChip = `<span class="chip chip-cyan">${L('持有中', 'Active')}</span>`;
+                    if (isPending) statusChip = `<span class="chip chip-gold">${L('链上处理中', 'Pending')}</span>`;
+                    else if (rState === 'FAILED_PERMANENT' || rState === 'FAILED') statusChip = `<span class="chip chip-red">${L('未达标 · 已销毁 BURN', 'Failed · Burned')}</span>`;
+                    else if (rState === 'STAKING_OPEN' || rState === 'OBSERVING') statusChip = `<span class="chip chip-gold">${L('观察期 · 暂不可领', 'Observing · Locked')}</span>`;
+                    else if (rState === 'ABORTED') statusChip = canClaim ? `<span class="chip chip-green">${L('异常中止 · 可退本金', 'Aborted · Refundable')}</span>` : `<span class="chip chip-muted">${L('已全额退本', 'Refunded')}</span>`;
+                    else if (canClaim) statusChip = `<span class="chip chip-green">${L('可领本金/奖励', 'Claimable')}</span>`;
+                    else if (t.principalDone) statusChip = `<span class="chip chip-muted">${lockedRemA9 > 0 ? L('待后续轮次解锁', 'Awaiting Unlock') : L('已全额领完', 'Fully Claimed')}</span>`;
+
+                    let btnLabel = L('发起链上领奖（附 0.22 GRAM Gas）', 'Claim On-Chain (0.22 GRAM Gas)');
+                    if (isPending) btnLabel = L('凭证正在链上确认中（防重锁）', 'Claim Pending On-Chain');
+                    else if (isGlobalClaimLocked) btnLabel = L('领奖确认中（防重锁）', 'Claim Confirming…');
+                    else if (isBusy) btnLabel = L('等待钱包签名…', 'Awaiting Signature…');
+                    else if (!canClaim) {
+                      if (rState === 'FAILED_PERMANENT' || rState === 'FAILED') btnLabel = L('本轮未达标 · 本金已销毁（不可领）', 'Round Burned (Nothing to Claim)');
+                      else if (rState === 'STAKING_OPEN' || rState === 'OBSERVING') btnLabel = L('本轮结算前暂不可领', 'Locked Until Settlement');
+                      else btnLabel = L('当前无可领金额（避免浪费 Gas）', 'Nothing Claimable Right Now');
+                    } else if (hasPreview && claimableTotalA9 > 0) {
+                      btnLabel = L(`领取 ${formatNum(claimableTotalA9, 2)} A9（附 0.22 GRAM Gas）`, `Claim ${formatNum(claimableTotalA9, 2)} A9 (0.22 GRAM Gas)`);
+                    }
+
                     return `
                       <div class="card">
                         <div class="row-between" style="margin-bottom:6px;">
-                          <strong>${L(`第 ${t.roundId} 轮 StakeTicket`, `Round #${t.roundId} StakeTicket`)}</strong>
+                          <strong>${L(`第 ${escapeHtml(String(t.roundId ?? '—'))} 轮 StakeTicket`, `Round #${escapeHtml(String(t.roundId ?? '—'))} StakeTicket`)}</strong>
                           ${statusChip}
                         </div>
                         <div class="row-between num-xs text-sec">
                           <span>${L('凭证本金', 'Principal')}</span>
                           <b class="mono">${formatNum(amtA9, 2)} A9</b>
                         </div>
+                        ${hasPreview ? `
+                        <div class="row-between num-xs text-sec" style="margin-top:4px;">
+                          <span>${L('当前可领（本金 + 奖励）', 'Claimable Now')}</span>
+                          <b class="mono ${claimableTotalA9 > 0 ? 'text-green' : 'text-muted'}">${formatNum(claimableTotalA9, 2)} A9 (${formatNum(claimablePrincipalA9, 2)} + ${formatNum(claimableRewardA9, 2)})</b>
+                        </div>
+                        ${lockedRemA9 > 0 ? `
+                        <div class="row-between num-xs text-sec" style="margin-top:4px;">
+                          <span>${L('后续待解锁奖励', 'Locked Remaining')}</span>
+                          <b class="mono text-gold">${formatNum(lockedRemA9, 2)} A9</b>
+                        </div>` : ''}` : `
                         <div class="row-between num-xs text-sec" style="margin-top:4px;">
                           <span>${L('即时奖励 / 已领锁仓', 'Immediate / Locked Claimed')}</span>
                           <b class="mono text-green">${immLabel} · ${formatNum(lockedClaimedA9, 2)} A9</b>
-                        </div>
+                        </div>`}
                         <div class="num-xs text-muted mono" style="margin:6px 0 10px;word-break:break-all;">${escapeHtml(t.ticketAddress)}</div>
-                        <button class="btn ${isPending || isGlobalClaimLocked ? 'btn-secondary' : 'btn-primary'} btn-sm" data-claim-ticket="${escapeHtml(t.ticketAddress)}" type="button" style="width:100%;" ${isPending || isBusy || isGlobalClaimLocked ? 'disabled' : ''}>
-                          ${icon(isPending || isGlobalClaimLocked ? 'clock' : 'wallet', 13)} ${isPending
-                            ? L('凭证正在链上确认中（防重锁）', 'Claim Pending On-Chain')
-                            : isGlobalClaimLocked
-                              ? L('领奖确认中（防重锁）', 'Claim Confirming…')
-                              : isBusy
-                                ? L('等待钱包签名…', 'Awaiting Signature…')
-                                : L('发起链上领奖（附 0.22 GRAM Gas）', 'Claim On-Chain (0.22 GRAM Gas)')}
+                        <button class="btn ${disabled ? 'btn-secondary' : 'btn-primary'} btn-sm" data-claim-ticket="${escapeHtml(t.ticketAddress)}" type="button" style="width:100%;" ${disabled ? 'disabled' : ''}>
+                          ${icon(disabled ? (isPending || isGlobalClaimLocked ? 'clock' : 'lock') : 'wallet', 13)} ${btnLabel}
                         </button>
                       </div>
                     `;
@@ -738,16 +765,32 @@ function renderLiveTicketClaimPage(root) {
         if (!ticketAddr || claimingAddr || pendingTxManager.isLocked('claim')) return;
         A9Haptic.light();
         const ticket = tickets.find((item) => item.ticketAddress === ticketAddr);
-        const ticketPrincipalA9 = rawToA9(ticket?.amountRaw) ?? 0;
+        if (typeof ticket?.canClaim === 'boolean' && !ticket.canClaim) {
+          showToast(L('当前凭证暂无可领金额，已阻止签名以防白耗 0.22 GRAM Gas', 'Nothing claimable on this ticket; signature blocked to save gas'), 'amber');
+          return;
+        }
+        try {
+          tonConnect.assertWalletReadyForLiveTx();
+        } catch (guardErr) {
+          showToast(guardErr?.message || L('请检查钱包连接与网络状态', 'Check wallet connection and network'), 'error');
+          return;
+        }
+        const ticketPrincipalA9 = rawToA9(ticket?.claimablePrincipalRaw ?? ticket?.amountRaw) ?? 0;
+        const ticketRewardA9 = rawToA9(ticket?.claimableRewardRaw) ?? 0;
+        const ticketTotalA9 = typeof ticket?.canClaim === 'boolean'
+          ? (rawToA9(ticket?.claimableTotalRaw) ?? 0)
+          : ticketPrincipalA9;
         const ok = await tonConnect.confirmBeforeSign({
           title: L('确认链上领奖（签名前核验）', 'Confirm On-Chain Claim'),
           contractLabel: L('目标凭证 StakeTicket', 'Target StakeTicket'),
           targetAddress: ticketAddr,
-          principalText: `${L(`第 ${ticket?.roundId ?? '—'} 轮`, `Round #${ticket?.roundId ?? '—'}`)} · ${formatNum(ticketPrincipalA9, 2)} A9`,
+          principalText: `${L(`第 ${ticket?.roundId ?? '—'} 轮`, `Round #${ticket?.roundId ?? '—'}`)} · ${formatNum(ticketTotalA9, 2)} A9${typeof ticket?.canClaim === 'boolean' ? ` (${L('本金', 'Prin')} ${formatNum(ticketPrincipalA9, 2)} + ${L('奖', 'Rew')} ${formatNum(ticketRewardA9, 2)})` : ''}`,
           gasText: `0.22 GRAM (${L('余量原路退回', 'excess refunded')})`,
           totalText: '0.22 GRAM (Gas)',
           note: L('发送 TicketClaim 到 StakeTicket 合约，核销后由 RoundController 发放本金与已解锁 A9。', 'Sends TicketClaim to StakeTicket; RoundController disburses principal + unlocked A9.'),
-          insufficientReason: ticket?.pending ? L('该凭证当前处于链上确认中，请等待完成', 'This StakeTicket already has a pending claim') : '',
+          insufficientReason: ticket?.pending
+            ? L('该凭证当前处于链上确认中，请等待完成', 'This StakeTicket already has a pending claim')
+            : (typeof ticket?.canClaim === 'boolean' && !ticket.canClaim ? L('当前无可领金额', 'Nothing claimable right now') : ''),
           confirmText: L('确认并签名领奖', 'Confirm & Sign Claim'),
         });
         if (!ok) return;

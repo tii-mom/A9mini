@@ -20,8 +20,15 @@ const params = new URLSearchParams(window.location.search);
 const injected = window.__A9_CONFIG__ || {};
 
 function readMode() {
+  if (injected.lockMode === true) return 'live';
   const raw = params.get('mode') || injected.mode || 'demo';
   return raw === 'live' ? 'live' : 'demo';
+}
+
+function readNetwork() {
+  const raw = String(injected.network || '').trim().toLowerCase();
+  if (raw === 'mainnet' || raw === 'testnet') return raw;
+  return null;
 }
 
 function isLoopbackHost(hostname) {
@@ -117,10 +124,14 @@ function resolveStakeProtocolVersion(raw) {
 }
 
 const resolvedMode = readMode();
+const resolvedNetwork = readNetwork();
 const resolvedApi = resolveApiBase();
 
 export const config = Object.freeze({
   mode: resolvedMode,
+  lockMode: injected.lockMode === true,
+  network: resolvedNetwork,
+  expectedChainId: resolvedNetwork === 'mainnet' ? '-239' : (resolvedNetwork === 'testnet' ? '-3' : null),
   apiBase: resolvedApi.apiBase,
   apiOverrideRejected: resolvedApi.apiOverrideRejected,
   apiOverrideError: resolvedApi.apiOverrideError,

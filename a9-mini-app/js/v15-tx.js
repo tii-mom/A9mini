@@ -1,11 +1,12 @@
 /**
- * A9 Protocol v15 — Zero-dependency TON Connect 2.0 transaction builders.
+ * A9 Protocol v16 — Zero-dependency TON Connect 2.0 transaction builders.
  *
- * Covers ALL 3 user-initiated on-chain actions in v15:
+ * Covers ALL 4 user-initiated on-chain actions in v16:
  *   1) Stake A9: standard TEP-74 AskToTransfer (0x0f8a7ea5) -> user's A9 JettonWallet
- *      with forwardPayload ^Cell(0x5254000F + roundId + addr_none)
- *   2) Claim: TicketClaim (0x52540303) -> user's StakeTicket (>= 0.22 TON)
- *   3) Promo reward claim: 0.06 TON + "claim:<id>" text comment -> promoHotWallet (0 contract)
+ *      with forwardPayload ^Cell(0x52540010 + roundId:uint32 + addr_none)
+ *   2) Claim: TicketClaim (0x52540303) -> user's StakeTicket (>= 0.22 GRAM)
+ *   3) Promo reward claim: 0.06 GRAM + "claim:<id>" text comment -> promoHotWallet (0 contract)
+ *   4) Chest Mall / fixed exchange: GRAM + "buy:<orderId>" text comment -> presaleHotWallet
  */
 
 export const V15_OPCODES = Object.freeze({
@@ -15,10 +16,10 @@ export const V15_OPCODES = Object.freeze({
 });
 
 export const V15_GAS = Object.freeze({
-  STAKE_FORWARD_NANO: '150000000',       // 0.15 TON forward to RoundController
-  STAKE_TOTAL_NANO: '300000000',         // 0.30 TON attached to user's JettonWallet
-  CLAIM_NANO: '220000000',               // 0.22 TON attached to StakeTicket
-  PROMO_FEE_NANO: '60000000',            // 0.06 TON user-covered gas to promo hot wallet
+  STAKE_FORWARD_NANO: '150000000',       // 0.15 GRAM forward to RoundController
+  STAKE_TOTAL_NANO: '300000000',         // 0.30 GRAM attached to user's JettonWallet
+  CLAIM_NANO: '220000000',               // 0.22 GRAM attached to StakeTicket
+  PROMO_FEE_NANO: '60000000',            // 0.06 GRAM user-covered gas to promo hot wallet
 });
 
 function bytesToBase64(bytes) {
@@ -48,7 +49,7 @@ function crc16Ccitt(bytes) {
   return crc;
 }
 
-/** Parse friendly (EQ/UQ/kQ/0Q...) or raw (0:64hex) TON address into { workchain, hash }. */
+/** Parse friendly (EQ/UQ/kQ/0Q...) or raw (0:64hex) TON address into { workchain, hash, bounceable, testOnly }. */
 export function parseTonAddress(addr) {
   const s = String(addr || '').trim();
   if (s.includes(':')) {
@@ -60,7 +61,7 @@ export function parseTonAddress(addr) {
     if (wc !== 0 && wc !== -1) throw new Error(`invalid TON workchain: ${wcStr}`);
     const hash = new Uint8Array(32);
     for (let i = 0; i < 32; i += 1) hash[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-    return { workchain: wc, hash };
+    return { workchain: wc, hash, bounceable: null, testOnly: null };
   }
   const bytes = base64UrlToBytes(s);
   if (bytes.length !== 36) throw new Error(`invalid friendly TON address length: ${bytes.length}`);
@@ -68,9 +69,42 @@ export function parseTonAddress(addr) {
   if (crc16Ccitt(bytes.subarray(0, 34)) !== expectedCrc) {
     throw new Error('invalid friendly TON address CRC16 checksum');
   }
+  const tag = bytes[0];
+  const testOnly = (tag & 0x80) !== 0;
+  const baseTag = tag & 0x7f;
+  if (baseTag !== 0x11 && baseTag !== 0x51) {
+    throw new Error(`invalid friendly TON address tag: 0x${tag.toString(16)}`);
+  }
   const workchain = bytes[1] === 0xff ? -1 : bytes[1];
   if (workchain !== 0 && workchain !== -1) throw new Error(`invalid TON workchain: ${workchain}`);
-  return { workchain, hash: bytes.subarray(2, 34) };
+  return { workchain, hash: bytes.subarray(2, 34), bounceable: baseTag === 0x11, testOnly };
+}
+
+/** 强校验所有链上交易目标地址为 Basechain(workchain=0) 合法地址；主网模式额外拒绝 testOnly(kQ/0Q)。 */
+function assertValidBasechainAddress(addr, label, network = null) {
+  if (!addr) throw new Error(`${label} is required`);
+  const parsed = parseTonAddress(addr);
+  if (parsed.workchain !== 0) {
+    throw new Error(`${label} must be a Basechain (workchain 0) address`);
+  }
+  if (String(network || '').trim().toLowerCase() === 'mainnet' && parsed.testOnly === true) {
+    throw new Error(`${label} cannot use a testnet-only address on mainnet`);
+  }
+  return parsed;
+}
+
+/** 计算并钳制 TON Connect validUntil：若提供服务端订单过期时间 expiresAt，留出 30s 安全缓冲。 */
+function resolveValidUntil(expiresAt = null, nowSec = Math.floor(Date.now() / 1000)) {
+  const defaultUntil = nowSec + 300;
+  if (expiresAt === null || expiresAt === undefined || expiresAt === '') return defaultUntil;
+  const rawExp = Number(expiresAt);
+  if (!Number.isFinite(rawExp) || rawExp <= 0) return defaultUntil;
+  const expSec = rawExp > 1e12 ? Math.floor(rawExp / 1000) : Math.floor(rawExp);
+  const clamped = Math.min(defaultUntil, expSec - 30);
+  if (clamped <= nowSec) {
+    throw new Error('支付单即将过期或已过期，请刷新重新下单后再签名');
+  }
+  return clamped;
 }
 
 /** Minimalist TON bit-level cell builder (supports <= 1023 bits and child refs). */
@@ -86,8 +120,15 @@ class BitBuilder {
   }
 
   storeUint(value, bitLen) {
+    const len = Number(bitLen);
+    if (!Number.isInteger(len) || len < 0 || len > 256) {
+      throw new Error(`invalid uint bitLen: ${bitLen}`);
+    }
     const v = BigInt(value);
-    for (let i = bitLen - 1; i >= 0; i -= 1) {
+    if (v < 0n || v >= (1n << BigInt(len))) {
+      throw new Error(`uint${len} out of range: ${v.toString()}`);
+    }
+    for (let i = len - 1; i >= 0; i -= 1) {
       this.bits.push(Number((v >> BigInt(i)) & 1n));
     }
     return this;
@@ -104,6 +145,7 @@ class BitBuilder {
     if (v === 0n) return this.storeUint(0, 4);
     const hex = v.toString(16);
     const byteLen = Math.ceil(hex.length / 2);
+    if (byteLen > 15) throw new Error(`coins overflow (>120 bits): ${v.toString()}`);
     this.storeUint(byteLen, 4);
     this.storeUint(v, byteLen * 8);
     return this;
@@ -196,8 +238,8 @@ export function encodeTicketClaimBoc(queryId = BigInt(Date.now())) {
 }
 
 /**
- * Build standard TEP-74 AskToTransfer BOC for staking A9 into v15 RoundController.
- * Sends to user's A9 JettonWallet; forwards ^Cell(0x5254000F + roundId + addr_none) with 0.15 TON.
+ * Build standard TEP-74 AskToTransfer BOC for staking A9 into v16 RoundController.
+ * Sends to user's A9 JettonWallet; forwards ^Cell(0x52540010 + roundId:uint32 + addr_none) with 0.15 GRAM.
  */
 export function encodeStakeJettonTransferBoc({
   roundController,
@@ -207,8 +249,10 @@ export function encodeStakeJettonTransferBoc({
   queryId = BigInt(Date.now()),
   forwardTonNano = V15_GAS.STAKE_FORWARD_NANO,
   protocolVersion = 'v16',
+  network = null,
 }) {
-  if (!roundController || !responseDestination) throw new Error('roundController and responseDestination required');
+  assertValidBasechainAddress(roundController, 'roundController', network);
+  assertValidBasechainAddress(responseDestination, 'responseDestination', network);
   if (BigInt(amountA9Raw) <= 0n) throw new Error('amountA9Raw must be positive');
   if (protocolVersion !== 'v16') throw new Error(`unsupported stake protocol version: ${protocolVersion}`);
   const maxRoundId = 0xffffffff;
@@ -243,10 +287,11 @@ export function buildV15StakeTx({
   roundId,
   queryId = BigInt(Date.now()),
   protocolVersion = 'v16',
+  network = null,
 }) {
-  if (!userJettonWallet) throw new Error('userJettonWallet is required');
+  assertValidBasechainAddress(userJettonWallet, 'userJettonWallet', network);
   return {
-    validUntil: Math.floor(Date.now() / 1000) + 300,
+    validUntil: resolveValidUntil(null),
     messages: [
       {
         address: userJettonWallet,
@@ -258,6 +303,7 @@ export function buildV15StakeTx({
           roundId,
           queryId,
           protocolVersion,
+          network,
         }),
       },
     ],
@@ -265,10 +311,10 @@ export function buildV15StakeTx({
 }
 
 /** Ready-to-sign TON Connect 2.0 tx for claiming principal + unlocked rewards from StakeTicket */
-export function buildV15ClaimTx(ticketAddress, queryId = BigInt(Date.now())) {
-  if (!ticketAddress) throw new Error('ticketAddress is required');
+export function buildV15ClaimTx(ticketAddress, queryId = BigInt(Date.now()), { network = null } = {}) {
+  assertValidBasechainAddress(ticketAddress, 'ticketAddress', network);
   return {
-    validUntil: Math.floor(Date.now() / 1000) + 300,
+    validUntil: resolveValidUntil(null),
     messages: [
       {
         address: ticketAddress,
@@ -280,15 +326,17 @@ export function buildV15ClaimTx(ticketAddress, queryId = BigInt(Date.now())) {
 }
 
 /** Ready-to-sign TON Connect 2.0 tx for 0-contract promo hot-wallet claim (user pays 0.06 GRAM) */
-export function buildV15PromoFeeTx({ payTo, feeRequiredNano = V15_GAS.PROMO_FEE_NANO, memo }) {
-  if (!payTo) throw new Error('payTo (promo hot wallet address) is required');
+export function buildV15PromoFeeTx({ payTo, feeRequiredNano = V15_GAS.PROMO_FEE_NANO, memo, expiresAt = null, network = null, nowSec = Math.floor(Date.now() / 1000) }) {
+  assertValidBasechainAddress(payTo, 'payTo (promo hot wallet address)', network);
   if (!memo || !String(memo).startsWith('claim:')) throw new Error('valid claim:<id> memo is required');
+  const feeNano = BigInt(feeRequiredNano || 0);
+  if (feeNano <= 0n) throw new Error('feeRequiredNano must be positive');
   return {
-    validUntil: Math.floor(Date.now() / 1000) + 300,
+    validUntil: resolveValidUntil(expiresAt, nowSec),
     messages: [
       {
         address: payTo,
-        amount: String(feeRequiredNano),
+        amount: feeNano.toString(),
         payload: encodeTextCommentBoc(memo),
       },
     ],
@@ -296,16 +344,17 @@ export function buildV15PromoFeeTx({ payTo, feeRequiredNano = V15_GAS.PROMO_FEE_
 }
 
 /** Ready-to-sign TON Connect 2.0 tx for 0-contract A9 fixed-rate exchange (1 GRAM = 2,002 A9) */
-export function buildV15PresaleTx({ payTo, tonNano, memo }) {
-  if (!payTo) throw new Error('payTo (presale hot wallet address) is required');
+export function buildV15PresaleTx({ payTo, tonNano, memo, expiresAt = null, network = null, nowSec = Math.floor(Date.now() / 1000) }) {
+  assertValidBasechainAddress(payTo, 'payTo (presale hot wallet address)', network);
   if (!memo || !String(memo).startsWith('buy:')) throw new Error('valid buy:<orderId> memo is required');
-  if (BigInt(tonNano || 0) <= 0n) throw new Error('tonNano must be positive');
+  const amtNano = BigInt(tonNano || 0);
+  if (amtNano <= 0n) throw new Error('tonNano must be positive');
   return {
-    validUntil: Math.floor(Date.now() / 1000) + 300,
+    validUntil: resolveValidUntil(expiresAt, nowSec),
     messages: [
       {
         address: payTo,
-        amount: String(tonNano),
+        amount: amtNano.toString(),
         payload: encodeTextCommentBoc(memo),
       },
     ],

@@ -10,7 +10,16 @@ import {
   fetchUserPortfolio,
   getEffectiveUserId,
   rawToA9,
+  serverNowMs,
 } from '../data.js';
+
+function formatExactA9FromRaw(raw) {
+  const v = BigInt(String(raw || '0'));
+  const whole = v / 1_000_000_000n;
+  const frac = String(v % 1_000_000_000n).padStart(9, '0').replace(/0+$/, '');
+  const wholeStr = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return frac ? `${wholeStr}.${frac}` : wholeStr;
+}
 import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { escapeHtml, formatNum, showToast, copyText, mountSlider, burstParticles, openChoiceSheet, openModal, closeModal, bindCorridorRadarEvents } from '../components.js';
@@ -950,20 +959,32 @@ function renderLiveStakeConfirm(root, navigate) {
           showToast(L(`质押数量不得低于 ${formatNum(minStakeA9)} A9`, `Minimum stake is ${formatNum(minStakeA9)} A9`), 'error');
           return;
         }
+        const nowSec = Math.floor(serverNowMs() / 1000);
+        if (round.stakingEnabled === false || (Number(round.stakeCloseAt || 0) > 0 && nowSec >= Number(round.stakeCloseAt))) {
+          showToast(L('本轮质押入场窗口已截止，已拦截签名以防白耗 Gas', 'Staking window closed; signature blocked to save gas'), 'amber');
+          return;
+        }
+        try {
+          tonConnect.assertWalletReadyForLiveTx();
+        } catch (guardErr) {
+          showToast(guardErr?.message || L('请检查钱包连接与网络状态', 'Check wallet connection and network'), 'error');
+          return;
+        }
+        const exactAmtText = formatExactA9FromRaw(rawAmt);
         let insufficientReason = '';
         if (!jw) {
           insufficientReason = L('尚未检测到你的 A9 JettonWallet（需先持有 A9）', 'A9 JettonWallet not found (hold A9 first)');
         } else if (portfolio?.balanceAvailable && portfolio?.a9BalanceRaw !== null && rawAmt > BigInt(portfolio.a9BalanceRaw)) {
-          insufficientReason = L(`链上 A9 余额不足（可用 ${formatNum(balA9, 2)} A9，需 ${formatNum(amountA9, 2)} A9）`, `Insufficient on-chain A9 (${formatNum(balA9, 2)} available, ${formatNum(amountA9, 2)} needed)`);
+          insufficientReason = L(`链上 A9 余额不足（可用 ${formatExactA9FromRaw(portfolio.a9BalanceRaw)} A9，需 ${exactAmtText} A9）`, `Insufficient on-chain A9 (${formatExactA9FromRaw(portfolio.a9BalanceRaw)} available, ${exactAmtText} needed)`);
         }
 
         const confirmed = await tonConnect.confirmBeforeSign({
           title: L('确认质押交易（签名前核验）', 'Confirm On-Chain Stake'),
           contractLabel: L('目标合约 RoundController', 'Target RoundController'),
           targetAddress: roundController,
-          principalText: `${formatNum(amountA9)} A9`,
+          principalText: `${exactAmtText} A9`,
           gasText: `0.30 GRAM (${L('余量原路退回', 'excess refunded')})`,
-          totalText: `${formatNum(amountA9)} A9 + 0.30 GRAM`,
+          totalText: `${exactAmtText} A9 + 0.30 GRAM`,
           note: L(`第 ${round.currentRound} 轮 · 观察期未达 16/24 时段时本轮质押本金将按规则销毁。`, `Round #${round.currentRound} · Staked A9 is burned if fewer than 16/24 slots qualify.`),
           insufficientReason,
           confirmText: L('确认并唤起钱包签名', 'Confirm & Sign in Wallet'),
@@ -972,7 +993,6 @@ function renderLiveStakeConfirm(root, navigate) {
 
         const prevTicket = portfolio?.tickets?.find((t) => Number(t.roundId) === Number(round.currentRound));
         const prevTicketAmtRaw = BigInt(prevTicket?.amountRaw || '0');
-        const prevBalanceRaw = portfolio?.a9BalanceRaw !== null && portfolio?.a9BalanceRaw !== undefined ? BigInt(portfolio.a9BalanceRaw) : null;
 
         submitting = true;
         paint();
@@ -996,7 +1016,7 @@ function renderLiveStakeConfirm(root, navigate) {
             kind: 'stake',
             title: `第 ${round.currentRound} 轮质押`,
             titleEn: `Round #${round.currentRound} Stake`,
-            amountText: `${formatNum(amountA9)} A9`,
+            amountText: `${exactAmtText} A9`,
             explorerAddress: roundController,
             targetRoute: '/claim',
             maxAttempts: 12,
@@ -1010,8 +1030,7 @@ function renderLiveStakeConfirm(root, navigate) {
               if (!next) return false;
               const nextTicket = next.tickets?.find((t) => Number(t.roundId) === Number(round.currentRound));
               const nextTicketAmtRaw = BigInt(nextTicket?.amountRaw || '0');
-              const balChanged = prevBalanceRaw !== null && next.a9BalanceRaw !== null && BigInt(next.a9BalanceRaw) < prevBalanceRaw;
-              if (nextTicketAmtRaw > prevTicketAmtRaw || balChanged) {
+              if (nextTicketAmtRaw > prevTicketAmtRaw) {
                 portfolio = next;
                 return {
                   confirmed: true,
@@ -1137,7 +1156,7 @@ export function renderParticipateSuccess(root, navigate, certId) {
 
       <button class="btn btn-nt-green" id="share-cert-btn">${icon('send', 15)} ${L('分享战绩 · 邀友奖励 6%', 'Share · 6% Invite')}</button>
       <div class="grid-2">
-        <button class="btn btn-secondary" data-nav="/proof/${cert.id}">${icon('shieldCheck', 15)} ${L('闯关凭证', 'Quest Pass')}</button>
+        <button class="btn btn-secondary" data-nav="/proof/${escapeHtml(cert.id)}">${icon('shieldCheck', 15)} ${L('闯关凭证', 'Quest Pass')}</button>
         <button class="btn btn-secondary" data-nav="/round">${icon('radar', 15)} ${L('查看观测盘', '24H Board')}</button>
       </div>
     </div>

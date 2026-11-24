@@ -1212,3 +1212,64 @@ test('Settings page disables hourlyCandlePush in Live mode and syncs settlementP
   assert.deepEqual(tgOut.lsKeys, ['a9_ui_prefs_v1']);
 });
 
+test('Batch C: lockMode blocks ?mode=demo, TON Connect enforces mainnet chain & injects network/from/twaReturnUrl, and static compliance files exist', () => {
+  const lockedOut = runScenario(
+    {
+      href: 'https://app.a9.lat/?mode=demo',
+      injectedConfig: { mode: 'live', lockMode: true, network: 'mainnet', apiBase: 'https://api.a9.lat', liveFundsEnabled: true },
+      sdkConnected: true,
+    },
+    `
+      const { config } = await import(JS_URL + '/config.js');
+      const { store } = await import(JS_URL + '/store.js');
+      const { tonConnect } = await import(JS_URL + '/tonconnect.js');
+      tonConnect.init();
+
+      // Inject wrong testnet chain (-3) on mainnet config -> must block
+      store.update((s) => { s.user.walletChain = '-3'; });
+      let wrongChainCode = null;
+      try {
+        await tonConnect.sendV15TicketClaim('0:' + '55'.repeat(32));
+      } catch (e) {
+        wrongChainCode = e.code || e.message;
+      }
+
+      // Switch to mainnet chain (-239) -> succeeds and injects network: '-239' + from
+      store.update((s) => { s.user.walletChain = '-239'; });
+      await tonConnect.sendV15TicketClaim('0:' + '55'.repeat(32));
+
+      console.log(JSON.stringify({
+        mode: config.mode,
+        lockMode: config.lockMode,
+        expectedChainId: config.expectedChainId,
+        twaReturnUrl: tonConnect.ui?.opts?.actionsConfiguration?.twaReturnUrl || null,
+        wrongChainCode,
+        sentNetwork: sdkCalls.lastTx?.network || null,
+        sentFrom: sdkCalls.lastTx?.from || null,
+      }));
+    `,
+  );
+
+  assert.equal(lockedOut.mode, 'live');
+  assert.equal(lockedOut.lockMode, true);
+  assert.equal(lockedOut.expectedChainId, '-239');
+  assert.equal(lockedOut.twaReturnUrl, 'https://t.me/A9_TonBot');
+  assert.equal(lockedOut.wrongChainCode, 'WRONG_WALLET_NETWORK');
+  assert.equal(lockedOut.sentNetwork, '-239');
+  assert.equal(lockedOut.sentFrom, '0:' + '11'.repeat(32));
+
+  // Verify manifest & static legal pages (zero inline scripts) and no-cache headers
+  const appRoot = dirname(JS_DIR);
+  const manifest = JSON.parse(readFileSync(join(appRoot, 'tonconnect-manifest.json'), 'utf8'));
+  assert.equal(manifest.termsOfUseUrl, 'https://app.a9.lat/terms.html');
+  assert.equal(manifest.privacyPolicyUrl, 'https://app.a9.lat/privacy.html');
+  for (const page of ['terms.html', 'privacy.html']) {
+    const html = readFileSync(join(appRoot, page), 'utf8');
+    assert.ok(html.includes('A9'), `${page} must exist and describe A9`);
+    assert.ok(!/<script/i.test(html), `${page} must contain zero inline scripts`);
+  }
+  const headersText = readFileSync(join(appRoot, '_headers'), 'utf8');
+  assert.ok(headersText.includes('/js/runtime-config.js'));
+  assert.ok(headersText.includes('Cache-Control: no-cache, must-revalidate'));
+});
+

@@ -15,7 +15,14 @@ import {
   requestPromoClaimIntent,
   rawToA9,
 } from '../data.js';
-import { tonConnect } from '../tonconnect.js';
+import { tonConnect, canonicalWalletKey } from '../tonconnect.js';
+
+function formatExactGramFromNano(nano) {
+  const v = BigInt(String(nano || '0'));
+  const whole = v / 1_000_000_000n;
+  const frac = String(v % 1_000_000_000n).padStart(9, '0').replace(/0+$/, '');
+  return frac ? `${whole.toString()}.${frac}` : whole.toString();
+}
 import { pendingTxManager } from '../tx-ux.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { escapeHtml, formatNum, showToast, copyText, animateSlotCounter, openChoiceSheet, renderProgressRing } from '../components.js';
@@ -408,7 +415,7 @@ export function renderBindTgGroup(root) {
   let bindState = team.tgGroupBound ? 'bound' : 'unbound';
   const stateMeta = {
     bound:     { chip: 'chip-green', label: L('已绑定', 'Bound'),    desc: L('Bot 权限正常，整点收盘自动播报。', 'Bot active. Hourly pushes enabled.'), btn: L('重新校验', 'Re-verify') },
-    unbound:   { chip: 'chip-muted', label: L('未绑定', 'Unbound'),  desc: L('将 @A9Terminal_bot 设为群管理员即可绑定。', 'Add @A9Terminal_bot as admin to bind.'), btn: L('一键绑定 TG 群', 'Bind TG Group') },
+    unbound:   { chip: 'chip-muted', label: L('未绑定', 'Unbound'),  desc: L('将 @A9_TonBot 设为群管理员即可绑定。', 'Add @A9_TonBot as admin to bind.'), btn: L('一键绑定 TG 群', 'Bind TG Group') },
     verifying: { chip: 'chip-gold',  label: L('验证中', 'Checking'), desc: L('正在校验管理员权限...', 'Verifying admin permissions...'), btn: L('刷新状态', 'Refresh') },
     expired:   { chip: 'chip-red',   label: L('已失效', 'Expired'),  desc: L('Bot 管理员权限已失效，请重新授权。', 'Admin rights revoked. Re-authorize.'), btn: L('恢复授权', 'Restore Access') }
   };
@@ -425,7 +432,7 @@ export function renderBindTgGroup(root) {
         </div>
         <div class="card ${bindState === 'expired' ? 'card-glow-red' : ''}">
           <div class="row-between" style="margin-bottom:8px;">
-            <span class="card-title">${icon('send', 15, 'text-gold')} ${bindState === 'unbound' ? L('未关联群组', 'No Group') : team.tgGroupHandle}</span>
+            <span class="card-title">${icon('send', 15, 'text-gold')} ${bindState === 'unbound' ? L('未关联群组', 'No Group') : escapeHtml(team.tgGroupHandle || '')}</span>
             <span class="chip ${meta.chip}">${meta.label}</span>
           </div>
           <div class="text-sec" style="font-size:12px;margin-bottom:14px;">${meta.desc}</div>
@@ -530,7 +537,7 @@ export function renderInviteShare(root) {
             <span class="card-title">${icon('copy', 14, 'text-gold')} ${L('一键复制群推话术', '1-Tap Viral Pitch')}</span>
             <button class="pill-trigger" id="btn-copy-pitch" type="button">${L('复制全文', 'Copy')}</button>
           </div>
-          <div class="share-copy-box">${pitchText}</div>
+          <div class="share-copy-box">${escapeHtml(pitchText)}</div>
         </div>
 
         ${config.isDemo ? `<div class="card">
@@ -612,28 +619,40 @@ export function renderInviteShare(root) {
           showToast(L('已有推广领币交易正在发放确认中', 'Promo payout already confirming'), 'amber');
           return;
         }
+        try {
+          tonConnect.assertWalletReadyForLiveTx();
+        } catch (guardErr) {
+          showToast(guardErr?.message || L('请检查钱包连接与网络状态', 'Check wallet connection and network'), 'error');
+          return;
+        }
         A9Haptic.light();
         promoClaimBusy = true;
         paint();
         try {
           const intent = await requestPromoClaimIntent(wallet);
+          const expectedPromoHot = store.state.round?.protocolConfig?.promoHotWallet?.address || '';
+          if (expectedPromoHot && canonicalWalletKey(intent.payTo) !== canonicalWalletKey(expectedPromoHot)) {
+            throw new Error(L('领奖目标热钱包地址与协议配置不一致，已拦截签名', 'Promo hot wallet mismatch with protocol config; signature blocked'));
+          }
+          const feeNano = BigInt(String(intent.feeRequiredNano || '60000000'));
+          const feeGramText = formatExactGramFromNano(feeNano);
           const payoutA9 = rawToA9(intent.amountRaw ?? livePromo?.claimableRaw) ?? 0;
           const ok = await tonConnect.confirmBeforeSign({
             title: L('确认推广领币手续费（签名前核验）', 'Confirm Promo A9 Claim Fee'),
             contractLabel: L('推广热钱包 PromoHotWallet', 'PromoHotWallet'),
             targetAddress: intent.payTo,
             principalText: `${formatNum(payoutA9, 2)} A9 (${L('热钱包发放', 'Hot wallet payout')})`,
-            gasText: `0.06 GRAM (${L('覆盖链上发放 Gas', 'delivery fee')})`,
-            totalText: '0.06 GRAM',
+            gasText: `${feeGramText} GRAM (${L('覆盖链上发放 Gas', 'delivery fee')})`,
+            totalText: `${feeGramText} GRAM`,
             memo: intent.memo,
-            note: L('确认支付 0.06 GRAM 后，推广热钱包将自动核验回执并向当前钱包转入全部可领 A9（项目方 0 Gas）。', 'After paying 0.06 GRAM, PromoHotWallet automatically verifies and sends your A9.'),
-            confirmText: L('确认并支付 0.06 GRAM 领币', 'Confirm & Pay 0.06 GRAM'),
+            note: L(`确认支付 ${feeGramText} GRAM 后，推广热钱包将自动核验回执并向当前钱包转入全部可领 A9（项目方 0 Gas）。`, `After paying ${feeGramText} GRAM, PromoHotWallet automatically verifies and sends your A9.`),
+            confirmText: L(`确认并支付 ${feeGramText} GRAM 领币`, `Confirm & Pay ${feeGramText} GRAM`),
           });
           if (!ok) return;
 
           await tonConnect.sendV15PromoFee(intent);
           A9Haptic.success();
-          showToast(L(`已支付 0.06 GRAM 手续费（单号 ${intent.claimId}），热钱包正在自动发放 A9…`, `0.06 GRAM fee sent (claim ${intent.claimId}), awaiting automatic A9 payout…`));
+          showToast(L(`已支付 ${feeGramText} GRAM 手续费（单号 ${intent.claimId}），热钱包正在自动发放 A9…`, `${feeGramText} GRAM fee sent (claim ${intent.claimId}), awaiting automatic A9 payout…`));
           const pendingTx = pendingTxManager.start({
             kind: 'promo',
             title: '推广 A9 自动发放',
@@ -660,7 +679,7 @@ export function renderInviteShare(root) {
                     detailEn: `Promo ${formatNum(payoutA9, 2)} A9 credited on-chain.`,
                   };
                 }
-                if (c.status === 'FAILED') {
+                if (c.status === 'FAILED' || c.status === 'EXPIRED') {
                   return { terminal: true, claim: c };
                 }
               }
@@ -673,6 +692,17 @@ export function renderInviteShare(root) {
             onTimeout: () => {
               showToast(L('热钱包发放确认较慢，可点击顶部状态条 Tonviewer 核验', 'Payout confirming slowly; check Tonviewer via top bar'), 'amber');
             },
+          }).then((res) => {
+            if (res?.terminal && res.result?.claim) {
+              const st = res.result.claim.status;
+              showToast(
+                st === 'EXPIRED'
+                  ? L(`领奖单 ${intent.claimId} 已过期，余额已保留，可重新发起领取`, `Claim ${intent.claimId} expired; balance kept`)
+                  : L(`领奖单 ${intent.claimId} 发放异常，请核查钱包或在记录中重试`, `Claim ${intent.claimId} failed; please check details`),
+                'error',
+              );
+              loadLivePromo();
+            }
           });
           await loadLivePromo();
         } catch (e) {

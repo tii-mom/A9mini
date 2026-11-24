@@ -193,7 +193,7 @@ function renderHeader(route) {
       ${config.isDemo ? `<button class="icon-btn has-demo-pip" id="btn-open-sim" aria-label="${L('演示控制台', 'Demo console')}" title="${L('演示控制台 (DEMO)', 'Demo console (DEMO)')}">${icon('sliders', 14)}</button>` : ''}
       <button class="wallet-pill ${user.connected ? '' : 'disconnected'}" id="btn-wallet-pill">
         <span class="live-dot ${user.connected ? '' : 'amber'}"></span>
-        <span>${user.connected ? (user.shortAddress || (user.address ? (user.address.length > 12 ? `${user.address.slice(0, 4)}...${user.address.slice(-4)}` : user.address) : t('connect_wallet'))) : t('connect_wallet')}</span>
+        <span>${escapeHtml(user.connected ? (user.shortAddress || (user.address ? (user.address.length > 12 ? `${user.address.slice(0, 4)}...${user.address.slice(-4)}` : user.address) : t('connect_wallet'))) : t('connect_wallet'))}</span>
       </button>
     </div>
   `;
@@ -285,10 +285,12 @@ function renderDataError(error) {
         <div class="num-xs text-muted" style="margin-top:8px;word-break:break-all;">${escapeHtml(config.apiBase || L('当前站点只读接口', 'Same-origin read-only API'))}</div>
       </div>
       <button class="btn btn-primary" id="data-retry">${icon('refresh', 16)} ${L('重试读取', 'Retry')}</button>
+      ${config.lockMode ? '' : `
       <div class="card row-between">
         <span class="num-xs text-muted">${L('需要体验完整交互？切换到演示模式', 'Want full interaction? Use demo mode')}</span>
         <a class="num-xs text-green" href="?mode=demo">${L('演示模式', 'Demo')} ›</a>
       </div>
+      `}
     </div>
   `;
   const btn = mainEl.querySelector('#data-retry');
@@ -739,7 +741,7 @@ async function openChestAssistModal(chestId) {
           ? L('宝箱详情待核验（暂未拉取到服务端状态），可点击下方重试读取或先连接 TON 钱包。', 'Chest details pending verification. Tap retry below or connect your TON wallet.')
           : isBoost
             ? L('付费宝箱已升级为免助力随机暴击（100% 固定本金 + 最高 +5%–+30% 暴击），无需好友助力！你也可以免费领取专属青铜宝箱 #1（300 A9）或前往宝箱商城体验。', 'Paid chests now roll instant random crits (100% base + up to +5%–+30% bonus) with no assists needed! Claim your free Bronze Chest #1 (300 A9) or visit Chest Mall.')
-            : L(`双人同行礼：与好友结伴开启【${label}】（${formatNum(rewardA9)} A9），双方各有收获——确认后立即为你激活专属青铜宝箱 #1（300 A9）！`, `Co-op gift: team up to unlock [${label}] (${formatNum(rewardA9)} A9)—both players benefit as your own Bronze Chest #1 (300 A9) activates immediately!`)}
+            : L(`双人同行礼：与好友结伴开启【${escapeHtml(label)}】（${formatNum(rewardA9)} A9），双方各有收获——确认后立即为你激活专属青铜宝箱 #1（300 A9）！`, `Co-op gift: team up to unlock [${escapeHtml(label)}] (${formatNum(rewardA9)} A9)—both players benefit as your own Bronze Chest #1 (300 A9) activates immediately!`)}
       </div>
     </div>
     ${loadFailed ? `<button class="btn btn-secondary" id="btn-retry-chest-detail" type="button" style="margin-bottom:10px;">${L('重试读取宝箱详情', 'Retry Loading Details')}</button>` : ''}

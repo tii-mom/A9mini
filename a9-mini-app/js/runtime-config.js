@@ -3,6 +3,8 @@ if (window.location.origin === 'https://app.a9.lat') {
   window.__A9_CONFIG__ = {
     ...window.__A9_CONFIG__,
     mode: 'live',
+    lockMode: true,
+    network: 'mainnet',
     apiBase: 'https://api.a9.lat',
     liveFundsEnabled: false,
   };

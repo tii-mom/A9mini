@@ -8,6 +8,7 @@ import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { burstParticles, copyText, escapeHtml, formatNum, formatTimer, openModal, closeModal, renderLiveSparkline, showToast } from '../components.js';
 import { buildTonviewerUrl, shortAddress } from '../tx-ux.js';
+import { canonicalWalletKey } from '../tonconnect.js';
 import { DIORAMA_BACKDROP, renderCitySandtable, renderNintendoGateIcon } from '../paper-art.js';
 import {
   BOXHEADS_SERIES,
@@ -1635,7 +1636,7 @@ export function portfolioPanel(root, guild = false) {
       row(L('成员', 'Members'), data?.team?.memberCount ?? waiting());
       row(
         L('职位', 'Role'),
-        data?.team?.role === 'captain' || (data?.team?.captainWallet === user.address && user.address)
+        data?.team?.role === 'captain' || (Boolean(user.address) && Boolean(data?.team?.captainWallet) && canonicalWalletKey(data.team.captainWallet) === canonicalWalletKey(user.address))
           ? L('队长', 'Captain')
           : data?.team
             ? L('成员', 'Member')
