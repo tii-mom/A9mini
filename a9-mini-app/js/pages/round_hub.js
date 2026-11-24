@@ -432,6 +432,80 @@ function openTransactionSheet(amount, view, { assetSymbol = 'GRAM', gasNote = ''
   };
 }
 
+/** P1-4：可视化收益与回本推演器（纯模拟推演，严禁承诺收益，按链上实际结算为准） */
+function renderStakePaybackCalcHtml({ amountA9, round, weightMultiplier = 2.0, prefix = 'demo' }) {
+  const amt = Math.max(0, Number(amountA9) || 0);
+  const mult = [2.0, 1.4, 1.0].includes(Number(weightMultiplier)) ? Number(weightMultiplier) : 2.0;
+  const estTotalRaw = amt > 0 ? estimateRewardA9(amt, round, { weightMultiplier: mult }) : null;
+  const estTotal = estTotalRaw !== null && Number.isFinite(estTotalRaw) ? Math.round(estTotalRaw) : null;
+  const successes = Number.isInteger(round?.successCount) ? round.successCount : 0;
+  const curTierPct = successes < 5 ? 20 : successes < 10 ? 40 : 100;
+  const firstRound20 = estTotal !== null ? Math.round(estTotal * 0.2) : null;
+  const curInstant = estTotal !== null ? Math.round(estTotal * (curTierPct / 100)) : null;
+  const coverPct20 = (firstRound20 !== null && amt > 0) ? Math.round((firstRound20 / amt) * 100) : null;
+
+  const curveSteps = [
+    { label: L('第 1 轮通关', 'Win 1'), pct: 20, amt: estTotal !== null ? Math.round(estTotal * 0.2) : null },
+    { label: L('连胜 2 轮', '2 Wins'), pct: 40, amt: estTotal !== null ? Math.round(estTotal * 0.4) : null },
+    { label: L('连胜 3 轮', '3 Wins'), pct: 60, amt: estTotal !== null ? Math.round(estTotal * 0.6) : null },
+    { label: L('连胜 5 轮', '5 Wins'), pct: 100, amt: estTotal !== null ? estTotal : null },
+  ];
+
+  return `
+    <section class="card payback-calc-card" id="${prefix}-payback-calc">
+      <div class="row-between" style="margin-bottom:8px;">
+        <div class="card-title">${icon('radar', 15, 'text-gold')} ${L('收益与回本推演器', 'Reward & Unlock Estimator')}</div>
+        <span class="chip chip-gold mono">${L('上限 15×', '15× Cap')}</span>
+      </div>
+
+      <div class="payback-weight-tabs" role="group" aria-label="${L('模拟早鸟权重', 'Simulate early weight')}">
+        ${[
+          [2.0, L('2.0× 首段', '2.0× Early')],
+          [1.4, L('1.4× 中段', '1.4× Mid')],
+          [1.0, L('1.0× 末段', '1.0× Late')],
+        ].map(([w, lbl]) => `
+          <button type="button" class="payback-w-btn ${mult === w ? 'active' : ''}" data-calc-weight="${w}" aria-pressed="${mult === w}">${lbl}</button>
+        `).join('')}
+      </div>
+
+      <div class="payback-kpi-grid">
+        <div class="payback-kpi-box">
+          <small>${L(`当前 ${mult.toFixed(1)}× 预估总回报`, `Est. Total (${mult.toFixed(1)}×)`)}</small>
+          <strong class="mono text-green">${estTotal === null ? L('待核验', 'Pending') : `~${formatNum(estTotal)} A9`}</strong>
+        </div>
+        <div class="payback-kpi-box">
+          <small>${L('本轮通关 20% 即时落袋', '20% Instant on Pass')}</small>
+          <strong class="mono text-gold">${firstRound20 === null ? L('待核验', 'Pending') : `${formatNum(firstRound20)} A9`}</strong>
+          ${coverPct20 !== null ? `<span class="num-xs text-muted">${L(`约占本金 ${coverPct20}%`, `~${coverPct20}% of stake`)}</span>` : ''}
+        </div>
+      </div>
+
+      ${curTierPct > 20 && curInstant !== null ? `
+        <div class="num-xs text-green" style="margin-bottom:8px;font-weight:700;">${L(`当前全网累计 ${successes} 胜 · 本轮按 ${curTierPct}% 即时解锁约 ${formatNum(curInstant)} A9`, `Global ${successes} wins · current tier unlocks ${curTierPct}% (~${formatNum(curInstant)} A9) immediately`)}</div>
+      ` : ''}
+
+      <div class="payback-curve-box">
+        <div class="row-between num-xs text-muted" style="margin-bottom:6px;">
+          <span>${L('1–5 胜阶梯解锁累计到手曲线（20% + 4×20%）', 'Wins 1–5 Cumulative Unlock Curve (20% + 4×20%)')}</span>
+        </div>
+        <div class="payback-curve-list">
+          ${curveSteps.map((s) => `
+            <div class="payback-curve-row">
+              <span class="payback-curve-lbl">${s.label}</span>
+              <div class="payback-curve-track"><div class="payback-curve-bar" style="width:${s.pct}%;"></div></div>
+              <span class="payback-curve-val mono">${s.amt === null ? `${s.pct}%` : `${formatNum(s.amt)} A9`}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="num-xs text-muted" style="margin-top:8px;line-height:1.45;">
+        ${L('注：以上按当前奖池与早鸟权重模拟推演，非收益承诺；未达 16/24 时段将按合约规则销毁本金，最终以链上实际结算为准。', 'Note: Simulated from current pool & weight, not a guaranteed return. Failing 16/24 burns staked principal; final payout settles on-chain.')}
+      </div>
+    </section>
+  `;
+}
+
 export function renderParticipateConfirm(root, navigate) {
   const { user } = store.state;
   const round = store.state.round;
@@ -444,11 +518,12 @@ export function renderParticipateConfirm(root, navigate) {
     return;
   }
   let amount = round.quickStakeA9 || 5000;
+  let calcWeight = [2.0, 1.4, 1.0].includes(Number(round.myEarlyTier)) ? Number(round.myEarlyTier) : 2.0;
   let riskAgreed = false;
   let submitting = false;
 
   const paintEstimate = () => {
-    const est = estimateRewardA9(amount);
+    const est = estimateRewardA9(amount, round, { weightMultiplier: calcWeight });
     const successes = round.successCount;
     const fraction = successes === null ? null : successes < 5 ? 0.2 : successes < 10 ? 0.4 : 1;
     const inst = est === null || fraction === null ? null : Math.round(est * fraction);
@@ -457,6 +532,17 @@ export function renderParticipateConfirm(root, navigate) {
     set('#est-instant', inst === null ? '—' : `${formatNum(inst)} A9`);
     set('#est-locked', lock === null ? '—' : `${formatNum(lock)} A9`);
     set('#est-total', est === null ? '—' : `~${formatNum(Math.round(est))} A9`);
+    const calcMount = root.querySelector('#demo-payback-calc-mount');
+    if (calcMount) {
+      calcMount.innerHTML = renderStakePaybackCalcHtml({ amountA9: amount, round, weightMultiplier: calcWeight, prefix: 'demo' });
+      calcMount.querySelectorAll('[data-calc-weight]').forEach((b) => {
+        b.onclick = () => {
+          A9Haptic.tick();
+          calcWeight = Number(b.dataset.calcWeight) || 2.0;
+          paintEstimate();
+        };
+      });
+    }
   };
 
   root.innerHTML = `
@@ -477,6 +563,8 @@ export function renderParticipateConfirm(root, navigate) {
           <button class="quick-btn" data-amt="max" type="button">MAX</button>
         </div>
       </div>
+
+      <div id="demo-payback-calc-mount"></div>
 
       <div class="card">
         <div class="card-title" style="margin-bottom:6px;">${icon('receipt', 15, 'text-green')} ${L('核对入场清单', 'Entry Checklist')}</div>
@@ -646,6 +734,7 @@ function renderLiveStakeConfirm(root, navigate) {
   let portfolio = null;
   let loadError = null;
   let amountA9 = minStakeA9;
+  let calcWeight = 2.0;
   let riskAgreed = false;
   let submitting = false;
 
@@ -654,6 +743,19 @@ function renderLiveStakeConfirm(root, navigate) {
     if (!/^\d+(?:\.\d{1,9})?$/.test(s)) return null;
     const [whole, frac = ''] = s.split('.');
     return BigInt(whole) * 1_000_000_000n + BigInt(frac.padEnd(9, '0'));
+  };
+
+  const syncLiveCalc = () => {
+    const mount = root.querySelector('#live-payback-calc-mount');
+    if (!mount) return;
+    mount.innerHTML = renderStakePaybackCalcHtml({ amountA9, round, weightMultiplier: calcWeight, prefix: 'live' });
+    mount.querySelectorAll('[data-calc-weight]').forEach((b) => {
+      b.onclick = () => {
+        A9Haptic.tick();
+        calcWeight = Number(b.dataset.calcWeight) || 2.0;
+        syncLiveCalc();
+      };
+    });
   };
 
   const paint = () => {
@@ -687,6 +789,8 @@ function renderLiveStakeConfirm(root, navigate) {
           ${loadError ? `<div class="num-xs text-red" style="margin-top:8px;">${escapeHtml(loadError)}</div>` : ''}
         </div>
 
+        <div id="live-payback-calc-mount"></div>
+
         <div class="card">
           <div class="card-title" style="margin-bottom:6px;">${icon('receipt', 15, 'text-green')} ${L('链上质押核对清单（A9 本位）', 'On-Chain A9 Stake Checklist')}</div>
           <div class="check-list">
@@ -718,10 +822,12 @@ function renderLiveStakeConfirm(root, navigate) {
       </div>
     `;
 
+    syncLiveCalc();
     const inputEl = root.querySelector('#live-stake-a9-input');
     if (inputEl) {
       inputEl.oninput = (e) => {
         amountA9 = Math.max(0, Number(e.target.value) || 0);
+        syncLiveCalc();
         const chk = root.querySelector('#live-stake-check-amt');
         if (chk) chk.textContent = `${formatNum(amountA9)} A9 (≥ ${formatNum(minStakeA9)} A9)`;
         const btn = root.querySelector('#btn-live-stake-submit');

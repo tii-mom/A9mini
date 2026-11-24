@@ -555,15 +555,15 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     const label = L(chest.labelZh, chest.labelEn);
     const text = isBoost
       ? L(
-          `兄弟们帮个忙！我在 A9 宝箱商城买了【${label}】，正在 24H 膨胀中（还差 ${need} 人助力拉满），点一下连接钱包帮我膨胀，你顺手也能 0 成本领 1 个青铜宝箱 #1：`,
-          `Help boost my A9 [${label}] (${need} assist(s) left)! Connect your active TON wallet to boost and auto-claim your free Bronze Chest #1:`
+          `A9 双人同行礼：我的【${label}】正在 24H 膨胀窗口（+2%~+5% 区间，还差 ${need} 位同路人），连接活跃 TON 钱包结伴同行，双方各有收获——你立领专属青铜宝箱 #1（300 A9）：`,
+          `A9 Co-Op Gift: my [${label}] is in a 24H boost window (+2%–+5%, ${need} partner(s) left). Connect an active TON wallet to team up and claim your own Bronze Chest #1 (300 A9):`
         )
       : L(
-          `TON 上 0 成本宝箱福利：帮我点一下开启【${label}】（还差 ${need} 人助力），你点完直接顺手白领 1 个青铜宝箱 #1！`,
-          `Free TON chest drop: help me open [${label}] (${need} left) and auto-claim your own Bronze Chest #1:`
+          `A9 双人同行礼：一起开启 TON 生态【${label}】（还差 ${need} 位同路人），确认同行即为你自动激活专属青铜宝箱 #1（300 A9），顺便来 24H 预言擂台站队对赌：`,
+          `A9 Co-Op Gift: team up to unlock [${label}] (${need} partner(s) left) and auto-activate your own Bronze Chest #1 (300 A9), plus call PASS vs BURN in the 24H Arena:`
         );
     A9TMA.shareInvite(ogUrl, text);
-    showToast(L('已调起 Telegram 好友助力分享', 'Opened Telegram assist share'));
+    showToast(L('已调起 Telegram 双人同行礼分享', 'Opened Telegram co-op gift share'));
   };
 
   const shareChestToX = (chest) => {
@@ -699,7 +699,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
               </button>
             ` : `
               <div class="free-action-row">
-                <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;min-height:42px;">${icon('send', 14)} ${L('TG 邀好友助力', 'Invite on TG')}</button>
+                <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;min-height:42px;">${icon('send', 14)} ${L('TG 邀同行礼', 'Co-Op on TG')}</button>
                 <button class="btn btn-secondary btn-sm" data-share-x="${c.chestId}" type="button" style="width:100%;min-height:42px;">${icon('xBrand', 13)} X</button>
               </div>
             `
@@ -839,7 +839,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                       </div>
                       <div class="progress-track" style="height:6px;margin-bottom:9px;"><div class="progress-fill" style="width:${pct}%"></div></div>
                       <div class="grid-3" style="gap:6px;">
-                        <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;">${icon('send', 12)} ${L('拉助力', 'TG')}</button>
+                        <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;">${icon('send', 12)} ${L('邀同行', 'Co-Op')}</button>
                         <button class="btn btn-secondary btn-sm" data-share-x="${c.chestId}" type="button" style="width:100%;">${icon('xBrand', 12)} X</button>
                         <button class="btn btn-secondary btn-sm" data-open-chest="${c.chestId}" type="button" style="width:100%;" ${!canOpenChestNow() ? 'disabled' : ''}>${icon(canOpenChestNow() ? 'unlock' : 'lock', 12)} ${canOpenChestNow() ? L('开箱', 'Open') : L('只读', 'RO')}</button>
                       </div>

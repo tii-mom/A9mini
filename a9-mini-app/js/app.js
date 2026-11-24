@@ -704,7 +704,7 @@ if (!config.isDemo && A9TMA.getRawInitData()) {
     .catch(() => {});
 }
 
-/** 单屏宝箱社交助力弹窗（startapp=chest_<chestId> 落地闭环） */
+/** 单屏宝箱双人同行礼弹窗（startapp=chest_<chestId> 落地闭环，规则与门槛不变） */
 async function openChestAssistModal(chestId) {
   if (!chestId) return;
   let chest = null;
@@ -726,28 +726,28 @@ async function openChestAssistModal(chestId) {
   openModal(`
     <div class="sheet-handle"></div>
     <div class="row-between" style="margin-bottom:8px;">
-      <div class="card-title">${icon('bolt', 15, 'text-gold')} ${L('好友宝箱助力邀请', 'Friend Chest Assist')}</div>
+      <div class="card-title">${icon('bolt', 15, 'text-gold')} ${L('双人同行礼 · 开启 A9 宝箱', 'Co-Op Chest Gift · A9')}</div>
       <button class="icon-btn" id="chest-assist-close" aria-label="Close">${icon('x', 15)}</button>
     </div>
     <div class="sub-tile" style="margin-bottom:12px;">
       <div class="row-between">
         <strong>${escapeHtml(label)}</strong>
-        <span class="chip chip-gold mono">${hasDetail ? `${cur}/${req} ${L('助力', 'assists')}` : L('待核验', 'Pending')}</span>
+        <span class="chip chip-gold mono">${hasDetail ? `${cur}/${req} ${L('同行', 'co-op')}` : L('待核验', 'Pending')}</span>
       </div>
       <div class="num-xs text-sec" style="margin-top:6px;line-height:1.5;">
         ${!hasDetail
           ? L('宝箱详情待核验（暂未拉取到服务端状态），可点击下方重试读取或先连接 TON 钱包。', 'Chest details pending verification. Tap retry below or connect your TON wallet.')
           : isBoost
-            ? L(`帮好友助力膨胀（最高额外 +${formatNum(rewardA9, 2)} A9），你顺手 0 成本自动领 1 个青铜宝箱 #1（300 A9）！`, `Help boost this chest (up to +${formatNum(rewardA9, 2)} A9) and auto-claim your free Bronze Chest #1 (300 A9)!`)
-            : L(`帮好友点一下开启【${label}】（${formatNum(rewardA9)} A9），你顺手 0 成本自动领 1 个青铜宝箱 #1（300 A9）！`, `Help open [${label}] (${formatNum(rewardA9)} A9) and auto-claim your own Bronze Chest #1 (300 A9)!`)}
+            ? L(`双人同行礼：确认同行后，好友宝箱解锁额外膨胀（最高 +${formatNum(rewardA9, 2)} A9，+2%~+5% 区间），同时立即为你激活专属青铜宝箱 #1（300 A9）！`, `Co-op gift: confirm to unlock up to +${formatNum(rewardA9, 2)} A9 (+2%–+5% boost) on your friend's chest, while instantly activating your own Bronze Chest #1 (300 A9)!`)
+            : L(`双人同行礼：与好友结伴开启【${label}】（${formatNum(rewardA9)} A9），双方各有收获——确认后立即为你激活专属青铜宝箱 #1（300 A9）！`, `Co-op gift: team up to unlock [${label}] (${formatNum(rewardA9)} A9)—both players benefit as your own Bronze Chest #1 (300 A9) activates immediately!`)}
       </div>
     </div>
     ${loadFailed ? `<button class="btn btn-secondary" id="btn-retry-chest-detail" type="button" style="margin-bottom:10px;">${L('重试读取宝箱详情', 'Retry Loading Details')}</button>` : ''}
     <div class="num-xs text-muted" style="margin-bottom:12px;">
-      ${L('防刷规则：仅需连接链上已激活 TON 钱包（0 扣款），助力后自动激活你的青铜宝箱 #1。', 'Anti-sybil: requires an active TON wallet (0 transfer). Auto-unlocks your Bronze Chest #1.')}
+      ${L('链上防刷校验：仅需连接链上已激活 TON 钱包（0 扣款），确认同行后自动激活你的青铜宝箱 #1。', 'On-chain anti-sybil check: active TON wallet required (0 transfer). Automatically activates your Bronze Chest #1.')}
     </div>
     <button class="btn btn-primary" id="btn-do-chest-assist" type="button">
-      ${icon(connected ? 'checkCircle' : 'wallet', 15)} ${connected ? L('一键助力并领取我的青铜宝箱 #1', 'Assist & Claim My Bronze Chest #1') : L('连接 TON 钱包并助力', 'Connect TON Wallet to Assist')}
+      ${icon(connected ? 'checkCircle' : 'wallet', 15)} ${connected ? L('确认同行 · 领我的青铜宝箱 #1', 'Confirm Co-Op & Claim Bronze #1') : L('连接 TON 钱包 · 开启双人同行礼', 'Connect TON Wallet for Co-Op Gift')}
     </button>
   `);
 
@@ -766,12 +766,12 @@ async function openChestAssistModal(chestId) {
       A9Haptic.success();
       closeModal();
       showToast(res?.helperGrantedStarter
-        ? L('助力成功！已为你激活免费青铜宝箱 #1，快去拉 2 人开箱！', 'Assisted! Your free Bronze Chest #1 is now active!')
-        : L('助力成功！', 'Assist recorded!'));
+        ? L('同行礼已生效！已为你激活青铜宝箱 #1，邀 2 位同路人即可开箱！', 'Co-op gift active! Your Bronze Chest #1 is unlocked—team up with 2 friends to open!')
+        : L('同行确认成功！', 'Co-op confirmed!'));
       navigate('/internal/market?tab=free');
     } catch (e) {
       A9Haptic.error();
-      showToast(e?.message || L('助力失败，请确认已连接链上活跃钱包', 'Assist failed; active wallet required'), 'amber');
+      showToast(e?.message || L('同行确认失败，请确认已连接链上活跃钱包', 'Co-op failed; active wallet required'), 'amber');
       btn.disabled = false;
     }
   };

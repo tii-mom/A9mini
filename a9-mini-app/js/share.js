@@ -135,36 +135,36 @@ function buildAngles(type, id, ctx = {}) {
     return [
       {
         key: 'gift',
-        label: L('顺手送福利', 'Free Gift'),
+        label: L('双人同行礼', 'Co-Op Gift'),
         text: isBoost
           ? L(
-              `我在 A9 宝箱商城刚开了一个【${label}】，帮我点一下连接钱包助力膨胀（还差 ${need} 人），你顺手也能 0 成本领 1 个青铜宝箱 #1！`,
-              `I just opened a [${label}] in A9 Chest Mall! Connect your TON wallet to boost it (${need} left) and auto-claim your free Bronze Chest #1.`
+              `A9 双人同行礼：我的【${label}】正在 24H 膨胀窗口（+2%~+5% 区间，还差 ${need} 位同路人），连接活跃 TON 钱包结伴同行，双方各有收获——你立领专属青铜宝箱 #1（300 A9）！`,
+              `A9 Co-Op Gift: my [${label}] is in a 24H boost window (+2%–+5%, ${need} partner(s) left). Connect an active TON wallet to team up and unlock your own Bronze Chest #1 (300 A9).`
             )
           : L(
-              `TON 上发现个 0 成本宝箱玩法：帮我点一下开启【${label}】（${rewardText}，还差 ${need} 人助力），你点完直接顺手白领 1 个青铜宝箱 #1！`,
-              `Free TON chest drop: help me open [${label}] (${rewardText}, ${need} assist(s) left) and auto-claim your own Bronze Chest #1.`
+              `A9 双人同行礼：一起开启 TON 生态【${label}】（${rewardText}，还差 ${need} 位同路人），确认同行即为你自动激活专属青铜宝箱 #1（300 A9）！`,
+              `A9 Co-Op Gift: team up to unlock [${label}] (${rewardText}, ${need} partner(s) left) and instantly activate your own Bronze Chest #1 (300 A9).`
             )
       },
       {
         key: 'banter',
-        label: L('群聊互动型', 'Group Banter'),
+        label: L('站队对赌战报', 'Battle Call'),
         text: isBoost
           ? L(
-              `兄弟们救个场！我的 A9【${label}】正在 24H 膨胀中，点一下帮我拉满额外 A9 暴涨，顺手白拿你的专属青铜宝箱，不花一分钱！`,
-              `Need a quick hand! My A9 [${label}] is in a 24H boost window—tap to help inflate the bonus and grab your free Bronze Chest.`
+              `A9 第 ${roundNum} 轮 24H 赛点正热（${passed}/${required} 段）！我已开出【${label}】24H 膨胀箱，来领双人同行礼（青铜宝箱 #1），顺便去 24H 预言擂台站队对赌 PASS / BURN！`,
+              `A9 Round #${roundNum} 24H is heating up (${passed}/${required} slots)! Grab our Co-Op Bronze Chest #1 and pick PASS or BURN in the 24H Prediction Arena.`
             )
           : L(
-              `谁有空顺手点一下？差 ${need} 个活跃 TON 钱包帮我开 A9【${label}】，点完系统直接送你 1 个同款青铜宝箱！`,
-              `Anyone with an active TON wallet? Need ${need} more assist(s) on my A9 [${label}]—you get a free Bronze Chest #1 right after.`
+              `A9 第 ${roundNum} 轮 24H 生死线（${passed}/${required} 段）！差 ${need} 位活跃钱包同路人一起开【${label}】，同行即得青铜宝箱 #1，来 24H 擂台一决高下！`,
+              `A9 Round #${roundNum} (${passed}/${required} slots)! Need ${need} active-wallet partner(s) for [${label}]—claim your Co-Op Bronze Chest #1 and call PASS vs BURN.`
             )
       },
       {
         key: 'data',
-        label: L('规则透明型', 'Transparent'),
+        label: L('链上规则透明', 'Transparent'),
         text: L(
-          `A9 协议宝箱助力：需连接链上活跃 TON 钱包助力（防刷且 0 扣款），帮我推进【${label}】进度并自动领取青铜宝箱 #1。`,
-          `A9 Protocol Chest Assist: connect an active TON wallet (0 transfer, anti-sybil verified) to help [${label}] and unlock Bronze Chest #1.`
+          `A9 协议双人同行礼：仅需连接链上活跃 TON 钱包校验（0 扣款、防女巫公开可查），同行推进【${label}】并自动激活青铜宝箱 #1。`,
+          `A9 Protocol Co-Op Gift: active TON wallet check (0 transfer, transparent anti-sybil) advances [${label}] and activates your Bronze Chest #1.`
         )
       }
     ];

@@ -19,7 +19,7 @@ import { openXShareSheet, triggerStoryShare } from '../share.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
-import { fetchUserPortfolio, rawToA9 } from '../data.js';
+import { fetchUserPortfolio, fetchPromoBalance, fetchPredictionUser, getEffectiveUserId, rawToA9 } from '../data.js';
 import { pendingTxManager } from '../tx-ux.js';
 
 function renderMiniBarcode() {
@@ -32,13 +32,149 @@ function parseA9Number(str) {
   return m ? Number(m[0]) : 0;
 }
 
+/** 统一「金库 / 领奖中心」聚合卡片（不破坏原有 /claim、/rewards、/team/invite 路由与只读门禁） */
+function renderUnifiedVaultHtml({
+  roundClaimableA9 = null,
+  roundLockedA9 = null,
+  promoClaimableA9 = null,
+  predActivatedA9 = null,
+  predPendingA9 = null,
+  isLive = false,
+  hasWallet = false,
+  loading = false,
+  fundsEnabled = false,
+} = {}) {
+  const fmtA9 = (val) => (val === null || val === undefined || !Number.isFinite(Number(val)))
+    ? L('待核验', 'Pending')
+    : `${formatNum(Number(val), Number(val) % 1 === 0 ? 0 : 2)} A9`;
+
+  const claimParts = [roundClaimableA9, promoClaimableA9].filter((v) => v !== null && v !== undefined && Number.isFinite(Number(v)));
+  const hasAnySum = claimParts.length > 0;
+  const totalReadyA9 = hasAnySum ? claimParts.reduce((s, n) => s + Number(n), 0) : null;
+  const hasPendingVault = predPendingA9 !== null && predPendingA9 !== undefined && Number(predPendingA9) > 0;
+
+  return `
+    <section class="card unified-vault-card" id="profile-unified-vault">
+      <div class="row-between" style="margin-bottom:8px;">
+        <div class="card-title">${icon('wallet', 15, 'text-gold')} ${L('统一金库 / 领奖中心', 'Unified Vault & Claim Center')}</div>
+        <span class="chip ${isLive ? (fundsEnabled ? 'chip-green' : 'chip-muted') : 'chip-gold'}">${isLive ? (fundsEnabled ? L('链上可领', 'LIVE') : L('只读模式', 'READ-ONLY')) : 'DEMO'}</span>
+      </div>
+
+      <div class="unified-vault-total">
+        <span class="num-xs text-muted">${L('当前聚合可领总额（轮次已解锁 + 推广余额，含已激活预言）', 'Total Ready to Claim (Round + Promo Balance, incl. activated prediction)')}</span>
+        <div class="num-lg text-green mono" style="font-weight:900;margin-top:3px;">${loading && !hasAnySum ? L('读取中…', 'Loading…') : fmtA9(totalReadyA9)}</div>
+      </div>
+
+      <div class="unified-vault-list">
+        <a class="unified-vault-row" href="#/claim">
+          <div>
+            <div class="num-sm" style="font-weight:800;">${L('轮次已解锁奖励', 'Unlocked Round Prizes')}</div>
+            <div class="num-xs text-muted">${L('StakeTicket 链上领奖 · 附 0.22 GRAM Gas', 'StakeTicket claim · 0.22 GRAM gas')}</div>
+          </div>
+          <div class="unified-vault-val">
+            <b class="mono text-green">${fmtA9(roundClaimableA9)}</b>
+            <span>${L('去领取', 'Claim')} ›</span>
+          </div>
+        </a>
+
+        <a class="unified-vault-row" href="#/team/invite">
+          <div>
+            <div class="num-sm" style="font-weight:800;">${L('推广返佣余额（6%）', 'Referral & Promo Balance (6%)')}</div>
+            <div class="num-xs text-muted">${L('热钱包自动发 A9 · 付 0.06 GRAM Gas', 'Hot wallet A9 payout · 0.06 GRAM gas')}</div>
+          </div>
+          <div class="unified-vault-val">
+            <b class="mono text-gold">${fmtA9(promoClaimableA9)}</b>
+            <span>${L('去领取', 'Claim')} ›</span>
+          </div>
+        </a>
+
+        <button type="button" class="unified-vault-row unified-vault-btn" id="btn-vault-go-pred">
+          <div>
+            <div class="num-sm" style="font-weight:800;">${L('24H 预言金库（已激活 / 待激活）', '24H Prediction Vault (Active / Pending)')}</div>
+            <div class="num-xs text-muted">${hasPendingVault ? L('待激活金库 48H 内购箱/质押/邀 1 友购箱解锁', 'Pending vault unlocks within 48H via chest/stake/1 paid invite') : L('0 GRAM 参战预言 · 激活后合并推广余额领取', '0 GRAM arena · merges into promo balance once activated')}</div>
+          </div>
+          <div class="unified-vault-val">
+            <b class="mono">${fmtA9(predActivatedA9)} / <span class="text-gold">${fmtA9(predPendingA9)}</span></b>
+            <span>${hasPendingVault ? L('去激活', 'Activate') : L('去查看', 'View')} ›</span>
+          </div>
+        </button>
+
+        <a class="unified-vault-row" href="#/rewards">
+          <div>
+            <div class="num-sm" style="font-weight:800;">${L('连胜锁仓待解锁份额', 'Vested Locked Shares')}</div>
+            <div class="num-xs text-muted">${L('1–5 胜 20% / 6–10 胜 40% / 11 胜起 100%', '1–5w 20% / 6–10w 40% / 11+w 100%')}</div>
+          </div>
+          <div class="unified-vault-val">
+            <b class="mono">${fmtA9(roundLockedA9)}</b>
+            <span>${L('看档位', 'Tiers')} ›</span>
+          </div>
+        </a>
+      </div>
+
+      <div class="grid-3" style="gap:6px;margin-top:10px;">
+        <a class="btn btn-primary btn-sm" href="#/claim" style="width:100%;min-height:38px;">${L('金库领奖', 'Claim')}</a>
+        <a class="btn btn-secondary btn-sm" href="#/team/invite" style="width:100%;min-height:38px;">${L('推广领奖', 'Promo')}</a>
+        <a class="btn btn-secondary btn-sm" href="#/rewards" style="width:100%;min-height:38px;">${L('解锁档位', 'Vesting')}</a>
+      </div>
+      ${isLive && !hasWallet ? `<div class="num-xs text-muted" style="margin-top:8px;">${L('连接并验证 TON 钱包后自动同步真实链上与推广余额。', 'Connect & verify your TON wallet to sync live balances.')}</div>` : ''}
+    </section>
+  `;
+}
+
 export function renderProfileHome(root, navigate) {
   if (!config.isDemo) {
     const u = store.state.user;
     const addrLabel = u.shortAddress || (u.address ? (u.address.length > 12 ? `${u.address.slice(0, 4)}...${u.address.slice(-4)}` : u.address) : null);
     const walletAddr = addrLabel || L('未连接钱包', 'Not connected');
     const gramText = u.tonBalance !== null && u.tonBalance !== undefined ? `${formatNum(u.tonBalance, 2)} GRAM` : '— GRAM';
-    root.innerHTML = `<div class="col-gap anim-page-enter">${identityStage({ walletAddr, gramText })}</div>`;
+    root.innerHTML = `<div class="col-gap anim-page-enter">${identityStage({ walletAddr, gramText })}<div id="profile-unified-vault-mount"></div></div>`;
+
+    const vaultMount = root.querySelector('#profile-unified-vault-mount');
+    const paintLiveVault = (opts) => {
+      if (!vaultMount || !vaultMount.isConnected) return;
+      vaultMount.innerHTML = renderUnifiedVaultHtml({
+        ...opts,
+        isLive: true,
+        hasWallet: Boolean(store.state.user.address),
+        fundsEnabled: store.fundsEnabled,
+      });
+      const predBtn = vaultMount.querySelector('#btn-vault-go-pred');
+      if (predBtn) {
+        predBtn.onclick = () => {
+          A9Haptic.light();
+          store.state.referral.pendingScrollTarget = 'prediction';
+          navigate('/round');
+        };
+      }
+    };
+
+    const addr = store.state.user.address;
+    const uid = getEffectiveUserId(store.state.user);
+    const roundId = store.state.round?.currentRound || null;
+    paintLiveVault({ loading: Boolean(addr || uid) });
+
+    if (addr || uid) {
+      Promise.allSettled([
+        addr ? fetchPromoBalance(addr) : Promise.resolve(null),
+        uid ? fetchPredictionUser(uid, roundId) : Promise.resolve(null),
+      ]).then(([promoRes, predRes]) => {
+        if (!root.isConnected || store.state.user.address !== addr) return;
+        const promoData = promoRes.status === 'fulfilled' ? promoRes.value : null;
+        const predData = predRes.status === 'fulfilled' ? predRes.value : null;
+        const promoClaimableA9 = promoData && promoData.claimableRaw !== undefined ? rawToA9(promoData.claimableRaw) : null;
+        const predActivatedA9 = predData && predData.activatedRaw !== undefined ? rawToA9(predData.activatedRaw) : null;
+        const predPendingA9 = predData && predData.pendingActivationRaw !== undefined ? rawToA9(predData.pendingActivationRaw) : null;
+        paintLiveVault({
+          roundClaimableA9: null,
+          roundLockedA9: null,
+          promoClaimableA9,
+          predActivatedA9,
+          predPendingA9,
+          loading: false,
+        });
+      });
+    }
+
     portfolioPanel(root.firstElementChild);
     return;
   }
@@ -155,9 +291,26 @@ export function renderProfileHome(root, navigate) {
       </div>
     `;
 
+    const promoDemoA9 = Number(store.state.user.promoClaimableA9 ?? store.state.team?.captainHistoryA9 ?? 0) || 0;
+    const predActDemoA9 = rawToA9(store.state.prediction?.activatedRaw) || 0;
+    const predPendDemoA9 = rawToA9(store.state.prediction?.pendingActivationRaw) || 0;
+    const unifiedVaultDemoHtml = renderUnifiedVaultHtml({
+      roundClaimableA9: claimable ?? 0,
+      roundLockedA9: lockedA9,
+      promoClaimableA9: promoDemoA9,
+      predActivatedA9: predActDemoA9,
+      predPendingA9: predPendDemoA9,
+      isLive: false,
+      hasWallet: Boolean(user.connected),
+      loading: false,
+      fundsEnabled: store.fundsEnabled,
+    });
+
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         ${identityStage({ modePill, walletAddr, gramText })}
+
+        ${unifiedVaultDemoHtml}
 
         ${todoCardHtml}
 
@@ -243,6 +396,14 @@ export function renderProfileHome(root, navigate) {
           renderProfileHome(root, navigate);
         }
       });
+    }
+    const vaultPredBtn = root.querySelector('#btn-vault-go-pred');
+    if (vaultPredBtn) {
+      vaultPredBtn.onclick = () => {
+        A9Haptic.light();
+        store.state.referral.pendingScrollTarget = 'prediction';
+        navigate('/round');
+      };
     }
     const connectBtn = root.querySelector('#profile-connect');
     if (connectBtn) connectBtn.onclick = () => tonConnect.openConnectModal(() => renderProfileHome(root, navigate));

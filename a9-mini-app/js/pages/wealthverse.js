@@ -6,7 +6,8 @@ import { store } from '../store.js';
 import { icon } from '../icons.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
-import { burstParticles, escapeHtml, formatNum, formatTimer, renderLiveSparkline, showToast } from '../components.js';
+import { burstParticles, copyText, escapeHtml, formatNum, formatTimer, openModal, closeModal, renderLiveSparkline, showToast } from '../components.js';
+import { buildTonviewerUrl, shortAddress } from '../tx-ux.js';
 import { DIORAMA_BACKDROP, renderCitySandtable, renderNintendoGateIcon } from '../paper-art.js';
 import {
   BOXHEADS_SERIES,
@@ -305,9 +306,12 @@ export function city() {
     ? '—'
     : formatTimer(r.countdownSec);
 
-  const poolSummary = r.rewardBudgetA9 === null || r.rewardBudgetA9 === undefined
-    ? `${L('奖池', 'Pool')} ${waiting()}`
-    : `${L('奖池', 'Pool')} ${formatNum(r.rewardBudgetA9)} A9`;
+  const hasPoolBudget = r.rewardBudgetA9 !== null && r.rewardBudgetA9 !== undefined && Number.isFinite(Number(r.rewardBudgetA9));
+  const refPrice = r.priceValid !== false ? Number(r.livePrice || r.twap24h || 0) : 0;
+  const poolUsdEst = hasPoolBudget && refPrice > 0 ? Number(r.rewardBudgetA9) * refPrice : null;
+  const hpPct = passed !== null && required > 0
+    ? Math.max(0, Math.min(100, Math.round((passed / required) * 100)))
+    : 0;
 
   // 24 颗微型实体进度点（观察与结算态展示）
   const slotDots = Array.from({ length: 24 }, (_, i) => {
@@ -322,73 +326,84 @@ export function city() {
     return `<i class="slot-dot ${state}${i === 15 ? ' threshold' : ''}" aria-hidden="true"></i>`;
   }).join('');
 
-  // 按当前轮次阶段确定唯一焦点数字、副说明与精准动词按钮
-  let focusKicker = L('本轮达标进展', 'ROUND PROGRESS');
-  let focusHtml = '';
-  let focusSub = '';
+  // 首屏主卡聚焦 3 大核心焦点：1) 本轮奖池 A9/估值  2) 16/24 通关血条视觉  3) 唯一主行动按钮
+  let poolKicker = L('本轮用户奖池（上限 15×）', 'ROUND REWARD POOL (15× CAP)');
+  let poolMainHtml = hasPoolBudget
+    ? `${formatNum(r.rewardBudgetA9)} <span class="focus-unit">A9</span>`
+    : `<span>${waiting()}</span>`;
+  let poolSubHtml = poolUsdEst !== null
+    ? `${L('按当前均价参考估值约', 'Est. value at current TWAP')} <b class="mono">$${formatNum(poolUsdEst, 2)}</b>`
+    : L('≥ 1,000 A9 参与 · 早鸟 2.0× / 1.4× / 1.0×', '≥ 1,000 A9 entry · Early 2.0× / 1.4× / 1.0×');
+  let hpLabel = L('24H 通关血条（16/24 达标）', '24H PASS BAR (16/24 GOAL)');
+  let hpBadge = passed !== null ? `${passed} / ${required}` : L('待核验', 'Pending');
+  let hpHint = '';
+  let hpTone = '';
+  let ctaHref = '#/round';
   let ctaText = L('查看本轮进度', 'View round progress');
   let dotTone = '';
   let showSlotTrack = false;
 
   if (r.stage === 'participation') {
-    focusKicker = L('参与窗口开放中 · 早鸟权重', 'ENTRY OPEN · EARLY WEIGHT');
-    focusHtml = `<span class="focus-accent-gold">2.0×</span> <span class="focus-unit">${L('首段早鸟', 'Early Tier')}</span>`;
-    focusSub = L('≥ 1,000 A9 · 早鸟 2.0× / 1.4× / 1.0×', '≥ 1,000 A9 · 2.0× / 1.4× / 1.0×');
-    ctaText = L('查看参与条件', 'Check entry rules');
+    poolKicker = L('火热入场 · 本轮奖池（早鸟 2.0×）', 'ENTRY OPEN · ROUND POOL (2.0×)');
+    hpLabel = L('开盘入场窗口 · 准备冲击 16/24', 'ENTRY WINDOW · READY FOR 16/24');
+    hpBadge = L('早鸟 2.0×', '2.0× EARLY');
+    hpHint = L('最低 1,000 A9 参与 · 24H 达标 ≥ 16 格即通关', 'Min 1,000 A9 · 16+/24 hourly slots to pass');
+    hpTone = 'gold';
+    ctaText = L('立即查看参与入口', 'Enter Current Round');
     dotTone = 'gold';
   } else if (r.stage === 'warmup') {
-    focusKicker = L('预热报名中 · 本轮预热池', 'WARM-UP OPEN · POOL');
-    focusHtml = `${config.isDemo ? '8,000,000' : waiting()} <span class="focus-unit">A9</span>`;
-    focusSub = L('免费报名 · 前 50 阶梯奖励', 'Free entry · Top 50 rewards');
-    ctaText = L('查看预热进度', 'View warm-up');
+    poolKicker = L('开局倒计时 · 本轮预热池', 'PRE-ROUND · WARM-UP POOL');
+    if (!hasPoolBudget && config.isDemo) {
+      poolMainHtml = `8,000,000 <span class="focus-unit">A9</span>`;
+    }
+    hpLabel = L('下轮开局预热中', 'NEXT ROUND WARM-UP');
+    hpBadge = L('0 成本预约', '0-COST');
+    hpHint = L('提前预约锁定开轮提醒与专属预热宝箱', 'Reserve early for opening alerts & Warm-Up Chest');
+    hpTone = 'gold';
+    ctaHref = '#/warmup';
+    ctaText = L('前往开局预热', 'Open Warm-Up');
     dotTone = 'gold';
   } else if (awaitingSettle) {
-    focusKicker = L('已达标门槛 · 等待结算', 'THRESHOLD MET · AWAITING SETTLE');
-    focusHtml = `<span class="focus-accent-green">${passed ?? required}</span><span class="focus-slash">/</span><span class="focus-denom">${required}</span> <span class="focus-unit">${L('个达标时段', 'met')}</span>`;
-    focusSub = confirmed !== null
-      ? L(`已确认 ${confirmed}/24 · 待结算`, `${confirmed}/24 confirmed · settling`)
-      : L('已满足达标条件 · 等待结算确认', 'Condition met · awaiting settlement');
-    ctaText = L('查看本轮进度', 'View progress');
+    hpBadge = `${passed ?? required} / ${required}`;
+    hpHint = L(`已达 16 格通关线（已确认 ${confirmed ?? '—'}/24），等待链上结算`, `16-slot threshold met (${confirmed ?? '—'}/24 confirmed), awaiting settle`);
+    hpTone = 'pass';
+    ctaText = L('查看结算进度', 'View settlement');
     showSlotTrack = true;
   } else if (r.stage === 'observation') {
-    focusKicker = L('24H 达标时段进度', '24H QUALIFIED SLOTS');
-    focusHtml = `<span class="focus-accent-green">${passed ?? '—'}</span><span class="focus-slash">/</span><span class="focus-denom">${required}</span> <span class="focus-unit">${L('个达标时段', 'qualified')}</span>`;
-    focusSub = need === null
-      ? L('时段数据待核验 · 点击进入核对明细', 'Slot data pending verification')
-      : L(`已确认 ${confirmed ?? '—'}/24 · 差 ${need} 格达标`, `${confirmed ?? '—'}/24 · ${need} more to pass`);
-    ctaText = L('查看时段记录', 'View slot records');
+    hpBadge = passed !== null ? `${passed} / ${required}` : L('待核验', 'Pending');
+    hpHint = need === null
+      ? L('时段数据待核验 · 点击下方查看 24H 明细', 'Slot data pending verification')
+      : L(`距通关还差 ${need} 格 · 已确认 ${confirmed ?? '—'}/24 段`, `${need} more slot(s) to pass · ${confirmed ?? '—'}/24 confirmed`);
+    ctaText = L('进入 24H 观测盘', 'Open 24H Board');
     dotTone = 'cyan';
     showSlotTrack = true;
   } else if (r.stage === 'settlement_success') {
-    focusKicker = L('本轮结算结果 · 已达标', 'SETTLED · PASSED');
-    focusHtml = `<span class="focus-accent-green">${L('本轮达标', 'Passed')}</span> <span class="focus-unit">${passed ?? required}/${required}</span>`;
-    focusSub = config.isDemo
-      ? L('凭证奖励已核算，可进入明细核对并领取', 'Rewards settled; view details to claim')
-      : L('可进入明细核验个人凭证结算结果', 'Check personal ticket settlement status');
-    ctaText = L('查看结算明细', 'View settlement');
+    hpBadge = `${passed ?? required} / ${required}`;
+    hpHint = L('本轮已达标通关 · 凭证奖励可前往金库核对领取', 'Round passed · check Claim Vault for unlocked A9');
+    hpTone = 'pass';
+    ctaText = L('查看通关结算', 'View Passed Result');
     showSlotTrack = true;
   } else if (r.stage === 'settlement_burn') {
-    focusKicker = L('本轮结算结果 · 未达标', 'SETTLED · MISSED');
-    focusHtml = `<span class="focus-accent-rose">${L('未达标 ×', 'Missed ×')}</span> <span class="focus-unit">${passed ?? 0}/${required}</span>`;
-    focusSub = L('未达 16/24 · 本金与半数奖池销毁', 'Below 16/24 · principal burned');
-    ctaText = L('查看结算明细', 'View settlement');
+    hpBadge = `${passed ?? 0} / ${required}`;
+    hpHint = L('未达 16/24 达标线 · 已按 v16.1 规则执行链上销毁 BURN', 'Below 16/24 · on-chain BURN executed per v16.1');
+    hpTone = 'burn';
+    ctaText = L('查看销毁存证', 'View Burn Proof');
     dotTone = 'red';
     showSlotTrack = true;
   } else if (r.stage === 'halted') {
-    focusKicker = L('安全保护 · 异常中止', 'SAFETY HALT');
-    focusHtml = `<span class="focus-accent-gold">${L('异常中止 · 退回本金', 'Aborted · Refund')}</span>`;
-    focusSub = L('安全中止 · 本金原路退回', 'Safety halt · principal refunded');
-    ctaText = L('查看保护说明', 'View halt status');
+    hpBadge = L('安全中止', 'ABORTED');
+    hpHint = L('触发预言机/超时安全保护 · 参与本金原路退回', 'Safety halt triggered · staked principal refunded');
+    hpTone = 'gold';
+    ctaText = L('查看退款存证', 'View Refund Proof');
     dotTone = 'gold';
   } else {
-    focusKicker = L('当前轮次状态', 'ROUND STATUS');
-    focusHtml = `<span>${waiting()}</span>`;
-    focusSub = L('正在等待服务端同步轮次信息', 'Awaiting server round sync');
+    hpBadge = waiting();
+    hpHint = L('正在同步链上轮次状态', 'Syncing on-chain round status');
   }
 
   const gates = [
     ['/internal/market',          'market', L('宝箱商城', 'Chest Mall'),  L('0.99 GRAM起', 'From 0.99 GRAM')],
-    ['/internal/market?tab=free', 'trophy', L('免费宝箱', 'Free Chests'), L('助力领 A9', 'Assist A9')],
+    ['/internal/market?tab=free', 'trophy', L('免费宝箱', 'Free Chests'), L('同行领 A9', 'Co-Op A9')],
     ['/rewards',                  'vault',  L('奖金金库', 'Vault'),       L('连胜解锁', 'Vesting')],
     ['/rules',                    'rules',  L('闯关指南', 'Guide'),       L('常见问题', 'FAQ Guide')],
   ];
@@ -420,6 +435,14 @@ export function city() {
 
     <div class="diorama-stage city-hub-stage${isRedAlert ? ' alert-red-mode' : ''}" data-mood="${sandtableMood}">
 
+      <button type="button" class="plaza-trust-badge" id="btn-plaza-trust-badge">
+        <span class="row-start" style="gap:6px;min-width:0;">
+          ${icon('shieldCheck', 14, 'text-green')}
+          <span class="plaza-trust-text">${L('v16.1 合约已弃权 · 奖池链上可查', 'v16.1 Renounced · On-Chain Pool Verified')}</span>
+        </span>
+        <span class="plaza-trust-cta">${L('验真', 'Verify')} ›</span>
+      </button>
+
       <div class="city-hub-top">
         <div class="city-round-pill">
           <span class="live-dot ${dotTone}"></span>
@@ -432,47 +455,51 @@ export function city() {
         </div>
       </div>
 
-      <div class="city-focus-block">
-        <div class="city-focus-copy">
-          <span class="diorama-kicker">${focusKicker}</span>
-          <div class="city-focus-val">${focusHtml}</div>
-          <p class="city-focus-sub">${focusSub}</p>
-        </div>
+      <div class="plaza-pool-hero">
+        <span class="diorama-kicker">${poolKicker}</span>
+        <div class="city-focus-val">${poolMainHtml}</div>
+        <p class="city-focus-sub">${poolSubHtml}</p>
       </div>
 
-      ${showSlotTrack ? `
-        <a class="city-slot-strip${isMatchPoint ? ' is-matchpoint' : ''}" href="#/observation/records">
-          <div class="city-slot-dots" aria-label="${L('24H 时段进度', '24H slot progress')}">${slotDots}</div>
-          <div class="row-between city-price-inline">
-            <span>${L('目标', 'Target')} <b class="mono">${priceOrDash(r.targetPrice)}</b></span>
-            <span class="row-start" style="gap:6px;">
-              <span>${L('均价', 'TWAP')} <b class="mono text-green" id="live-twap-val">${priceOrDash(r.twap24h ?? r.livePrice)}</b></span>
-              ${history.length > 1 ? renderLiveSparkline(history) : ''}
-            </span>
+      <div class="plaza-hp-card${isMatchPoint ? ' is-matchpoint' : ''}${hpTone ? ` tone-${hpTone}` : ''}">
+        <div class="row-between" style="margin-bottom:6px;">
+          <span class="num-xs" style="font-weight:800;color:var(--ink);">${hpLabel}</span>
+          <span class="chip ${hpTone === 'burn' ? 'chip-red' : hpTone === 'gold' ? 'chip-gold' : 'chip-green'} mono">${hpBadge}</span>
+        </div>
+        ${showSlotTrack ? `
+          <div class="plaza-hp-track" aria-label="${L('16/24 通关进度血条', '16/24 pass bar')}">
+            <div class="plaza-hp-fill${hpTone === 'burn' ? ' is-burn' : ''}" style="width:${hpPct}%;"></div>
           </div>
-        </a>
-      ` : `
-        <div class="city-price-strip">
-          <div class="city-price-cell">
-            <span class="num-xs text-muted">${L('目标底价', 'Target Price')}</span>
-            <strong class="mono">${priceOrDash(r.targetPrice)}</strong>
-          </div>
-          <div class="city-price-cell live">
-            <div class="city-price-live-copy">
-              <span class="num-xs text-muted">${L('当前判定均价', 'Judge TWAP')}</span>
-              <strong class="mono text-green" id="live-twap-val">${priceOrDash(r.twap24h ?? r.livePrice)}</strong>
+          <div class="num-xs text-sec" style="margin:6px 0 8px;font-weight:700;">${hpHint}</div>
+          <a class="city-slot-strip${isMatchPoint ? ' is-matchpoint' : ''}" href="#/observation/records">
+            <div class="city-slot-dots" aria-label="${L('24H 时段进度', '24H slot progress')}">${slotDots}</div>
+            <div class="row-between city-price-inline">
+              <span>${L('目标', 'Target')} <b class="mono">${priceOrDash(r.targetPrice)}</b></span>
+              <span class="row-start" style="gap:6px;">
+                <span>${L('均价', 'TWAP')} <b class="mono text-green" id="live-twap-val">${priceOrDash(r.twap24h ?? r.livePrice)}</b></span>
+                ${history.length > 1 ? renderLiveSparkline(history) : ''}
+              </span>
             </div>
-            ${history.length > 1 ? renderLiveSparkline(history) : ''}
+          </a>
+        ` : `
+          <div class="num-xs text-sec" style="margin-bottom:8px;font-weight:700;">${hpHint}</div>
+          <div class="city-price-strip">
+            <div class="city-price-cell">
+              <span class="num-xs text-muted">${L('目标底价', 'Target Price')}</span>
+              <strong class="mono">${priceOrDash(r.targetPrice)}</strong>
+            </div>
+            <div class="city-price-cell live">
+              <div class="city-price-live-copy">
+                <span class="num-xs text-muted">${L('当前判定均价', 'Judge TWAP')}</span>
+                <strong class="mono text-green" id="live-twap-val">${priceOrDash(r.twap24h ?? r.livePrice)}</strong>
+              </div>
+              ${history.length > 1 ? renderLiveSparkline(history) : ''}
+            </div>
           </div>
-        </div>
-      `}
-
-      <a class="game-play" href="#/round">${ctaText} ›</a>
-
-      <div class="city-pool-summary">
-        <span>${poolSummary}</span>
-        <span>${L('早鸟 2.0× · 上限 15×', 'Early 2.0× · 15× Cap')}</span>
+        `}
       </div>
+
+      <a class="game-play" href="${ctaHref}">${ctaText} ›</a>
     </div>
 
     <nav class="game-gates">
@@ -530,9 +557,9 @@ export function city() {
         <span>${unlockPct ? L(`当前即时解锁 ${unlockPct}`, `${unlockPct} instant`) : L('查看连胜解锁', 'Vesting tiers')} ›</span>
       </a>
       <a class="city-meta-tile" href="#/team/invite">
-        <small>${L('邀友奖励体系', 'Invite Rewards')}</small>
-        <strong>12% + 18%</strong>
-        <span>${L('生成邀请海报', 'Invite poster')} ›</span>
+        <small>${L('直推宝箱返佣', 'Direct Referral')}</small>
+        <strong>6%</strong>
+        <span>${L('生成招募海报', 'Invite poster')} ›</span>
       </a>
     </div>
 
@@ -648,7 +675,76 @@ function bindHandbookStampEvents(root, navigate) {
   });
 }
 
-/** 渲染广场并绑定每日集章与 24H 竞猜直达交互 */
+/** 弹出 v16.1 合约防 Rug 链上验真卡（展示弃权/奖池说明、Tonviewer 查验与 /risk/audit 跳转） */
+function openContractTrustModal(navigate) {
+  A9Haptic.light();
+  const r = store.state.round || {};
+  const cfg = r.protocolConfig || {};
+  const contracts = cfg.contracts || {};
+  const network = cfg.network || config.network || 'mainnet';
+  const rcAddr = String(contracts.roundController || '').trim();
+  const jmAddr = String(contracts.jettonMaster || contracts.a9JettonMaster || '').trim();
+  const rcUrl = rcAddr ? buildTonviewerUrl(rcAddr, network) : '';
+  const jmUrl = jmAddr ? buildTonviewerUrl(jmAddr, network) : '';
+
+  const addrRow = (title, addr, url, copyId) => `
+    <div class="sub-tile" style="padding:9px 11px;">
+      <div class="row-between" style="margin-bottom:4px;">
+        <span class="num-xs text-muted">${title}</span>
+        <span class="chip ${addr ? 'chip-green' : 'chip-muted'} mono" style="min-height:18px;font-size:9.5px;">${addr ? String(network).toUpperCase() : L('待接入', 'PENDING')}</span>
+      </div>
+      ${addr ? `
+        <div class="row-between" style="gap:6px;">
+          <span class="mono num-xs" style="font-weight:800;" title="${escapeHtml(addr)}">${escapeHtml(shortAddress(addr, 8, 6))}</span>
+          <div class="row-start" style="gap:6px;">
+            <button class="pill-trigger neutral" id="${copyId}" type="button">${icon('copy', 11)} ${L('复制', 'Copy')}</button>
+            <a class="pill-trigger" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Tonviewer ${icon('external', 11)}</a>
+          </div>
+        </div>
+      ` : `<div class="num-xs text-sec">${L('主网合约地址同步后自动开放 Tonviewer 直连查验', 'Tonviewer link activates once mainnet contract config syncs')}</div>`}
+    </div>
+  `;
+
+  openModal(`
+    <div class="sheet-handle"></div>
+    <div class="row-between" style="margin-bottom:8px;">
+      <div class="card-title">${icon('shieldCheck', 17, 'text-green')} ${L('v16.1 合约链上验真', 'v16.1 On-Chain Verification')}</div>
+      <button class="icon-btn" id="trust-modal-close" type="button" aria-label="${L('关闭', 'Close')}">${icon('x', 15)}</button>
+    </div>
+    <div class="num-xs text-sec" style="line-height:1.55;margin-bottom:10px;">
+      ${L('A9 采用 v16.1 极简 4 合约 O(1) 架构：10,000,000,000 A9 一次铸完即永久弃权不可增发；7,000,000,000 A9 用户奖池与每轮 24H 结算规则均由合约链上公开执行。', 'A9 runs on the minimal 4-contract O(1) v16.1 suite: 10,000,000,000 A9 minted once with permanent admin renouncement; the 7,000,000,000 A9 reward pool and 24H settlements execute transparently on-chain.')}
+    </div>
+    <div class="col-gap" style="gap:8px;margin-bottom:12px;">
+      ${addrRow(L('主控合约 RoundController', 'RoundController Contract'), rcAddr, rcUrl, 'btn-copy-rc-addr')}
+      ${addrRow(L('代币合约 JettonMaster (已弃权)', 'JettonMaster (Renounced)'), jmAddr, jmUrl, 'btn-copy-jm-addr')}
+    </div>
+    <div class="col-gap" style="gap:8px;">
+      <button class="btn btn-primary" id="btn-trust-go-audit" type="button">${icon('shieldCheck', 15)} ${L('前往链上验真与审计页', 'Open On-Chain Audit Log')}</button>
+      <button class="btn btn-secondary" id="btn-trust-close" type="button">${L('关闭', 'Close')}</button>
+    </div>
+  `);
+
+  const close = () => { A9Haptic.light(); closeModal(); };
+  const xBtn = document.getElementById('trust-modal-close');
+  if (xBtn) xBtn.onclick = close;
+  const cBtn = document.getElementById('btn-trust-close');
+  if (cBtn) cBtn.onclick = close;
+  const copyRc = document.getElementById('btn-copy-rc-addr');
+  if (copyRc && rcAddr) copyRc.onclick = () => copyText(rcAddr, L('已复制 RoundController 地址', 'RoundController address copied'));
+  const copyJm = document.getElementById('btn-copy-jm-addr');
+  if (copyJm && jmAddr) copyJm.onclick = () => copyText(jmAddr, L('已复制 JettonMaster 地址', 'JettonMaster address copied'));
+  const auditBtn = document.getElementById('btn-trust-go-audit');
+  if (auditBtn) {
+    auditBtn.onclick = () => {
+      A9Haptic.light();
+      closeModal();
+      if (navigate) navigate('/risk/audit');
+      else window.location.hash = '#/risk/audit';
+    };
+  }
+}
+
+/** 渲染广场并绑定信任徽章、每日集章与 24H 竞猜直达交互 */
 export function renderCity(root, navigate) {
   if (config.isDemo && !store.state.progression.loaded) {
     const uid = getEffectiveUserId(store.state.user);
@@ -659,6 +755,11 @@ export function renderCity(root, navigate) {
   bindHandbookStampEvents(root, navigate);
   syncProgressionState(root, navigate);
   hydrateCityWarmupCard(root);
+
+  const trustBtn = root.querySelector('#btn-plaza-trust-badge');
+  if (trustBtn) {
+    trustBtn.onclick = () => openContractTrustModal(navigate);
+  }
 
   const predCard = root.querySelector('#city-pred-jump');
   if (predCard) {

@@ -2033,3 +2033,255 @@
     white-space: nowrap;
   }
 }
+
+/* --------------------------------------------------------------------------
+   十二、精选 4 项改造组件样式（防 Rug 信任徽章 / 通关血条 / 统一金库 / 回本推演器）
+   -------------------------------------------------------------------------- */
+.plaza-trust-badge {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 11px;
+  border-radius: 12px;
+  border: 1.5px solid rgba(18, 168, 93, 0.30);
+  background: var(--nt-green-soft);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.12s var(--ease-spring), border-color 0.15s ease;
+}
+
+.plaza-trust-badge:active {
+  transform: translateY(1.5px);
+}
+
+.plaza-trust-text {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plaza-trust-cta {
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--nt-green);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.plaza-pool-hero {
+  padding: 2px 2px 0;
+}
+
+.plaza-hp-card {
+  padding: 11px 12px;
+  border-radius: 15px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+}
+
+.plaza-hp-card.is-matchpoint {
+  border-color: var(--gold-border);
+}
+
+.plaza-hp-card.tone-burn {
+  border-color: rgba(217, 72, 96, 0.35);
+}
+
+.plaza-hp-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  overflow: hidden;
+}
+
+.plaza-hp-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--nt-green);
+  transition: width 0.3s ease;
+}
+
+.plaza-hp-fill.is-burn {
+  background: var(--nt-rose);
+}
+
+/* P0-3：我的页面统一金库 / 领奖中心 */
+.unified-vault-card {
+  border-top: 3.5px solid var(--nt-gold);
+}
+
+.unified-vault-total {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  margin-bottom: 10px;
+}
+
+.unified-vault-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.unified-vault-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 13px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  color: var(--ink);
+  text-decoration: none;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.12s var(--ease-spring), border-color 0.15s ease;
+}
+
+.unified-vault-row:active {
+  transform: translateY(1.5px);
+}
+
+.unified-vault-btn {
+  font-family: inherit;
+}
+
+.unified-vault-val {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.unified-vault-val b {
+  font-size: 12.5px;
+  font-weight: 900;
+}
+
+.unified-vault-val span {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--nt-blue);
+}
+
+/* P1-4：质押确认页收益与回本推演器 */
+.payback-calc-card {
+  border: 1.5px solid var(--card-border);
+}
+
+.payback-weight-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.payback-w-btn {
+  padding: 7px 6px;
+  border-radius: 11px;
+  border: 1.5px solid var(--card-border);
+  background: var(--paper-tray);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.1s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.payback-w-btn.active {
+  border-color: var(--nt-red);
+  background: var(--nt-red-soft);
+  color: var(--nt-red);
+}
+
+.payback-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.payback-kpi-box {
+  padding: 9px 10px;
+  border-radius: 13px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.payback-kpi-box small {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+.payback-kpi-box strong {
+  font-size: 15px;
+  font-weight: 900;
+  word-break: break-all;
+}
+
+.payback-curve-box {
+  padding: 10px 11px;
+  border-radius: 13px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+}
+
+.payback-curve-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.payback-curve-row {
+  display: grid;
+  grid-template-columns: 68px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.payback-curve-lbl {
+  font-weight: 800;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.payback-curve-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  overflow: hidden;
+}
+
+.payback-curve-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--nt-green);
+}
+
+.payback-curve-val {
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--ink);
+  white-space: nowrap;
+}
