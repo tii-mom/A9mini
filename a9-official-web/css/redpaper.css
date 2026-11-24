@@ -35,7 +35,7 @@ html[lang="zh-CN"] .redpaper [lang="en"] {
 .paper-cover img {
   width: 100%;
   transform: rotate(8deg);
-  filter: drop-shadow(0 8px 5px rgb(80 0 0 / 30%));
+  filter: var(--sticker-red-shadow);
 }
 
 .paper-toc {
@@ -56,11 +56,19 @@ html[lang="zh-CN"] .redpaper [lang="en"] {
   box-shadow: 0 2px var(--paper-thickness);
   font-size: 0.86rem;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .paper-toc a:hover {
   border-color: var(--nt-red);
   color: var(--nt-red);
+}
+
+.paper-toc a.is-active {
+  border-color: var(--nt-red-edge);
+  background: var(--nt-red);
+  color: #FFFFFF;
+  box-shadow: 0 2px var(--nt-red-edge);
 }
 
 .paper-toc a:active {
@@ -325,8 +333,66 @@ html[lang="zh-CN"] .redpaper [lang="en"] {
 .paper-outcome h3, .paper-proof h3 { margin: 0 0 5px; font-size: 1rem; }
 .paper-outcome p, .paper-proof p { margin: 0; padding: 0; border: 0; color: var(--ink-soft); }
 
+.supply-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0 0 12px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+
+.supply-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.supply-legend .lg-dot.pool { background: var(--cover-red); }
+.supply-legend .lg-dot.team { background: var(--nt-gold); }
+.supply-legend .lg-dot.rest { background: var(--paper-border-strong); }
+
+.paper-footer {
+  border-top: 4px solid var(--cover-red);
+  background: var(--paper-surface);
+  padding: 20px 0 calc(24px + env(safe-area-inset-bottom));
+}
+
+.paper-footer-inner {
+  max-width: 940px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.paper-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 @media (max-width: 720px) {
   .paper-opening { grid-template-columns: minmax(0, 1fr); }
+  .paper-toc {
+    position: sticky;
+    top: calc(62px + env(safe-area-inset-top));
+    z-index: 20;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px 0;
+    margin-block: 16px 20px;
+    background: var(--paper-bg);
+    border-bottom: 1px dashed var(--paper-border-strong);
+  }
+  .paper-toc a { flex: 0 0 auto; min-height: 38px; }
+}
+
+@media (max-width: 640px) {
+  .paper-toc { top: calc(58px + env(safe-area-inset-top)); }
 }
 
 #rules .chapter-head {

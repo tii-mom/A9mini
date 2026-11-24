@@ -5,14 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#F6F6F8" />
   <meta name="description" content="A9 — 基于 TON 的链上价格挑战。每轮考核 24 个均价时段，挑战持续至奖池耗尽。" />
+  <link rel="canonical" href="https://a9.lat/" />
   <link rel="icon" type="image/png" sizes="16x16" href="./assets/brand/favicon-16.png" />
   <link rel="icon" type="image/png" sizes="32x32" href="./assets/brand/favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="./assets/brand/apple-touch-icon.png" />
   <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="A9" />
+  <meta property="og:url" content="https://a9.lat/" />
   <meta property="og:title" content="A9 · 财富大冒险" />
   <meta property="og:description" content="基于 TON 的链上价格挑战。每轮考核 24 个均价时段，挑战持续至奖池耗尽。" />
-  <meta property="og:image" content="./assets/token/a9-token-2048.png" />
+  <meta property="og:image" content="https://a9.lat/assets/token/a9-token-2048.png" />
+  <meta property="og:image:width" content="2048" />
+  <meta property="og:image:height" content="2048" />
   <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="A9 · 财富大冒险" />
+  <meta name="twitter:description" content="基于 TON 的链上价格挑战。每轮考核 24 个均价时段，挑战持续至奖池耗尽。" />
+  <meta name="twitter:image" content="https://a9.lat/assets/token/a9-token-2048.png" />
   <script src="./js/boot-preferences.js"></script>
   <title>A9 · 财富大冒险</title>
   <link rel="stylesheet" href="./css/tokens.css" />
@@ -44,9 +52,12 @@
         </button>
         <button type="button" class="pill-btn mono" id="lang-toggle" aria-label="Switch Language">EN</button>
         <a class="cta-red header-cta" href="#simulator" data-i18n="openSimulator">查看收益试算</a>
-        <button type="button" class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Menu" aria-expanded="false">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+        <button type="button" class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Menu" aria-expanded="false" aria-controls="mobile-drawer">
+          <svg class="icon-menu" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
             <path d="M4 7h16M4 12h16M4 17h16" />
+          </svg>
+          <svg class="icon-close" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
       </div>
@@ -71,8 +82,7 @@
       <div class="wrap hero-grid">
         <div class="hero-copy">
           <div class="hero-status">
-            <span class="live-dot" aria-hidden="true"></span>
-            <span class="mono" data-i18n="heroEyebrow">第 03 轮 · 24H 观察中</span>
+            <span class="mono" data-i18n="heroEyebrow">规则示例 · 第 03 轮</span>
           </div>
 
           <h1 class="hero-title" data-i18n="heroTitle">财富大冒险</h1>
@@ -87,7 +97,7 @@
           </div>
 
           <div class="hero-cta-row">
-            <a class="cta-red cta-lg" href="#unlock" data-i18n="ctaPrimary">进入闯关</a>
+            <a class="cta-red cta-lg" href="#sandbox" data-i18n="ctaPrimary">体验 24H 判定沙盘</a>
             <a class="cta-card cta-lg" href="#observatory" data-i18n="ctaSecondary">查看考核示例</a>
             <a class="text-link" href="./redpaper/" data-i18n="openRedpaper">A9 红皮书</a>
           </div>
@@ -123,7 +133,7 @@
               <span>TWAP</span>
               <strong class="mono">$0.0714</strong>
             </div>
-            <div class="focal-cell">
+            <div class="focal-cell focal-cell-pool">
               <span>ROUND POOL</span>
               <strong class="mono focal-budget">700,000,000 A9</strong>
             </div>
@@ -153,9 +163,10 @@
             <img src="./assets/official-art/reward-vault.webp" alt="" class="pool-vault-art" />
           </div>
           <div class="pool-facts mono">
-            <span data-i18n="poolPill1">10,000,000,000固定总供应</span>
+            <span data-i18n="poolPill1">10,000,000,000 固定总供应</span>
             <span data-i18n="poolPill2">单轮上限 15× 本金</span>
-            <span data-i18n="poolPill3">30% 流动性与国库</span>
+            <span data-i18n="poolPill3">12% 团队池</span>
+            <span data-i18n="poolPill4">18% 其余供应</span>
           </div>
         </div>
 
@@ -237,14 +248,17 @@
               <p data-i18n="sandboxHint">规则示例。点一枚印章，看看 16 个和 15 个达标的区别。</p>
             </div>
             <div class="sandbox-presets">
-              <button class="cta-card cta-sm" type="button" data-sandbox-preset="16" data-i18n="sandboxPassPreset">刚好 16 个</button>
-              <button class="cta-card cta-sm" type="button" data-sandbox-preset="15" data-i18n="sandboxFailPreset">只差 1 个</button>
+              <button class="cta-card cta-sm is-active" type="button" data-sandbox-preset="16" aria-pressed="true" data-i18n="sandboxPassPreset">刚好 16 个</button>
+              <button class="cta-card cta-sm" type="button" data-sandbox-preset="15" aria-pressed="false" data-i18n="sandboxFailPreset">只差 1 个</button>
             </div>
           </div>
           <div class="stamp-grid" id="sandbox-stamps" role="group" aria-labelledby="sandbox-title"></div>
-          <div class="sandbox-result" id="sandbox-result" role="status">
-            <strong class="mono" id="sandbox-count">16 / 24</strong>
-            <span id="sandbox-verdict">通关</span>
+          <div class="sandbox-result" id="sandbox-result" data-outcome="pass" role="status" aria-live="polite">
+            <div class="sandbox-result-head">
+              <strong class="mono" id="sandbox-count">16 / 24</strong>
+              <span class="sandbox-verdict-badge" id="sandbox-verdict">通关 PASS</span>
+            </div>
+            <p class="sandbox-detail" id="sandbox-detail">本金全额返还，按早鸟权重瓜分当轮奖池（单轮上限 15×）。</p>
           </div>
         </section>
       </div>
@@ -298,16 +312,24 @@
 
             <div class="sim-field">
               <label for="sim-stake" data-i18n="simStakeLabel">质押本金（最低 1,000 A9）</label>
-              <input id="sim-stake" type="number" min="1000" step="1000" value="10000" class="sim-input mono" />
+              <input id="sim-stake" type="number" min="1000" max="10000000000" step="1000" value="10000" class="sim-input mono" aria-describedby="sim-stake-error" />
+              <p class="sim-error" id="sim-stake-error" data-i18n="simStakeError" hidden>请输入 1,000 至 10,000,000,000 之间的本金。</p>
+            </div>
+
+            <div class="sim-field">
+              <label for="sim-reward" data-i18n="simRewardLabel">假设已分配奖励（A9）</label>
+              <input id="sim-reward" type="number" min="0" max="10000000000" step="1000" value="30000" class="sim-input mono" aria-describedby="sim-reward-hint sim-reward-error" />
+              <p class="sim-field-hint" id="sim-reward-hint" data-i18n="simRewardHint">早鸟权重只影响当轮奖励分配份额，不决定固定收益率；可输入任意假设奖励试算解锁节奏。</p>
+              <p class="sim-error" id="sim-reward-error" data-i18n="simRewardError" hidden>请输入 0 至 10,000,000,000 之间的假设奖励。</p>
             </div>
 
             <div class="sim-field">
               <span class="sim-label" data-i18n="simWindowLabel">报名时段（早鸟权重）</span>
               <div class="seg-group" id="sim-weight-group">
                 <span class="seg-indicator" id="seg-indicator" aria-hidden="true"></span>
-                <button type="button" class="seg-btn is-active mono" data-weight="2.0">0–12h · 2.0×</button>
-                <button type="button" class="seg-btn mono" data-weight="1.4">12–24h · 1.4×</button>
-                <button type="button" class="seg-btn mono" data-weight="1.0">24–36h · 1.0×</button>
+                <button type="button" class="seg-btn is-active mono" data-weight="2.0"><span class="seg-time">0–12h</span><span class="seg-dot" aria-hidden="true"> · </span><span class="seg-mult">2.0×</span></button>
+                <button type="button" class="seg-btn mono" data-weight="1.4"><span class="seg-time">12–24h</span><span class="seg-dot" aria-hidden="true"> · </span><span class="seg-mult">1.4×</span></button>
+                <button type="button" class="seg-btn mono" data-weight="1.0"><span class="seg-time">24–36h</span><span class="seg-dot" aria-hidden="true"> · </span><span class="seg-mult">1.0×</span></button>
               </div>
             </div>
 
@@ -320,7 +342,7 @@
               </select>
             </div>
 
-            <dl class="sim-results">
+            <dl class="sim-results" aria-live="polite">
               <div>
                 <dt data-i18n="simWeightOut">早鸟权重份额</dt>
                 <dd class="mono" id="sim-out-weight">20,000</dd>
@@ -331,13 +353,18 @@
               </div>
               <div class="highlight-row">
                 <dt data-i18n="simInstantOut">达标当轮立领（含本金）</dt>
-                <dd class="mono text-green" id="sim-out-instant">40,000 A9</dd>
+                <dd class="mono text-green" id="sim-out-instant">16,000 A9</dd>
               </div>
               <div>
                 <dt data-i18n="simLockedOut">待后续轮次解锁</dt>
-                <dd class="mono text-gold" id="sim-out-locked">120,000 A9</dd>
+                <dd class="mono text-gold" id="sim-out-locked">24,000 A9</dd>
+              </div>
+              <div class="burn-row">
+                <dt data-i18n="simBurnOut">未达标（&lt; 16/24）销毁本金</dt>
+                <dd class="mono text-rose" id="sim-out-burn">10,000 A9</dd>
               </div>
             </dl>
+            <p class="sim-cap-note" id="sim-cap-note" hidden></p>
           </div>
         </div>
 
@@ -374,7 +401,7 @@
         <div class="sec-head chapter-head">
           <div>
             <h2 class="sec-title" data-i18n="allocTitle">分配、三种终局与四阶段</h2>
-            <p class="sec-desc" data-i18n="allocDesc">10,000,000,000固定总供应，按不可升级合约时间表执行。</p>
+            <p class="sec-desc" data-i18n="allocDesc">10,000,000,000 固定总供应，按不可升级合约时间表执行。</p>
           </div>
           <img class="chapter-art" src="./assets/official-art/red-handbook.webp" alt="" loading="lazy" />
         </div>
@@ -446,9 +473,9 @@
         <div class="sec-head chapter-head">
           <div>
             <h2 class="sec-title" data-i18n="evoTitle">A1–A9 进化图鉴</h2>
-            <p class="sec-desc" data-i18n="evoDesc">九档闯关等级对应专属 Boxheads 收藏卡。</p>
+            <p class="sec-desc" data-i18n="evoDesc">点击翻转查看各等级解锁条件与权益。</p>
           </div>
-          <img class="chapter-art" src="./assets/official-art/reward-crystal.webp" alt="" loading="lazy" />
+          <img class="chapter-art" src="./assets/official-art/adventure-book.webp" alt="" loading="lazy" />
         </div>
         <div class="evo-strip" id="evo-strip"></div>
       </div>

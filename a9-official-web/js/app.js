@@ -313,10 +313,15 @@ function renderAllocationRibbon() {
     container.appendChild(btn);
   });
 
-  const reserve = document.createElement('div');
-  reserve.className = 'ribbon-reserve';
-  reserve.textContent = t('ribbonReserve');
-  container.appendChild(reserve);
+  const team = document.createElement('div');
+  team.className = 'ribbon-team';
+  team.textContent = t('ribbonTeam');
+  container.appendChild(team);
+
+  const remaining = document.createElement('div');
+  remaining.className = 'ribbon-remaining';
+  remaining.textContent = t('ribbonRemaining');
+  container.appendChild(remaining);
 
   const selected = ROUNDS_DATA.find((r) => r.id === state.selectedAllocId) || ROUNDS_DATA[2];
   const tag = String(selected.id).padStart(2, '0');
@@ -452,19 +457,61 @@ function renderEvolution() {
 
 function updateSimulator() {
   const stakeInput = $('#sim-stake');
-  const principal = Math.max(PROTOCOL_META.minStake, Number(stakeInput.value) || PROTOCOL_META.minStake);
+  const rewardInput = $('#sim-reward');
+  const stakeError = $('#sim-stake-error');
+  const rewardError = $('#sim-reward-error');
+  const capNote = $('#sim-cap-note');
+
+  const rawPrincipal = stakeInput.valueAsNumber;
+  const stakeValid = Number.isFinite(rawPrincipal)
+    && rawPrincipal >= PROTOCOL_META.minStake
+    && rawPrincipal <= PROTOCOL_META.totalSupply;
+  stakeInput.setAttribute('aria-invalid', String(!stakeValid));
+  if (stakeError) stakeError.hidden = stakeValid;
+
+  const rawReward = rewardInput ? rewardInput.valueAsNumber : 0;
+  const rewardValid = Number.isFinite(rawReward)
+    && rawReward >= 0
+    && rawReward <= PROTOCOL_META.totalSupply;
+  if (rewardInput) rewardInput.setAttribute('aria-invalid', String(!rewardValid));
+  if (rewardError) rewardError.hidden = rewardValid;
+
+  if (!stakeValid || !rewardValid) {
+    $('#sim-out-weight').textContent = '—';
+    $('#sim-out-cap').textContent = '—';
+    $('#sim-out-instant').textContent = '—';
+    $('#sim-out-locked').textContent = '—';
+    const burnEl = $('#sim-out-burn');
+    if (burnEl) burnEl.textContent = '—';
+    if (capNote) capNote.hidden = true;
+    return;
+  }
+
+  const principal = Math.round(rawPrincipal);
+  const assumedReward = Math.round(rawReward);
   const instantRate = Number($('#sim-tier').value) || 0.2;
   const weightShare = Math.round(principal * state.simWeight);
   const maxCapReward = principal * 15;
-  const sampleReward = Math.min(maxCapReward, Math.round(principal * 1.5 * state.simWeight));
-  const instantClaim = Math.round(principal + sampleReward * instantRate);
-  const lockedReward = Math.round(sampleReward * (1 - instantRate));
+  const effectiveReward = Math.min(assumedReward, maxCapReward);
+  const instantReward = Math.round(effectiveReward * instantRate);
+  const instantClaim = principal + instantReward;
+  const lockedReward = effectiveReward - instantReward;
 
   const fmt = new Intl.NumberFormat('en-US');
   $('#sim-out-weight').textContent = fmt.format(weightShare);
   $('#sim-out-cap').textContent = `${fmt.format(maxCapReward)} A9`;
   $('#sim-out-instant').textContent = `${fmt.format(instantClaim)} A9`;
   $('#sim-out-locked').textContent = `${fmt.format(lockedReward)} A9`;
+  const burnEl = $('#sim-out-burn');
+  if (burnEl) burnEl.textContent = `${fmt.format(principal)} A9`;
+
+  if (capNote) {
+    const isCapped = assumedReward > maxCapReward;
+    capNote.hidden = !isCapped;
+    if (isCapped) {
+      capNote.textContent = `${t('simCapNotePrefix')}${fmt.format(maxCapReward)} A9${t('simCapNoteSuffix')}`;
+    }
+  }
 }
 
 /* ==========================================================================
@@ -588,9 +635,22 @@ function renderSandbox() {
 
   const qualified = sandboxStamps.filter(Boolean).length;
   const pass = qualified >= PROTOCOL_META.minQualified;
+  const deficit = PROTOCOL_META.minQualified - qualified;
   $('#sandbox-count').textContent = `${qualified} / ${PROTOCOL_META.candleCount}`;
   $('#sandbox-verdict').textContent = t(pass ? 'sandboxPass' : 'sandboxFail');
+  const detailEl = $('#sandbox-detail');
+  if (detailEl) {
+    detailEl.textContent = pass
+      ? t('sandboxPassDetail')
+      : `${t('sandboxFailDetailPrefix')}${deficit}${t('sandboxFailDetailSuffix')}`;
+  }
   $('#sandbox-result').dataset.outcome = pass ? 'pass' : 'fail';
+
+  document.querySelectorAll('[data-sandbox-preset]').forEach((preset) => {
+    const match = Number(preset.dataset.sandboxPreset) === qualified;
+    preset.classList.toggle('is-active', match);
+    preset.setAttribute('aria-pressed', String(match));
+  });
 }
 
 function bindEvents() {
@@ -617,19 +677,30 @@ function bindEvents() {
     });
   });
 
+  const header = $('#site-header');
   const menuBtn = $('#mobile-menu-btn');
   const drawer = $('#mobile-drawer');
+  const closeDrawer = (restoreFocus = false) => {
+    if (drawer.hidden) return;
+    drawer.hidden = true;
+    menuBtn.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) menuBtn.focus();
+  };
+
   menuBtn.addEventListener('click', () => {
     const open = drawer.hidden;
     drawer.hidden = !open;
     menuBtn.setAttribute('aria-expanded', String(open));
+    if (open) drawer.querySelector('a')?.focus();
   });
 
   drawer.querySelectorAll('a').forEach((link) => {
-    link.addEventListener('click', () => {
-      drawer.hidden = true;
-      menuBtn.setAttribute('aria-expanded', 'false');
-    });
+    link.addEventListener('click', () => closeDrawer(false));
+  });
+
+  document.addEventListener('click', (e) => {
+    if (drawer.hidden) return;
+    if (header && !header.contains(e.target)) closeDrawer(false);
   });
 
   $('#obs-open-modal').addEventListener('click', (e) => openRoundModal(state.selectedRoundId, e.currentTarget));
@@ -638,6 +709,10 @@ function bindEvents() {
     if (e.target === $('#round-modal')) closeRoundModal();
   });
   document.addEventListener('keydown', (e) => {
+    if (!drawer.hidden && e.key === 'Escape') {
+      closeDrawer(true);
+      return;
+    }
     if ($('#round-modal').hidden) return;
     if (e.key === 'Escape') closeRoundModal();
     if (e.key === 'Tab') {
@@ -647,13 +722,15 @@ function bindEvents() {
   });
 
   const stakeInput = $('#sim-stake');
+  const rewardInput = $('#sim-reward');
   stakeInput.min = String(PROTOCOL_META.minStake);
+  stakeInput.max = String(PROTOCOL_META.totalSupply);
   stakeInput.addEventListener('input', updateSimulator);
-  stakeInput.addEventListener('blur', () => {
-    if (stakeInput.valueAsNumber >= PROTOCOL_META.minStake) return;
-    stakeInput.value = String(PROTOCOL_META.minStake);
-    updateSimulator();
-  });
+  if (rewardInput) {
+    rewardInput.min = '0';
+    rewardInput.max = String(PROTOCOL_META.totalSupply);
+    rewardInput.addEventListener('input', updateSimulator);
+  }
   $('#sim-tier').addEventListener('change', updateSimulator);
   $('#sim-weight-group').querySelectorAll('.seg-btn').forEach((btn) => {
     btn.addEventListener('click', () => {

@@ -4,7 +4,10 @@ function applyPreferences() {
   document.title = root.lang === 'en' ? 'A9 Redpaper' : 'A9 红皮书';
   const dark = root.dataset.theme === 'dark';
   document.querySelector('meta[name="theme-color"]').content = dark ? '#161619' : '#F6F6F8';
-  document.querySelector('#paper-theme').setAttribute('aria-pressed', String(dark));
+  const themeBtn = document.querySelector('#paper-theme');
+  if (themeBtn) themeBtn.setAttribute('aria-pressed', String(dark));
+  const themeIcon = document.querySelector('#paper-theme-icon');
+  if (themeIcon) themeIcon.textContent = dark ? '☀' : '☾';
 }
 
 document.querySelector('#paper-language').addEventListener('click', () => {
@@ -23,7 +26,35 @@ document.querySelector('#paper-theme').addEventListener('click', () => {
   applyPreferences();
 });
 
+document.querySelector('#paper-back-to-top')?.addEventListener('click', () => {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
 applyPreferences();
+
+const tocLinks = Array.from(document.querySelectorAll('.paper-toc a[href^="#"]'));
+const chapters = tocLinks
+  .map((link) => document.querySelector(link.getAttribute('href')))
+  .filter(Boolean);
+
+if ('IntersectionObserver' in window && chapters.length > 0) {
+  const setActiveToc = (id) => {
+    tocLinks.forEach((link) => {
+      const match = link.getAttribute('href') === `#${id}`;
+      link.classList.toggle('is-active', match);
+      if (match) link.setAttribute('aria-current', 'true');
+      else link.removeAttribute('aria-current');
+    });
+  };
+  setActiveToc(chapters[0].id);
+  const tocObserver = new IntersectionObserver((entries) => {
+    const visible = entries
+      .filter((entry) => entry.isIntersecting)
+      .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+    if (visible.length > 0) setActiveToc(visible[0].target.id);
+  }, { rootMargin: '-20% 0px -65% 0px', threshold: [0.1, 0.35] });
+  chapters.forEach((chapter) => tocObserver.observe(chapter));
+}
 
 const principalInput = document.querySelector('#paper-principal');
 const amountFormatter = new Intl.NumberFormat('en-US');
