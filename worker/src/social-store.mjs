@@ -126,11 +126,20 @@ export function createTelegramBotGroupVerifier(botToken, fetchImpl = globalThis.
   // 保持 globalThis 作为默认 fetch 的 receiver，避免 Cloudflare workerd 抛出 Illegal invocation
   const doFetch = fetchImpl === globalThis.fetch ? (...args) => globalThis.fetch(...args) : fetchImpl;
   const baseUrl = `https://api.telegram.org/bot${token}`;
+  let cachedBotId = null;
 
   return async function verifyWithTelegram({ tgGroupHandle, tgChatId, telegramUserId }) {
     const chatRef = tgChatId || tgGroupHandle;
     if (!chatRef) {
       return { botInGroup: false, operatorIsAdmin: false, chatId: null, reason: 'MISSING_CHAT_REF' };
+    }
+    if (!cachedBotId) {
+      const meRes = await doFetch(`${baseUrl}/getMe`);
+      const meJson = await meRes.json().catch(() => null);
+      if (!meJson?.ok || !meJson?.result?.id) {
+        return { botInGroup: false, operatorIsAdmin: false, chatId: null, reason: 'BOT_IDENTITY_UNAVAILABLE' };
+      }
+      cachedBotId = String(meJson.result.id);
     }
     const chatRes = await doFetch(`${baseUrl}/getChat?chat_id=${encodeURIComponent(chatRef)}`);
     const chatJson = await chatRes.json().catch(() => null);
@@ -143,6 +152,18 @@ export function createTelegramBotGroupVerifier(botToken, fetchImpl = globalThis.
     }
     const canonicalChatId = String(chat.id);
     const canonicalHandle = chat.username ? `@${chat.username}` : (tgGroupHandle || null);
+
+    // 核验 Bot 自身已真实入群且未被踢出或禁言（防公开超级群未拉 Bot 套领 5,000 A9）
+    const botMemRes = await doFetch(
+      `${baseUrl}/getChatMember?chat_id=${encodeURIComponent(canonicalChatId)}&user_id=${encodeURIComponent(cachedBotId)}`,
+    );
+    const botMemJson = await botMemRes.json().catch(() => null);
+    const botStatus = botMemJson?.ok ? String(botMemJson?.result?.status || '') : '';
+    const botCanSend = botStatus === 'administrator' || botStatus === 'creator' || botStatus === 'member'
+      || (botStatus === 'restricted' && botMemJson?.result?.is_member === true && botMemJson?.result?.can_send_messages !== false);
+    if (!botCanSend) {
+      return { botInGroup: false, operatorIsAdmin: false, chatId: canonicalChatId, groupHandle: canonicalHandle, reason: 'BOT_NOT_IN_GROUP' };
+    }
 
     // 核验操作者在目标群内的管理员权限
     const memRes = await doFetch(
@@ -896,10 +917,13 @@ export class SocialStore {
     return this.setNotificationPrefs(tgUserId, { settlementPush: false }, nowSec);
   }
 
-  listSettlementPushSubscribers({ limit = 25 } = {}) {
-    const lim = Math.max(1, Math.min(500, Math.floor(Number(limit) || 25)));
+  listSettlementPushSubscribers({ limit = 25, maxUpdatedAt = null } = {}) {
+    const lim = Math.max(1, Math.min(10000, Math.floor(Number(limit) || 25)));
+    const cutoff = maxUpdatedAt !== null && maxUpdatedAt !== undefined && Number(maxUpdatedAt) > 0
+      ? Number(maxUpdatedAt)
+      : null;
     return Array.from(this.notificationPrefs.values())
-      .filter((r) => Boolean(r.settlementPush))
+      .filter((r) => Boolean(r.settlementPush) && (cutoff === null || Number(r.updatedAt || 0) <= cutoff))
       .sort((a, b) => (a.updatedAt - b.updatedAt) || String(a.tgUserId).localeCompare(String(b.tgUserId)))
       .slice(0, lim)
       .map((r) => String(r.tgUserId));

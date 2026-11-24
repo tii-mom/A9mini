@@ -13,7 +13,16 @@ import { D1SocialStore, D1PredictionEngine, D1ProgressionEngine, D1PresaleStore 
 import { D1PromoBudgetLedger, MemoryPromoBudgetLedger } from './promo-budget.mjs';
 import { D1IdentityStore, MemoryIdentityStore } from './auth.mjs';
 import { TelegramBroadcaster, D1BroadcastLog, MemoryBroadcastLog } from './tg-broadcaster.mjs';
-import { addressKey } from './ton-address.mjs';
+import { addressKey, parseTonAddress } from './ton-address.mjs';
+
+function timingSafeEqualStr(a, b) {
+  const x = String(a || '');
+  const y = String(b || '');
+  if (!x || !y || x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i += 1) diff |= x.charCodeAt(i) ^ y.charCodeAt(i);
+  return diff === 0;
+}
 
 function isStrictDeployEnv(env = {}) {
   const e = String(env.A9_ENVIRONMENT || '').trim().toLowerCase();
@@ -33,13 +42,17 @@ function resolveCorsOrigin(request, env = {}) {
     return isStrictDeployEnv(env) ? null : '*';
   }
   const reqOrigin = String(request?.headers?.get?.('origin') || '').trim().replace(/\/+$/, '');
-  if (reqOrigin && rawList.includes(reqOrigin)) return reqOrigin;
+  if (reqOrigin) {
+    return rawList.includes(reqOrigin) ? reqOrigin : null;
+  }
   return rawList[0];
 }
 
 function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}, origin = '*') {
   return {
     'content-type': contentType,
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
     ...(origin ? { 'access-control-allow-origin': origin } : {}),
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     'access-control-allow-headers': 'content-type, authorization, x-a9-admin-token, x-telegram-init-data, x-idempotency-key',
@@ -48,12 +61,25 @@ function corsHeaders(contentType = 'application/json; charset=utf-8', extra = {}
   };
 }
 
+export function buildNormalizedOgCacheUrl(url) {
+  const u = new URL(url.origin + url.pathname);
+  const ratio = String(url.searchParams.get('ratio') || '').trim().toLowerCase();
+  if (ratio === '16x9' || ratio === '9x16') {
+    u.searchParams.set('ratio', ratio);
+  }
+  return u.toString();
+}
+
 const CHAIN_CACHE_TTL_SEC = 15;
 const CHAIN_CACHE_STALE_MAX_SEC = 60;
 
-function routeNeedsChainState(pathname, request = null) {
+export function routeNeedsChainState(pathname, request = null, body = null, env = {}) {
   if (pathname === '/api/telegram/webhook') {
-    return Boolean(String(request?.headers?.get?.('x-telegram-bot-api-secret-token') || '').trim());
+    const expected = String(env?.A9_TG_WEBHOOK_SECRET || '').trim();
+    const provided = String(request?.headers?.get?.('x-telegram-bot-api-secret-token') || '').trim();
+    if (!expected || !timingSafeEqualStr(provided, expected)) return false;
+    const text = String(body?.message?.text || body?.edited_message?.text || '').trim();
+    return /^\/status(?:@[A-Za-z0-9_]+)?(?:\s|$)/i.test(text);
   }
   return (
     pathname === '/api/config' ||
@@ -64,13 +90,39 @@ function routeNeedsChainState(pathname, request = null) {
     pathname.startsWith('/api/prediction/user/') ||
     pathname.startsWith('/api/prediction/activate') ||
     pathname.startsWith('/api/progression/') ||
-    pathname === '/api/warmup/leaderboard' ||
+    pathname.startsWith('/api/warmup/') ||
+    pathname.startsWith('/api/admin/warmup/') ||
     pathname.startsWith('/c/')
   );
 }
 
 const STATUS_NAME_TO_CODE = { UNOPENED: 0, ACTIVE: 1, SUCCEEDED: 2, FAILED: 3, ABORTED: 4 };
 const STATUS_CODE_TO_NAME = ['UNOPENED', 'ACTIVE', 'SUCCEEDED', 'FAILED', 'ABORTED'];
+
+async function readCandlesFromD1(db, minRoundId) {
+  const candlesByRound = new Map();
+  if (!db) return candlesByRound;
+  try {
+    const cRes = await db
+      .prepare('SELECT * FROM round_candles WHERE round_id >= ? ORDER BY round_id ASC, candle_index ASC')
+      .bind(Number(minRoundId || 0))
+      .all();
+    for (const c of cRes?.results || []) {
+      const rId = Number(c.round_id);
+      if (!candlesByRound.has(rId)) candlesByRound.set(rId, []);
+      candlesByRound.get(rId).push({
+        candleIndex: Number(c.candle_index),
+        periodStart: Number(c.period_start),
+        periodEnd: Number(c.period_end),
+        twapPriceUsdE8: String(c.twap_price_usd_e8),
+        qualified: Number(c.qualified) === 1,
+      });
+    }
+  } catch {
+    // ignore D1 candle read failure
+  }
+  return candlesByRound;
+}
 
 export async function readCachedRoundsFromD1(db, nowSec) {
   try {
@@ -83,22 +135,7 @@ export async function readCachedRoundsFromD1(db, nowSec) {
     if (nowSec - latestUpdated > CHAIN_CACHE_TTL_SEC) return null;
 
     const minRoundId = Number(rows[0].round_id || 0);
-    const cRes = await db
-      .prepare('SELECT * FROM round_candles WHERE round_id >= ? ORDER BY round_id ASC, candle_index ASC')
-      .bind(minRoundId)
-      .all();
-    const candlesByRound = new Map();
-    for (const c of cRes?.results || []) {
-      const rId = Number(c.round_id);
-      if (!candlesByRound.has(rId)) candlesByRound.set(rId, []);
-      candlesByRound.get(rId).push({
-        candleIndex: Number(c.candle_index),
-        periodStart: Number(c.period_start),
-        periodEnd: Number(c.period_end),
-        twapPriceUsdE8: String(c.twap_price_usd_e8),
-        qualified: Number(c.qualified) === 1,
-      });
-    }
+    const candlesByRound = await readCandlesFromD1(db, minRoundId);
 
     const rounds = rows.map((r) => ({
       roundId: Number(r.round_id),
@@ -263,6 +300,32 @@ export function validateCandidateEnv(env = {}) {
     if (missing.length) {
       return { ok: false, missing, code: 'PRODUCTION_CONFIG_INCOMPLETE' };
     }
+    // 主网/生产环境额外强检所有已配置合约/热钱包地址为 Basechain(workchain=0) 非 testOnly，且禁止指向 testnet TonCenter
+    const invalid = [];
+    for (const addrKey of [
+      'A9_JETTON_MASTER_ADDRESS',
+      'A9_ROUND_CONTROLLER_ADDRESS',
+      'A9_PROMO_HOT_WALLET_ADDRESS',
+      'A9_PRESALE_HOT_WALLET_ADDRESS',
+    ]) {
+      const val = String(env[addrKey] || '').trim();
+      if (!val) continue;
+      const parsed = parseTonAddress(val);
+      if (!parsed || parsed.workchain !== 0 || (netName === 'mainnet' && parsed.testOnly === true)) {
+        invalid.push(`${addrKey}:invalid_mainnet_basechain`);
+      }
+    }
+    if (netName === 'mainnet') {
+      for (const rpcKey of ['TONCENTER_API_BASE', 'TONCENTER_V3_API_BASE']) {
+        const rpc = String(env[rpcKey] || '').trim().toLowerCase();
+        if (rpc && rpc.includes('testnet.toncenter.com')) {
+          invalid.push(`${rpcKey}:testnet_endpoint_on_mainnet`);
+        }
+      }
+    }
+    if (invalid.length) {
+      return { ok: false, missing: invalid, code: 'PRODUCTION_CONFIG_INVALID' };
+    }
     return { ok: true, missing: [], code: null };
   }
   const isCandidate = envName === 'candidate' || protoVer === 'v16';
@@ -286,7 +349,9 @@ const RATE_LIMIT_RULES = Object.freeze([
   { method: 'POST', prefix: '/api/auth/ton-proof/payload', limit: 20, windowSec: 60 },
   { method: 'POST', prefix: '/api/auth/ton-proof/verify', limit: 20, windowSec: 60 },
   { method: 'POST', prefix: '/api/me/notifications', limit: 30, windowSec: 60 },
-  { method: 'POST', prefix: '/api/telegram/webhook', limit: 240, windowSec: 60 },
+  { method: 'POST', prefix: '/api/telegram/webhook', limit: 2000, windowSec: 60 },
+  { method: 'POST', prefix: '/api/admin/', limit: 60, windowSec: 60 },
+  { method: 'GET', prefix: '/api/admin/', limit: 60, windowSec: 60 },
   { method: 'POST', prefix: '/api/warmup/register', limit: 30, windowSec: 60 },
   { method: 'POST', prefix: '/api/warmup/cancel', limit: 30, windowSec: 60 },
   { method: 'POST', prefix: '/api/prediction/bet', limit: 30, windowSec: 60 },
@@ -298,6 +363,7 @@ const RATE_LIMIT_RULES = Object.freeze([
   { method: 'POST', prefix: '/api/team/join', limit: 30, windowSec: 60 },
   { method: 'POST', prefix: '/api/progression/claim', limit: 30, windowSec: 60 },
   { method: 'POST', prefix: '/api/referral/attribution', limit: 30, windowSec: 60 },
+  { method: 'GET', prefix: '/api/chests/me', limit: 60, windowSec: 60 },
   { method: 'POST', prefix: '/api/chests/starter', limit: 30, windowSec: 60 },
   { method: 'POST', prefix: '/api/chests/open-all', limit: 10, windowSec: 60 },
   { method: 'POST', prefix: '/api/chests/', limit: 30, windowSec: 60 },
@@ -360,7 +426,7 @@ export default {
     const nowSecPre = Math.floor(Date.now() / 1000);
     const isOgImg = request.method === 'GET' && url.pathname.startsWith('/c/img/');
     const edgeCache = isOgImg && typeof caches !== 'undefined' && caches?.default ? caches.default : null;
-    const edgeCacheKey = edgeCache ? new Request(url.toString(), { method: 'GET' }) : null;
+    const edgeCacheKey = edgeCache ? new Request(buildNormalizedOgCacheUrl(url), { method: 'GET' }) : null;
     if (edgeCache && edgeCacheKey) {
       try {
         const cachedResp = await edgeCache.match(edgeCacheKey);
@@ -405,7 +471,7 @@ export default {
     let ps = { dataAvailable: false, currentRoundId: null, successCount: null, poolRemainingRaw: null, carryRaw: null, teamPoolRemainingRaw: null, teamCarryRaw: null };
     let rounds = [];
 
-    if (tc && rcAddr && routeNeedsChainState(url.pathname, request)) {
+    if (tc && rcAddr && routeNeedsChainState(url.pathname, request, body, env)) {
       const cacheKey = `${env.TONCENTER_API_BASE || ''}:${rcAddr}`;
       const cached = memChainCacheByTarget.get(cacheKey) || null;
       const memFresh = cached?.ps && (nowSec - cached.fetchedAt) <= CHAIN_CACHE_TTL_SEC;
@@ -420,10 +486,14 @@ export default {
             rounds = d1Rounds;
           } else if (ps.currentRoundId > 0) {
             const startId = Math.max(1, ps.currentRoundId - 5);
+            const candlesByRound = hasD1 ? await readCandlesFromD1(env.DB, startId) : new Map();
             const fetched = [];
             for (let rId = startId; rId <= ps.currentRoundId; rId += 1) {
               const rd = await tc.fetchRound(rcAddr, rId);
-              const existingCandles = d1Rounds?.find((x) => x.roundId === rId)?.candles || [];
+              const existingCandles =
+                candlesByRound.get(rId) ||
+                d1Rounds?.find((x) => x.roundId === rId)?.candles ||
+                [];
               fetched.push({ roundId: rId, round: rd, candles: existingCandles });
             }
             rounds = fetched;
@@ -467,8 +537,14 @@ export default {
     const onWalletRebound = promoEngine
       ? ({ fromWalletAddress, toWalletAddress, nowSec: rebindNow }) => promoEngine.mergeBalance(fromWalletAddress, toWalletAddress, rebindNow)
       : null;
-    const identityStore = hasD1 ? new D1IdentityStore({ db: env.DB, onWalletRebound }) : memIdentityStore;
-    if (!hasD1 && onWalletRebound) identityStore.onWalletRebound = onWalletRebound;
+    const canPromoteRebind = promoEngine && typeof promoEngine.hasPendingClaim === 'function'
+      ? async ({ fromWalletAddress, nowSec: rebindNow }) => !(await promoEngine.hasPendingClaim(fromWalletAddress, rebindNow))
+      : null;
+    const identityStore = hasD1 ? new D1IdentityStore({ db: env.DB, onWalletRebound, canPromoteRebind }) : memIdentityStore;
+    if (!hasD1) {
+      if (onWalletRebound) identityStore.onWalletRebound = onWalletRebound;
+      if (canPromoteRebind) identityStore.canPromoteRebind = canPromoteRebind;
+    }
     const socialStore = hasD1 ? new D1SocialStore({ db: env.DB }) : memSocialStore;
     const predOpts = {
       firstLossBonusRaw: env.A9_PRED_FIRST_LOSS_BONUS_RAW,
@@ -595,9 +671,13 @@ export default {
     const out = await router({ method: request.method, pathname: url.pathname, query, body, headers, origin: url.origin });
 
     if (out.rawBody !== undefined) {
-      const extra = out.contentType?.startsWith('image/')
-        ? { 'cache-control': 'public, max-age=60, s-maxage=60' }
-        : {};
+      const extra = {};
+      if (out.contentType?.startsWith('image/')) {
+        extra['cache-control'] = 'public, max-age=60, s-maxage=60';
+      }
+      if (out.contentType?.startsWith('text/html') || out.contentType?.startsWith('image/svg+xml')) {
+        extra['content-security-policy'] = "default-src 'none'; img-src 'self' data: https:; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'";
+      }
       const resp = new Response(out.rawBody, {
         status: out.status,
         headers: corsHeaders(out.contentType || 'text/plain; charset=utf-8', extra, corsOrigin),
@@ -645,10 +725,12 @@ export default {
       const ps = await tc.fetchProtocolState(env.A9_ROUND_CONTROLLER_ADDRESS);
       if (!ps?.currentRoundId || ps.currentRoundId <= 0) return;
       const startId = Math.max(1, ps.currentRoundId - 5);
+      const candlesByRound = hasD1 ? await readCandlesFromD1(env.DB, startId) : new Map();
       const synced = [];
       for (let rId = startId; rId <= ps.currentRoundId; rId += 1) {
         const rd = await tc.fetchRound(env.A9_ROUND_CONTROLLER_ADDRESS, rId);
-        synced.push({ roundId: rId, round: rd, candles: [] });
+        const roundCandles = candlesByRound.get(rId) || [];
+        synced.push({ roundId: rId, round: rd, candles: roundCandles });
         if (rId >= Math.max(1, ps.currentRoundId - 1)) {
           if (rd.status === 2 || rd.status === 3) {
             const stats = await predictionEngine.getRoundStats(rId);
@@ -656,7 +738,14 @@ export default {
               await predictionEngine.settleRoundBets(rId, rd.status === 2, Number(rd.qualifiedCandles || 0));
             }
           }
-          await broadcaster.processRoundSnapshot({ roundId: rId, round: rd, candles: [], nowSec, observationSeconds: obsSec });
+          await broadcaster.processRoundSnapshot({
+            roundId: rId,
+            round: rd,
+            candles: roundCandles,
+            nowSec,
+            observationSeconds: obsSec,
+            dmLimit: 10,
+          });
         }
       }
       if (hasD1) await writeRoundsCacheToD1(env.DB, synced, nowSec);
@@ -666,7 +755,7 @@ export default {
       console.error('[a9mini-v15-worker] scheduled sync error:', e?.message || e);
     } finally {
       try {
-        await broadcaster.sendPendingVaultExpiryReminders({ predictionEngine, nowSec });
+        await broadcaster.sendPendingVaultExpiryReminders({ predictionEngine, limit: 10, nowSec });
       } catch (remErr) {
         console.error('[a9mini-v15-worker] vault expiry reminder error:', remErr?.message || remErr);
       }

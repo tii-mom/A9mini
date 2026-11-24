@@ -116,7 +116,10 @@ export class PromoPayoutRunner {
             this.logger.log?.(`[promo-runner] Paid ${claim.claimId} tx=${sent.txHash} (excesses -> ${payoutInstruction.sendExcessesTo})`);
           }
         } catch (e) {
-          if (DETERMINISTIC_PROMO_SKIP_CODES.has(e?.code)) {
+          if (e?.code === 'NOT_FINALIZED') {
+            inboundFailed = true;
+            summary.waiting += 1;
+          } else if (DETERMINISTIC_PROMO_SKIP_CODES.has(e?.code)) {
             summary.ignored += 1;
             if (e?.code !== 'REPLAY_TX' && e?.code !== 'UNKNOWN_MEMO') {
               this.logger.log?.(`[promo-runner] Skipped deterministic business error ${e.code} tx=${tx.txHash}: ${e.message}`);

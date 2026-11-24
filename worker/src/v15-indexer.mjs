@@ -76,6 +76,105 @@ export function resolveProtocolVersion(rawValue, defaultVersion = 'v16') {
   throw new Error(`Unsupported A9_PROTOCOL_VERSION: "${rawValue}" (expected "v16")`);
 }
 
+/**
+ * 1:1 镜像 RoundController.tolk:100-116,517-549 链上领奖核算（零额外 RPC）。
+ * 防止前端对观察中 / 失败销毁 / 已全额领完的 StakeTicket 发起必败 0.22 GRAM 领奖交易。
+ */
+export function computeTicketClaimPreview(
+  ticket,
+  round,
+  protocolState = null,
+  nowSec = Math.floor(Date.now() / 1000),
+  { observationSeconds = 86400, fallbackUnlockSeconds = 30 * 86400 } = {},
+) {
+  if (!ticket || !round) {
+    return {
+      roundState: 'UNKNOWN',
+      canClaim: false,
+      claimablePrincipalRaw: '0',
+      claimableRewardRaw: '0',
+      claimableTotalRaw: '0',
+      lockedRemainingRaw: '0',
+      burnedLockedRaw: '0',
+    };
+  }
+  const derived = deriveRoundStage(round, nowSec, observationSeconds);
+  const status = Number(round.status);
+  if (status !== 2 && status !== 4) {
+    return {
+      roundState: derived.state,
+      canClaim: false,
+      claimablePrincipalRaw: '0',
+      claimableRewardRaw: '0',
+      claimableTotalRaw: '0',
+      lockedRemainingRaw: '0',
+      burnedLockedRaw: '0',
+    };
+  }
+
+  const amountRaw = BigInt(ticket.amountRaw || '0');
+  const weightRaw = BigInt(ticket.weightRaw || '0');
+  const payPrincipal = !ticket.principalDone ? amountRaw : 0n;
+  let payReward = 0n;
+  let lockedRemaining = 0n;
+  let burnedLocked = 0n;
+
+  if (status === 2) {
+    const totalWeightRaw = BigInt(round.totalWeightRaw || '0');
+    const rewardBudgetRaw = BigInt(round.rewardBudgetRaw || '0');
+    if (totalWeightRaw > 0n && weightRaw > 0n) {
+      const totalReward = (rewardBudgetRaw * weightRaw) / totalWeightRaw;
+      const immBps = BigInt(Number(round.immediateBps || 0));
+      const imm = (totalReward * immBps) / 10000n;
+      const locked = totalReward - imm;
+
+      if (!ticket.immediateClaimed) {
+        payReward += imm;
+      }
+
+      const lockedSlices = BigInt(Number(round.lockedSlices || 0));
+      const unlockedSlices = BigInt(Number(round.unlockedSlices || 0));
+      const burnedSlices = BigInt(Number(round.burnedSlices || 0));
+
+      let unlockedNow = 0n;
+      if (lockedSlices > 0n && locked > 0n) {
+        const fromWins = (locked * unlockedSlices) / lockedSlices;
+        unlockedNow = fromWins;
+        const endAt = Number(protocolState?.endAt || 0);
+        if (endAt > 0 && nowSec > endAt) {
+          const remSlices = lockedSlices - unlockedSlices - burnedSlices;
+          if (remSlices > 0n) {
+            const remLocked = (locked * remSlices) / lockedSlices;
+            const elapsed = BigInt(nowSec - endAt);
+            const fb = BigInt(Math.max(0, Number(fallbackUnlockSeconds || 0)));
+            const fromFallback = (fb === 0n || elapsed >= fb) ? remLocked : (remLocked * elapsed) / fb;
+            unlockedNow = fromWins + fromFallback;
+          }
+        }
+        burnedLocked = (locked * burnedSlices) / lockedSlices;
+      }
+
+      const lockedClaimed = BigInt(ticket.lockedClaimedRaw ?? ticket.rewardClaimedRaw ?? '0');
+      if (unlockedNow > lockedClaimed) {
+        payReward += unlockedNow - lockedClaimed;
+      }
+      const settledLocked = unlockedNow + burnedLocked;
+      lockedRemaining = locked > settledLocked ? locked - settledLocked : 0n;
+    }
+  }
+
+  const claimableTotal = payPrincipal + payReward;
+  return {
+    roundState: derived.state,
+    canClaim: !ticket.pending && claimableTotal > 0n,
+    claimablePrincipalRaw: payPrincipal.toString(),
+    claimableRewardRaw: payReward.toString(),
+    claimableTotalRaw: claimableTotal.toString(),
+    lockedRemainingRaw: lockedRemaining.toString(),
+    burnedLockedRaw: burnedLocked.toString(),
+  };
+}
+
 export function buildV15ConfigPayload(env = {}, protocolState = null) {
   const A9 = 1_000_000_000n;
   const proto = resolveProtocolVersion(env.A9_PROTOCOL_VERSION, 'v16');
@@ -110,7 +209,12 @@ export function buildV15ConfigPayload(env = {}, protocolState = null) {
       enabled: Boolean(env.A9_PROMO_HOT_WALLET_ADDRESS),
       address: env.A9_PROMO_HOT_WALLET_ADDRESS || null,
       userFeeNano: String(env.A9_PROMO_USER_FEE_NANO || '60000000'), // 0.06 GRAM
-      userFeeTon: '0.06',
+      userFeeTon: (() => {
+        const nano = BigInt(String(env.A9_PROMO_USER_FEE_NANO || '60000000'));
+        const whole = nano / 1_000_000_000n;
+        const frac = String(nano % 1_000_000_000n).padStart(9, '0').replace(/0+$/, '');
+        return frac ? `${whole}.${frac}` : whole.toString();
+      })(),
     },
     // 无链上数据源时明确返回 dataAvailable=false 和 null，绝不用默认 70 亿/12 亿伪造实时链上剩余奖池（P0-G）。
     poolState: dataAvailable

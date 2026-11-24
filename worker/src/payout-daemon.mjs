@@ -5,7 +5,7 @@
  * Bridges Cloudflare Worker (cf-worker.mjs writing D1) with the on-chain signing environment:
  * - Connects to the SAME persistent D1 ledger via Cloudflare D1 HTTP API (production) or a
  *   persistent local SQLite file (isolated testnet / crash-recovery drills).
- * - Drives both PresalePayoutRunner (A9 payout + GRAM passive/anomaly refund + 12% referral credit)
+ * - Drives both PresalePayoutRunner (A9 payout + GRAM passive/anomaly refund + 6% referral credit)
  *   and PromoPayoutRunner (0.06 GRAM fee verification + recoverable A9 payout).
  * - Uses cursor-paginated TonCenter v2/v3 inbound scanning and TonCenter v3 downstream transfer verification.
  * - Dry-run by default: real execution requires `--execute` + `OPS_EXECUTE=1` + `OPS_CONFIRM=YES`
@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { createD1HttpClient, createSqliteFileD1 } from './d1-http-client.mjs';
 import { TonCenterClient } from './toncenter.mjs';
 import { D1PromoStore } from './d1-promo-store.mjs';
+import { D1PromoBudgetLedger } from './promo-budget.mjs';
 import { D1IdentityStore } from './auth.mjs';
 import { D1SocialStore, D1PresaleStore } from './d1-growth-store.mjs';
 import { D1ChestEngine } from './d1-chest-store.mjs';
@@ -25,7 +26,7 @@ import { TelegramBroadcaster, D1BroadcastLog } from './tg-broadcaster.mjs';
 import { PresalePayoutRunner } from './presale-runner.mjs';
 import { PromoPayoutRunner } from './promo-runner.mjs';
 import { createActonPromoBroadcaster, createActonGramRefundBroadcaster } from './acton-broadcaster.mjs';
-import { addressKey } from './ton-address.mjs';
+import { addressKey, parseTonAddress } from './ton-address.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -47,15 +48,32 @@ export function validateDaemonConfig(env = {}, { executeFlag = false } = {}) {
   if (!env.TONCENTER_API_BASE) {
     throw new Error('TONCENTER_API_BASE is required');
   }
+  if (network === 'mainnet' && /testnet\.toncenter\.com/i.test(String(env.TONCENTER_API_BASE))) {
+    throw new Error('Mainnet daemon cannot use testnet.toncenter.com as TONCENTER_API_BASE');
+  }
+
+  const assertDaemonAddr = (label, raw) => {
+    const parsed = parseTonAddress(raw);
+    if (!parsed || parsed.workchain !== 0) {
+      throw new Error(`Invalid Basechain TON address for ${label}: ${raw}`);
+    }
+    if (network === 'mainnet' && parsed.testOnly === true) {
+      throw new Error(`${label} cannot use a testnet-only address on mainnet: ${raw}`);
+    }
+  };
 
   const promoAddr = String(env.A9_PROMO_HOT_WALLET_ADDRESS || '').trim() || null;
   const presaleAddr = String(env.A9_PRESALE_HOT_WALLET_ADDRESS || '').trim() || null;
   if (!promoAddr && !presaleAddr) {
     throw new Error('At least one of A9_PROMO_HOT_WALLET_ADDRESS or A9_PRESALE_HOT_WALLET_ADDRESS must be configured');
   }
+  if (promoAddr) assertDaemonAddr('A9_PROMO_HOT_WALLET_ADDRESS', promoAddr);
+  if (presaleAddr) assertDaemonAddr('A9_PRESALE_HOT_WALLET_ADDRESS', presaleAddr);
   if (promoAddr && presaleAddr && addressKey(promoAddr) === addressKey(presaleAddr)) {
     throw new Error('Hot wallet isolation violated: A9_PRESALE_HOT_WALLET_ADDRESS must be distinct from A9_PROMO_HOT_WALLET_ADDRESS');
   }
+  const jettonMasterTrim = String(env.A9_JETTON_MASTER_ADDRESS || '').trim();
+  if (jettonMasterTrim) assertDaemonAddr('A9_JETTON_MASTER_ADDRESS', jettonMasterTrim);
 
   const promoWalletName = String(env.A9_PROMO_HOT_WALLET_NAME || '').trim();
   const presaleWalletName = String(env.A9_PRESALE_HOT_WALLET_NAME || '').trim();
@@ -147,21 +165,7 @@ export function createPayoutDaemon({
     testnet: cfg.network === 'testnet',
   });
 
-  const identityStore = new D1IdentityStore({ db: ledger });
-  const socialStore = new D1SocialStore({ db: ledger });
-  const chestEngine = new D1ChestEngine({ db: ledger });
-  const broadcaster = new TelegramBroadcaster({
-    enabled: env.A9_BROADCAST_ENABLED === '1',
-    botToken: env.A9_BOT_TOKEN || '',
-    botHandle: env.A9_TG_BOT_HANDLE || 'A9_TonBot',
-    publicOrigin: env.A9_PUBLIC_ORIGIN || '',
-    officialChannelId: env.A9_OFFICIAL_CHANNEL_ID || '',
-    whaleMinGram: env.A9_BROADCAST_WHALE_MIN_GRAM || '50',
-    socialStore,
-    identityStore,
-    dedupLog: new D1BroadcastLog({ db: ledger }),
-  });
-
+  const budgetLedger = new D1PromoBudgetLedger({ db: ledger });
   const promoEngine = cfg.promoAddr
     ? new D1PromoStore({
         db: ledger,
@@ -170,6 +174,27 @@ export function createPayoutDaemon({
         transferGasNano: env.A9_PROMO_TRANSFER_GAS_NANO || '50000000',
       })
     : null;
+  const onWalletRebound = promoEngine
+    ? ({ fromWalletAddress, toWalletAddress, nowSec: rebindNow }) => promoEngine.mergeBalance(fromWalletAddress, toWalletAddress, rebindNow)
+    : null;
+  const canPromoteRebind = promoEngine && typeof promoEngine.hasPendingClaim === 'function'
+    ? async ({ fromWalletAddress, nowSec: checkNow }) => !(await promoEngine.hasPendingClaim(fromWalletAddress, checkNow))
+    : null;
+  const identityStore = new D1IdentityStore({ db: ledger, onWalletRebound, canPromoteRebind });
+  const socialStore = new D1SocialStore({ db: ledger });
+  const chestEngine = new D1ChestEngine({ db: ledger, budgetLedger });
+  const broadcaster = new TelegramBroadcaster({
+    enabled: env.A9_BROADCAST_ENABLED === '1',
+    botToken: env.A9_BOT_TOKEN || '',
+    botHandle: env.A9_TG_BOT_HANDLE || 'A9_TonBot',
+    publicOrigin: env.A9_PUBLIC_ORIGIN || '',
+    apiOrigin: env.A9_API_ORIGIN || env.A9_PUBLIC_ORIGIN || '',
+    officialChannelId: env.A9_OFFICIAL_CHANNEL_ID || '',
+    whaleMinGram: env.A9_BROADCAST_WHALE_MIN_GRAM || '50',
+    socialStore,
+    identityStore,
+    dedupLog: new D1BroadcastLog({ db: ledger }),
+  });
 
   const presaleEngine = cfg.presaleAddr
     ? new D1PresaleStore({
@@ -186,6 +211,7 @@ export function createPayoutDaemon({
         socialStore,
         identityStore,
         chestEngine,
+        budgetLedger,
         broadcaster,
       })
     : null;
@@ -195,6 +221,7 @@ export function createPayoutDaemon({
     ? createActonPromoBroadcaster({
         network: cfg.network,
         hotWalletName: cfg.promoWalletName,
+        expectedHotWalletAddress: cfg.promoAddr,
         jettonMasterAddress: cfg.jettonMasterAddress,
         transferGasNano: env.A9_PROMO_TRANSFER_GAS_NANO || '50000000',
         projectRoot,
@@ -206,6 +233,7 @@ export function createPayoutDaemon({
     ? createActonPromoBroadcaster({
         network: cfg.network,
         hotWalletName: cfg.presaleWalletName,
+        expectedHotWalletAddress: cfg.presaleAddr,
         jettonMasterAddress: cfg.jettonMasterAddress,
         transferGasNano: env.A9_PROMO_TRANSFER_GAS_NANO || '50000000',
         projectRoot,
@@ -217,6 +245,7 @@ export function createPayoutDaemon({
     ? createActonGramRefundBroadcaster({
         network: cfg.network,
         hotWalletName: cfg.presaleWalletName,
+        expectedHotWalletAddress: cfg.presaleAddr,
         projectRoot,
         baseEnv: env,
       })

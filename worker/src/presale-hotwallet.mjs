@@ -115,7 +115,8 @@ function toUnits(v, field) {
 }
 
 function newQueryId() {
-  return BigInt(`0x${randomHex(8)}`).toString();
+  const n = BigInt(`0x${randomHex(8)}`);
+  return (n > 0n ? n : 1n).toString();
 }
 
 export class PresaleEngine {
@@ -861,10 +862,15 @@ export class PresaleEngine {
     return s;
   }
 
-  /** Book referral rewards for COMPLETED orders exactly once (CREDITING is never auto-retried). */
-  async processReferralCredits(nowSec = Math.floor(Date.now() / 1000), { promoEngine = this.promoEngine, identityStore = this.identityStore, budgetLedger = this.budgetLedger } = {}) {
+  /** Book referral rewards for COMPLETED orders exactly once (stale CREDITING goes to NEEDS_REVIEW, never double-credits). */
+  async processReferralCredits(
+    nowSec = Math.floor(Date.now() / 1000),
+    { promoEngine = this.promoEngine, identityStore = this.identityStore, budgetLedger = this.budgetLedger, creditingStaleSec = 0 } = {},
+  ) {
     const s = { credited: 0, deferred: 0, review: 0, budgetExhausted: 0 };
     for (const c of await this.repo.listCredits('CREDITING')) {
+      const age = nowSec - Number(c.updatedAt || 0);
+      if (creditingStaleSec > 0 && age < creditingStaleSec) continue;
       await this.repo.patchCredit(c.orderId, { status: 'NEEDS_REVIEW', updatedAt: nowSec });
       s.review += 1;
     }

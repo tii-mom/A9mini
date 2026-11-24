@@ -105,7 +105,9 @@ let walletStateResolver = null;
 if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
   const tc = new TonCenterClient({
     apiBase: process.env.TONCENTER_API_BASE,
+    v3ApiBase: process.env.TONCENTER_V3_API_BASE || null,
     apiKey: process.env.TONCENTER_API_KEY || '',
+    testnet: String(process.env.A9_NETWORK || 'testnet').trim().toLowerCase() === 'testnet',
   });
   const rcAddr = process.env.A9_ROUND_CONTROLLER_ADDRESS;
   const jmAddr = process.env.A9_JETTON_MASTER_ADDRESS || null;

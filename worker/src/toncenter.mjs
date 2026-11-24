@@ -210,7 +210,7 @@ export class TonCenterClient {
       totalWeightRaw: reqNum(7, 'totalWeightRaw').toString(),
       rewardBudgetRaw: reqNum(8, 'rewardBudgetRaw').toString(),
       qualifiedCandles: Number(reqNum(9, 'qualifiedCandles')),
-      candleHash: `0x${reqNum(10, 'candleHash').toString(16)}`,
+      candleHash: `0x${reqNum(10, 'candleHash').toString(16).padStart(64, '0')}`,
       immediateBps: Number(reqNum(11, 'immediateBps')),
       lockedSlices: Number(reqNum(12, 'lockedSlices')),
       unlockedSlices: Number(reqNum(13, 'unlockedSlices')),
@@ -268,6 +268,7 @@ export class TonCenterClient {
   _normalizeV3InboundTx(tx, hotWalletAddress, { requireMasterchainFinality = true } = {}) {
     const inMsg = tx?.in_msg;
     if (!inMsg || !inMsg.source || !tx?.hash || !tx?.lt) return null;
+    if (tx?.emulated === true) return null;
     if (inMsg.bounced === true) return null;
     if (tx?.description?.aborted === true) return null;
     const val = BigInt(inMsg.value || '0');
@@ -288,7 +289,7 @@ export class TonCenterClient {
       txHash: String(tx.hash),
       lt: String(tx.lt),
       utime: Number(tx.now || 0),
-      to: hotWalletAddress,
+      to: String(inMsg.destination || tx.account || hotWalletAddress),
       from: String(inMsg.source),
       valueNano: val.toString(),
       memo,
@@ -377,14 +378,23 @@ export class TonCenterClient {
     });
     const body = await this._requestV3(`/transactions?${params.toString()}`, { method: 'GET' });
     const rows = Array.isArray(body?.transactions) ? body.transactions : [];
-    for (const tx of rows) {
-      const hash = tx?.hash ? String(tx.hash) : null;
-      const ltStr = tx?.lt ? String(tx.lt) : null;
-      if (!hash || !ltStr) continue;
+    const ascRows = rows
+      .filter((tx) => tx?.hash && tx?.lt)
+      .slice()
+      .sort((a, b) => {
+        const la = BigInt(String(a.lt));
+        const lb = BigInt(String(b.lt));
+        return la < lb ? -1 : (la > lb ? 1 : 0);
+      });
+    // 按 lt 升序定位冷启动安全游标：遇到第一笔未进入主链终局块的交易即停止推进游标，防止跳过未终局交易
+    for (const tx of ascRows) {
+      const hash = String(tx.hash);
+      const ltStr = String(tx.lt);
       const mcSeqno = Number(tx.mc_block_seqno || 0);
-      if (!newestCursor && (!requireMasterchainFinality || mcSeqno > 0)) {
-        newestCursor = { lt: ltStr, hash };
+      if (requireMasterchainFinality && (!Number.isFinite(mcSeqno) || mcSeqno <= 0)) {
+        break;
       }
+      newestCursor = { lt: ltStr, hash };
       if (seenHashes.has(hash)) continue;
       seenHashes.add(hash);
       const norm = this._normalizeV3InboundTx(tx, hotWalletAddress, { requireMasterchainFinality });
@@ -536,12 +546,14 @@ export class TonCenterClient {
     };
   }
 
-  /** 将 0x<hex64> / <hex64> / base64(32B) 交易哈希统一规范为 64 位小写 hex，消除 hex 与 base64 编码错配。 */
+  /** 将 0x<hex1..64> / <hex64> / base64(32B) 交易哈希统一规范为 64 位小写 hex，消除前导零截断与 hex/base64 错配。 */
   static normalizeTxHashHex(input) {
     const raw = String(input || '').trim();
     if (!raw) return null;
-    const stripped = raw.replace(/^0x/i, '');
-    if (/^[0-9a-fA-F]{64}$/.test(stripped)) return stripped.toLowerCase();
+    if (/^0x[0-9a-fA-F]{1,64}$/.test(raw)) {
+      return raw.slice(2).toLowerCase().padStart(64, '0');
+    }
+    if (/^[0-9a-fA-F]{64}$/.test(raw)) return raw.toLowerCase();
     try {
       const b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
       let bytes;
@@ -556,16 +568,21 @@ export class TonCenterClient {
         return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
       }
     } catch {}
-    return stripped.toLowerCase();
+    return raw.replace(/^0x/i, '').toLowerCase();
   }
 
   /**
    * 基于 TonCenter v3 下游真实链上执行结果的出账终局核验器（彻底消除外层 out_msgs 假确认）：
    * - kind === 'A9'：使用 start_utime + sort=asc 受限分页查询 v3 /jetton/transfers，避免高并发挤出窗口；
-   *   先扫描全部结果匹配 CONFIRMED，再判定 FAILED，杜绝旧失败记录误覆盖新成功交易。
-   * - kind === 'REFUND'：查询 v3 /messages，统一 hex/base64 哈希与 memo 比对，并强制校验 in_msg_tx_hash 落地。
+   *   先扫描全部结果匹配 CONFIRMED，再判定 FAILED；超过安全确认窗仍完全无链上记录时返回 NOT_FOUND。
+   * - kind === 'REFUND'：使用 direction=in（带 source + destination）查询 v3 /messages，统一 hex/base64 哈希与 memo 比对，
+   *   强制校验 in_msg_tx_hash 非空落地且非 bounced/aborted；超过安全确认窗无记录返回 NOT_FOUND。
    */
-  async verifyOutboundPayout(hotWalletAddress, payout, { jettonMasterAddress = null, limit = 50, maxPages = 10, startUtime = null } = {}) {
+  async verifyOutboundPayout(
+    hotWalletAddress,
+    payout,
+    { jettonMasterAddress = null, limit = 50, maxPages = 10, startUtime = null, nowSec = Math.floor(Date.now() / 1000), notFoundAfterSec = 300 } = {},
+  ) {
     if (!hotWalletAddress || !payout) return { state: 'PENDING' };
     const kind = String(payout.kind || 'A9').toUpperCase();
     const targetRecipientKey = addressKey(payout.recipient);
@@ -579,18 +596,20 @@ export class TonCenterClient {
     // 重试（attempts > 1）时新 queryId 在 updatedAt 附近发出，优先锚定 updatedAt 避免被历史 500 笔窗口挤出
     const anchorSec = (Number(payout.attempts || 0) > 1 && updatedSec > 1_000_000_000)
       ? updatedSec
-      : createdSec;
+      : (createdSec > 1_000_000_000 ? createdSec : updatedSec);
     const effectiveStartUtime = startUtime !== null
       ? Math.max(0, Math.floor(Number(startUtime)))
       : (anchorSec > 1_000_000_000
           ? Math.max(0, anchorSec - 300)
           : Math.max(0, Math.floor(Date.now() / 1000) - 86400));
+    const canDeclareNotFound = anchorSec > 1_000_000_000 && (Number(nowSec) - anchorSec) >= Number(notFoundAfterSec || 300);
 
     if (kind === 'A9') {
       if (!targetQueryId) return { state: 'PENDING', reason: 'MISSING_QUERY_ID' };
       const pageSize = Math.min(Math.max(1, Number(limit) || 50), 100);
       let pendingHit = null;
       let failedHit = null;
+      let truncated = false;
       for (let page = 0; page < maxPages; page += 1) {
         const params = new URLSearchParams({
           owner_address: hotWalletAddress,
@@ -627,16 +646,20 @@ export class TonCenterClient {
           }
         }
         if (transfers.length < pageSize) break;
+        if (page === maxPages - 1) truncated = true;
       }
       if (pendingHit) return pendingHit;
       if (failedHit) return failedHit;
+      if (canDeclareNotFound && !truncated) {
+        return { state: 'NOT_FOUND', reason: 'ONCHAIN_TRANSFER_NOT_FOUND' };
+      }
       return { state: 'PENDING' };
     }
 
     if (kind === 'REFUND') {
       const params = new URLSearchParams({
         source: hotWalletAddress,
-        direction: 'out',
+        direction: 'in',
         start_utime: String(effectiveStartUtime),
         sort: 'desc',
         limit: String(limit),
@@ -673,16 +696,20 @@ export class TonCenterClient {
           if (!pendingHit) pendingHit = { state: 'PENDING', txHash: txHash || payout.txHash || null, reason: 'TRACE_INCOMPLETE' };
           continue;
         }
-        if (Object.prototype.hasOwnProperty.call(m, 'in_msg_tx_hash') && m.in_msg_tx_hash === null) {
+        // direction=in 必须存在非空 in_msg_tx_hash 才证明已在目标账户真实落地执行
+        if (!m.in_msg_tx_hash) {
           if (!pendingHit) pendingHit = { state: 'PENDING', txHash: txHash || payout.txHash || null, reason: 'IN_MSG_NOT_DELIVERED' };
           continue;
         }
         if (val >= targetAmount) {
-          return { state: 'CONFIRMED', txHash: txHash || payout.txHash || null };
+          return { state: 'CONFIRMED', txHash: m.in_msg_tx_hash || txHash || payout.txHash || null };
         }
       }
       if (pendingHit) return pendingHit;
       if (failedHit) return failedHit;
+      if (canDeclareNotFound && msgs.length < Number(limit || 50)) {
+        return { state: 'NOT_FOUND', reason: 'ONCHAIN_REFUND_NOT_FOUND' };
+      }
       return { state: 'PENDING' };
     }
 

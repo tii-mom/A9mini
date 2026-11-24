@@ -964,14 +964,26 @@ export class D1SocialStore {
     return (res?.results || []).map((r) => String(r.tg_user_id));
   }
 
-  async listPendingSettlementPushUsers(roundId, { limit = 25 } = {}) {
+  async listPendingSettlementPushUsers(roundId, { limit = 25, maxUpdatedAt = null } = {}) {
     const rId = Math.floor(Number(roundId));
     if (!Number.isInteger(rId) || rId < 1) return [];
     const lim = Math.max(1, Math.min(500, Math.floor(Number(limit) || 25)));
     const prefix = `settle_dm:${rId}:`;
-    const res = await this.db
-      .prepare(
-        `SELECT p.tg_user_id
+    const cutoff = maxUpdatedAt !== null && maxUpdatedAt !== undefined && Number(maxUpdatedAt) > 0
+      ? Number(maxUpdatedAt)
+      : null;
+    const sql = cutoff !== null
+      ? `SELECT p.tg_user_id
+         FROM user_notification_prefs p
+         WHERE p.settlement_push = 1
+           AND p.updated_at <= ?
+           AND NOT EXISTS (
+             SELECT 1 FROM tg_broadcast_events e
+             WHERE e.event_key = ? || p.tg_user_id
+           )
+         ORDER BY p.updated_at ASC, p.tg_user_id ASC
+         LIMIT ?`
+      : `SELECT p.tg_user_id
          FROM user_notification_prefs p
          WHERE p.settlement_push = 1
            AND NOT EXISTS (
@@ -979,10 +991,10 @@ export class D1SocialStore {
              WHERE e.event_key = ? || p.tg_user_id
            )
          ORDER BY p.updated_at ASC, p.tg_user_id ASC
-         LIMIT ?`,
-      )
-      .bind(prefix, lim)
-      .all();
+         LIMIT ?`;
+    const res = cutoff !== null
+      ? await this.db.prepare(sql).bind(cutoff, prefix, lim).all()
+      : await this.db.prepare(sql).bind(prefix, lim).all();
     return (res?.results || []).map((r) => String(r.tg_user_id));
   }
 }
@@ -1073,14 +1085,14 @@ export class D1PredictionEngine {
   async getRoundStats(roundId) {
     const rId = Number(roundId);
     const rows = await this.db
-      .prepare('SELECT side FROM prediction_bets WHERE round_id = ?')
+      .prepare('SELECT side, COUNT(*) AS cnt FROM prediction_bets WHERE round_id = ? GROUP BY side')
       .bind(rId)
       .all();
     let passCount = 0;
     let burnCount = 0;
     for (const r of rows?.results || []) {
-      if (r.side === 'PASS') passCount += 1;
-      else burnCount += 1;
+      if (r.side === 'PASS') passCount += Number(r.cnt || 0);
+      else burnCount += Number(r.cnt || 0);
     }
     const total = passCount + burnCount;
     const pr = await this.db
@@ -1279,9 +1291,23 @@ export class D1PredictionEngine {
       }
     }
 
-    // 预算熔断检查在任何落库前原子扣减，预算不足直接抛 PROMO_BUDGET_EXHAUSTED 且零写入
+    // 先在 prediction_rounds 原子占坑，阻止并发重入同时双扣 prediction 预算；若预算扣减失败则回滚删除占位
+    const claimRoundRes = await this.db
+      .prepare('INSERT OR IGNORE INTO prediction_rounds (round_id, winning_side, actual_qualified, settled_at) VALUES (?, ?, ?, ?)')
+      .bind(rId, winSide, Number(actualQualified), nowSec)
+      .run();
+    if (Number(claimRoundRes?.meta?.changes || 0) === 0) {
+      throw new GrowthError('ROUND_SETTLED', `round ${rId} already settled`);
+    }
+
+    // 预算熔断检查在任何用户账本落库前原子扣减，预算不足直接回滚占位并抛 PROMO_BUDGET_EXHAUSTED（零写入）
     if (openBudgetNeed > 0n && budgetLedger && typeof budgetLedger.reserve === 'function') {
-      await budgetLedger.reserve('prediction', openBudgetNeed, nowSec);
+      try {
+        await budgetLedger.reserve('prediction', openBudgetNeed, nowSec);
+      } catch (e) {
+        await this.db.prepare('DELETE FROM prediction_rounds WHERE round_id = ?').bind(rId).run().catch(() => {});
+        throw e;
+      }
     }
 
     // 第二阶段：分批（每批 <= 25 人 / <= 50 条语句）原子 CAS 落库；若批内发生并发冲突则自动降级为单人 CAS 重试
@@ -1315,11 +1341,6 @@ export class D1PredictionEngine {
         }
       }
     }
-
-    await this.db
-      .prepare('INSERT OR IGNORE INTO prediction_rounds (round_id, winning_side, actual_qualified, settled_at) VALUES (?, ?, ?, ?)')
-      .bind(rId, winSide, Number(actualQualified), nowSec)
-      .run();
 
     return {
       roundId: rId,
@@ -1963,16 +1984,40 @@ export class D1PresaleRepo {
   }
 
   async sumReserved(nowSec, walletKey) {
-    const res = await this.db
-      .prepare(`SELECT wallet_key, wallet_address, ton_nano, a9_amount_raw FROM presale_orders WHERE ${RESERVING_SQL}`)
+    const DEC9 = 1_000_000_000n;
+    const hiExpr = (col) => `CASE WHEN length(${col}) > 9 THEN CAST(substr(${col}, 1, length(${col}) - 9) AS INTEGER) ELSE 0 END`;
+    const loExpr = (col) => `CAST(CASE WHEN length(${col}) > 9 THEN substr(${col}, length(${col}) - 8) ELSE ${col} END AS INTEGER)`;
+    const totalRow = await this.db
+      .prepare(
+        `SELECT COALESCE(SUM(${hiExpr('a9_amount_raw')}), 0) AS hi_a9,
+                COALESCE(SUM(${loExpr('a9_amount_raw')}), 0) AS lo_a9
+         FROM presale_orders WHERE ${RESERVING_SQL}`,
+      )
       .bind(nowSec)
-      .all();
-    let reservedA9Raw = 0n;
+      .first();
+    const reservedA9Raw = BigInt(totalRow?.hi_a9 || 0) * DEC9 + BigInt(totalRow?.lo_a9 || 0);
+
     let userReservedNano = 0n;
-    for (const r of res?.results || []) {
-      reservedA9Raw += BigInt(r.a9_amount_raw || '0');
-      const rowKey = r.wallet_key || addressKey(r.wallet_address);
-      if (rowKey === walletKey) userReservedNano += BigInt(r.ton_nano || '0');
+    if (walletKey) {
+      const userRow = await this.db
+        .prepare(
+          `SELECT COALESCE(SUM(${hiExpr('ton_nano')}), 0) AS hi_ton,
+                  COALESCE(SUM(${loExpr('ton_nano')}), 0) AS lo_ton
+           FROM presale_orders WHERE ${RESERVING_SQL} AND wallet_key = ?`,
+        )
+        .bind(nowSec, walletKey)
+        .first();
+      userReservedNano = BigInt(userRow?.hi_ton || 0) * DEC9 + BigInt(userRow?.lo_ton || 0);
+      // 兼容旧数据 wallet_key 为 NULL 的遗留订单（0001..0004 兼容路径）
+      const legacyNullRows = await this.db
+        .prepare(`SELECT wallet_address, ton_nano FROM presale_orders WHERE ${RESERVING_SQL} AND wallet_key IS NULL`)
+        .bind(nowSec)
+        .all();
+      for (const r of legacyNullRows?.results || []) {
+        if (addressKey(r.wallet_address) === walletKey) {
+          userReservedNano += BigInt(r.ton_nano || '0');
+        }
+      }
     }
     return { reservedA9Raw, userReservedNano };
   }

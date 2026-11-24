@@ -243,6 +243,9 @@ export async function verifyTonProof({
 }) {
   const parsed = parseTonAddress(address);
   if (!parsed) throw new AuthError('PROOF_INVALID', 'wallet address is not a valid TON address', 400);
+  if (parsed.workchain !== 0) {
+    throw new AuthError('PROOF_UNSUPPORTED_WALLET', 'only Basechain (workchain 0) wallets are supported', 400);
+  }
   if (!expectedNetwork) throw new AuthError('AUTH_UNCONFIGURED', 'A9_NETWORK is not configured', 503);
   if (String(network ?? '') !== String(expectedNetwork)) {
     throw new AuthError('PROOF_WRONG_NETWORK', `wallet is on network ${network}, expected ${expectedNetwork}`, 400);
@@ -365,10 +368,11 @@ function viewBinding(b) {
 }
 
 export class MemoryIdentityStore {
-  constructor({ onWalletRebound = null } = {}) {
+  constructor({ onWalletRebound = null, canPromoteRebind = null } = {}) {
     this.payloads = new Map(); // payload -> { tg, expiresAt, usedAt }
     this.bindings = new Map(); // tg -> binding row
     this.onWalletRebound = onWalletRebound;
+    this.canPromoteRebind = canPromoteRebind;
   }
 
   async issueProofPayload(tg, nowSec, ttlSec = TON_PROOF_PAYLOAD_TTL_SEC) {
@@ -413,23 +417,44 @@ export class MemoryIdentityStore {
     return (await this.bindVerifiedWallet(tg, walletAddress, nowSec)).binding;
   }
 
-  async getBinding(tg, nowSec = Math.floor(Date.now() / 1000), { onWalletRebound = this.onWalletRebound } = {}) {
+  /** 纯只读查询当前绑定的钱包地址（绝不触发换绑晋升或余额合并副作用，供他人/推荐人校验使用）。 */
+  async getCurrentWalletAddress(tg) {
+    const b = this.bindings.get(String(tg));
+    return b?.walletAddress || null;
+  }
+
+  async getBinding(
+    tg,
+    nowSec = Math.floor(Date.now() / 1000),
+    { onWalletRebound = this.onWalletRebound, canPromoteRebind = this.canPromoteRebind } = {},
+  ) {
     const b = this.bindings.get(String(tg));
     if (!b) return null;
     let promotedFrom = null;
     if (b.pendingWalletKey && b.pendingEffectiveAt <= nowSec) {
-      const owner = this._ownerOf(b.pendingWalletKey);
-      if (!owner || owner === b.telegramUserId) {
-        const prevWalletAddress = b.walletAddress;
-        const nextWalletAddress = b.pendingWalletAddress;
-        Object.assign(b, { walletAddress: nextWalletAddress, walletKey: b.pendingWalletKey, boundAt: nowSec });
-        if (prevWalletAddress && addressKey(prevWalletAddress) !== addressKey(nextWalletAddress)) {
-          promotedFrom = prevWalletAddress;
-        }
+      let allowPromote = true;
+      if (typeof canPromoteRebind === 'function') {
+        allowPromote = Boolean(await canPromoteRebind({
+          tgUserId: b.telegramUserId,
+          fromWalletAddress: b.walletAddress,
+          toWalletAddress: b.pendingWalletAddress,
+          nowSec,
+        }));
       }
-      Object.assign(b, { pendingWalletAddress: null, pendingWalletKey: null, pendingEffectiveAt: null });
-      if (promotedFrom && typeof onWalletRebound === 'function') {
-        await onWalletRebound({ tgUserId: b.telegramUserId, fromWalletAddress: promotedFrom, toWalletAddress: b.walletAddress, nowSec });
+      if (allowPromote) {
+        const owner = this._ownerOf(b.pendingWalletKey);
+        if (!owner || owner === b.telegramUserId) {
+          const prevWalletAddress = b.walletAddress;
+          const nextWalletAddress = b.pendingWalletAddress;
+          Object.assign(b, { walletAddress: nextWalletAddress, walletKey: b.pendingWalletKey, boundAt: nowSec });
+          if (prevWalletAddress && addressKey(prevWalletAddress) !== addressKey(nextWalletAddress)) {
+            promotedFrom = prevWalletAddress;
+          }
+        }
+        Object.assign(b, { pendingWalletAddress: null, pendingWalletKey: null, pendingEffectiveAt: null });
+        if (promotedFrom && typeof onWalletRebound === 'function') {
+          await onWalletRebound({ tgUserId: b.telegramUserId, fromWalletAddress: promotedFrom, toWalletAddress: b.walletAddress, nowSec });
+        }
       }
     }
     const view = viewBinding(b);
@@ -469,10 +494,11 @@ function rowToBinding(r) {
 }
 
 export class D1IdentityStore {
-  constructor({ db, onWalletRebound = null }) {
+  constructor({ db, onWalletRebound = null, canPromoteRebind = null }) {
     if (!db) throw new Error('D1 binding required');
     this.db = db;
     this.onWalletRebound = onWalletRebound;
+    this.canPromoteRebind = canPromoteRebind;
   }
 
   async issueProofPayload(tg, nowSec, ttlSec = TON_PROOF_PAYLOAD_TTL_SEC) {
@@ -539,12 +565,33 @@ export class D1IdentityStore {
     return (await this.bindVerifiedWallet(tg, walletAddress, nowSec)).binding;
   }
 
-  async getBinding(tg, nowSec = Math.floor(Date.now() / 1000), { onWalletRebound = this.onWalletRebound } = {}) {
+  /** 纯只读查询当前绑定的钱包地址（不触发换绑晋升或余额合并副作用）。 */
+  async getCurrentWalletAddress(tg) {
+    const b = await this._row(tg);
+    return b?.walletAddress || null;
+  }
+
+  async getBinding(
+    tg,
+    nowSec = Math.floor(Date.now() / 1000),
+    { onWalletRebound = this.onWalletRebound, canPromoteRebind = this.canPromoteRebind } = {},
+  ) {
     const b = await this._row(tg);
     if (!b) return null;
     if (b.pendingWalletKey && b.pendingEffectiveAt <= nowSec) {
       const prevWalletAddress = b.walletAddress;
       const targetWalletAddress = b.pendingWalletAddress;
+      if (typeof canPromoteRebind === 'function') {
+        const allowPromote = Boolean(await canPromoteRebind({
+          tgUserId: String(tg),
+          fromWalletAddress: prevWalletAddress,
+          toWalletAddress: targetWalletAddress,
+          nowSec,
+        }));
+        if (!allowPromote) {
+          return viewBinding(b);
+        }
+      }
       let promoted = false;
       try {
         // wallet_key is UNIQUE: promotion fails (and the pending switch is dropped) if the

@@ -1511,22 +1511,28 @@ await test('W2-3: TonCenter v3 verifyOutboundPayout checks downstream A9/REFUND 
   assert.equal(okA9.state, 'CONFIRMED');
   assert.equal(okA9.txHash, 'v3_a9_hash_1');
 
-  // 2) REFUND v3 verification rejects bounced messages and confirms clean delivery
+  // 2) REFUND v3 verification queries direction=in, rejects bounced/undelivered messages, confirms clean delivery & returns NOT_FOUND after timeout
   let bouncedFlag = true;
+  let inMsgTxHash = 'v3_dest_tx_1';
+  let seenRefundUrl = '';
   const tcRefund = new TonCenterClient({
     apiBase: 'https://toncenter.com/api/v2',
     apiKey: 'k',
     fetchImpl: async (url) => {
-      assert.ok(String(url).includes('/api/v3/messages'));
+      seenRefundUrl = String(url);
+      assert.ok(seenRefundUrl.includes('/api/v3/messages'));
+      assert.ok(seenRefundUrl.includes('direction=in'), 'REFUND verification MUST query direction=in');
       return {
         ok: true,
         json: async () => ({
           messages: [
             {
+              source: HOT,
               destination: BUYER,
               value: '990000000',
               bounced: bouncedFlag,
               hash: 'v3_refund_hash_1',
+              in_msg_tx_hash: inMsgTxHash,
               message_content: { decoded: { type: 'text_comment', comment: 'refund:888' } },
             },
           ],
@@ -1543,6 +1549,16 @@ await test('W2-3: TonCenter v3 verifyOutboundPayout checks downstream A9/REFUND 
   assert.equal(bouncedRes.state, 'FAILED');
 
   bouncedFlag = false;
+  inMsgTxHash = null;
+  const undeliveredRefund = await tcRefund.verifyOutboundPayout(HOT, {
+    kind: 'REFUND',
+    recipient: BUYER,
+    amount: '990000000',
+    queryId: '888',
+  });
+  assert.equal(undeliveredRefund.state, 'PENDING', 'REFUND without in_msg_tx_hash must NOT falsely confirm');
+
+  inMsgTxHash = 'v3_dest_tx_1';
   const okRefund = await tcRefund.verifyOutboundPayout(HOT, {
     kind: 'REFUND',
     recipient: BUYER,
@@ -1550,6 +1566,25 @@ await test('W2-3: TonCenter v3 verifyOutboundPayout checks downstream A9/REFUND 
     queryId: '888',
   });
   assert.equal(okRefund.state, 'CONFIRMED');
+  assert.equal(okRefund.txHash, 'v3_dest_tx_1');
+
+  const tcMissingRefund = new TonCenterClient({
+    apiBase: 'https://toncenter.com/api/v2',
+    apiKey: 'k',
+    fetchImpl: async () => ({ ok: true, json: async () => ({ messages: [] }) }),
+  });
+  const notFoundRefund = await tcMissingRefund.verifyOutboundPayout(
+    HOT,
+    {
+      kind: 'REFUND',
+      recipient: BUYER,
+      amount: '990000000',
+      queryId: '888',
+      createdAt: 1_700_000_000,
+    },
+    { nowSec: 1_700_000_500 },
+  );
+  assert.equal(notFoundRefund.state, 'NOT_FOUND');
 
   // 3) Crash recovery with ambiguous payout (txHash === null) and verifier returning PENDING MUST NOT mark SENT
   const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT, open: true });
@@ -2642,6 +2677,228 @@ await test('Audit hardening: /api/user/:wallet max 10 rounds (default 8), /api/h
   assert.equal(cachedRounds.length, 12);
   assert.deepEqual(cachedRounds.map((x) => x.roundId), [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
   assert.ok(cachedRounds.every((x) => x.candles.length === 1 && x.candles[0].twapPriceUsdE8 === '240000'));
+});
+
+await test('Batch B: claim preview, payout-daemon budget/rebind, Masterchain & pending-rebind guards, bot-in-group verify, edge security & health redaction', async () => {
+  const { computeTicketClaimPreview } = await import('../src/v15-indexer.mjs');
+  const { verifyTonProof } = await import('../src/auth.mjs');
+  const { createTelegramBotGroupVerifier } = await import('../src/social-store.mjs');
+  const { validateDaemonConfig, createPayoutDaemon } = await import('../src/payout-daemon.mjs');
+  const { default: cfWorker, validateDeployEnv, routeNeedsChainState, buildNormalizedOgCacheUrl } = await import('../src/cf-worker.mjs');
+  const { formatTonAddress } = await import('../src/ton-address.mjs');
+  const { D1PromoStore } = await import('../src/d1-promo-store.mjs');
+  const { D1PromoBudgetLedger } = await import('../src/promo-budget.mjs');
+  const { D1PresaleStore } = await import('../src/d1-growth-store.mjs');
+
+  const W1 = '0:' + 'a1'.repeat(32);
+  const W2 = '0:' + 'b2'.repeat(32);
+  const HOT = '0:' + 'c3'.repeat(32);
+  const PROMO = '0:' + 'd4'.repeat(32);
+  const MASTER = '0:' + 'e5'.repeat(32);
+  const RC = '0:' + 'f6'.repeat(32);
+  const TEST_ONLY_ADDR = formatTonAddress(0, new Uint8Array(32).fill(0x22), { bounceable: true, testOnly: true });
+
+  // 1) computeTicketClaimPreview mirrors RoundController.tolk across ACTIVE / FAILED / SUCCEEDED (20% immediate + unlocked slices) / ABORTED / 30d fallback
+  const rActive = { status: 1, stakeCloseAt: 2000, totalStakeRaw: '1000000000000', totalWeightRaw: '2000000000000', rewardBudgetRaw: '10000000000000', immediateBps: 0, lockedSlices: 0, unlockedSlices: 0, burnedSlices: 0 };
+  const tBase = { roundId: 1, amountRaw: '1000000000000', weightRaw: '2000000000000', rewardClaimedRaw: '0', principalDone: false, pending: false };
+  const pActive = computeTicketClaimPreview(tBase, rActive, { poolRemainingRaw: '100000000000000', poolExhaustedAt: 0 }, 1500);
+  assert.equal(pActive.canClaim, false);
+  assert.equal(pActive.claimableTotalRaw, '0');
+
+  const rFailed = { ...rActive, status: 3, settledAt: 3000 };
+  const pFailed = computeTicketClaimPreview(tBase, rFailed, { poolRemainingRaw: '100000000000000', endAt: 0 }, 3100);
+  assert.equal(pFailed.canClaim, false);
+  assert.equal(pFailed.roundState, 'FAILED_PERMANENT');
+
+  const rSucc = { ...rActive, status: 2, settledAt: 3000, immediateBps: 2000, lockedSlices: 4, unlockedSlices: 1, burnedSlices: 0 };
+  const pSucc = computeTicketClaimPreview(tBase, rSucc, { poolRemainingRaw: '100000000000000', endAt: 0 }, 3100);
+  // totalReward = 10_000 A9; immediate 20% = 2_000 A9; 1/4 locked = 2_000 A9 -> 4_000 A9 reward + 1_000 A9 principal = 5_000 A9
+  assert.equal(pSucc.canClaim, true);
+  assert.equal(pSucc.claimablePrincipalRaw, '1000000000000');
+  assert.equal(pSucc.claimableRewardRaw, '4000000000000');
+  assert.equal(pSucc.claimableTotalRaw, '5000000000000');
+  assert.equal(pSucc.lockedRemainingRaw, '6000000000000');
+
+  // 30-day fallback unlock after pool exhaustion (endAt = 4000, half elapsed -> 50% of remaining 6_000 A9 = +3_000 A9)
+  const pFallback = computeTicketClaimPreview(
+    { ...tBase, principalDone: true, immediateClaimed: true, lockedClaimedRaw: '2000000000000' },
+    rSucc,
+    { poolRemainingRaw: '0', endAt: 4000 },
+    4000 + 15 * 86400,
+  );
+  assert.equal(pFallback.canClaim, true);
+  assert.equal(pFallback.claimableRewardRaw, '3000000000000');
+  assert.equal(pFallback.lockedRemainingRaw, '3000000000000');
+
+  const rAborted = { ...rActive, status: 4, settledAt: 3000 };
+  const pAborted = computeTicketClaimPreview(tBase, rAborted, { poolRemainingRaw: '100000000000000', poolExhaustedAt: 0 }, 3100);
+  assert.equal(pAborted.canClaim, true);
+  assert.equal(pAborted.claimablePrincipalRaw, '1000000000000');
+  assert.equal(pAborted.claimableRewardRaw, '0');
+
+  // 2) verifyTonProof rejects Masterchain (-1:...) addresses
+  await assert.rejects(
+    () => verifyTonProof({
+      address: '-1:' + '11'.repeat(32),
+      network: '-239',
+      proof: { timestamp: 1000, domain: { lengthBytes: 10, value: 'app.a9.lat' }, payload: 'p', signature: 'AA==' },
+      expectedNetwork: '-239',
+      allowedDomains: ['app.a9.lat'],
+      nowSec: 1000,
+    }),
+    /Basechain/i,
+  );
+
+  // 3) Pending rebind blocks new /api/promo/intent & canPromoteRebind holds promotion while a promo claim is in flight
+  const db = createSqliteD1(MIGRATIONS);
+  const promo = new D1PromoStore({ db, hotWalletAddress: PROMO });
+  await promo.creditReward(W1, '100000000000', 'test', 1000);
+  const idStore = new MemoryIdentityStore();
+  await idStore.bindVerifiedWallet('7001', W1, 1000);
+  const router = createApiRouter({
+    env: { A9_BOT_TOKEN: TEST_BOT_TOKEN, A9_NETWORK: 'testnet', A9_ADMIN_TOKEN: 'adm_secret_1' },
+    stateStore: {
+      getTiming: () => ({ observationSeconds: 86400 }),
+      getProtocolState: () => ({ dataAvailable: true, currentRoundId: 1, successCount: 1, poolRemainingRaw: '100000000000000', poolExhaustedAt: 0 }),
+      listRounds: () => [{ roundId: 1, round: rSucc, candles: [] }],
+      getRound: (id) => (Number(id) === 1 ? { roundId: 1, round: rSucc, candles: [] } : null),
+    },
+    promoEngine: promo,
+    identityStore: idStore,
+    userReader: async () => ({
+      jettonWallet: '0:' + '77'.repeat(32),
+      a9BalanceRaw: '2000000000000',
+      balanceAvailable: true,
+      tickets: [tBase],
+      ticketsAvailable: true,
+      onchainAvailable: true,
+    }),
+    healthChecker: async () => ({
+      ok: true,
+      db: { bound: true, ok: true, error: 'internal-secret-err' },
+      cacheAgeSec: 2,
+      runnerHeartbeats: [{ runnerId: 'r1', role: 'payout_daemon', network: 'testnet', lastSeenAt: 1000, meta: { status: 'ok', lastError: 'secret-stack' } }],
+    }),
+  });
+
+  // /api/user/:wallet returns enriched ticket preview & root claimableRaw/lockedRaw
+  const uRes = await router({ method: 'GET', pathname: `/api/user/${encodeURIComponent(W1)}`, nowSec: 3100 });
+  assert.equal(uRes.status, 200);
+  assert.equal(uRes.body.data.claimableRaw, '5000000000000');
+  assert.equal(uRes.body.data.lockedRaw, '6000000000000');
+  assert.equal(uRes.body.data.tickets[0].canClaim, true);
+
+  // /api/health redacts sensitive internal errors for public callers, reveals full checks for admin
+  const pubH = await router({ method: 'GET', pathname: '/api/health', nowSec: 3100 });
+  assert.equal(pubH.body.data.checks.db.error, undefined);
+  assert.equal(pubH.body.data.checks.runnerHeartbeats[0].meta.lastError, undefined);
+  assert.equal(pubH.body.data.checks.runnerHeartbeats[0].meta.status, 'ok');
+  const admH = await router({ method: 'GET', pathname: '/api/health', headers: { 'x-a9-admin-token': 'adm_secret_1' }, nowSec: 3100 });
+  assert.equal(admH.body.data.checks.db.error, 'internal-secret-err');
+  assert.equal(admH.body.data.checks.runnerHeartbeats[0].meta.lastError, 'secret-stack');
+
+  // Pending rebind blocks POST /api/promo/intent with 409 PENDING_REBIND_ACTIVE
+  await idStore.bindVerifiedWallet('7001', W2, 1005, { rebindDelaySec: 86400 });
+  const tgHdr = await tgHeaders('7001', { authDate: 1010 });
+  const blockedPromo = await router({ method: 'POST', pathname: '/api/promo/intent', headers: tgHdr, body: {}, nowSec: 1010 });
+  assert.equal(blockedPromo.status, 409);
+  assert.equal(blockedPromo.body.error.code, 'PENDING_REBIND_ACTIVE');
+
+  // Active in-flight claim pauses rebind promotion even after effectiveAt
+  await idStore.bindVerifiedWallet('7001', W2, 1005, { rebindDelaySec: 60 });
+  await promo.createClaimIntent(W1, 1011);
+  const pausedBind = await idStore.getBinding('7001', 1005 + 60 + 10);
+  assert.equal(pausedBind.walletKey, W1, 'rebind promotion MUST pause while old wallet has active in-flight claim');
+
+  // 4) createTelegramBotGroupVerifier rejects public supergroup where Bot itself is not a member
+  const verifier = createTelegramBotGroupVerifier('999:token', async (url) => {
+    const u = String(url);
+    if (u.includes('/getChat?')) return { ok: true, json: async () => ({ ok: true, result: { id: -100777, type: 'supergroup' } }) };
+    if (u.endsWith('/getMe')) return { ok: true, json: async () => ({ ok: true, result: { id: 999 } }) };
+    if (u.includes('/getChatMember?') && u.includes('user_id=999')) {
+      return { ok: true, json: async () => ({ ok: true, result: { status: 'left' } }) };
+    }
+    return { ok: true, json: async () => ({ ok: true, result: { status: 'creator' } }) };
+  });
+  const vRes = await verifier({ tgGroupHandle: '@public_group_no_bot', telegramUserId: '7001' });
+  assert.equal(vRes.botInGroup, false);
+  assert.equal(vRes.reason, 'BOT_NOT_IN_GROUP');
+
+  // 5) payout-daemon mainnet validation & budgetLedger wiring
+  assert.throws(
+    () => validateDaemonConfig({
+      A9_NETWORK: 'mainnet',
+      A9_SQLITE_PATH: '/tmp/mock.sqlite',
+      TONCENTER_API_BASE: 'https://testnet.toncenter.com/api/v2',
+      A9_JETTON_MASTER_ADDRESS: MASTER,
+      A9_PRESALE_HOT_WALLET_ADDRESS: HOT,
+      A9_PROMO_HOT_WALLET_ADDRESS: PROMO,
+    }),
+    /testnet\.toncenter\.com/i,
+  );
+  assert.throws(
+    () => validateDaemonConfig({
+      A9_NETWORK: 'mainnet',
+      A9_SQLITE_PATH: '/tmp/mock.sqlite',
+      TONCENTER_API_BASE: 'https://toncenter.com/api/v2',
+      A9_JETTON_MASTER_ADDRESS: MASTER,
+      A9_PRESALE_HOT_WALLET_ADDRESS: TEST_ONLY_ADDR,
+      A9_PROMO_HOT_WALLET_ADDRESS: PROMO,
+    }),
+    /testnet-only/i,
+  );
+
+  const daemon = createPayoutDaemon({
+    env: {
+      A9_NETWORK: 'testnet',
+      A9_SQLITE_PATH: '/tmp/mock.sqlite',
+      TONCENTER_API_BASE: 'https://testnet.toncenter.com/api/v2',
+      A9_JETTON_MASTER_ADDRESS: MASTER,
+      A9_PRESALE_HOT_WALLET_ADDRESS: HOT,
+      A9_PROMO_HOT_WALLET_ADDRESS: PROMO,
+    },
+    ledger: db,
+    logger: { log() {}, error() {} },
+  });
+  assert.ok(daemon.presaleEngine.budgetLedger instanceof D1PromoBudgetLedger);
+  assert.equal(daemon.presaleEngine.chestEngine.budgetLedger, daemon.presaleEngine.budgetLedger);
+
+  // 6) cf-worker routeNeedsChainState, OG cache URL normalization, CORS unknown-Origin rejection & mainnet validation
+  assert.equal(routeNeedsChainState('/api/warmup/current'), true);
+  assert.equal(routeNeedsChainState('/api/admin/warmup/round'), true);
+  const whReq = new Request('https://api.a9.lat/api/telegram/webhook', {
+    method: 'POST',
+    headers: { 'x-telegram-bot-api-secret-token': 'wh_sec_1' },
+  });
+  assert.equal(routeNeedsChainState('/api/telegram/webhook', whReq, { message: { text: '/start' } }, { A9_TG_WEBHOOK_SECRET: 'wh_sec_1' }), false);
+  assert.equal(routeNeedsChainState('/api/telegram/webhook', whReq, { message: { text: '/status' } }, { A9_TG_WEBHOOK_SECRET: 'wh_sec_1' }), true);
+  assert.equal(
+    buildNormalizedOgCacheUrl(new URL('https://api.a9.lat/c/img/round/1.png?rand=999&ratio=9x16&utm=abc')),
+    'https://api.a9.lat/c/img/round/1.png?ratio=9x16',
+  );
+  const badOriginResp = await cfWorker.fetch(
+    new Request('https://api.a9.lat/api/health', { headers: { origin: 'https://evil.example' } }),
+    { DB: db, A9_ALLOWED_ORIGINS: 'https://app.a9.lat', A9_PUBLIC_ORIGIN: 'https://app.a9.lat' },
+  );
+  assert.equal(badOriginResp.headers.get('access-control-allow-origin'), null);
+  assert.equal(badOriginResp.headers.get('x-content-type-options'), 'nosniff');
+
+  const badMainnetEnv = validateDeployEnv({
+    DB: db,
+    A9_NETWORK: 'mainnet',
+    A9_ENVIRONMENT: 'production',
+    A9_PROTOCOL_VERSION: 'v16',
+    A9_JETTON_MASTER_ADDRESS: MASTER,
+    A9_ROUND_CONTROLLER_ADDRESS: RC,
+    A9_PROMO_HOT_WALLET_ADDRESS: PROMO,
+    A9_PRESALE_HOT_WALLET_ADDRESS: TEST_ONLY_ADDR,
+    A9_PUBLIC_ORIGIN: 'https://app.a9.lat',
+    A9_TON_PROOF_DOMAINS: 'app.a9.lat',
+    A9_ALLOWED_ORIGINS: 'https://app.a9.lat',
+    TONCENTER_API_BASE: 'https://testnet.toncenter.com/api/v2',
+  });
+  assert.equal(badMainnetEnv.ok, false);
+  assert.equal(badMainnetEnv.code, 'PRODUCTION_CONFIG_INVALID');
 });
 
 console.log(`All ${passed} A9 v15 worker tests passed.`);

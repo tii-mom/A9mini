@@ -537,3 +537,51 @@ await test('ops/scripts/setup-tg-bot.mjs enforces dry-run, HTTPS/secret validati
   assert.ok(!liveLogs.join('\n').includes(fakeSecret));
   assert.equal(maskSecret('short'), '***');
 });
+
+test('sendPersonalRoundSettleReminders skips >24h old settled rounds and post-settlement new subscribers (Memory & D1)', async () => {
+  for (const mode of ['memory', 'd1']) {
+    const db = mode === 'd1' ? createSqliteD1(MIGRATIONS) : null;
+    const socialStore = mode === 'd1' ? new D1SocialStore({ db }) : new SocialStore();
+    const dedupLog = mode === 'd1' ? new D1BroadcastLog({ db }) : new MemoryBroadcastLog();
+    const { calls, fetchImpl } = makeRecorderFetch();
+
+    // User 201 subscribed before settlement (t=1000); User 202 subscribed after settlement (t=2500)
+    await socialStore.ensureDefaultNotificationPrefs('201', 1000);
+    await socialStore.ensureDefaultNotificationPrefs('202', 2500);
+
+    const b = new TelegramBroadcaster({
+      enabled: true,
+      botToken: TEST_BOT_TOKEN,
+      botHandle: 'A9_TonBot',
+      socialStore,
+      dedupLog,
+      fetchImpl,
+      delayMs: 0,
+    });
+
+    // >24h old settled round is skipped immediately
+    const oldRes = await b.sendPersonalRoundSettleReminders({
+      roundId: 12,
+      round: { settledAt: 2000, rewardBudgetRaw: '700000000000000000' },
+      passed: true,
+      qualifiedCandles: 18,
+      nowSec: 2000 + 86401,
+    });
+    assert.equal(oldRes.skipped, true, mode);
+    assert.equal(oldRes.reason, 'SETTLED_TOO_OLD', mode);
+    assert.equal(calls.length, 0, mode);
+
+    // Within 24h window: only user 201 (subscribed at 1000 <= settledAt 2000) receives the reminder
+    const freshRes = await b.sendPersonalRoundSettleReminders({
+      roundId: 12,
+      round: { settledAt: 2000, rewardBudgetRaw: '700000000000000000' },
+      passed: true,
+      qualifiedCandles: 18,
+      nowSec: 3000,
+    });
+    assert.equal(freshRes.skipped, false, mode);
+    assert.equal(freshRes.sentCount, 1, mode);
+    assert.equal(calls.length, 1, mode);
+    assert.equal(calls[0].body.chat_id, '201', mode);
+  }
+});

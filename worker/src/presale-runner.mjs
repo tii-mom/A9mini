@@ -115,7 +115,11 @@ export class PresalePayoutRunner {
       summary.completed = Math.max(0, (await this._countCompleted()) - before);
       summary.refunded = Math.max(0, (await this._countRefunded()) - beforeRefunded);
       summary.errors.push(...ps.errors);
-      const cs = await this.engine.processReferralCredits(nowSec, { promoEngine: this.promoEngine || this.engine.promoEngine });
+      const cs = await this.engine.processReferralCredits(nowSec, {
+        promoEngine: this.promoEngine || this.engine.promoEngine,
+        budgetLedger: this.engine.budgetLedger || null,
+        creditingStaleSec: 120,
+      });
       summary.credited = cs.credited;
       summary.review += cs.review;
     } catch (e) {

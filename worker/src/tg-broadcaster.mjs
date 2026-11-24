@@ -268,7 +268,14 @@ export class TelegramBroadcaster {
   /**
    * 链上轮次状态巡检入口：自动检测并幂等推送事件 ① 新轮开启、③ 最后 4 小时警报、④ 结算战报。
    */
-  async processRoundSnapshot({ roundId, round, candles = [], nowSec = Math.floor(Date.now() / 1000), observationSeconds = 86400 }) {
+  async processRoundSnapshot({
+    roundId,
+    round,
+    candles = [],
+    nowSec = Math.floor(Date.now() / 1000),
+    observationSeconds = 86400,
+    dmLimit = 25,
+  }) {
     if (!this._canSend() || !roundId || !round) return [];
     const results = [];
     const rId = Number(roundId);
@@ -279,7 +286,7 @@ export class TelegramBroadcaster {
     // 事件 ①：新轮开启（入场期 2.0x 早鸟黄金窗口）
     if (status === 1 && stakeCloseAt > nowSec) {
       results.push(await this.broadcastRoundOpen({ roundId: rId, round, nowSec }));
-      results.push(await this.sendWarmupOpeningReminders({ roundId: rId, round, nowSec }));
+      results.push(await this.sendWarmupOpeningReminders({ roundId: rId, round, limit: dmLimit, nowSec }));
     }
 
     // 事件 ③：24H 观察期最后 4 小时冲刺/焦灼警报
@@ -312,6 +319,7 @@ export class TelegramBroadcaster {
         round,
         passed: status === 2,
         qualifiedCandles: Number(round.qualifiedCandles || 0),
+        limit: dmLimit,
         nowSec,
       }));
     }
@@ -735,12 +743,19 @@ export class TelegramBroadcaster {
       return { skipped: true, reason: 'INVALID_ROUND_ID', sentCount: 0 };
     }
 
+    // 防止超过 24 小时的历史已结算轮次被反复补发给后续新订阅用户
+    const settledAt = Number(round?.settledAt || 0);
+    if (settledAt > 0 && nowSec - settledAt > 86400) {
+      return { skipped: true, reason: 'SETTLED_TOO_OLD', sentCount: 0 };
+    }
+    const maxUpdatedAt = settledAt > 0 ? settledAt : null;
+
     const lim = Math.max(1, Math.min(200, Math.floor(Number(limit) || 25)));
     let pendingUids = [];
     if (typeof this.socialStore.listPendingSettlementPushUsers === 'function') {
-      pendingUids = await this.socialStore.listPendingSettlementPushUsers(rId, { limit: lim });
+      pendingUids = await this.socialStore.listPendingSettlementPushUsers(rId, { limit: lim, maxUpdatedAt });
     } else if (typeof this.socialStore.listSettlementPushSubscribers === 'function') {
-      const allSubs = await this.socialStore.listSettlementPushSubscribers({ limit: 10000 });
+      const allSubs = await this.socialStore.listSettlementPushSubscribers({ limit: 10000, maxUpdatedAt });
       for (const uid of allSubs) {
         if (pendingUids.length >= lim) break;
         const already = await this.dedupLog.has(`settle_dm:${rId}:${uid}`);

@@ -1,6 +1,6 @@
 // A9 Protocol v15 — Unified API router (compatible with Cloudflare Worker & Node HTTP).
 // Uses `await` on all storage/engine calls to support both sync in-memory engines and async D1 stores.
-import { buildV15ConfigPayload, mapV15RoundDetail } from './v15-indexer.mjs';
+import { buildV15ConfigPayload, mapV15RoundDetail, computeTicketClaimPreview } from './v15-indexer.mjs';
 import { PromoError } from './promo-hotwallet.mjs';
 import { PresaleError } from './presale-hotwallet.mjs';
 import { BudgetError } from './promo-budget.mjs';
@@ -227,11 +227,15 @@ export function createApiRouter({
   healthChecker = null,
   runnerHeartbeatReader = null,
 }) {
-  // M-5: 24h 换绑冷静期到期晋升时自动将旧钱包推广余额原子合并至新钱包
+  // M-5: 24h 换绑冷静期到期晋升时自动将旧钱包推广余额原子合并至新钱包，且仅在无在途领奖单时放行晋升
   if (promoEngine && typeof promoEngine.mergeBalance === 'function' && identityStore && typeof identityStore === 'object' && !identityStore.onWalletRebound) {
     identityStore.onWalletRebound = async ({ fromWalletAddress, toWalletAddress, nowSec: rebindNow }) => {
       await promoEngine.mergeBalance(fromWalletAddress, toWalletAddress, rebindNow);
     };
+  }
+  if (promoEngine && typeof promoEngine.hasPendingClaim === 'function' && identityStore && typeof identityStore === 'object' && !identityStore.canPromoteRebind) {
+    identityStore.canPromoteRebind = async ({ fromWalletAddress, nowSec: rebindNow }) =>
+      !(await promoEngine.hasPendingClaim(fromWalletAddress, rebindNow));
   }
   return async function handleRequest({ method, pathname, query = {}, body = null, headers = {}, origin = '', nowSec = Math.floor(Date.now() / 1000) }) {
     const auth = createRequestAuth({ env, headers, identityStore, nowSec });
@@ -240,12 +244,29 @@ export function createApiRouter({
         if (typeof healthChecker === 'function') {
           const checks = await healthChecker({ nowSec });
           const healthy = checks?.ok !== false;
+          const isAdmin = Boolean(env.A9_ADMIN_TOKEN) && timingSafeEqualStr(extractAdminToken(headers), env.A9_ADMIN_TOKEN);
+          const safeChecks = isAdmin
+            ? checks
+            : {
+                ok: healthy,
+                db: checks?.db ? { bound: Boolean(checks.db.bound), ok: Boolean(checks.db.ok) } : undefined,
+                cacheAgeSec: checks?.cacheAgeSec ?? null,
+                runnerHeartbeats: Array.isArray(checks?.runnerHeartbeats)
+                  ? checks.runnerHeartbeats.map((r) => ({
+                      runnerId: r.runnerId,
+                      role: r.role,
+                      network: r.network,
+                      lastSeenAt: r.lastSeenAt,
+                      meta: r.meta ? { status: String(r.meta.status || 'ok') } : null,
+                    }))
+                  : [],
+              };
           return ok(
             {
               service: 'a9mini-v15-worker',
               status: healthy ? 'ok' : 'degraded',
               version: '16.0.0',
-              checks,
+              checks: safeChecks,
             },
             healthy ? 200 : 503,
           );
@@ -580,6 +601,19 @@ export function createApiRouter({
             // 链上查询异常时保留 null 与不可用标记，绝不返回余额 0（P0-G）。
           }
         }
+        const psForPreview = stateStore?.getProtocolState?.() || null;
+        const timingForPreview = stateStore?.getTiming?.() || {};
+        let totalClaimableRaw = 0n;
+        let totalLockedRaw = 0n;
+        const enrichedTickets = Array.isArray(onchain.tickets)
+          ? onchain.tickets.map((t) => {
+              const roundItem = stateStore?.getRound?.(t.roundId) || null;
+              const preview = computeTicketClaimPreview(t, roundItem?.round || null, psForPreview, nowSec, timingForPreview);
+              totalClaimableRaw += BigInt(preview.claimableTotalRaw || '0');
+              totalLockedRaw += BigInt(preview.lockedRemainingRaw || '0');
+              return { ...t, ...preview };
+            })
+          : [];
         let owner = false;
         let viewerKey = null;
         try {
@@ -596,6 +630,9 @@ export function createApiRouter({
         return ok({
           walletAddress: wallet,
           ...onchain,
+          tickets: enrichedTickets,
+          claimableRaw: onchain.ticketsAvailable ? totalClaimableRaw.toString() : null,
+          lockedRaw: onchain.ticketsAvailable ? totalLockedRaw.toString() : null,
           ticketRange: {
             fromRound: range.fromRound,
             toRound: range.toRound,
@@ -613,7 +650,10 @@ export function createApiRouter({
         if (!promoEngine) return err('PROMO_DISABLED', 'promo hot wallet not configured', 503);
         const hb = await checkRunnerHeartbeatGate(['promo', 'payout_daemon', 'daemon'], env, runnerHeartbeatReader, nowSec);
         if (!hb.ok) return err('PAYOUT_RUNNER_OFFLINE', `推广出账进程离线或心跳超时：${hb.reason}`, 503);
-        const { walletAddress } = await auth.wallet(body?.walletAddress || null);
+        const { binding, walletAddress } = await auth.wallet(body?.walletAddress || null);
+        if (binding?.pending) {
+          return err('PENDING_REBIND_ACTIVE', 'cannot create promo claim intent while a wallet rebind is pending; cancel rebind or wait for switch', 409);
+        }
         return ok(await promoEngine.createClaimIntent(walletAddress, nowSec));
       }
 
@@ -1022,9 +1062,11 @@ export function createApiRouter({
           const directReferees = await socialStore.listDirectReferees([identity.telegramUserId, walletAddress]);
           const candidateWallets = new Set(directReferees);
           for (const ref of directReferees) {
-            if (/^\d{1,20}$/.test(String(ref)) && identityStore && typeof identityStore.getBinding === 'function') {
-              const b = await identityStore.getBinding(String(ref), nowSec);
-              if (b?.walletAddress) candidateWallets.add(b.walletAddress);
+            if (/^\d{1,20}$/.test(String(ref)) && identityStore) {
+              const refWallet = typeof identityStore.getCurrentWalletAddress === 'function'
+                ? await identityStore.getCurrentWalletAddress(String(ref))
+                : (await identityStore.getBinding?.(String(ref), nowSec))?.walletAddress;
+              if (refWallet) candidateWallets.add(refWallet);
             }
           }
           if (candidateWallets.size > 0 && typeof presaleEngine.hasCompletedPurchaseForAny === 'function') {
@@ -1180,11 +1222,13 @@ export function createApiRouter({
             for (const r of refs) {
               wallets.add(r);
               directRefKeys.add(addressKey(r));
-              if (/^\d{1,20}$/.test(String(r)) && identityStore && typeof identityStore.getBinding === 'function') {
-                const b = await identityStore.getBinding(String(r), nowSec);
-                if (b?.walletAddress) {
-                  wallets.add(b.walletAddress);
-                  directRefKeys.add(addressKey(b.walletAddress));
+              if (/^\d{1,20}$/.test(String(r)) && identityStore) {
+                const refWallet = typeof identityStore.getCurrentWalletAddress === 'function'
+                  ? await identityStore.getCurrentWalletAddress(String(r))
+                  : (await identityStore.getBinding?.(String(r), nowSec))?.walletAddress;
+                if (refWallet) {
+                  wallets.add(refWallet);
+                  directRefKeys.add(addressKey(refWallet));
                 }
               }
             }

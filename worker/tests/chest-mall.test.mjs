@@ -460,11 +460,15 @@ await test('Cloudflare workerd strict globalThis.fetch receiver guard (TonCenter
     if (String(url).includes('/getAddressInformation')) {
       return { ok: true, status: 200, json: async () => ({ ok: true, result: { state: 'active', code: 'te6cckEBAQEA' } }) };
     }
+    if (String(url).includes('/getMe')) {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { id: 999000, is_bot: true, username: 'A9_TonBot' } }) };
+    }
     if (String(url).includes('/getChat?')) {
       return { ok: true, status: 200, json: async () => ({ ok: true, result: { id: -1001, type: 'supergroup', username: 'a9test' } }) };
     }
     if (String(url).includes('/getChatMember?')) {
-      return { ok: true, status: 200, json: async () => ({ ok: true, result: { status: 'creator' } }) };
+      const isBotCheck = String(url).includes('user_id=999000');
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { status: isBotCheck ? 'administrator' : 'creator' } }) };
     }
     if (String(url).includes('/getChatMemberCount?')) {
       return { ok: true, status: 200, json: async () => ({ ok: true, result: 108 }) };
@@ -484,7 +488,7 @@ await test('Cloudflare workerd strict globalThis.fetch receiver guard (TonCenter
 
     const bc = new TelegramBroadcaster({ enabled: true, botToken: BOT_TOKEN, delayMs: 0 });
     await bc._sendTelegram({ chatId: '1001', text: 'workerd receiver ok' });
-    assert.equal(calls.length, 5);
+    assert.equal(calls.length, 7);
   } finally {
     globalThis.fetch = origFetch;
   }
