@@ -10,11 +10,12 @@ import { store } from './store.js';
 import { config } from './config.js';
 import { demoWalletSendResult } from './demo-data.js';
 import { A9Haptic } from './tma.js';
-import { escapeHtml, showToast, openModal, closeModal } from './components.js';
+import { escapeHtml, showToast, copyText, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
 import { buildV15StakeTx, buildV15ClaimTx, buildV15PromoFeeTx, buildV15PresaleTx, parseTonAddress } from './v15-tx.js';
 import { A9TMA as TMA } from './tma.js';
 import { fetchMe, requestTonProofPayload, submitTonProof } from './data.js';
+import { openTxRiskConfirmModal } from './tx-ux.js';
 
 /** 真实模式且在 Telegram 内：钱包归属需通过 ton_proof 由服务端验证。 */
 const proofFlowEnabled = () => !config.isDemo && Boolean(TMA.getRawInitData());
@@ -239,7 +240,10 @@ class A9TonConnect {
           <span class="chip ${user.connected ? 'chip-green' : 'chip-amber'}">${user.connected ? 'CONNECTED' : 'DISCONNECTED'}</span>
         </div>
         ${!canSandbox && user.connected ? `<div class="row-between" style="margin-top:6px;"><span class="caps text-muted">OWNERSHIP PROOF</span>${verifyChip}</div>` : ''}
-        <div class="num-sm text-cyan" style="margin-top:6px;word-break:break-all;">${user.connected ? escapeHtml(user.address) : '尚未连接非托管 TON 钱包'}</div>
+        <div class="row-between" style="margin-top:6px;gap:8px;">
+          <div class="num-sm text-cyan" style="word-break:break-all;">${user.connected ? escapeHtml(user.address) : '尚未连接非托管 TON 钱包'}</div>
+          ${user.connected ? `<button class="pill-trigger neutral" id="tc-copy-wallet" type="button" style="flex-shrink:0;">${icon('copy', 11)} 复制</button>` : ''}
+        </div>
         ${!canSandbox && user.pendingSwitch ? `<div class="num-xs text-gold" style="margin-top:6px;">待生效换绑：将于 ${new Date(Number(user.pendingSwitch.effectiveAt) * 1000).toLocaleString()} 生效；可使用原钱包重签取消。</div>` : ''}
         ${!this.sdkReady ? `<div class="num-xs text-muted" style="margin-top:6px;">${escapeHtml(this.lastError || 'SDK 未就绪')}</div>` : ''}
         ${canSandbox
@@ -262,7 +266,11 @@ class A9TonConnect {
       </div>
     `);
 
-    document.getElementById('tc-close').onclick = closeModal;
+    document.getElementById('tc-close').onclick = () => { A9Haptic.light(); closeModal(); };
+    const copyWalletBtn = document.getElementById('tc-copy-wallet');
+    if (copyWalletBtn && user.address) {
+      copyWalletBtn.onclick = () => copyText(user.address, '已复制钱包地址');
+    }
 
     const launchWithProof = async (purpose = 'bind') => {
       closeModal();
@@ -326,6 +334,12 @@ class A9TonConnect {
         if (onChanged) onChanged();
       };
     }
+  }
+
+  /** 统一签名前透明化风控确认卡（自动读取当前协议网络并交由 openTxRiskConfirmModal 呈现）。 */
+  async confirmBeforeSign(spec = {}) {
+    const network = spec.network || store.state.round?.protocolConfig?.network || config.network || 'mainnet';
+    return openTxRiskConfirmModal({ ...spec, network });
   }
 
   /**

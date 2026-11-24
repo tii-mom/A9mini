@@ -146,6 +146,9 @@ export function closeModal() {
   if (!root) return;
   root.classList.add('hidden');
   root.innerHTML = '';
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+    window.dispatchEvent(new CustomEvent('a9:interaction-idle'));
+  }
 }
 
 export function openChoiceSheet({ title, options, selected, onSelect }) {

@@ -14,6 +14,7 @@ import { escapeHtml, formatNum, formatTimer, showToast, cleanupActiveInteraction
 import { icon } from './icons.js';
 import { t, L, initAutoLanguage, syncDocumentLang } from './i18n.js';
 import { tonConnect } from './tonconnect.js';
+import { shouldDeferRouteRender, pendingTxManager, renderPendingTxBannerHtml } from './tx-ux.js';
 
 const headerEl = document.getElementById('app-header');
 const tickerEl = document.getElementById('ticker-bar');
@@ -41,9 +42,40 @@ let dataReady = false;
 let lastLoadError = null;
 let isSyncing = false;
 let lastDataKey = '';
+let pendingDeferredRender = false;
 let activeViewTransition = null;
 const scrollMemory = new Map();
 const navStack = [];
+
+function syncPendingTxBanner() {
+  if (!mainEl) return;
+  const existing = mainEl.querySelector('#a9-pending-tx-bar');
+  const tx = pendingTxManager.getActive();
+  const network = store.state.round?.protocolConfig?.network || config.network || 'mainnet';
+  if (!tx) {
+    if (existing) existing.remove();
+    return;
+  }
+  const html = renderPendingTxBannerHtml(tx, network);
+  if (existing) {
+    existing.outerHTML = html;
+  } else {
+    mainEl.insertAdjacentHTML('afterbegin', html);
+  }
+  const dismissBtn = mainEl.querySelector('#btn-dismiss-pending-tx');
+  if (dismissBtn) {
+    dismissBtn.onclick = () => {
+      A9Haptic.light();
+      pendingTxManager.clear();
+    };
+  }
+}
+
+function flushDeferredRender() {
+  if (!pendingDeferredRender || shouldDeferRouteRender(document)) return;
+  pendingDeferredRender = false;
+  renderCurrentRoute();
+}
 
 /** 纯内存页面交互状态记忆（绝不写入 localStorage） */
 export const uiMemory = {
@@ -277,6 +309,7 @@ function staleBanner() {
 let lastRenderedPath;
 let lastFullHash = '';
 export function renderCurrentRoute() {
+  pendingDeferredRender = false;
   if (lastFullHash) scrollMemory.set(lastFullHash, window.scrollY || 0);
   cleanupActiveInteractions();
   cleanupKineticSurfaces();
@@ -325,6 +358,7 @@ export function renderCurrentRoute() {
     const btn = mainEl.querySelector('#stale-retry');
     if (btn) btn.onclick = () => syncData({ forceRender: true });
   }
+  syncPendingTxBanner();
   const restoredY = route.shell === 'tab' && prevPath && prevPath !== route.path ? (scrollMemory.get(currentHash) || 0) : 0;
   window.scrollTo({ top: restoredY, behavior: 'instant' });
 }
@@ -349,8 +383,19 @@ async function syncData({ forceRender = false } = {}) {
       return;
     }
 
-    if (forceRender || changed) renderCurrentRoute();
-    else renderHeader(matchRoute(window.location.hash).route);
+    if (forceRender || changed) {
+      if (!forceRender && shouldDeferRouteRender(document)) {
+        pendingDeferredRender = true;
+        const activeRoute = matchRoute(window.location.hash || '#/challenge').route;
+        renderHeader(activeRoute);
+        renderTicker(activeRoute.ticker);
+        renderTabBar(activeRoute);
+      } else {
+        renderCurrentRoute();
+      }
+    } else {
+      renderHeader(matchRoute(window.location.hash).route);
+    }
   } catch (error) {
     if (!dataReady) {
       lastLoadError = error;
@@ -358,7 +403,14 @@ async function syncData({ forceRender = false } = {}) {
       renderDataError(error);
     } else {
       store.update(s => { s.round.stale = true; });
-      renderCurrentRoute();
+      if (shouldDeferRouteRender(document)) {
+        pendingDeferredRender = true;
+        const activeRoute = matchRoute(window.location.hash || '#/challenge').route;
+        renderHeader(activeRoute);
+        renderTicker(activeRoute.ticker);
+      } else {
+        renderCurrentRoute();
+      }
     }
   } finally {
     isSyncing = false;
@@ -462,8 +514,12 @@ function openSimDrawer() {
     </div>
   `;
 
-  simDrawerEl.onclick = (e) => { if (e.target === simDrawerEl) simDrawerEl.classList.add('hidden'); };
-  simDrawerEl.querySelector('#sim-close').onclick = () => simDrawerEl.classList.add('hidden');
+  const closeSimDrawer = () => {
+    simDrawerEl.classList.add('hidden');
+    flushDeferredRender();
+  };
+  simDrawerEl.onclick = (e) => { if (e.target === simDrawerEl) closeSimDrawer(); };
+  simDrawerEl.querySelector('#sim-close').onclick = closeSimDrawer;
 
   simDrawerEl.querySelectorAll('[data-sim-stage]').forEach(b => {
     b.onclick = () => {
@@ -519,6 +575,7 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && simDrawerEl && !simDrawerEl.classList.contains('hidden')) {
     simDrawerEl.classList.add('hidden');
+    flushDeferredRender();
     return;
   }
   if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -739,6 +796,9 @@ window.addEventListener('error', () => handleRuntimeError());
 window.addEventListener('unhandledrejection', () => handleRuntimeError());
 
 window.addEventListener('hashchange', renderCurrentRoute);
+pendingTxManager.subscribe(() => syncPendingTxBanner());
+window.addEventListener('a9:interaction-idle', flushDeferredRender);
+document.addEventListener('focusout', () => setTimeout(flushDeferredRender, 0));
 syncData({ forceRender: true }).then(() => {
   if (startParsed?.type === 'chest' && startParsed?.chestId) {
     openChestAssistModal(startParsed.chestId);
