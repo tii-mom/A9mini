@@ -639,7 +639,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
           deliveryFeeGram: feeStr,
           totalPayGram: totalStr,
           baseA9: Number(s.baseA9),
-          maxBoostPct: Math.round(Number(s.maxBoostBps || 0) / 100),
+          maxBoostPct: Number((Number(s.maxBoostBps || 0) / 100).toFixed(1)),
           maxBoostA9: Number(((Number(s.maxBoostA9Raw || 0)) / 1e9).toFixed(2)),
           requiredAssists: Number(s.requiredAssists || 2)
         };
@@ -823,7 +823,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                       : `${icon('bolt', 16)} ${buyBusy ? L('等待钱包确认…', 'Awaiting Wallet…') : L(`立即购买 ${L(sel.zh, sel.en)} · 实付 ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`, `Buy ${sel.en} · Pay ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`)}`}
               </button>
 
-              <div class="mall-footnote">${L('固定本金实时锁定 · 发币 Gas (0.06 GRAM) 与原路退款 Gas (0.03 GRAM) 由用户自担', 'Base A9 locked · User covers 0.06 GRAM delivery gas & 0.03 GRAM refund gas')}</div>
+              <div class="mall-footnote">${L('固定本金实时锁定 · 请通过页面下单付款，切勿直接向热钱包转账（发币 Gas 0.06 GRAM，过期/异常原路退款扣 0.03 GRAM Gas）', 'Base A9 locked · Pay via order flow only; never transfer directly (0.06 GRAM delivery gas, 0.03 GRAM refund gas)')}</div>
             </section>
           `}
 

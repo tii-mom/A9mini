@@ -33,12 +33,12 @@
 > **生产写操作红线**：本步中的**远程生产 D1 迁移（`--remote`）**与**生产 Worker Secrets 注入（`wrangler secret put`）**均直接写入生产 Cloudflare 环境，**必须由业主单独书面授权后方可执行**；未获单独授权前仅可进行本地只读预演与静态资产核对。
 
 1. **发布静态前端与元数据（含官网分域对齐）**：若独立官网（`a9-official-web/`）占根域 `https://a9.lat`，推荐 Mini App 部署至 `https://app.a9.lat` 并同步更新 `tonconnect-manifest.json` 的 `url`、`A9_PUBLIC_ORIGIN` 与 `A9_TON_PROOF_DOMAINS`，同时确保根域或静态域上的 `a9.json`、`tonconnect-manifest.json` 与 `assets/token/a9-token-2048.png` 返回 `HTTP 200` 且带 `Access-Control-Allow-Origin: *`（`a9-mini-app/_headers` 已内置）；确认 `window.__A9_CONFIG__.liveFundsEnabled = false`；
-2. **生产 D1 迁移（0001..0010，写生产库 · 须单独授权）**：
+2. **生产 D1 迁移（0001..0012，写生产库 · 须单独授权）**：
 ```bash
 cd /Users/yu1/Desktop/A9mini/worker
 npx wrangler d1 migrations apply a9mini-v15-prod --remote --env production
 ```
-   验收项：先备份存量库再按序执行 10 份迁移，确认 28 张表与 23 个索引就绪、`PRAGMA integrity_check = ok`。
+   验收项：先备份存量库再按序执行 12 份迁移（含 `0011_round_warmup_v2.sql` 与 `0012_actuarial_hardening.sql`），确认 `promo_budget_ledger`（3 亿 A9 4 槽位）、`captain_founding_bonuses` 唯一索引及所有表索引就绪、`PRAGMA integrity_check = ok`。
 3. **注入生产 Worker Secrets（写生产环境 · 须单独授权，严禁写入 wrangler.toml）**：
 ```bash
 cd /Users/yu1/Desktop/A9mini/worker
@@ -48,8 +48,8 @@ npx wrangler secret put TONCENTER_API_KEY --env production
 ```
 4. **前端只读验收**：在移动端 `390×844` 打开正式 Telegram Mini App，确认广场/闯关/宝箱商城（`#/internal/market` 与 `#/market`）/战队/我的零报错、零 Emoji、数字完整不缩写、所有资金按钮只读禁用，且 `tonconnect-manifest.json` 握手正常。
 
-### 1B. 主网 4 合约部署、铸币弃权与 82 亿注资（暂不开轮）
-先验证 `v16/ci/artifacts.sha256`（4/4）与 Acton 单元测试全部通过，导出主网必填部署变量（`A9_DEPLOY_WALLET`、`A9_TREASURY_WALLET`、`A9_KEEPER_ADDRESS`、`A9_ROUND_OPENER_ADDRESS`、`A9_TEAM_WALLET_ADDRESS`、`A9_METADATA_URI`），先只读干跑预检，再由业主单独书面授权执行：
+### 1B. 主网 4 合约部署（v16.1）、铸币弃权与 82 亿注资（暂不开轮）
+先验证 `v16/ci/artifacts.sha256`（4/4，已锁定 v16.1：零质押达标不推进胜场/解锁、失败轮对称减半销毁 `teamCarryRaw`）与 Acton 单元测试全部通过，导出主网必填部署变量（`A9_DEPLOY_WALLET`、`A9_TREASURY_WALLET`、`A9_KEEPER_ADDRESS`、`A9_ROUND_OPENER_ADDRESS`、`A9_TEAM_WALLET_ADDRESS`、`A9_METADATA_URI`），先只读干跑预检，再由业主单独书面授权执行：
 ```bash
 cd /Users/yu1/Desktop/A9mini/ops
 export A9_DEPLOY_WALLET="<mainnet_deployer_wallet_name>"
@@ -133,9 +133,9 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
 ### 2.2 小额真钱冒烟验证与分步开闸（放量前必做）
 1. **第一步（开购箱 + 开箱入账，保持群播报关闭）**：将 Worker 变量置为 `A9_PRESALE_OPEN = "1"`、`A9_CHEST_OPEN_ENABLED = "1"`、`A9_BROADCAST_ENABLED = "0"` 并部署；前端部署配置开启 `window.__A9_CONFIG__.liveFundsEnabled = true`；
 2. 使用团队自有主网小号实测 4 笔真实小额闭环并逐项链上+库表对账：
-   - `0.99 GRAM` 青铜箱购箱 → 买家链上 A9 `JettonWallet` 实测到账 `1,981.98 A9`、`presale_orders` 为 `COMPLETED`、`presale_payouts` 为 `CONFIRMED`、`user_chests` 生成对应 `SHOP_BOOST` 膨胀箱、`presale_referral_credits` 记账推荐人 12% 佣金并入 `promo_balances`；
-   - **宝箱开箱入账对账**：实测免费青铜宝箱 #1（`chest_assists` 满 2 位活跃钱包助力）与商城膨胀箱调用 `POST /api/chests/:id/open` 返回 `200`（非 `403 CHEST_OPEN_DISABLED`），核对 `user_chests.status = 'OPENED'`、`chest_open_credits` 留痕、免费青铜箱精确入账 `prediction_rewards.pending_activation_raw`（且青铜 #2 转为 `ACTIVE`）、商城膨胀箱增量精确入账 `promo_balances.claimable_raw`；
-   - `0.99 GRAM` 过期单晚付 → 实测 `gram_refund_v15.tolk` 原路全额退回 `0.99 GRAM`，`presale_orders` 为 `REFUNDED`、`presale_payouts` 为 `CONFIRMED`；
+   - `0.99 GRAM`（实付 `1.05 GRAM` 含 `0.06 GRAM` 发币 Gas）青铜箱购箱 → 买家链上 A9 `JettonWallet` 实测到账 `1,981.98 A9`、`presale_orders` 为 `COMPLETED`、`presale_payouts` 为 `CONFIRMED`、`user_chests` 生成对应 `SHOP_BOOST` 膨胀箱（最高 +2%）、`presale_referral_credits` 记账推荐人 6% 佣金并同步扣减 `promo_budget_ledger`（`presale_promo` 槽位）后入 `promo_balances`；
+   - **宝箱开箱入账对账**：实测免费青铜宝箱 #1（`chest_assists` 满 2 位活跃钱包助力）与商城膨胀箱调用 `POST /api/chests/:id/open` 返回 `200`（非 `403 CHEST_OPEN_DISABLED`），核对 `user_chests.status = 'OPENED'`、`chest_open_credits` 与 `promo_budget_ledger` 留痕、免费青铜箱精确入账 `prediction_rewards.pending_activation_raw`（且青铜 #2 转为 `ACTIVE`）、商城膨胀箱增量精确入账 `promo_balances.claimable_raw`；
+   - 过期单晚付 / 异常直转退款 → 实测 `gram_refund_v15.tolk` 按退款规则扣除 `0.03 GRAM` 链上退回 Gas 后原路退回（支付 `1.05 GRAM` 退回 `1.02 GRAM`；异常直转 `0.99 GRAM` 退回 `0.96 GRAM`），`presale_orders` 为 `REFUNDED`、`presale_payouts` 为 `CONFIRMED`；
    - **推广 0.06 GRAM 领币与最终到账对账**：推荐人/开箱领取人付 `0.06 GRAM` 发起领取 → 核对 `promo_claims.status = 'COMPLETED'`（带真实链上入账 `fee_tx_hash` 与出账 `payout_tx_hash`）、`promo_payouts.status = 'CONFIRMED'`（且 `promo_payouts.tx_hash === promo_claims.payout_tx_hash`）、`promo_balances.claimable_raw` 精确扣减且 `total_claimed_raw` 等额增加、**领取人主网 A9 `JettonWallet` 实测收到对应全部 A9 余额**、且 `promoHotWallet` GRAM 净增加（项目方 0 Gas 支出）。
 3. **第二步（账实对平后开启 TG 播报）**：核验 D1 真实表 `presale_orders`、`presale_payouts`、`presale_referral_credits`、`user_chests`、`chest_assists`、`chest_open_credits`、`prediction_rewards`、`promo_balances`、`promo_claims`、`promo_payouts`、`runner_heartbeats` 与链上余额 100% 一致后，再将 `A9_BROADCAST_ENABLED = "1"`（`A9_BROADCAST_WHALE_MIN_GRAM` 先保持 `"50"`）部署并正式放量。
 

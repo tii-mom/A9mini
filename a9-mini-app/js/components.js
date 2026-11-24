@@ -754,8 +754,8 @@ export function renderViralStrip() {
       <div class="row-start">
         <span class="icon-badge amber">${icon('qr', 16)}</span>
         <div>
-          <div style="font-weight:700;font-size:13.5px;">${L('邀请好友 · 邀请奖励 12%', 'Invite Friends · 12% Referral')}</div>
-          <div class="num-xs text-sec">${L('团队奖励 18% · 一键生成海报', '18% Team Bonus · 1-tap poster')}</div>
+          <div style="font-weight:700;font-size:13.5px;">${L('邀请好友 · 邀请奖励 6%', 'Invite Friends · 6% Referral')}</div>
+          <div class="num-xs text-sec">${L('宝箱直推 6% · 一键生成海报', '6% Chest Referral · 1-tap poster')}</div>
         </div>
       </div>
       <span class="chip chip-muted">${L('去分享', 'Share')} ${icon('chevronRight', 11)}</span>

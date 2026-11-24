@@ -309,7 +309,7 @@ export function applyDemoInitialState(state) {
     },
     {
       id: 'LD-8814',
-      type: '直邀奖励 (12%)',
+      type: '直邀奖励 (6%)',
       source: '好友 UQ...8892 参与',
       amount: '+18,400 A9',
       status: '已到账',
@@ -669,11 +669,11 @@ export function tickDemoPrice(r) {
 /* ---------------- 演示模式：宝箱商城与免费裂变宝箱（DEMO ONLY） ---------------- */
 
 export const DEMO_CHEST_SKUS = [
-  { skuId: 'chest_bronze',   tier: 'bronze',   zh: '青铜宝箱', en: 'Bronze Chest',   priceGram: '0.99',  deliveryFeeGram: '0.06', totalPayGram: '1.05',   baseA9: 1981.98,   maxBoostPct: 6,  maxBoostA9: 118.92,   requiredAssists: 2 },
-  { skuId: 'chest_silver',   tier: 'silver',   zh: '白银宝箱', en: 'Silver Chest',   priceGram: '4.99',  deliveryFeeGram: '0.06', totalPayGram: '5.05',   baseA9: 9989.98,   maxBoostPct: 8,  maxBoostA9: 799.20,   requiredAssists: 3 },
-  { skuId: 'chest_gold',     tier: 'gold',     zh: '黄金宝箱', en: 'Gold Chest',     priceGram: '9.99',  deliveryFeeGram: '0.06', totalPayGram: '10.05',  baseA9: 19999.98,  maxBoostPct: 10, maxBoostA9: 2000.00,  requiredAssists: 4 },
-  { skuId: 'chest_platinum', tier: 'platinum', zh: '白金宝箱', en: 'Platinum Chest', priceGram: '19.99', deliveryFeeGram: '0.06', totalPayGram: '20.05',  baseA9: 40019.98,  maxBoostPct: 11, maxBoostA9: 4402.20,  requiredAssists: 5 },
-  { skuId: 'chest_diamond',  tier: 'diamond',  zh: '钻石宝箱', en: 'Diamond Chest',  priceGram: '99.99', deliveryFeeGram: '0.06', totalPayGram: '100.05', baseA9: 200179.98, maxBoostPct: 12, maxBoostA9: 24021.60, requiredAssists: 6 }
+  { skuId: 'chest_bronze',   tier: 'bronze',   zh: '青铜宝箱', en: 'Bronze Chest',   priceGram: '0.99',  deliveryFeeGram: '0.06', totalPayGram: '1.05',   baseA9: 1981.98,   maxBoostPct: 2,   maxBoostA9: 39.64,    requiredAssists: 2 },
+  { skuId: 'chest_silver',   tier: 'silver',   zh: '白银宝箱', en: 'Silver Chest',   priceGram: '4.99',  deliveryFeeGram: '0.06', totalPayGram: '5.05',   baseA9: 9989.98,   maxBoostPct: 3,   maxBoostA9: 299.70,   requiredAssists: 3 },
+  { skuId: 'chest_gold',     tier: 'gold',     zh: '黄金宝箱', en: 'Gold Chest',     priceGram: '9.99',  deliveryFeeGram: '0.06', totalPayGram: '10.05',  baseA9: 19999.98,  maxBoostPct: 4,   maxBoostA9: 800.00,   requiredAssists: 4 },
+  { skuId: 'chest_platinum', tier: 'platinum', zh: '白金宝箱', en: 'Platinum Chest', priceGram: '19.99', deliveryFeeGram: '0.06', totalPayGram: '20.05',  baseA9: 40019.98,  maxBoostPct: 4.5, maxBoostA9: 1800.90,  requiredAssists: 5 },
+  { skuId: 'chest_diamond',  tier: 'diamond',  zh: '钻石宝箱', en: 'Diamond Chest',  priceGram: '99.99', deliveryFeeGram: '0.06', totalPayGram: '100.05', baseA9: 200179.98, maxBoostPct: 5,   maxBoostA9: 10009.00, requiredAssists: 6 }
 ];
 
 const demoChestStore = {
@@ -714,10 +714,10 @@ function ensureDemoChests() {
     { chestId: 'ch_demo_b1', source: 'FREE_TIER', tier: 'bronze',   slotIndex: 1, labelZh: '青铜宝箱 #1', labelEn: 'Bronze Chest #1', baseA9Raw: '300000000000',     boostA9Raw: '0', maxBoostA9Raw: '0', requiredAssists: 2,    currentAssists: 1, minVolumeNano: '0',                 minTgMembers: 0,    status: 'ACTIVE', createdAt: nowSec - 600 },
     { chestId: 'ch_demo_b2', source: 'FREE_TIER', tier: 'bronze',   slotIndex: 2, labelZh: '青铜宝箱 #2', labelEn: 'Bronze Chest #2', baseA9Raw: '300000000000',     boostA9Raw: '0', maxBoostA9Raw: '0', requiredAssists: 2,    currentAssists: 0, minVolumeNano: '0',                 minTgMembers: 0,    status: 'LOCKED', createdAt: nowSec - 599 },
     { chestId: 'ch_demo_b3', source: 'FREE_TIER', tier: 'bronze',   slotIndex: 3, labelZh: '青铜宝箱 #3', labelEn: 'Bronze Chest #3', baseA9Raw: '400000000000',     boostA9Raw: '0', maxBoostA9Raw: '0', requiredAssists: 2,    currentAssists: 0, minVolumeNano: '0',                 minTgMembers: 0,    status: 'LOCKED', createdAt: nowSec - 598 },
-    { chestId: 'ch_demo_s1', source: 'FREE_TIER', tier: 'silver',   slotIndex: 1, labelZh: '白银宝箱',    labelEn: 'Silver Chest',    baseA9Raw: '10000000000000',   boostA9Raw: '0', maxBoostA9Raw: '0', requiredAssists: 15,   currentAssists: 0, minVolumeNano: '50000000000',       minTgMembers: 0,    status: 'LOCKED', createdAt: nowSec - 597 },
-    { chestId: 'ch_demo_g1', source: 'FREE_TIER', tier: 'gold',     slotIndex: 1, labelZh: '黄金宝箱',    labelEn: 'Gold Chest',      baseA9Raw: '100000000000000',  boostA9Raw: '0', maxBoostA9Raw: '0', requiredAssists: 160,  currentAssists: 0, minVolumeNano: '1000000000000',     minTgMembers: 100,  status: 'LOCKED', createdAt: nowSec - 596 },
-    { chestId: 'ch_demo_p1', source: 'FREE_TIER', tier: 'platinum', slotIndex: 1, labelZh: '白金宝箱',    labelEn: 'Platinum Chest',  baseA9Raw: '200000000000000',  boostA9Raw: '0', maxBoostA9Raw: '0', requiredAssists: 400,  currentAssists: 0, minVolumeNano: '2400000000000',     minTgMembers: 300,  status: 'LOCKED', createdAt: nowSec - 595 },
-    { chestId: 'ch_demo_d1', source: 'FREE_TIER', tier: 'diamond',  slotIndex: 1, labelZh: '钻石宝箱',    labelEn: 'Diamond Chest',   baseA9Raw: '1000000000000000', boostA9Raw: '0', maxBoostA9Raw: '0', requiredAssists: 2000, currentAssists: 0, minVolumeNano: '12000000000000',    minTgMembers: 1000, status: 'LOCKED', createdAt: nowSec - 594 }
+    { chestId: 'ch_demo_s1', source: 'FREE_TIER', tier: 'silver',   slotIndex: 1, labelZh: '白银宝箱',    labelEn: 'Silver Chest',    baseA9Raw: '6000000000000',    boostA9Raw: '0', maxBoostA9Raw: '0', requiredAssists: 15,   currentAssists: 0, minVolumeNano: '100000000000',      minTgMembers: 0,    status: 'LOCKED', createdAt: nowSec - 597 },
+    { chestId: 'ch_demo_g1', source: 'FREE_TIER', tier: 'gold',     slotIndex: 1, labelZh: '黄金宝箱',    labelEn: 'Gold Chest',      baseA9Raw: '50000000000000',   boostA9Raw: '0', maxBoostA9Raw: '0', requiredAssists: 160,  currentAssists: 0, minVolumeNano: '1000000000000',     minTgMembers: 100,  status: 'LOCKED', createdAt: nowSec - 596 },
+    { chestId: 'ch_demo_p1', source: 'FREE_TIER', tier: 'platinum', slotIndex: 1, labelZh: '白金宝箱',    labelEn: 'Platinum Chest',  baseA9Raw: '120000000000000',  boostA9Raw: '0', maxBoostA9Raw: '0', requiredAssists: 400,  currentAssists: 0, minVolumeNano: '2400000000000',     minTgMembers: 300,  status: 'LOCKED', createdAt: nowSec - 595 },
+    { chestId: 'ch_demo_d1', source: 'FREE_TIER', tier: 'diamond',  slotIndex: 1, labelZh: '钻石宝箱',    labelEn: 'Diamond Chest',   baseA9Raw: '500000000000000',  boostA9Raw: '0', maxBoostA9Raw: '0', requiredAssists: 2000, currentAssists: 0, minVolumeNano: '12000000000000',    minTgMembers: 1000, status: 'LOCKED', createdAt: nowSec - 594 }
   ];
   demoChestStore.shopChests = [
     {
@@ -729,8 +729,8 @@ function ensureDemoChests() {
       labelEn: 'Gold Chest',
       orderId: 'IM-DEMO-1',
       baseA9Raw: '19999980000000',
-      boostA9Raw: '650000000000',
-      maxBoostA9Raw: '1999998000000',
+      boostA9Raw: '350000000000',
+      maxBoostA9Raw: '799999200000',
       requiredAssists: 4,
       currentAssists: 1,
       status: 'ACTIVE',

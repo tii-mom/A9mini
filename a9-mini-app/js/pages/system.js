@@ -419,14 +419,14 @@ export function renderRulesPage(root) {
         <details class="faq-item">
           <summary><span>${L('3. 奖励分几档解锁？失败会怎样？', '3. How do vesting tiers and failures work?')}</span><span class="faq-arrow">${icon('chevronDown', 15)}</span></summary>
           <div class="faq-body">
-            ${L('全网第 1–5 胜即时解锁 20%（余下 4×20% 随后续达标轮释放）；第 6–10 胜即时解锁 40%（余下 2×30%）；第 11 胜起新奖励 100% 即时可领。失败轮销毁该轮质押本金、一半当轮奖池与未解锁份额，直到总奖池耗尽。', 'Wins 1–5 unlock 20% immediately (4×20% vested); wins 6–10 unlock 40% (2×30%); wins 11+ unlock 100% immediately. Failed rounds burn round principal and prior locked shares.')}
+            ${L('全网第 1–5 胜即时解锁 20%（余下 4×20% 随后续达标轮释放）；第 6–10 胜即时解锁 40%（余下 2×30%）；第 11 胜起新奖励 100% 即时可领（v16.1：零质押达标轮不推进胜场与锁仓解锁）。失败轮销毁该轮质押本金、一半当轮奖池（含团队结转池对称减半销毁）与未解锁份额，直到总奖池耗尽。', 'Wins 1–5 unlock 20% immediately (4×20% vested); wins 6–10 unlock 40% (2×30%); wins 11+ unlock 100% immediately (v16.1: zero-stake passing rounds do not advance global wins or unlock slices). Failed rounds burn round principal, half of the round & team carry pools, and unvested slices.')}
           </div>
         </details>
 
         <details class="faq-item">
-          <summary><span>${L('4. 邀友奖励与战队加成如何领取？', '4. How are invite rewards claimed?')}</span><span class="faq-arrow">${icon('chevronDown', 15)}</span></summary>
+          <summary><span>${L('4. 邀友奖励与推广激励如何领取？', '4. How are invite & promo rewards claimed?')}</span><span class="faq-arrow">${icon('chevronDown', 15)}</span></summary>
           <div class="faq-body">
-            ${L('后台独立核算邀友奖励（直邀 12% / 战队 18%）。领取时支付 0.06 GRAM 网络费用，由推广热钱包自动发 A9。当前真实模式处于只读验收阶段，真实领取入口暂未开放。', 'Invite rewards are tracked off-chain. Claiming pays a 0.06 GRAM network fee and the hot wallet sends A9. Live claims are currently disabled in read-only mode.')}
+            ${L('后台独立核算直推宝箱返佣（6%）与活动奖励，受 3 亿 A9 全局推广预算熔断保护。领取时支付 0.06 GRAM 网络费用，由推广热钱包自动发 A9。当前真实模式处于只读验收阶段，真实领取入口暂未开放。', 'Direct chest referrals (6%) and promo rewards are tracked off-chain under a 300,000,000 A9 global budget cap. Claiming pays a 0.06 GRAM network fee and the hot wallet sends A9. Live claims are currently disabled in read-only mode.')}
           </div>
         </details>
       </div>

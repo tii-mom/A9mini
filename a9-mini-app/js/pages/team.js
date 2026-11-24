@@ -29,10 +29,10 @@ export function renderTeamHome(root, navigate) {
       <div class="col-gap anim-page-enter">
         <div class="card card-hero" style="border-color:var(--gold-border);">
           <div class="row-between" style="margin-bottom:6px;">
-            <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('群主创世金库 & 12% 永久返佣', 'Captain Vault & 12% Referral')}</span>
+            <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('群主创世金库 & 6% 永久返佣', 'Captain Vault & 6% Referral')}</span>
             <span class="chip chip-gold">+5,000 A9</span>
           </div>
-          <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('绑定 ≥50 人真实 TG 群立领 5,000 A9 创世金库；分享招募海报，成员每购任意宝箱即享 12% 返佣实时私聊提醒。', 'Verify a 50+ member TG group for 5,000 A9 founding vault. Share invite poster to earn 12% live commission on every chest purchase.')}</div>
+          <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('绑定 ≥50 人真实 TG 群且战队满 3 名已绑定成员立领 5,000 A9 创世金库；分享招募海报，直推成员每购任意宝箱即享 6% 返佣实时私聊提醒。', 'Verify a 50+ member TG group with ≥3 bound squad members for a 5,000 A9 founding vault. Share invite poster to earn 6% live commission on every chest purchase.')}</div>
           <div class="grid-2" style="gap:8px;">
             <button class="btn btn-primary btn-sm" data-nav="/team/bind-tg" type="button" style="width:100%;min-height:40px;">${icon('send', 13)} ${L('绑群领 5,000 A9', 'Link TG Group')}</button>
             <button class="btn btn-secondary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:40px;">${icon('qr', 13)} ${L('生成招募海报', 'Invite Poster')}</button>
@@ -108,7 +108,7 @@ export function renderTeamHome(root, navigate) {
         </div>
         <div class="progress-track" style="margin-bottom:12px;"><div class="progress-fill" style="width:${progressPct}%"></div></div>
 
-        <button class="btn btn-primary" data-nav="/team/invite">${icon('qr', 16)} ${L('生成招募海报 · 12% 邀请奖励', 'Invite Poster · 12% Bonus')}</button>
+        <button class="btn btn-primary" data-nav="/team/invite">${icon('qr', 16)} ${L('生成招募海报 · 6% 邀请奖励', 'Invite Poster · 6% Bonus')}</button>
       </div>
 
       <div class="card">
@@ -132,7 +132,7 @@ export function renderTeamHome(root, navigate) {
           <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('群主创世金库 & 返佣叮咚提醒', 'Captain Bonus & Live DM Alerts')}</span>
           <span class="chip chip-gold">+5,000 A9</span>
         </div>
-        <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:8px;">${L('绑定满 50 人真实 TG 群立领 5,000 A9 创世金库；群内每成交 1 笔宝箱订单，Bot 实时私聊播报 12% 返佣到账。', 'Verify a 50+ member TG group for 5,000 A9 founding vault. Bot DMs you live on every 12% chest commission.')}</div>
+        <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:8px;">${L('绑定满 50 人真实 TG 群且战队满 3 名已绑定成员立领 5,000 A9 创世金库；直推每成交 1 笔宝箱订单，Bot 实时私聊播报 6% 返佣到账。', 'Verify a 50+ member TG group with ≥3 bound squad members for a 5,000 A9 founding vault. Bot DMs you live on every 6% chest commission.')}</div>
         <button class="btn btn-secondary btn-sm" data-nav="/internal/market?tab=free" type="button" style="width:100%;">${icon('swap', 14)} ${L('前往宝箱商城冲击黄金/白金/钻石免费宝箱', 'Open Chest Mall Free Tiers')}</button>
       </div>
 
@@ -355,8 +355,8 @@ export function renderBindTgGroup(root) {
             <div class="num-xs text-sec" style="line-height:1.6;">
               1. ${L('仅队长本人（已验签绑定钱包）可发起提交与核验，普通成员将被拒绝（403）。', 'Captain-only (verified wallet required); members are rejected (403).')}<br>
               2. ${L('仅提交 @群名 始终停留在「核验中」，绝不伪造已绑定状态。', 'Submitting @handle only sets verifying status; never faked as bound.')}<br>
-              3. ${L('必须先将官方 Bot 拉入群且队长具备群管理员权限；核验通过且群人数 ≥ 50 人，自动向队长金库发放 5,000 A9 创世激活金（每群限 1 次）。', 'Bot must be in group and captain must be admin. Verified groups with 50+ members grant a one-time 5,000 A9 captain founding bonus.')}<br>
-              4. ${L('同一真实群 ID（tgChatId）仅允许绑定 1 个战队；群内成员每次购箱返佣 12%，Bot 将私聊通知队长。', 'One tgChatId binds at most one squad; Bot DMs the captain on every 12% referral credit.')}
+              3. ${L('必须先将官方 Bot 拉入群且队长具备群管理员权限；核验通过且群人数 ≥ 50 人、战队已绑定成员 ≥ 3 人，自动向队长金库发放 5,000 A9 创世激活金（同群/同人/同钱包永久限 1 次）。', 'Bot must be in group and captain must be admin. Verified groups with 50+ members and ≥3 bound squad members grant a one-time 5,000 A9 captain founding bonus (strictly once per group, user, and wallet).')}<br>
+              4. ${L('同一真实群 ID（tgChatId）仅允许绑定 1 个战队；直推成员每次购箱返佣 6%，Bot 将私聊通知队长。', 'One tgChatId binds at most one squad; Bot DMs the captain on every 6% referral credit.')}
             </div>
           </div>
         </div>
