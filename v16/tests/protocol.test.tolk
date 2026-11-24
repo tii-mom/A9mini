@@ -139,6 +139,7 @@ get fun `test tier 1 unlock symmetric failure burn neutral abort and claim bounc
     val env = setup();
     expect(openRound(env, 0, P0 * 2)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
     val alice = user(env, "t1-alice", 10000 * A9);
+    val helper = user(env, "t1-helper", 10000 * A9);
     stake(env, alice, 1, 10000 * A9);
 
     expect(settleRound(env, 1, 20)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
@@ -149,20 +150,25 @@ get fun `test tier 1 unlock symmetric failure burn neutral abort and claim bounc
     expect(claim(env, alice, 1)).toHaveFailedTx<TicketClaimReq>({ to: env.rc, exitCode: Errors.NothingToClaim });
     expect(ticketData(env, alice, 1).pending).toEqual(false);
 
-    // 第 2 轮获胜 -> 解锁 R1 第 1 片 (30,000 A9)
+    // 第 2 轮获胜（注入最小有效质押）-> 解锁 R1 第 1 片 (30,000 A9)
     expect(openRound(env, 232000, 464000)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    stake(env, helper, 2, MIN_STAKE as coins);
     expect(settleRound(env, 2, 16)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
     expect(round(env, 1).unlockedSlices).toEqual(1 as uint8);
     expect(claim(env, alice, 1)).toHaveSuccessfulTx<TicketClaimReq>({ to: env.rc });
     expect(balanceOf(env, alice)).toEqual(70000 * A9);
 
-    // 第 3 轮失败 -> 销毁 R3 一半预算 + R3 团队额度 + R1 第 1 片锁定切片 (30,000 A9)
+    // 第 3 轮失败 -> 销毁 R3 一半预算 + R3 团队额度 + 累积团队滚存一半 + R1 切片 (30,000 A9) + R2 切片 (3,000 A9)
     expect(openRound(env, 232000, 464000)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
     val r3Budget = round(env, 3).rewardBudgetRaw as coins;
+    val teamCarryBeforeFail = pstate(env).teamCarryRaw;
+    val teamCarryBurn = teamCarryBeforeFail / 2;
     val supBeforeFail = totalSupply(env);
     expect(settleRound(env, 3, 15)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
     expect(round(env, 1).burnedSlices).toEqual(1 as uint8);
-    expect(totalSupply(env)).toEqual(supBeforeFail - (r3Budget / 2) - (TEAM_ROUND as coins) - 30000 * A9);
+    expect(round(env, 2).burnedSlices).toEqual(1 as uint8);
+    expect(pstate(env).teamCarryRaw).toEqual(teamCarryBeforeFail - teamCarryBurn);
+    expect(totalSupply(env)).toEqual(supBeforeFail - (r3Budget / 2) - (TEAM_ROUND as coins) - (teamCarryBurn as coins) - 33000 * A9);
 
     // 第 4 轮超时中止 -> R1 切片保持中性不变，R4 用户全额领回本金
     expect(openRound(env, 232000, 464000)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
@@ -178,10 +184,12 @@ get fun `test tier 1 unlock symmetric failure burn neutral abort and claim bounc
     expect(claim(env, bob, 4)).toHaveSuccessfulTx<TicketClaimReq>({ to: env.rc });
     expect(balanceOf(env, bob)).toEqual(5000 * A9);
 
-    // 第 5、6 轮获胜 -> 解锁 R1 剩余 2 片 (60,000 A9)
+    // 第 5、6 轮获胜（注入最小有效质押）-> 解锁 R1 剩余 2 片 (60,000 A9)
     expect(openRound(env, 232000, 464000)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    stake(env, helper, 5, MIN_STAKE as coins);
     expect(settleRound(env, 5, 24)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
     expect(openRound(env, 232000, 464000)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    stake(env, helper, 6, MIN_STAKE as coins);
     expect(settleRound(env, 6, 24)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
 
     expect(claim(env, alice, 1)).toHaveSuccessfulTx<TicketClaimReq>({ to: env.rc });
@@ -191,9 +199,11 @@ get fun `test tier 1 unlock symmetric failure burn neutral abort and claim bounc
 // 6. 第二档 (6-10 胜: 40% + 2x30%) 与第三档 (11+ 胜: 100% 即时解锁)
 get fun `test tier 2 and tier 3 beyond round 10`() {
     val env = setup();
+    val helper = user(env, "t2-helper", 20000 * A9);
     var r: uint32 = 1;
     while (r <= 5) {
         expect(openRound(env, r == 1 ? (0 as uint128) : (232000 as uint128), r == 1 ? ((P0 * 2) as uint128) : (464000 as uint128))).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+        stake(env, helper, r, MIN_STAKE as coins);
         expect(settleRound(env, r, 24)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
         r += 1;
     }
@@ -210,6 +220,7 @@ get fun `test tier 2 and tier 3 beyond round 10`() {
     while (r <= 10) {
         if (r > 6) {
             expect(openRound(env, 232000, 464000)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+            stake(env, helper, r, MIN_STAKE as coins);
             expect(settleRound(env, r, 24)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
         }
         r += 1;
@@ -247,10 +258,12 @@ get fun `test 90d inactivity burn preserves already unlocked rewards`() {
     val env = setup();
     expect(openRound(env, 0, P0 * 2)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
     val alice = user(env, "inact-alice", 10000 * A9);
+    val helper = user(env, "inact-helper", 5000 * A9);
     stake(env, alice, 1, 10000 * A9);
     expect(settleRound(env, 1, 24)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
 
     expect(openRound(env, 232000, 464000)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    stake(env, helper, 2, MIN_STAKE as coins);
     expect(settleRound(env, 2, 24)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
 
     val ps = pstate(env);
@@ -262,7 +275,8 @@ get fun `test 90d inactivity burn preserves already unlocked rewards`() {
     val supBefore = totalSupply(env);
     testing.setNow((ps.lastSuccessAt + (INACTIVITY_BURN as uint64)) as uint32);
     expect(net.send(env.treasury, burnMsg)).toHaveSuccessfulTx<BurnInactiveLocked>({ to: env.rc });
-    expect(totalSupply(env)).toEqual(supBefore - 90000 * A9);
+    // 销毁 R1 剩余 3 片 (90,000 A9) + R2 全部 4 片 (12,000 A9)
+    expect(totalSupply(env)).toEqual(supBefore - 102000 * A9);
     expect(pstate(env).activeLockedRounds).toEqual(0 as uint128);
 
     expect(claim(env, alice, 1)).toHaveSuccessfulTx<TicketClaimReq>({ to: env.rc });
@@ -336,4 +350,59 @@ get fun `test round 255 to 256 preserves tickets and locked rewards`() {
     expect(claim(env, alice, 255)).toHaveSuccessfulTx<TicketClaimReq>({ to: env.rc });
     expect(claim(env, alice, 256)).toHaveSuccessfulTx<TicketClaimReq>({ to: env.rc });
     expect(balanceOf(env, alice)).toEqual(110000 * A9);
+}
+
+// 11. 零质押达标不推进胜场、不解锁锁定切片、不刷新 90 天停滞计时且 100% 滚存预算
+get fun `test zero stake win does not increment successCount or unlock slices`() {
+    val env = setup();
+    expect(openRound(env, 0, P0 * 2)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    val alice = user(env, "zs-alice", 10000 * A9);
+    stake(env, alice, 1, 10000 * A9);
+    expect(settleRound(env, 1, 24)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
+
+    val psAfterR1 = pstate(env);
+    expect(psAfterR1.successCount).toEqual(1 as uint32);
+    expect(round(env, 1).unlockedSlices).toEqual(0 as uint8);
+    expect(round(env, 1).lockedSlices).toEqual(4 as uint8);
+
+    // 第 2 轮零质押但达标 -> 不推进胜场/解锁/停滞时钟，奖池与团队额度全额滚存
+    expect(openRound(env, 232000, 464000)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    val teamWalletBefore = balanceOf(env, env.teamWallet);
+    expect(settleRound(env, 2, 24)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
+
+    val psAfterR2 = pstate(env);
+    val r2 = round(env, 2);
+    expect(r2.status).toEqual(STATUS_SUCCEEDED);
+    expect(r2.rewardBudgetRaw).toEqual(0 as uint128);
+    expect(r2.immediateBps).toEqual(0 as uint16);
+    expect(r2.lockedSlices).toEqual(0 as uint8);
+    expect(psAfterR2.successCount).toEqual(1 as uint32);
+    expect(psAfterR2.lastSuccessAt).toEqual(psAfterR1.lastSuccessAt);
+    expect(round(env, 1).unlockedSlices).toEqual(0 as uint8);
+    expect(psAfterR2.carryRaw).toEqual(psAfterR1.carryRaw + ROUND_REWARD);
+    expect(psAfterR2.teamCarryRaw).toEqual(psAfterR1.teamCarryRaw + TEAM_ROUND);
+    expect(balanceOf(env, env.teamWallet)).toEqual(teamWalletBefore);
+}
+
+// 12. 失败轮对累积团队滚存 teamCarryRaw 执行 50% 对称销毁且保持总量守恒
+get fun `test failed round symmetrically burns half of teamCarryRaw`() {
+    val env = setup();
+    expect(openRound(env, 0, P0 * 2)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    val alice = user(env, "tc-alice", 2000 * A9);
+    stake(env, alice, 1, 2000 * A9);
+    expect(settleRound(env, 1, 16)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
+
+    val psR1 = pstate(env);
+    expect(psR1.teamCarryRaw > 0).toEqual(true);
+    val expectedTeamCarryBurn = psR1.teamCarryRaw / 2;
+
+    expect(openRound(env, 232000, 464000)).toHaveSuccessfulTx<OpenRound>({ to: env.rc });
+    val r2Budget = round(env, 2).rewardBudgetRaw as coins;
+    val supBeforeFail = totalSupply(env);
+    expect(settleRound(env, 2, 10)).toHaveSuccessfulTx<SettleRound>({ to: env.rc });
+
+    val psR2 = pstate(env);
+    expect(round(env, 1).burnedSlices).toEqual(1 as uint8);
+    expect(psR2.teamCarryRaw).toEqual(psR1.teamCarryRaw - expectedTeamCarryBurn);
+    expect(totalSupply(env)).toEqual(supBeforeFail - (r2Budget / 2) - (TEAM_ROUND as coins) - (expectedTeamCarryBurn as coins) - 6000 * A9);
 }

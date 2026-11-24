@@ -1,7 +1,7 @@
 [package]
 name = "a9-v16"
 description = "A9 Protocol v16 — Minimalist 4-contract TON architecture (standard TEP-74 Jetton + RoundController + StakeTicket)"
-version = "16.0.0"
+version = "16.1.0"
 license = "MIT"
 
 [toolchain]

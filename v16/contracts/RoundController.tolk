@@ -5,7 +5,7 @@ import "jetton/storage"
 
 contract RoundController {
     author: "A9 Protocol"
-    version: "16.0.0"
+    version: "16.1.0"
     description: "Minimalist A9 v16 RoundController."
     storage: Storage
     incomingMessages: ControllerMessage
@@ -362,13 +362,18 @@ fun handleSettleRound(sender: address, msg: SettleRound, inboundTon: coins) {
         teamReleased = rd.rewardBudgetRaw > 0 ? mulDiv(teamBudget, distributable, rd.rewardBudgetRaw) : (0 as uint128);
         s.teamCarryRaw = teamBudget - teamReleased;
 
-        advanceLockedRounds(mutate s, true);
-        s.successCount += 1;
-        s.lastSuccessAt = now;
+        var immBps: uint16 = 0;
+        var slices: uint8 = 0;
+        var lockedTotal: uint128 = 0;
+        if (rd.totalStakeRaw > 0) {
+            advanceLockedRounds(mutate s, true);
+            s.successCount += 1;
+            s.lastSuccessAt = now;
 
-        val immBps: uint16 = s.successCount <= 5 ? (2000 as uint16) : (s.successCount <= 10 ? (4000 as uint16) : (10000 as uint16));
-        val slices: uint8 = s.successCount <= 5 ? (4 as uint8) : (s.successCount <= 10 ? (2 as uint8) : (0 as uint8));
-        val lockedTotal = distributable - mulDiv(distributable, immBps as uint128, BPS);
+            immBps = s.successCount <= 5 ? (2000 as uint16) : (s.successCount <= 10 ? (4000 as uint16) : (10000 as uint16));
+            slices = s.successCount <= 5 ? (4 as uint8) : (s.successCount <= 10 ? (2 as uint8) : (0 as uint8));
+            lockedTotal = distributable - mulDiv(distributable, immBps as uint128, BPS);
+        }
 
         rd.status = STATUS_SUCCEEDED;
         rd.rewardBudgetRaw = distributable;
@@ -384,7 +389,9 @@ fun handleSettleRound(sender: address, msg: SettleRound, inboundTon: coins) {
     } else {
         val rewardBurn = rd.rewardBudgetRaw / 2;
         s.carryRaw += (rd.rewardBudgetRaw - rewardBurn);
-        totalBurn = rewardBurn + rd.totalStakeRaw + teamBase + advanceLockedRounds(mutate s, false);
+        val teamCarryBurn = s.teamCarryRaw / 2;
+        s.teamCarryRaw -= teamCarryBurn;
+        totalBurn = rewardBurn + rd.totalStakeRaw + teamBase + teamCarryBurn + advanceLockedRounds(mutate s, false);
 
         rd.status = STATUS_FAILED;
         rd.meta = meta.toCell();
