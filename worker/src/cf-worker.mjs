@@ -197,7 +197,7 @@ function buildBroadcaster(env, { socialStore, identityStore, hasD1 }) {
   return new TelegramBroadcaster({
     enabled: env.A9_BROADCAST_ENABLED === '1',
     botToken: env.A9_BOT_TOKEN || '',
-    botHandle: env.A9_TG_BOT_HANDLE || 'A9ProtocolBot',
+    botHandle: env.A9_TG_BOT_HANDLE || 'A9_TonBot',
     publicOrigin: env.A9_PUBLIC_ORIGIN || '',
     officialChannelId: env.A9_OFFICIAL_CHANNEL_ID || '',
     whaleMinGram: env.A9_BROADCAST_WHALE_MIN_GRAM || '50',
@@ -271,8 +271,51 @@ export function validateCandidateEnv(env = {}) {
 
 export const validateDeployEnv = validateCandidateEnv;
 
+// Per-isolate lightweight sliding-window rate limiter for D1 write endpoints & OG image misses.
+const RATE_LIMIT_BUCKETS = new Map();
+const RATE_LIMIT_MAX_BUCKETS = 2000;
+const RATE_LIMIT_RULES = Object.freeze([
+  { method: 'POST', prefix: '/api/auth/ton-proof/payload', limit: 20, windowSec: 60 },
+  { method: 'POST', prefix: '/api/auth/ton-proof/verify', limit: 20, windowSec: 60 },
+  { method: 'POST', prefix: '/api/warmup/register', limit: 30, windowSec: 60 },
+  { method: 'POST', prefix: '/api/prediction/bet', limit: 30, windowSec: 60 },
+  { method: 'POST', prefix: '/api/chests/starter', limit: 30, windowSec: 60 },
+  { method: 'GET', prefix: '/c/img/', limit: 60, windowSec: 60 },
+]);
+
+function extractClientIp(request) {
+  const cfIp = request?.headers?.get?.('cf-connecting-ip');
+  if (cfIp) return String(cfIp).trim();
+  const xff = request?.headers?.get?.('x-forwarded-for');
+  if (xff) return String(xff).split(',')[0].trim();
+  return 'unknown';
+}
+
+export function checkEdgeRateLimit(method, pathname, clientIp, nowSec, env = {}) {
+  if (env.A9_RATE_LIMIT_DISABLED === '1') return { allowed: true };
+  const rule = RATE_LIMIT_RULES.find((r) => r.method === method && (r.prefix.endsWith('/') ? pathname.startsWith(r.prefix) : pathname === r.prefix));
+  if (!rule) return { allowed: true };
+  if (RATE_LIMIT_BUCKETS.size >= RATE_LIMIT_MAX_BUCKETS) {
+    for (const [k, rec] of RATE_LIMIT_BUCKETS) {
+      if (rec.resetAt <= nowSec) RATE_LIMIT_BUCKETS.delete(k);
+    }
+    if (RATE_LIMIT_BUCKETS.size >= RATE_LIMIT_MAX_BUCKETS) RATE_LIMIT_BUCKETS.clear();
+  }
+  const key = `${rule.method}:${rule.prefix}:${clientIp}`;
+  const cur = RATE_LIMIT_BUCKETS.get(key);
+  if (!cur || cur.resetAt <= nowSec) {
+    RATE_LIMIT_BUCKETS.set(key, { count: 1, resetAt: nowSec + rule.windowSec });
+    return { allowed: true };
+  }
+  if (cur.count >= rule.limit) {
+    return { allowed: false, retryAfter: Math.max(1, cur.resetAt - nowSec) };
+  }
+  cur.count += 1;
+  return { allowed: true };
+}
+
 export default {
-  async fetch(request, env = {}) {
+  async fetch(request, env = {}, ctx = null) {
     const corsOrigin = resolveCorsOrigin(request, env);
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders('application/json; charset=utf-8', {}, corsOrigin) });
@@ -292,6 +335,29 @@ export default {
       );
     }
     const url = new URL(request.url);
+    const nowSecPre = Math.floor(Date.now() / 1000);
+    const isOgImg = request.method === 'GET' && url.pathname.startsWith('/c/img/');
+    const edgeCache = isOgImg && typeof caches !== 'undefined' && caches?.default ? caches.default : null;
+    const edgeCacheKey = edgeCache ? new Request(url.toString(), { method: 'GET' }) : null;
+    if (edgeCache && edgeCacheKey) {
+      try {
+        const cachedResp = await edgeCache.match(edgeCacheKey);
+        if (cachedResp) return cachedResp;
+      } catch {
+        // Ignore cache read failures and fall through to origin render
+      }
+    }
+    const rl = checkEdgeRateLimit(request.method, url.pathname, extractClientIp(request), nowSecPre, env);
+    if (!rl.allowed) {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: { code: 'RATE_LIMITED', message: 'too many requests, please retry shortly' },
+          ts: Date.now(),
+        }),
+        { status: 429, headers: corsHeaders('application/json; charset=utf-8', { 'retry-after': String(rl.retryAfter) }, corsOrigin) },
+      );
+    }
     const query = Object.fromEntries(url.searchParams.entries());
     const headers = Object.fromEntries(request.headers.entries());
     let body = null;
@@ -498,12 +564,20 @@ export default {
     const out = await router({ method: request.method, pathname: url.pathname, query, body, headers });
 
     if (out.rawBody !== undefined) {
-      const extra = out.contentType?.startsWith('image/') ? { 'cache-control': 'public, max-age=60' } : {};
-      return new Response(out.rawBody, {
+      const extra = out.contentType?.startsWith('image/')
+        ? { 'cache-control': 'public, max-age=60, s-maxage=60' }
+        : {};
+      const resp = new Response(out.rawBody, {
         status: out.status,
         headers: corsHeaders(out.contentType || 'text/plain; charset=utf-8', extra, corsOrigin),
       });
     }
+      if (edgeCache && edgeCacheKey && out.status === 200 && out.contentType?.startsWith('image/')) {
+        const putPromise = edgeCache.put(edgeCacheKey, resp.clone()).catch(() => {});
+        if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(putPromise);
+        else await putPromise;
+      }
+      return resp;
     return new Response(JSON.stringify(out.body), { status: out.status, headers: corsHeaders('application/json; charset=utf-8', {}, corsOrigin) });
   },
 

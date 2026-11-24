@@ -59,7 +59,7 @@ const chestEngine = new ChestEngine();
 const broadcaster = new TelegramBroadcaster({
   enabled: process.env.A9_BROADCAST_ENABLED === '1',
   botToken: process.env.A9_BOT_TOKEN || '',
-  botHandle: process.env.A9_TG_BOT_HANDLE || 'A9ProtocolBot',
+  botHandle: process.env.A9_TG_BOT_HANDLE || 'A9_TonBot',
   publicOrigin: process.env.A9_PUBLIC_ORIGIN || '',
   officialChannelId: process.env.A9_OFFICIAL_CHANNEL_ID || '',
   whaleMinGram: process.env.A9_BROADCAST_WHALE_MIN_GRAM || '50',

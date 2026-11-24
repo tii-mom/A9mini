@@ -901,7 +901,7 @@ export function createApiRouter({
       if (ogPageMatch) {
         const [, type, id] = ogPageMatch;
         const base = (env.A9_PUBLIC_ORIGIN || '').replace(/\/+$/, '');
-        const botHandle = env.A9_TG_BOT_HANDLE || 'A9ProtocolBot';
+        const botHandle = env.A9_TG_BOT_HANDLE || 'A9_TonBot';
         const ref = query.ref ? `_${String(query.ref).replace(/[^a-zA-Z0-9_-]/g, '')}` : '';
         if (type === 'chest') {
           const chest = chestEngine ? await chestEngine.getChest(id) : null;

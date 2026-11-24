@@ -30,10 +30,6 @@ export const ENDPOINTS = Object.freeze({
   config: '/api/config',
   rounds: '/api/rounds',
   round: (id) => `/api/rounds/${id}`,
-  candles: (id) => `/api/rounds/${id}/candles`,
-  leaderboard: (id) => `/api/rounds/${id}/leaderboard`,
-  stats: '/api/stats',
-  rewardLedger: '/api/reward-ledger',
   promoIntent: '/api/promo/intent',
   promoClaim: (id) => `/api/promo/claim/${id}`,
   promoBalance: (addr) => `/api/promo/balance/${encodeURIComponent(addr)}`,
@@ -529,27 +525,24 @@ export async function fetchUserPortfolio(walletAddress, { fromRound = null, toRo
 }
 
 /**
- * v15 口径奖励估算（非承诺）：
- * 分可分奖励 = min(本轮预算, 全轮实缴本金 × 15)，个人按权重占比瓜分，结算后以实际为准。
- * a9mini 现有界面以 TON 计质押，这里按 TON/USD 与判定均价折算为 A9；
- * BAM 原生以 A9 raw 质押，此折算属于界面兼容口径，合约版本交付后需复核。
+ * v16 口径奖励估算（非承诺）：
+ * 可分奖励 = min(本轮预算, 全轮实缴本金 × 15)，个人按早鸟权重占比瓜分，结算后以链上实际为准。
+ * v16 合约原生以 A9 质押，不再依赖已废弃的 tonUsdE8 折算。
  */
-export function estimateRewardA9(amountTon, view = currentView) {
-  if (!view || !amountTon || Number(amountTon) <= 0) return null;
+export function estimateRewardA9(amountA9Input, view = currentView, { weightMultiplier = 1 } = {}) {
+  const amountA9 = Number(amountA9Input);
+  if (!view || !Number.isFinite(amountA9) || amountA9 <= 0) return null;
   const c = view.protocolConfig || {};
   const decimals = c.token?.decimals ?? 9;
-  const tonUsd = e8ToUsd(c.tonUsdE8);
-  const a9Usd = view.livePrice || view.twap24h;
-  if (!tonUsd || !a9Usd || a9Usd <= 0) return null;
+  const budget = rawToA9(view.rewardBudgetRaw, decimals);
+  if (budget === null || budget <= 0) return null;
 
-  const amountA9 = Number(amountTon) * tonUsd / a9Usd;
-  const budget = rawToA9(view.rewardBudgetRaw, decimals) || 0;
   const totalWeight = rawToA9(view.totalWeightRaw, decimals) || 0;
   const totalStake = rawToA9(view.totalStakedRaw, decimals) || 0;
   const capMultiplier = Number(c.maxRewardCapMultiplier) || 15;
   const distributable = Math.min(budget, (totalStake + amountA9) * capMultiplier);
-  const denom = totalWeight + amountA9;
-  return denom > 0 ? (distributable * amountA9) / denom : 0;
+  const denom = totalWeight + effectiveWeight;
+  return denom > 0 ? (distributable * effectiveWeight) / denom : 0;
 }
 
 export function fetchWarmupRank(roundId) {
@@ -603,3 +596,5 @@ export async function requestChestPurchaseIntent({ walletAddress, skuId, openMod
     body: withReferrer({ walletAddress, skuId, openMode }, referrerId)
   });
 }
+  const mult = Number.isFinite(Number(weightMultiplier)) && Number(weightMultiplier) > 0 ? Number(weightMultiplier) : 1;
+  const effectiveWeight = amountA9 * mult;

@@ -91,7 +91,7 @@ export function buildV15ConfigPayload(env = {}, protocolState = null) {
     stakeProtocolVersion: proto,
     maxRoundId,
     network: env.A9_NETWORK || 'testnet',
-    botHandle: String(env.A9_TG_BOT_HANDLE || 'A9ProtocolBot').replace(/^@/, '').trim() || 'A9ProtocolBot',
+    botHandle: String(env.A9_TG_BOT_HANDLE || 'A9_TonBot').replace(/^@/, '').trim() || 'A9_TonBot',
     openEnded: true,
     roundCount: null, // runs until 7B reward pool is exhausted (protocol maxRoundId cap exposed explicitly)
     candleCount: 24,

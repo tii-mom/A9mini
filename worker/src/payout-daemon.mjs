@@ -153,7 +153,7 @@ export function createPayoutDaemon({
   const broadcaster = new TelegramBroadcaster({
     enabled: env.A9_BROADCAST_ENABLED === '1',
     botToken: env.A9_BOT_TOKEN || '',
-    botHandle: env.A9_TG_BOT_HANDLE || 'A9ProtocolBot',
+    botHandle: env.A9_TG_BOT_HANDLE || 'A9_TonBot',
     publicOrigin: env.A9_PUBLIC_ORIGIN || '',
     officialChannelId: env.A9_OFFICIAL_CHANNEL_ID || '',
     whaleMinGram: env.A9_BROADCAST_WHALE_MIN_GRAM || '50',

@@ -34,7 +34,7 @@ const RISK_STATES = [
   { id: '17', code: 'ERR_0x4417_TEAM_SWITCH_QUOTA', cat: 'team', title: '赛季内切换战队超过 1 次限制', desc: '每个赛季严格限制仅可迁移战队 1 次，防止套利。', action: '等待下赛季重置' },
   { id: '18', code: 'ERR_0x4418_PREHEAT_ELIGIBILITY', cat: 'team', title: '开局预热未达到 ≥1 名有效直邀门槛', desc: '需至少邀请 1 位完成入金认证的真实伙伴以激活排位资格。', action: '分享专属邀请链' },
   { id: '19', code: 'ERR_0x4419_INVITE_HARDCAP', cat: 'team', title: '邀友奖励达 320,000 A9 单轮硬顶', desc: '单地址单轮邀友奖励封顶，多余积分自动转入社区奖池。', action: '查看邀友奖励上限' },
-  { id: '20', code: 'ERR_0x5520_TG_BOT_PERM_LOST', cat: 'sys', title: 'TG 群组解绑 / Bot 管理员权限丢失', desc: '关联群组撤销了官方 Bot (@A9ProtocolBot) 管理员权限。', action: '重新授权 Bot Admin' },
+  { id: '20', code: 'ERR_0x5520_TG_BOT_PERM_LOST', cat: 'sys', title: 'TG 群组解绑 / Bot 管理员权限丢失', desc: '关联群组撤销了官方 Bot (@A9_TonBot) 管理员权限。', action: '重新授权 Bot Admin' },
   { id: '21', code: 'ERR_0x5521_RENEWAL_TIMEOUT', cat: 'sys', title: '续期策略撤销超时 (<30分钟锁定)', desc: '已进入新轮开盘前 30 分钟锁定缓冲期。', action: '等待下轮开盘后调整' },
   { id: '22', code: 'ERR_0x5522_UPGRADE_PAUSED', cat: 'sys', title: '智能合约升级维护公告态', desc: '多签理事会正在执行 TVM 无缝升级，暂停读写 15 分钟。', action: '订阅官方升级频道' }
 ];

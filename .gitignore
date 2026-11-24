@@ -22,9 +22,9 @@ Thumbs.db
 node_modules/
 .wrangler/
 worker/.wrangler/
-v15/.acton/
-v15/build/
-v15/gen/
+v16/.acton/
+v16/build/
+v16/gen/
 *.log
 *.sqlite
 *.sqlite3

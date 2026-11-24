@@ -52,8 +52,8 @@ function formatUsdFromE8(e8) {
 }
 
 /** 构造严格符合 Telegram startapp 64 字节上限的归因深链。 */
-export function buildTeamDeepLink({ botHandle = 'A9ProtocolBot', teamId = null, captainTgUserId = null, fallbackParam = 'market' }) {
-  const handle = String(botHandle || 'A9ProtocolBot').replace(/^@/, '').trim() || 'A9ProtocolBot';
+export function buildTeamDeepLink({ botHandle = 'A9_TonBot', teamId = null, captainTgUserId = null, fallbackParam = 'market' }) {
+  const handle = String(botHandle || 'A9_TonBot').replace(/^@/, '').trim() || 'A9_TonBot';
   const cleanTeam = teamId ? String(teamId).replace(/[^A-Za-z0-9-]/g, '').slice(0, 24) : '';
   const cleanCaptain = captainTgUserId ? String(captainTgUserId).replace(/[^A-Za-z0-9-]/g, '').slice(0, 24) : '';
 
@@ -129,7 +129,7 @@ export class TelegramBroadcaster {
   constructor({
     enabled = false,
     botToken = '',
-    botHandle = 'A9ProtocolBot',
+    botHandle = 'A9_TonBot',
     publicOrigin = '',
     officialChannelId = '',
     whaleMinGram = DEFAULT_WHALE_MIN_GRAM,
@@ -142,7 +142,7 @@ export class TelegramBroadcaster {
   } = {}) {
     this.enabled = Boolean(enabled);
     this.botToken = String(botToken || '').trim();
-    this.botHandle = String(botHandle || 'A9ProtocolBot').replace(/^@/, '').trim() || 'A9ProtocolBot';
+    this.botHandle = String(botHandle || 'A9_TonBot').replace(/^@/, '').trim() || 'A9_TonBot';
     this.publicOrigin = String(publicOrigin || '').replace(/\/+$/, '');
     this.officialChannelId = String(officialChannelId || '').trim() || null;
     const minGram = BigInt(String(whaleMinGram ?? DEFAULT_WHALE_MIN_GRAM));
