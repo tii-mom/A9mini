@@ -564,4 +564,54 @@ await test('Chest OG PNG (16x9 & 9x16) and SVG render real chest progress withou
   assert.notEqual(Buffer.from(pngFracStory.rawBody).toString('base64'), Buffer.from(pngWholeStory).toString('base64'));
 });
 
+await test('Security & ledger audit fixes: openChest address normalization, GET /api/chests/:id redaction, and OG image origin routing', async () => {
+  const { parseTonAddress, formatTonAddress } = await import('../src/ton-address.mjs');
+  const rawWallet = '0:' + 'ab'.repeat(32);
+  const parsed = parseTonAddress(rawWallet);
+  const uqWallet = formatTonAddress(parsed.workchain, parsed.hash, { bounceable: false, testOnly: false });
+
+  const db = createSqliteD1(MIGRATIONS);
+  const d1Chest = new D1ChestEngine({ db });
+  const d1Promo = new D1PromoStore({ db, hotWalletAddress: HOT_WALLET });
+  const c = await d1Chest.createShopBoostChest({ userId: '8001', walletAddress: uqWallet, skuId: 'chest_bronze', orderId: 'ord_norm_1' }, 6000);
+  const opened = await d1Chest.openChest({ chestId: c.chestId, userId: '8001', walletAddress: uqWallet, promoEngine: d1Promo }, 6010);
+
+  // promo_balances row must be normalized to canonical wc:hex and match getBalance(rawWallet) without splitting
+  const bal = await d1Promo.getBalance(rawWallet);
+  assert.equal(bal.claimableRaw, opened.rewardA9Raw);
+  const rawRows = await db.prepare('SELECT wallet_address, claimable_raw FROM promo_balances').all();
+  assert.equal(rawRows.results.length, 1);
+  assert.equal(rawRows.results[0].wallet_address, rawWallet);
+
+  // GET /api/chests/:chestId redacts ownerUserId / ownerWalletKey / orderId while retaining public fields
+  const c2 = await d1Chest.createShopBoostChest({ userId: '8002', walletAddress: uqWallet, skuId: 'chest_gold', orderId: 'ord_secret_2' }, 6020);
+  const router = createApiRouter({
+    env: {
+      A9_BOT_TOKEN: BOT_TOKEN,
+      A9_PUBLIC_ORIGIN: 'https://app.a9.lat',
+      A9_TG_BOT_HANDLE: 'A9_TonBot',
+    },
+    stateStore: emptyStateStore,
+    chestEngine: d1Chest,
+    promoEngine: d1Promo,
+  });
+  const pubChestRes = await router({ method: 'GET', pathname: `/api/chests/${c2.chestId}`, nowSec: 6025 });
+  assert.equal(pubChestRes.status, 200);
+  assert.equal(pubChestRes.body.data.chestId, c2.chestId);
+  assert.equal('ownerUserId' in pubChestRes.body.data, false);
+  assert.equal('ownerWalletKey' in pubChestRes.body.data, false);
+  assert.equal('orderId' in pubChestRes.body.data, false);
+
+  // OG card page uses request origin (api.a9.lat) instead of frontend origin (app.a9.lat) for og:image
+  const ogRes = await router({
+    method: 'GET',
+    pathname: `/c/chest/${c2.chestId}`,
+    origin: 'https://api.a9.lat',
+    nowSec: 6025,
+  });
+  assert.equal(ogRes.status, 200);
+  assert.match(ogRes.rawBody, new RegExp(`https://api\\.a9\\.lat/c/img/chest/${c2.chestId}\\.png`));
+  assert.match(ogRes.rawBody, /https:\/\/t\.me\/A9_TonBot\?startapp=chest_/);
+});
+
 console.log(`All ${passed} A9 v15 Chest Mall & Viral Assist tests passed.`);

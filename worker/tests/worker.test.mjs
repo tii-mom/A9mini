@@ -2499,4 +2499,132 @@ await test('v16 default protocol validation, D1PromoStore WRONG_PAYER check, and
   assert.equal(settled.claim.payoutTxHash, '0xchain_confirmed');
 });
 
+await test('Audit hardening: /api/user/:wallet max 10 rounds (default 8), /api/health v16.0.0, monotonic throttle, D1 cache LIMIT 12 & full write rate limits', async () => {
+  const { checkEdgeRateLimit, readCachedRoundsFromD1 } = await import('../src/cf-worker.mjs');
+  const { TonCenterClient, encodeAddressSliceBoc } = await import('../src/toncenter.mjs');
+  const router = createApiRouter({
+    env: { A9_BOT_TOKEN: TEST_BOT_TOKEN },
+    stateStore: {
+      getTiming: () => ({ observationSeconds: 86400 }),
+      getProtocolState: () => ({ currentRoundId: 20 }),
+      listRounds: () => [],
+      getRound: () => null,
+    },
+  });
+  const h = await router({ method: 'GET', pathname: '/api/health', nowSec: 1000 });
+  assert.equal(h.status, 200);
+  assert.equal(h.body.data.version, '16.0.0');
+
+  const defRange = await router({
+    method: 'GET',
+    pathname: '/api/user/EQ_RANGE_DEFAULT',
+    nowSec: 1000,
+  });
+  assert.equal(defRange.status, 200);
+  assert.deepEqual(defRange.body.data.ticketRange, { fromRound: 13, toRound: 20, currentRoundId: 20 });
+
+  const tooWide = await router({
+    method: 'GET',
+    pathname: '/api/user/EQ_RANGE_TEST',
+    query: { fromRound: '1', toRound: '11' },
+    nowSec: 1000,
+  });
+  assert.equal(tooWide.status, 400);
+  assert.match(tooWide.body.error.message, /exceed 10 rounds/);
+
+  const okWide = await router({
+    method: 'GET',
+    pathname: '/api/user/EQ_RANGE_TEST',
+    query: { fromRound: '1', toRound: '10' },
+    nowSec: 1000,
+  });
+  assert.equal(okWide.status, 200);
+  assert.equal(okWide.body.data.ticketRange.fromRound, 1);
+  assert.equal(okWide.body.data.ticketRange.toRound, 10);
+
+  // checkEdgeRateLimit rejects once quota exceeded for all covered write/read endpoints
+  const ip = `198.51.100.${Math.floor(Math.random() * 200 + 10)}`;
+  for (const [method, path, limit] of [
+    ['GET', '/api/user/EQ_ABC', 30],
+    ['POST', '/api/presale/intent', 20],
+    ['POST', '/api/promo/intent', 20],
+    ['POST', '/api/chests/ch_123/assist', 30],
+    ['POST', '/api/team/bind-tg', 20],
+    ['POST', '/api/team/verify-tg', 20],
+    ['POST', '/api/team/join', 30],
+    ['POST', '/api/progression/claim', 30],
+    ['POST', '/api/warmup/cancel', 30],
+    ['POST', '/api/referral/attribution', 30],
+    ['POST', '/api/prediction/activate', 20],
+  ]) {
+    for (let i = 0; i < limit; i += 1) {
+      assert.equal(checkEdgeRateLimit(method, path, ip, 5000).allowed, true);
+    }
+    assert.equal(checkEdgeRateLimit(method, path, ip, 5000).allowed, false, `${method} ${path} must rate-limit`);
+  }
+
+  // fetchUserPortfolio executes bounded concurrency and preserves ascending round order
+  const ownerRaw = '0:' + '11'.repeat(32);
+  const rcRaw = '0:' + '22'.repeat(32);
+  const ownerBoc = encodeAddressSliceBoc(ownerRaw);
+  const tc = new TonCenterClient({ apiBase: 'https://mock.local/v2', minIntervalMs: 0, maxRetries: 0 });
+  tc.fetchUserTicket = async (_rc, _owner, rId) => {
+    await new Promise((r) => setTimeout(r, (10 - rId) * 2));
+    return {
+      roundId: rId,
+      ticketAddress: ownerBoc,
+      amountRaw: String(rId * 1000),
+      rewardClaimedRaw: '0',
+      principalDone: false,
+      pending: false,
+    };
+  };
+  const pf = await tc.fetchUserPortfolio(ownerRaw, { roundControllerAddress: rcRaw, roundIds: [1, 2, 3, 4, 5, 6] });
+  assert.equal(pf.ticketsAvailable, true);
+  assert.deepEqual(pf.tickets.map((t) => t.roundId), [1, 2, 3, 4, 5, 6]);
+
+  // Monotonic slot reservation serializes concurrent TonCenter HTTP requests instead of bursting 4 simultaneously
+  const fetchTimestamps = [];
+  const throttledTc = new TonCenterClient({
+    apiBase: 'https://mock.local/v2',
+    minIntervalMs: 35,
+    maxRetries: 0,
+    fetchImpl: async () => {
+      fetchTimestamps.push(Date.now());
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: 'ok' }) };
+    },
+  });
+  await Promise.all([1, 2, 3, 4].map((i) => throttledTc._requestUrl(`https://mock.local/v2/test?i=${i}`, `test-${i}`)));
+  assert.equal(fetchTimestamps.length, 4);
+  fetchTimestamps.sort((a, b) => a - b);
+  for (let i = 1; i < fetchTimestamps.length; i += 1) {
+    assert.ok(fetchTimestamps[i] - fetchTimestamps[i - 1] >= 25, `request gap too small: ${fetchTimestamps[i] - fetchTimestamps[i - 1]}ms`);
+  }
+  assert.ok(fetchTimestamps[3] - fetchTimestamps[0] >= 90, `total span too short: ${fetchTimestamps[3] - fetchTimestamps[0]}ms`);
+
+  // readCachedRoundsFromD1 returns at most latest 12 rounds (9..20 ascending) and excludes round_candles from rounds 1..8
+  const db = createSqliteD1(MIGRATIONS);
+  const nowSec = 1_800_000_000;
+  for (let r = 1; r <= 20; r += 1) {
+    await db
+      .prepare(
+        `INSERT INTO rounds_cache (round_id, status, target_price_usd_e8, twap_24h_usd_e8, stake_open_at, stake_close_at, updated_at)
+         VALUES (?, 'SUCCEEDED', '232000', '116000', ?, ?, ?)`,
+      )
+      .bind(r, nowSec - 1000, nowSec - 100, nowSec)
+      .run();
+    await db
+      .prepare(
+        `INSERT INTO round_candles (round_id, candle_index, period_start, period_end, twap_price_usd_e8, qualified)
+         VALUES (?, 0, ?, ?, '240000', 1)`,
+      )
+      .bind(r, nowSec - 900, nowSec - 800)
+      .run();
+  }
+  const cachedRounds = await readCachedRoundsFromD1(db, nowSec);
+  assert.equal(cachedRounds.length, 12);
+  assert.deepEqual(cachedRounds.map((x) => x.roundId), [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
+  assert.ok(cachedRounds.every((x) => x.candles.length === 1 && x.candles[0].twapPriceUsdE8 === '240000'));
+});
+
 console.log(`All ${passed} A9 v15 worker tests passed.`);

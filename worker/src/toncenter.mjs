@@ -27,7 +27,7 @@ export class TonCenterClient {
     this.minIntervalMs = minIntervalMs ?? (apiKey ? 0 : 1100);
     this.maxRetries = maxRetries;
     this.timeoutMs = Number(timeoutMs) > 0 ? Number(timeoutMs) : 8000;
-    this._lastReqAt = 0;
+    this._nextAllowedAt = 0;
   }
 
   async _requestUrl(fullUrl, pathLabel, options = {}) {
@@ -35,10 +35,12 @@ export class TonCenterClient {
     if (this.apiKey) headers['X-API-Key'] = this.apiKey;
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
       if (this.minIntervalMs > 0) {
-        const wait = this.minIntervalMs - (Date.now() - this._lastReqAt);
+        const now = Date.now();
+        const slot = Math.max(now, this._nextAllowedAt);
+        this._nextAllowedAt = slot + this.minIntervalMs;
+        const wait = slot - now;
         if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       }
-      this._lastReqAt = Date.now();
       const signal = options.signal || (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(this.timeoutMs) : undefined);
       let res;
       try {
@@ -799,14 +801,27 @@ export class TonCenterClient {
     }
     const tickets = [];
     let ticketsAvailable = Boolean(roundControllerAddress);
-    if (roundControllerAddress && Array.isArray(roundIds)) {
-      for (const rId of roundIds) {
-        try {
-          const t = await this.fetchUserTicket(roundControllerAddress, ownerAddress, rId);
-          if (t && BigInt(t.amountRaw) > 0n) tickets.push(t);
-        } catch {
-          ticketsAvailable = false;
-        }
+    if (roundControllerAddress && Array.isArray(roundIds) && roundIds.length) {
+      const results = new Array(roundIds.length).fill(null);
+      const concurrency = Math.min(4, roundIds.length);
+      let cursor = 0;
+      await Promise.all(
+        Array.from({ length: concurrency }, async () => {
+          while (cursor < roundIds.length) {
+            const idx = cursor;
+            cursor += 1;
+            const rId = roundIds[idx];
+            try {
+              const t = await this.fetchUserTicket(roundControllerAddress, ownerAddress, rId);
+              if (t && BigInt(t.amountRaw) > 0n) results[idx] = t;
+            } catch {
+              ticketsAvailable = false;
+            }
+          }
+        }),
+      );
+      for (const item of results) {
+        if (item) tickets.push(item);
       }
     }
     const onchainAvailable = Boolean(

@@ -1,6 +1,6 @@
 // A9 Protocol v15 — Cloudflare D1 Persistence Adapter for Unified Chest Mall & Viral Social Assists.
 // Mirrors ChestEngine (chest-engine.mjs) 1:1 with atomic D1 db.batch() transitions.
-import { addressKey } from './ton-address.mjs';
+import { addressKey, addressAliases } from './ton-address.mjs';
 import { randomHex } from './auth.mjs';
 import { utcDayFromSec, VOUCHER_TTL_MS } from './growth-engine.mjs';
 import {
@@ -14,6 +14,7 @@ import {
   findFreeChestSpec,
   nextFreeChestSpec,
   computeShopBoostForAssists,
+  computeWarmupChestReward,
   formatChestRecord,
 } from './chest-engine.mjs';
 
@@ -138,6 +139,98 @@ export class D1ChestEngine {
     return rowToChest(row);
   }
 
+  async ensureWarmupRoundChest({ userId, roundId, walletAddress = null, validInvites = 0, config = {} }, nowSec = Math.floor(Date.now() / 1000)) {
+    const uid = String(userId || '').trim();
+    const rId = Number(roundId);
+    if (!uid || !Number.isInteger(rId) || rId < 1) throw new ChestError('BAD_REQUEST', 'valid userId and roundId required');
+    const reward = computeWarmupChestReward(validInvites, config);
+    const walletKey = walletAddress ? addressKey(walletAddress) : null;
+    const cur = Math.max(0, Number(validInvites || 0));
+    const initStatus = cur >= reward.minInvites ? 'READY' : 'ACTIVE';
+
+    const ins = await this.db
+      .prepare(
+        `INSERT OR IGNORE INTO user_chests (
+           chest_id, owner_user_id, owner_wallet_key, source, tier, slot_index, order_id,
+           base_a9_raw, boost_a9_raw, max_boost_a9_raw, required_assists, current_assists,
+           status, expires_at, opened_at, created_at, updated_at
+         ) VALUES (?, ?, ?, 'WARMUP_ROUND', 'warmup', ?, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+      )
+      .bind(
+        `ch_${randomHex(6)}`,
+        uid,
+        walletKey,
+        rId,
+        reward.baseA9Raw.toString(),
+        reward.boostA9Raw.toString(),
+        reward.maxBoostA9Raw.toString(),
+        reward.minInvites,
+        cur,
+        initStatus,
+        nowSec,
+        nowSec,
+      )
+      .run();
+    const created = changes(ins) === 1;
+    if (!created) {
+      await this.syncWarmupChestProgress({ userId: uid, roundId: rId, validInvites: cur, walletAddress, config }, nowSec);
+    }
+    const chest = await this.getWarmupRoundChest(uid, rId);
+    return { created, chest };
+  }
+
+  async syncWarmupChestProgress({ userId, roundId, validInvites = 0, walletAddress = null, config = {} }, nowSec = Math.floor(Date.now() / 1000)) {
+    const uid = String(userId || '').trim();
+    const rId = Number(roundId);
+    if (!uid || !Number.isInteger(rId) || rId < 1) return null;
+    const existing = await this.db
+      .prepare("SELECT * FROM user_chests WHERE owner_user_id = ? AND source = 'WARMUP_ROUND' AND slot_index = ? LIMIT 1")
+      .bind(uid, rId)
+      .first();
+    if (!existing) return null;
+    const walletKey = walletAddress ? addressKey(walletAddress) : existing.owner_wallet_key;
+    if (String(existing.status) === 'OPENED') {
+      if (walletKey && !existing.owner_wallet_key) {
+        await this.db
+          .prepare('UPDATE user_chests SET owner_wallet_key = ?, updated_at = ? WHERE chest_id = ?')
+          .bind(walletKey, nowSec, existing.chest_id)
+          .run();
+      }
+      return this.getWarmupRoundChest(uid, rId);
+    }
+    const cur = Math.max(0, Number(validInvites || 0));
+    const reward = computeWarmupChestReward(cur, {
+      baseA9Raw: config.baseA9Raw ?? existing.base_a9_raw,
+      stepA9Raw: config.stepA9Raw,
+      minInvites: config.minInvites ?? existing.required_assists,
+      maxInvites: config.maxInvites,
+    });
+    const nextStatus = cur >= Number(existing.required_assists) ? 'READY' : 'ACTIVE';
+    await this.db
+      .prepare(
+        `UPDATE user_chests
+         SET owner_wallet_key = COALESCE(owner_wallet_key, ?),
+             current_assists = ?,
+             boost_a9_raw = ?,
+             status = ?,
+             updated_at = ?
+         WHERE chest_id = ? AND status != 'OPENED'`,
+      )
+      .bind(walletKey, cur, reward.boostA9Raw.toString(), nextStatus, nowSec, existing.chest_id)
+      .run();
+    return this.getWarmupRoundChest(uid, rId);
+  }
+
+  async getWarmupRoundChest(userId, roundId) {
+    const uid = String(userId || '').trim();
+    const rId = Number(roundId);
+    const row = await this.db
+      .prepare("SELECT * FROM user_chests WHERE owner_user_id = ? AND source = 'WARMUP_ROUND' AND slot_index = ? LIMIT 1")
+      .bind(uid, rId)
+      .first();
+    return rowToChest(row);
+  }
+
   async listUserChests(userId) {
     const uid = String(userId || '').trim();
     const res = await this.db
@@ -148,6 +241,7 @@ export class D1ChestEngine {
     return {
       freeChests: all.filter((c) => c.source === 'FREE_TIER'),
       shopChests: all.filter((c) => c.source === 'SHOP_BOOST').reverse(),
+      warmupChests: all.filter((c) => c.source === 'WARMUP_ROUND').reverse(),
     };
   }
 
@@ -165,6 +259,9 @@ export class D1ChestEngine {
 
     const chest = await this.getChest(cId);
     if (!chest) throw new ChestError('CHEST_NOT_FOUND', '未找到对应宝箱');
+    if (chest.source === 'WARMUP_ROUND') {
+      throw new ChestError('ASSIST_NOT_ALLOWED', '预热宝箱仅可通过邀请好友预约并绑定活跃钱包解锁');
+    }
     if (chest.status === 'LOCKED') throw new ChestError('CHEST_LOCKED', '该宝箱尚未解锁，请先开启上一个宝箱');
     if (chest.status === 'OPENED' || chest.status === 'EXPIRED') {
       throw new ChestError('CHEST_CLOSED', '该宝箱已开启或已结束助力');
@@ -224,7 +321,7 @@ export class D1ChestEngine {
              SELECT ?, ?, ?, ?, ?, ?, ?
              WHERE EXISTS (
                SELECT 1 FROM user_chests
-               WHERE chest_id = ? AND current_assists = ? AND current_assists < required_assists AND status IN ('ACTIVE', 'READY')
+               WHERE chest_id = ? AND source != 'WARMUP_ROUND' AND current_assists = ? AND current_assists < required_assists AND status IN ('ACTIVE', 'READY')
              )
              AND (SELECT COUNT(*) FROM chest_assists WHERE helper_wallet_key = ? AND assist_day = ?) < ?`,
           )
@@ -237,7 +334,7 @@ export class D1ChestEngine {
           .prepare(
             `UPDATE user_chests
              SET current_assists = ?, boost_a9_raw = ?, status = ?, updated_at = ?
-             WHERE chest_id = ? AND current_assists = ? AND current_assists < required_assists AND status IN ('ACTIVE', 'READY')
+             WHERE chest_id = ? AND source != 'WARMUP_ROUND' AND current_assists = ? AND current_assists < required_assists AND status IN ('ACTIVE', 'READY')
                AND EXISTS (SELECT 1 FROM chest_assists WHERE chest_id = ? AND helper_wallet_key = ?)`,
           )
           .bind(nextAssists, nextBoostStr, nextStatus, nowSec, cId, chest.currentAssists, cId, hKey),
@@ -313,6 +410,12 @@ export class D1ChestEngine {
         if (rewardRaw > 0n && !walletAddress) {
           throw new ChestError('WALLET_REQUIRED', '领取膨胀奖励需绑定钱包地址');
         }
+      } else if (chest.source === 'WARMUP_ROUND') {
+        if (chest.currentAssists < chest.requiredAssists) {
+          throw new ChestError('ASSISTS_UNMET', `还需 ${chest.requiredAssists - chest.currentAssists} 位已绑活跃钱包的预热好友方可开启`);
+        }
+        rewardRaw = BigInt(chest.baseA9Raw || '0') + BigInt(chest.boostA9Raw || '0');
+        destination = 'PENDING_VAULT';
       } else {
         const spec = findFreeChestSpec(chest.tier, chest.slotIndex);
         if (!spec) throw new ChestError('BAD_STATE', '未知的免费宝箱档位');
@@ -333,43 +436,68 @@ export class D1ChestEngine {
         nextSpec = nextFreeChestSpec(chest.tier, chest.slotIndex);
       }
 
-      const recipientKey = destination === 'PENDING_VAULT' ? uid : String(walletAddress || uid);
       const openToken = `op_${randomHex(8)}`;
       const rewardStr = rewardRaw.toString();
 
       let balGuardSql = '';
       let balGuardArgs = [];
       let creditStmt = null;
+      let recipientKey = uid;
 
-      if (rewardRaw > 0n && destination === 'PROMO_BALANCE') {
-        const curRow = await this.db
-          .prepare('SELECT claimable_raw FROM promo_balances WHERE wallet_address = ? LIMIT 1')
-          .bind(recipientKey)
-          .first();
-        if (curRow) {
-          const curStr = String(curRow.claimable_raw || '0');
-          const nextStr = (BigInt(curStr) + rewardRaw).toString();
-          balGuardSql = ' AND EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ? AND claimable_raw = ?)';
-          balGuardArgs = [recipientKey, curStr];
-          creditStmt = this.db
-            .prepare(
-              `UPDATE promo_balances
-               SET claimable_raw = ?, updated_at = ?
-               WHERE wallet_address = ? AND claimable_raw = ?
-                 AND EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)`,
-            )
-            .bind(nextStr, nowSec, recipientKey, curStr, cId, openToken);
+      if (destination === 'PROMO_BALANCE') {
+        const rawAddr = String(walletAddress || '').trim();
+        if (!rawAddr) {
+          if (rewardRaw > 0n) {
+            throw new ChestError('WALLET_REQUIRED', '领取该档位宝箱奖励需绑定钱包地址');
+          }
+          recipientKey = uid;
         } else {
-          balGuardSql = ' AND NOT EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ?)';
-          balGuardArgs = [recipientKey];
-          creditStmt = this.db
-            .prepare(
-              `INSERT INTO promo_balances (wallet_address, claimable_raw, total_claimed_raw, updated_at)
-               SELECT ?, ?, '0', ?
-               WHERE EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)
-                 AND NOT EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ?)`,
-            )
-            .bind(recipientKey, rewardStr, nowSec, cId, openToken, recipientKey);
+          const canonicalWalletKey = addressKey(rawAddr);
+          let curRow = null;
+          if (rewardRaw > 0n) {
+            curRow = await this.db
+              .prepare('SELECT wallet_address, claimable_raw FROM promo_balances WHERE wallet_address = ? LIMIT 1')
+              .bind(canonicalWalletKey)
+              .first();
+            if (!curRow) {
+              const aliases = addressAliases(rawAddr).filter((a) => a !== canonicalWalletKey);
+              if (aliases.length) {
+                const ph = aliases.map(() => '?').join(', ');
+                curRow = await this.db
+                  .prepare(`SELECT wallet_address, claimable_raw FROM promo_balances WHERE wallet_address IN (${ph}) LIMIT 1`)
+                  .bind(...aliases)
+                  .first();
+              }
+            }
+          }
+          recipientKey = curRow ? String(curRow.wallet_address) : canonicalWalletKey;
+          if (rewardRaw > 0n) {
+            if (curRow) {
+              const curStr = String(curRow.claimable_raw || '0');
+              const nextStr = (BigInt(curStr) + rewardRaw).toString();
+              balGuardSql = ' AND EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ? AND claimable_raw = ?)';
+              balGuardArgs = [recipientKey, curStr];
+              creditStmt = this.db
+                .prepare(
+                  `UPDATE promo_balances
+                   SET claimable_raw = ?, updated_at = ?
+                   WHERE wallet_address = ? AND claimable_raw = ?
+                     AND EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)`,
+                )
+                .bind(nextStr, nowSec, recipientKey, curStr, cId, openToken);
+            } else {
+              balGuardSql = ' AND NOT EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ?)';
+              balGuardArgs = [recipientKey];
+              creditStmt = this.db
+                .prepare(
+                  `INSERT INTO promo_balances (wallet_address, claimable_raw, total_claimed_raw, updated_at)
+                   SELECT ?, ?, '0', ?
+                   WHERE EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)
+                     AND NOT EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ?)`,
+                )
+                .bind(recipientKey, rewardStr, nowSec, cId, openToken, recipientKey);
+            }
+          }
         }
       } else if (rewardRaw > 0n && destination === 'PENDING_VAULT') {
         const curRow = await this.db

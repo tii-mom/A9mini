@@ -3,7 +3,18 @@
 import { buildV15ConfigPayload, mapV15RoundDetail } from './v15-indexer.mjs';
 import { PromoError } from './promo-hotwallet.mjs';
 import { PresaleError } from './presale-hotwallet.mjs';
-import { ChestError, CHEST_MALL_CATALOG, FREE_CHEST_CHAIN, CAPTAIN_FOUNDING_BONUS_RAW, CAPTAIN_MIN_TG_MEMBERS } from './chest-engine.mjs';
+import {
+  ChestError,
+  CHEST_MALL_CATALOG,
+  FREE_CHEST_CHAIN,
+  CAPTAIN_FOUNDING_BONUS_RAW,
+  CAPTAIN_MIN_TG_MEMBERS,
+  CHEST_DELIVERY_GAS_GRAM,
+  CHEST_DELIVERY_GAS_NANO,
+  CHEST_REFUND_GAS_GRAM,
+  CHEST_REFUND_GAS_NANO,
+  summarizeUserChestHoldings,
+} from './chest-engine.mjs';
 import { GrowthError, renderOgCardPng, renderOgCardSvg, renderOgLandingHtml } from './growth-engine.mjs';
 import { SocialError, parseStartAppParam, createTelegramBotGroupVerifier } from './social-store.mjs';
 import { AuthError, MemoryIdentityStore, allowedProofDomains, createRequestAuth, expectedChainId, verifyTonProof } from './auth.mjs';
@@ -44,6 +55,13 @@ function sanitizeTeamView(team, viewerWalletKey) {
   };
   if (isCaptain) base.tgChatId = team.tgChatId || null;
   return base;
+}
+
+/** 公开宝箱查询脱敏：移除宝箱主 TG ID、钱包键与订单号，防隐私关联泄露。 */
+function sanitizePublicChest(chest) {
+  if (!chest || typeof chest !== 'object') return chest;
+  const { ownerUserId: _u, ownerWalletKey: _w, orderId: _o, ...pub } = chest;
+  return pub;
 }
 
 function formatWholeA9FromRaw(raw) {
@@ -117,13 +135,13 @@ function resolveTicketRoundRange(query = {}, stateStore = null) {
     if (!Number.isInteger(fromRound) || fromRound < 1 || !Number.isInteger(toRound) || toRound < 1 || fromRound > toRound) {
       return { error: 'fromRound and toRound must be positive integers with fromRound <= toRound' };
     }
-    if (toRound - fromRound + 1 > 50) {
-      return { error: 'ticket round range cannot exceed 50 rounds per request' };
+    if (toRound - fromRound + 1 > 10) {
+      return { error: 'ticket round range cannot exceed 10 rounds per request' };
     }
   } else if (currentRoundId > 0) {
-    // 默认覆盖最近 24 轮（前 24 轮即全量 1..currentRoundId），避免第 7 轮后遗漏早期待领凭证
+    // 默认覆盖最近 8 轮，确保最坏情况也不撞穿 Workers 50 Subrequest 上限
     toRound = currentRoundId;
-    fromRound = Math.max(1, currentRoundId - 23);
+    fromRound = Math.max(1, currentRoundId - 7);
   }
 
   const roundIds = [];
@@ -193,7 +211,7 @@ export function createApiRouter({
   healthChecker = null,
   runnerHeartbeatReader = null,
 }) {
-  return async function handleRequest({ method, pathname, query = {}, body = null, headers = {}, nowSec = Math.floor(Date.now() / 1000) }) {
+  return async function handleRequest({ method, pathname, query = {}, body = null, headers = {}, origin = '', nowSec = Math.floor(Date.now() / 1000) }) {
     const auth = createRequestAuth({ env, headers, identityStore, nowSec });
     try {
       if (method === 'GET' && pathname === '/api/health') {
@@ -204,13 +222,13 @@ export function createApiRouter({
             {
               service: 'a9mini-v15-worker',
               status: healthy ? 'ok' : 'degraded',
-              version: '15.0.0',
+              version: '16.0.0',
               checks,
             },
             healthy ? 200 : 503,
           );
         }
-        return ok({ service: 'a9mini-v15-worker', status: 'ok', version: '15.0.0' });
+        return ok({ service: 'a9mini-v15-worker', status: 'ok', version: '16.0.0' });
       }
 
       if (method === 'GET' && pathname === '/api/config') {
@@ -225,12 +243,18 @@ export function createApiRouter({
               rateKind: 'PROTOCOL_FIXED_QUOTE',
               minOrderNano: presaleEngine.minOrderNano.toString(),
               maxOrderNano: presaleEngine.maxOrderNano.toString(),
+              deliveryFeeNano: presaleEngine.deliveryFeeNano.toString(),
+              refundFeeNano: presaleEngine.refundFeeNano.toString(),
               open: presaleEngine.open,
             }
           : { enabled: false, address: null, rateA9PerTon: null, rateA9PerGram: null, open: false };
         base.chestMall = {
           enabled: Boolean(chestEngine),
           skus: Object.values(CHEST_MALL_CATALOG),
+          deliveryFeeGram: CHEST_DELIVERY_GAS_GRAM,
+          deliveryFeeNano: CHEST_DELIVERY_GAS_NANO,
+          refundFeeGram: CHEST_REFUND_GAS_GRAM,
+          refundFeeNano: CHEST_REFUND_GAS_NANO,
           freeTiers: FREE_CHEST_CHAIN,
           captainFoundingBonusRaw: CAPTAIN_FOUNDING_BONUS_RAW.toString(),
           captainMinTgMembers: CAPTAIN_MIN_TG_MEMBERS,
@@ -293,6 +317,44 @@ export function createApiRouter({
         });
         if (purpose === 'bind') {
           const res = await identityStore.bindVerifiedWallet(id.telegramUserId, address, nowSec);
+          if (socialStore && typeof socialStore.syncWarmupWalletForUser === 'function') {
+            try {
+              let walletActive = false;
+              if (walletStateResolver) {
+                const ws = await walletStateResolver(address).catch(() => null);
+                walletActive = ws?.state === 'active';
+              }
+              const synced = await socialStore.syncWarmupWalletForUser(
+                { tgUserId: id.telegramUserId, walletAddress: address, walletActive },
+                nowSec,
+              );
+              if (chestEngine && typeof chestEngine.syncWarmupChestProgress === 'function') {
+                for (const item of synced || []) {
+                  if (item?.referrerUpdated) {
+                    const cfg = typeof socialStore.getWarmupRoundConfig === 'function'
+                      ? await socialStore.getWarmupRoundConfig(item.roundId)
+                      : {};
+                    await chestEngine.syncWarmupChestProgress(
+                      {
+                        userId: item.referrerUpdated.tgUserId,
+                        roundId: item.roundId,
+                        validInvites: item.referrerUpdated.validInvites,
+                        config: {
+                          baseA9Raw: cfg.chestBaseA9Raw,
+                          stepA9Raw: cfg.chestStepA9Raw,
+                          minInvites: cfg.chestMinInvites,
+                          maxInvites: cfg.chestMaxInvites,
+                        },
+                      },
+                      nowSec,
+                    );
+                  }
+                }
+              }
+            } catch (_) {
+              // 预热钱包回溯不阻断主钱包绑定成功返回
+            }
+          }
           return ok({ telegramUserId: id.telegramUserId, status: res.status, wallet: publicBinding(res.binding), keySource: verified.keySource });
         }
         const cur = await identityStore.getBinding(id.telegramUserId, nowSec);
@@ -414,22 +476,184 @@ export function createApiRouter({
         return ok(await presaleEngine.listOrders(walletAddress));
       }
 
-      // Warm-up & Team social endpoints (acting wallet always comes from the verified binding)
+      // Warm-up v2: Pre-Round Reservations, Intent Tiers & Viral Warm-Up Chests (zero contract changes)
+      const resolveUpcomingWarmupRoundId = () => {
+        const ps = stateStore?.getProtocolState?.() || null;
+        const curId = Number(ps?.currentRoundId || 0);
+        if (!Number.isInteger(curId) || curId <= 0) return 1;
+        return curId + 1;
+      };
+      const buildWarmupInviteLink = (rId, tgUid) => {
+        const handle = String(env.A9_TG_BOT_HANDLE || 'A9_TonBot').replace(/^@/, '').trim() || 'A9_TonBot';
+        return `https://t.me/${handle}?startapp=${encodeURIComponent(`warmup_${rId}_${tgUid}`)}`;
+      };
+
+      if (method === 'GET' && pathname === '/api/warmup/current') {
+        if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
+        const ps = stateStore?.getProtocolState?.() || null;
+        const currentOnchainRoundId = Number(ps?.currentRoundId || 0);
+        const requestedRoundId = query.roundId ? Number(query.roundId) : resolveUpcomingWarmupRoundId();
+        if (!Number.isInteger(requestedRoundId) || requestedRoundId < 1) {
+          return err('BAD_REQUEST', 'roundId must be a positive integer', 400);
+        }
+        const config = typeof socialStore.getWarmupRoundConfig === 'function'
+          ? await socialStore.getWarmupRoundConfig(requestedRoundId)
+          : { roundId: requestedRoundId, status: 'OPEN', plannedOpenAt: null, targetUsers: 500 };
+        const stats = typeof socialStore.getWarmupRoundStats === 'function'
+          ? await socialStore.getWarmupRoundStats(requestedRoundId)
+          : { roundId: requestedRoundId, totalRegistered: 0, walletBoundCount: 0, activeWalletCount: 0, remindEnabledCount: 0 };
+
+        let myReservation = null;
+        let myWarmupChest = null;
+        let inviteDeepLink = null;
+        try {
+          const id = await auth.telegram();
+          if (typeof socialStore.getWarmupReservation === 'function') {
+            myReservation = await socialStore.getWarmupReservation(requestedRoundId, id.telegramUserId);
+          }
+          if (chestEngine && typeof chestEngine.getWarmupRoundChest === 'function') {
+            myWarmupChest = await chestEngine.getWarmupRoundChest(id.telegramUserId, requestedRoundId);
+          }
+          inviteDeepLink = buildWarmupInviteLink(requestedRoundId, id.telegramUserId);
+        } catch (_) {
+          // 匿名浏览仍可查看公开预约人数与目标进度
+        }
+        return ok({
+          roundId: requestedRoundId,
+          currentOnchainRoundId,
+          open: config.status === 'OPEN',
+          config,
+          stats,
+          myReservation,
+          myWarmupChest,
+          inviteDeepLink,
+        });
+      }
+
       if (method === 'POST' && pathname === '/api/warmup/register') {
         if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
-        const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
-        return ok(await socialStore.registerWarmup({ roundId: body?.roundId, walletAddress, referrerId: body?.referrerId || null, aliases: [identity.telegramUserId] }, nowSec));
+        const id = await auth.telegram();
+        const targetRoundId = body?.roundId ? Number(body.roundId) : resolveUpcomingWarmupRoundId();
+        if (!Number.isInteger(targetRoundId) || targetRoundId < 1) {
+          return err('BAD_REQUEST', 'roundId must be a positive integer', 400);
+        }
+        const binding = await identityStore.getBinding(id.telegramUserId, nowSec);
+        const boundWallet = binding?.walletAddress || null;
+        let walletActive = false;
+        if (boundWallet && walletStateResolver) {
+          try {
+            const ws = await walletStateResolver(boundWallet);
+            walletActive = ws?.state === 'active';
+          } catch (_) {
+            walletActive = false;
+          }
+        }
+        const result = await socialStore.reserveWarmup(
+          {
+            roundId: targetRoundId,
+            tgUserId: id.telegramUserId,
+            walletAddress: boundWallet,
+            walletActive,
+            referrerId: body?.referrerId || null,
+            intentTier: body?.intentTier,
+            remindEnabled: body?.remindEnabled,
+          },
+          nowSec,
+        );
+        const roundCfg = typeof socialStore.getWarmupRoundConfig === 'function'
+          ? await socialStore.getWarmupRoundConfig(targetRoundId)
+          : {};
+        const chestCfg = {
+          baseA9Raw: roundCfg.chestBaseA9Raw,
+          stepA9Raw: roundCfg.chestStepA9Raw,
+          minInvites: roundCfg.chestMinInvites,
+          maxInvites: roundCfg.chestMaxInvites,
+        };
+        let warmupChest = null;
+        let starterGranted = false;
+        if (chestEngine) {
+          if (typeof chestEngine.ensureWarmupRoundChest === 'function') {
+            const wc = await chestEngine.ensureWarmupRoundChest(
+              {
+                userId: id.telegramUserId,
+                roundId: targetRoundId,
+                walletAddress: boundWallet,
+                validInvites: result.reservation.validInvites,
+                config: chestCfg,
+              },
+              nowSec,
+            );
+            warmupChest = wc?.chest || null;
+          }
+          if (typeof chestEngine.claimStarterBronzeChests === 'function') {
+            const st = await chestEngine.claimStarterBronzeChests(
+              { userId: id.telegramUserId, walletAddress: boundWallet },
+              nowSec,
+            );
+            starterGranted = Boolean(st?.created);
+          }
+          if (result.referrerUpdated && typeof chestEngine.syncWarmupChestProgress === 'function') {
+            await chestEngine.syncWarmupChestProgress(
+              {
+                userId: result.referrerUpdated.tgUserId,
+                roundId: targetRoundId,
+                validInvites: result.referrerUpdated.validInvites,
+                config: chestCfg,
+              },
+              nowSec,
+            );
+          }
+        }
+        const stats = typeof socialStore.getWarmupRoundStats === 'function'
+          ? await socialStore.getWarmupRoundStats(targetRoundId)
+          : null;
+        return ok({
+          roundId: targetRoundId,
+          reservation: result.reservation,
+          stats,
+          warmupChest,
+          starterGranted,
+          inviteDeepLink: buildWarmupInviteLink(targetRoundId, id.telegramUserId),
+        });
       }
 
       if (method === 'POST' && pathname === '/api/warmup/cancel') {
         if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
-        const { walletAddress } = await auth.wallet(body?.walletAddress || null);
-        return ok(await socialStore.cancelWarmup({ roundId: body?.roundId, walletAddress }, nowSec));
+        const id = await auth.telegram();
+        const targetRoundId = body?.roundId ? Number(body.roundId) : resolveUpcomingWarmupRoundId();
+        const resCancel = await socialStore.cancelWarmupReservation({ roundId: targetRoundId, tgUserId: id.telegramUserId }, nowSec);
+        if (resCancel?.referrerUpdated && chestEngine && typeof chestEngine.syncWarmupChestProgress === 'function') {
+          const cfg = typeof socialStore.getWarmupRoundConfig === 'function'
+            ? await socialStore.getWarmupRoundConfig(targetRoundId)
+            : {};
+          await chestEngine.syncWarmupChestProgress(
+            {
+              userId: resCancel.referrerUpdated.tgUserId,
+              roundId: targetRoundId,
+              validInvites: resCancel.referrerUpdated.validInvites,
+              config: {
+                baseA9Raw: cfg.chestBaseA9Raw,
+                stepA9Raw: cfg.chestStepA9Raw,
+                minInvites: cfg.chestMinInvites,
+                maxInvites: cfg.chestMaxInvites,
+              },
+            },
+            nowSec,
+          );
+        }
+        const stats = typeof socialStore.getWarmupRoundStats === 'function'
+          ? await socialStore.getWarmupRoundStats(targetRoundId)
+          : null;
+        return ok({ roundId: targetRoundId, reservation: resCancel, stats });
       }
 
       if (method === 'GET' && pathname === '/api/warmup/leaderboard') {
         if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
-        const roundId = Number(query.roundId || stateStore.getProtocolState().currentRoundId || 1);
+        const roundId = Number(query.roundId || resolveUpcomingWarmupRoundId());
+        if (typeof socialStore.getWarmupLeaderboardV2 === 'function') {
+          const v2 = await socialStore.getWarmupLeaderboardV2(roundId, 50);
+          if (v2.length > 0) return ok(v2);
+        }
         return ok(await socialStore.getWarmupLeaderboard(roundId, 50));
       }
 
@@ -617,22 +841,36 @@ export function createApiRouter({
       if (method === 'GET' && pathname === '/api/chests/me') {
         if (!chestEngine) return err('CHEST_DISABLED', 'chest engine not configured', 503);
         const id = await auth.telegram();
+        const binding = await identityStore.getBinding(id.telegramUserId, nowSec);
         // 幂等补建该用户已确认（COMPLETED）但因瞬态故障尚未生成的商城膨胀箱
-        if (presaleEngine && typeof presaleEngine.ensureShopBoostChests === 'function') {
-          const binding = await identityStore.getBinding(id.telegramUserId, nowSec);
-          if (binding?.walletAddress) {
-            try {
-              await presaleEngine.ensureShopBoostChests(binding.walletAddress, nowSec);
-            } catch (_) {
-              // 补建失败不阻断列表读取，下次查询继续幂等重试
-            }
+        if (presaleEngine && typeof presaleEngine.ensureShopBoostChests === 'function' && binding?.walletAddress) {
+          try {
+            await presaleEngine.ensureShopBoostChests(binding.walletAddress, nowSec);
+          } catch (_) {
+            // 补建失败不阻断列表读取，下次查询继续幂等重试
           }
         }
         const lists = await chestEngine.listUserChests(id.telegramUserId);
+        // 合并已成交商城订单（含 INSTANT 直接开箱与 BOOST 膨胀箱，按 orderId 去重），确保 5 种宝箱持有统计口径一致
+        let completedShopOrders = [];
+        if (presaleEngine && binding?.walletAddress && typeof presaleEngine.listOrders === 'function') {
+          try {
+            const orders = await presaleEngine.listOrders(binding.walletAddress);
+            completedShopOrders = (Array.isArray(orders) ? orders : []).filter((o) => o?.status === 'COMPLETED');
+          } catch (_) {
+            completedShopOrders = [];
+          }
+        }
+        const chestHoldings = summarizeUserChestHoldings({
+          freeChests: lists.freeChests,
+          shopChests: lists.shopChests,
+          completedShopOrders,
+        });
         return ok({
           catalog: Object.values(CHEST_MALL_CATALOG),
           freeTiers: FREE_CHEST_CHAIN,
           ...lists,
+          chestHoldings,
         });
       }
 
@@ -685,6 +923,23 @@ export function createApiRouter({
           return err('CHEST_OPEN_DISABLED', '当前真实模式处于只读验收阶段，宝箱开箱入账暂未开放', 403);
         }
         const chestId = decodeURIComponent(chestOpenMatch[1]);
+        const tgId = await auth.telegram();
+        const targetChest = typeof chestEngine.getChest === 'function' ? await chestEngine.getChest(chestId) : null;
+        if (targetChest && targetChest.source === 'WARMUP_ROUND') {
+          const binding = await identityStore.getBinding(tgId.telegramUserId, nowSec);
+          return ok(
+            await chestEngine.openChest(
+              {
+                chestId,
+                userId: tgId.telegramUserId,
+                walletAddress: binding?.walletAddress || null,
+                promoEngine,
+                predictionEngine,
+              },
+              nowSec,
+            ),
+          );
+        }
         const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
         let teamVolumeNano = 0n;
         let teamTgMemberCount = 0;
@@ -733,7 +988,7 @@ export function createApiRouter({
         if (!chestEngine) return err('CHEST_DISABLED', 'chest engine not configured', 503);
         const chest = await chestEngine.getChest(decodeURIComponent(chestGetMatch[1]));
         if (!chest) return err('CHEST_NOT_FOUND', 'chest not found', 404);
-        return ok(chest);
+        return ok(sanitizePublicChest(chest));
       }
 
       // Phase 3: Handbook Stamp & Non-Financial Progression (strictly tied to verified Telegram user)
@@ -820,6 +1075,50 @@ export function createApiRouter({
         );
       }
 
+      // Admin: Pre-Round Warm-Up funnel summary & round schedule config
+      if (pathname === '/api/admin/warmup/summary' || pathname === '/api/admin/warmup/round') {
+        const expectedToken = String(env.A9_ADMIN_TOKEN || '').trim();
+        const providedToken = extractAdminToken(headers);
+        if (!timingSafeEqualStr(providedToken, expectedToken)) {
+          return err('UNAUTHORIZED', 'invalid or missing admin token', 401);
+        }
+        if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
+        if (method === 'GET' && pathname === '/api/admin/warmup/summary') {
+          const roundId = query.roundId ? Number(query.roundId) : resolveUpcomingWarmupRoundId();
+          if (!Number.isInteger(roundId) || roundId < 1) {
+            return err('BAD_REQUEST', 'roundId must be a positive integer', 400);
+          }
+          const chainRound = stateStore?.getRound?.(roundId) || null;
+          const actualOnchainStakers = chainRound?.round ? Number(chainRound.round.stakeCount || 0) : null;
+          let readyWalletSet = null;
+          if (presaleEngine && typeof presaleEngine.hasCompletedPurchase === 'function') {
+            try {
+              const completed = typeof presaleEngine.repo?.listOrdersByStatus === 'function'
+                ? await presaleEngine.repo.listOrdersByStatus('COMPLETED')
+                : [];
+              readyWalletSet = new Set(completed.map((o) => o.walletKey || addressKey(o.walletAddress)));
+            } catch (_) {
+              readyWalletSet = null;
+            }
+          }
+          return ok(await socialStore.getWarmupAdminSummary(roundId, { readyWalletSet, actualOnchainStakers }));
+        }
+        if (method === 'POST' && pathname === '/api/admin/warmup/round') {
+          const roundId = Number(body?.roundId || resolveUpcomingWarmupRoundId());
+          return ok(await socialStore.upsertWarmupRoundConfig({
+            roundId,
+            status: body?.status,
+            plannedOpenAt: body?.plannedOpenAt,
+            targetUsers: body?.targetUsers,
+            chestBaseA9Raw: body?.chestBaseA9Raw,
+            chestStepA9Raw: body?.chestStepA9Raw,
+            chestMinInvites: body?.chestMinInvites,
+            chestMaxInvites: body?.chestMaxInvites,
+          }, nowSec));
+        }
+        return err('NOT_FOUND', 'route not found', 404);
+      }
+
       // Plan 3: Dynamic OG / Story PNG raster image (/c/img/:type/:id.png)
       const ogPngMatch = method === 'GET' && pathname.match(/^\/c\/img\/(round|burn|proof|bet|chest)\/([^/]+)\.png$/);
       if (ogPngMatch) {
@@ -900,7 +1199,7 @@ export function createApiRouter({
       const ogPageMatch = method === 'GET' && pathname.match(/^\/c\/(round|burn|proof|bet|chest)\/([^/]+)$/);
       if (ogPageMatch) {
         const [, type, id] = ogPageMatch;
-        const base = (env.A9_PUBLIC_ORIGIN || '').replace(/\/+$/, '');
+        const imgBase = (env.A9_API_ORIGIN || origin || env.A9_PUBLIC_ORIGIN || '').replace(/\/+$/, '');
         const botHandle = env.A9_TG_BOT_HANDLE || 'A9_TonBot';
         const ref = query.ref ? `_${String(query.ref).replace(/[^a-zA-Z0-9_-]/g, '')}` : '';
         if (type === 'chest') {
@@ -914,7 +1213,7 @@ export function createApiRouter({
             id,
             title,
             description,
-            imageUrl: `${base}/c/img/chest/${encodeURIComponent(id)}.png`,
+            imageUrl: `${imgBase}/c/img/chest/${encodeURIComponent(id)}.png`,
             tgDeepLink: `https://t.me/${botHandle}?startapp=chest_${encodeURIComponent(id)}${ref}`,
             width: 1200,
             height: 630,
@@ -937,7 +1236,7 @@ export function createApiRouter({
           id,
           title: `A9 Protocol · ${roundLabel} (${type.toUpperCase()})`,
           description,
-          imageUrl: `${base}/c/img/${type}/${encodeURIComponent(id)}.png`,
+          imageUrl: `${imgBase}/c/img/${type}/${encodeURIComponent(id)}.png`,
           tgDeepLink: `https://t.me/${botHandle}?startapp=${type}_${encodeURIComponent(id)}${ref}`,
           width: 1200,
           height: 630,

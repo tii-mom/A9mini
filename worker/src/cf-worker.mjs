@@ -68,18 +68,20 @@ function routeNeedsChainState(pathname) {
 const STATUS_NAME_TO_CODE = { UNOPENED: 0, ACTIVE: 1, SUCCEEDED: 2, FAILED: 3, ABORTED: 4 };
 const STATUS_CODE_TO_NAME = ['UNOPENED', 'ACTIVE', 'SUCCEEDED', 'FAILED', 'ABORTED'];
 
-async function readCachedRoundsFromD1(db, nowSec) {
+export async function readCachedRoundsFromD1(db, nowSec) {
   try {
     const rRes = await db
-      .prepare('SELECT * FROM rounds_cache ORDER BY round_id ASC')
+      .prepare('SELECT * FROM rounds_cache ORDER BY round_id DESC LIMIT 12')
       .all();
-    const rows = rRes?.results || [];
+    const rows = (rRes?.results || []).slice().sort((a, b) => Number(a.round_id || 0) - Number(b.round_id || 0));
     if (!rows.length) return null;
     const latestUpdated = Math.max(...rows.map((r) => Number(r.updated_at || 0)));
     if (nowSec - latestUpdated > CHAIN_CACHE_TTL_SEC) return null;
 
+    const minRoundId = Number(rows[0].round_id || 0);
     const cRes = await db
-      .prepare('SELECT * FROM round_candles ORDER BY round_id ASC, candle_index ASC')
+      .prepare('SELECT * FROM round_candles WHERE round_id >= ? ORDER BY round_id ASC, candle_index ASC')
+      .bind(minRoundId)
       .all();
     const candlesByRound = new Map();
     for (const c of cRes?.results || []) {
@@ -278,8 +280,19 @@ const RATE_LIMIT_RULES = Object.freeze([
   { method: 'POST', prefix: '/api/auth/ton-proof/payload', limit: 20, windowSec: 60 },
   { method: 'POST', prefix: '/api/auth/ton-proof/verify', limit: 20, windowSec: 60 },
   { method: 'POST', prefix: '/api/warmup/register', limit: 30, windowSec: 60 },
+  { method: 'POST', prefix: '/api/warmup/cancel', limit: 30, windowSec: 60 },
   { method: 'POST', prefix: '/api/prediction/bet', limit: 30, windowSec: 60 },
+  { method: 'POST', prefix: '/api/prediction/activate', limit: 20, windowSec: 60 },
+  { method: 'POST', prefix: '/api/presale/intent', limit: 20, windowSec: 60 },
+  { method: 'POST', prefix: '/api/promo/intent', limit: 20, windowSec: 60 },
+  { method: 'POST', prefix: '/api/team/bind-tg', limit: 20, windowSec: 60 },
+  { method: 'POST', prefix: '/api/team/verify-tg', limit: 20, windowSec: 60 },
+  { method: 'POST', prefix: '/api/team/join', limit: 30, windowSec: 60 },
+  { method: 'POST', prefix: '/api/progression/claim', limit: 30, windowSec: 60 },
+  { method: 'POST', prefix: '/api/referral/attribution', limit: 30, windowSec: 60 },
   { method: 'POST', prefix: '/api/chests/starter', limit: 30, windowSec: 60 },
+  { method: 'POST', prefix: '/api/chests/', limit: 30, windowSec: 60 },
+  { method: 'GET', prefix: '/api/user/', limit: 30, windowSec: 60 },
   { method: 'GET', prefix: '/c/img/', limit: 60, windowSec: 60 },
 ]);
 
@@ -531,7 +544,7 @@ export default {
           if (!roundIds) {
             const cur = Number(ps.currentRoundId || 0);
             if (cur > 0) {
-              const startId = Math.max(1, cur - 23);
+              const startId = Math.max(1, cur - 7);
               roundIds = [];
               for (let id = startId; id <= cur; id += 1) roundIds.push(id);
             } else {
@@ -562,7 +575,7 @@ export default {
       healthChecker,
       runnerHeartbeatReader: readRunnerHeartbeats,
     });
-    const out = await router({ method: request.method, pathname: url.pathname, query, body, headers });
+    const out = await router({ method: request.method, pathname: url.pathname, query, body, headers, origin: url.origin });
 
     if (out.rawBody !== undefined) {
       const extra = out.contentType?.startsWith('image/')

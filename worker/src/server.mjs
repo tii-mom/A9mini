@@ -221,7 +221,7 @@ const server = createServer(async (req, res) => {
     try { body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { body = {}; }
   }
   const query = Object.fromEntries(url.searchParams.entries());
-  const out = await router({ method: req.method, pathname: url.pathname, query, body, headers: req.headers });
+  const out = await router({ method: req.method, pathname: url.pathname, query, body, headers: req.headers, origin: url.origin });
   const headers = {
     'content-type': out.contentType || 'application/json; charset=utf-8',
     'access-control-allow-origin': '*',

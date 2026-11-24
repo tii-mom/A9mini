@@ -54,6 +54,7 @@ A9_REQUIRE_RUNNER_HEARTBEAT = "1"
 A9_BROADCAST_WHALE_MIN_GRAM = "50"
 # 发布前确认正式 Telegram Bot 用户名。
 A9_PUBLIC_ORIGIN = "https://app.a9.lat"
+A9_API_ORIGIN = "https://api.a9.lat"
 A9_TON_PROOF_DOMAINS = "app.a9.lat"
 A9_ALLOWED_ORIGINS = "https://app.a9.lat,https://a9.lat"
 A9_TG_BOT_HANDLE = "A9_TonBot"
