@@ -26,6 +26,7 @@ import {
 import { store } from '../store.js';
 import { config } from '../config.js';
 import { tonConnect } from '../tonconnect.js';
+import { pendingTxManager } from '../tx-ux.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { escapeHtml, formatNum, formatTimer, showToast, copyText, burstParticles, openModal, closeModal } from '../components.js';
 import { icon } from '../icons.js';
@@ -540,25 +541,6 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     } catch { return '—'; }
   };
 
-  const pollOrderAfterTx = async (walletAddress, orderId) => {
-    const TERMINAL_STATUSES = new Set(['COMPLETED', 'REFUNDED', 'NEEDS_REVIEW', 'PAYMENT_EXCEPTION']);
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      await new Promise((r) => setTimeout(r, 2500));
-      if (!root.isConnected) return null;
-      try {
-        const orders = await fetchPresaleOrders(walletAddress);
-        if (Array.isArray(orders)) {
-          liveOrdersCount = orders.length;
-          const found = orders.find((o) => o.orderId === orderId);
-          if (found && TERMINAL_STATUSES.has(found.status)) {
-            return found;
-          }
-        }
-      } catch (_) {}
-    }
-    return null;
-  };
-
   const formatVolumeReq = (nanoStr) => {
     try {
       const g = Number(BigInt(String(nanoStr || '0')) / 1_000_000_000n);
@@ -813,14 +795,18 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                 </div>
               </div>
 
-              <button class="btn ${canPurchaseNow() ? 'btn-primary' : 'btn-secondary'}" id="btn-buy-chest" type="button" ${!canPurchaseNow() || buyBusy ? 'disabled' : ''}>
+              <button class="btn ${canPurchaseNow() && !pendingTxManager.isLocked('presale') ? 'btn-primary' : 'btn-secondary'}" id="btn-buy-chest" type="button" ${!canPurchaseNow() || buyBusy || pendingTxManager.isLocked('presale') ? 'disabled' : ''}>
                 ${!store.fundsEnabled
                   ? `${icon('lock', 15)} ${L('真实模式只读 · 暂未开放购箱', 'Live Read-Only · Purchase Disabled')}`
                   : !config.isDemo && !isPresaleServerOpen()
                     ? `${icon('lock', 15)} ${L('宝箱商城尚未开售', 'Chest Mall Not Open Yet')}`
                     : config.isDemo
                       ? `${icon('bolt', 16)} ${L(`演示购买 ${L(sel.zh, sel.en)} · 实付 ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`, `Demo Buy ${sel.en} · Pay ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`)}`
-                      : `${icon('bolt', 16)} ${buyBusy ? L('等待钱包确认…', 'Awaiting Wallet…') : L(`立即购买 ${L(sel.zh, sel.en)} · 实付 ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`, `Buy ${sel.en} · Pay ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`)}`}
+                      : `${icon(pendingTxManager.isLocked('presale') ? 'clock' : 'bolt', 16)} ${pendingTxManager.isLocked('presale')
+                          ? L('购箱订单确认中（防重锁）', 'Order Confirming…')
+                          : buyBusy
+                            ? L('等待钱包确认…', 'Awaiting Wallet…')
+                            : L(`立即购买 ${L(sel.zh, sel.en)} · 实付 ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`, `Buy ${sel.en} · Pay ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`)}`}
               </button>
 
               <div class="mall-footnote">${L('固定本金实时锁定 · 请通过页面下单付款，切勿直接向热钱包转账（发币 Gas 0.06 GRAM，过期/异常原路退款扣 0.03 GRAM Gas）', 'Base A9 locked · Pay via order flow only; never transfer directly (0.06 GRAM delivery gas, 0.03 GRAM refund gas)')}</div>
@@ -1000,6 +986,11 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
           tonConnect.openConnectModal(() => loadChests());
           return;
         }
+        if (buyBusy || pendingTxManager.isLocked('presale')) {
+          showToast(L('已有购箱订单正在链上确认中', 'Chest purchase already confirming'), 'amber');
+          return;
+        }
+        A9Haptic.light();
         buyBusy = true;
         render();
         try {
@@ -1009,18 +1000,87 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
             openMode,
             referrerId: store.state.referral.referrerId,
           });
+          const deliveryGram = sel?.deliveryFeeGram || '0.06';
+          const priceGram = sel?.priceGram || formatGramFromNano(order.tonNano).replace(/\s*GRAM$/, '');
+          const totalPayGram = sel?.totalPayGram || formatGramFromNano(order.payTonNano || order.tonNano).replace(/\s*GRAM$/, '');
+          const orderA9 = rawToA9(order.a9AmountRaw) ?? sel?.baseA9 ?? 0;
+          let insufficientReason = '';
+          try {
+            const availNanoStr = liveQuota?.availQuotaNano ?? liveQuota?.remainingNano;
+            if (availNanoStr !== undefined && availNanoStr !== null && order?.tonNano) {
+              if (BigInt(String(order.tonNano)) > BigInt(String(availNanoStr))) {
+                insufficientReason = L('当前剩余购箱额度不足，请降低档位或检查订单', 'Insufficient remaining purchase quota');
+              }
+            }
+          } catch (_) {}
+
+          const ok = await tonConnect.confirmBeforeSign({
+            title: L('确认宝箱购箱付款（签名前核验）', 'Confirm Chest Purchase Payment'),
+            contractLabel: L('兑换热钱包 PresaleHotWallet', 'PresaleHotWallet'),
+            targetAddress: order.payTo,
+            principalText: `${priceGram} GRAM → ${formatNum(orderA9, 2)} A9`,
+            gasText: `+${deliveryGram} GRAM (${L('A9 链上发币 Gas', 'delivery gas')})`,
+            totalText: `${totalPayGram} GRAM`,
+            memo: order.memo,
+            note: L('请核对订单 Memo 并通过钱包签名支付；切勿向热钱包直接转账（异常/过期退款扣除 0.03 GRAM Gas）。', 'Keep order memo intact; never transfer directly (invalid/late refunds deduct 0.03 GRAM gas).'),
+            insufficientReason,
+            confirmText: L('确认并唤起钱包付款', 'Confirm & Pay in Wallet'),
+          });
+          if (!ok) return;
+
           await tonConnect.sendV15PresaleTx(order);
           A9Haptic.success();
           showToast(L(`已提交购箱交易（订单 ${order.orderId}），正在等待链上确认与 A9 发放…`, `Order ${order.orderId} signed, waiting for on-chain confirmation…`));
-          const settled = await pollOrderAfterTx(walletAddr, order.orderId);
-          if (settled?.status === 'COMPLETED') {
-            burstParticles(root);
-            showToast(L(`订单 ${order.orderId} 已完成，基础 A9 已发放！`, `Order ${order.orderId} completed! Base A9 credited.`));
-          } else if (settled?.status === 'REFUNDED') {
-            showToast(L(`订单 ${order.orderId} 已触发原路退款，请在购箱小票查看明细`, `Order ${order.orderId} refunded; check receipts for details`), 'amber');
-          } else if (settled?.status === 'PAYMENT_EXCEPTION' || settled?.status === 'NEEDS_REVIEW') {
-            showToast(L(`订单 ${order.orderId} 已进入人工复核，请在购箱小票关注处理进度`, `Order ${order.orderId} queued for review; check receipts`), 'amber');
-          }
+          const pendingTx = pendingTxManager.start({
+            kind: 'presale',
+            title: `购买 ${sel?.zh || 'A9 宝箱'}`,
+            titleEn: `Buy ${sel?.en || 'A9 Chest'}`,
+            amountText: `${totalPayGram} GRAM`,
+            explorerAddress: order.payTo,
+            refId: order.orderId,
+            targetRoute: '/internal/records',
+            maxAttempts: 12,
+          });
+          const TERMINAL_STATUSES = new Set(['COMPLETED', 'REFUNDED', 'NEEDS_REVIEW', 'PAYMENT_EXCEPTION']);
+          pendingTxManager.pollUntilConfirmed({
+            txId: pendingTx?.id,
+            intervalMs: 4000,
+            maxAttempts: 12,
+            checkFn: async () => {
+              const orders = await fetchPresaleOrders(walletAddr);
+              if (!Array.isArray(orders)) return false;
+              liveOrdersCount = orders.length;
+              const found = orders.find((o) => o.orderId === order.orderId);
+              if (!found || !TERMINAL_STATUSES.has(found.status)) return false;
+              if (found.status === 'COMPLETED') {
+                return {
+                  confirmed: true,
+                  order: found,
+                  detail: `订单 ${order.orderId} 已发放 ${formatNum(orderA9, 2)} A9。`,
+                  detailEn: `Order ${order.orderId} credited ${formatNum(orderA9, 2)} A9.`,
+                };
+              }
+              return { terminal: true, order: found };
+            },
+            onConfirmed: () => {
+              burstParticles(root);
+              showToast(L(`订单 ${order.orderId} 已完成，基础 A9 已发放！`, `Order ${order.orderId} completed! Base A9 credited.`));
+              loadChests();
+            },
+            onTimeout: () => {
+              showToast(L(`订单 ${order.orderId} 区块确认较慢，可点顶部状态条前往 Tonviewer 核验`, `Order ${order.orderId} taking longer; verify on Tonviewer`), 'amber');
+            },
+          }).then((res) => {
+            if (res?.terminal && res.result?.order) {
+              const st = res.result.order.status;
+              if (st === 'REFUNDED') {
+                showToast(L(`订单 ${order.orderId} 已触发原路退款，请在购箱小票查看明细`, `Order ${order.orderId} refunded; check receipts`), 'amber');
+              } else {
+                showToast(L(`订单 ${order.orderId} 已进入人工复核，请在购箱小票关注处理进度`, `Order ${order.orderId} queued for review`), 'amber');
+              }
+              loadChests();
+            }
+          });
           await loadChests();
         } catch (e) {
           A9Haptic.error();

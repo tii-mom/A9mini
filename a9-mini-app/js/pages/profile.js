@@ -20,6 +20,7 @@ import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
 import { fetchUserPortfolio, rawToA9 } from '../data.js';
+import { pendingTxManager } from '../tx-ux.js';
 
 function renderMiniBarcode() {
   const bars = [2, 1, 3, 1, 2, 2, 1, 3, 1, 2];
@@ -462,6 +463,7 @@ function renderLiveTicketClaimPage(root) {
                     const immLabel = t.immediateClaimed ? L('已领', 'Claimed') : L('待领', 'Unclaimed');
                     const isPending = Boolean(t.pending);
                     const isBusy = claimingAddr === t.ticketAddress;
+                    const isGlobalClaimLocked = pendingTxManager.isLocked('claim');
                     const statusChip = isPending
                       ? `<span class="chip chip-gold">${L('链上处理中', 'Pending')}</span>`
                       : t.principalDone
@@ -482,12 +484,14 @@ function renderLiveTicketClaimPage(root) {
                           <b class="mono text-green">${immLabel} · ${formatNum(lockedClaimedA9, 2)} A9</b>
                         </div>
                         <div class="num-xs text-muted mono" style="margin:6px 0 10px;word-break:break-all;">${escapeHtml(t.ticketAddress)}</div>
-                        <button class="btn ${isPending ? 'btn-secondary' : 'btn-primary'} btn-sm" data-claim-ticket="${escapeHtml(t.ticketAddress)}" type="button" style="width:100%;" ${isPending || isBusy ? 'disabled' : ''}>
-                          ${icon(isPending ? 'clock' : 'wallet', 13)} ${isPending
+                        <button class="btn ${isPending || isGlobalClaimLocked ? 'btn-secondary' : 'btn-primary'} btn-sm" data-claim-ticket="${escapeHtml(t.ticketAddress)}" type="button" style="width:100%;" ${isPending || isBusy || isGlobalClaimLocked ? 'disabled' : ''}>
+                          ${icon(isPending || isGlobalClaimLocked ? 'clock' : 'wallet', 13)} ${isPending
                             ? L('凭证正在链上确认中（防重锁）', 'Claim Pending On-Chain')
-                            : isBusy
-                              ? L('等待钱包签名…', 'Awaiting Signature…')
-                              : L('发起链上领奖（附 0.22 GRAM Gas）', 'Claim On-Chain (0.22 GRAM Gas)')}
+                            : isGlobalClaimLocked
+                              ? L('领奖确认中（防重锁）', 'Claim Confirming…')
+                              : isBusy
+                                ? L('等待钱包签名…', 'Awaiting Signature…')
+                                : L('发起链上领奖（附 0.22 GRAM Gas）', 'Claim On-Chain (0.22 GRAM Gas)')}
                         </button>
                       </div>
                     `;
@@ -509,14 +513,85 @@ function renderLiveTicketClaimPage(root) {
     root.querySelectorAll('[data-claim-ticket]').forEach((btn) => {
       btn.onclick = async () => {
         const ticketAddr = btn.dataset.claimTicket;
-        if (!ticketAddr || claimingAddr) return;
+        if (!ticketAddr || claimingAddr || pendingTxManager.isLocked('claim')) return;
+        A9Haptic.light();
+        const ticket = tickets.find((item) => item.ticketAddress === ticketAddr);
+        const ticketPrincipalA9 = rawToA9(ticket?.amountRaw) ?? 0;
+        const ok = await tonConnect.confirmBeforeSign({
+          title: L('确认链上领奖（签名前核验）', 'Confirm On-Chain Claim'),
+          contractLabel: L('目标凭证 StakeTicket', 'Target StakeTicket'),
+          targetAddress: ticketAddr,
+          principalText: `${L(`第 ${ticket?.roundId ?? '—'} 轮`, `Round #${ticket?.roundId ?? '—'}`)} · ${formatNum(ticketPrincipalA9, 2)} A9`,
+          gasText: `0.22 GRAM (${L('余量原路退回', 'excess refunded')})`,
+          totalText: '0.22 GRAM (Gas)',
+          note: L('发送 TicketClaim 到 StakeTicket 合约，核销后由 RoundController 发放本金与已解锁 A9。', 'Sends TicketClaim to StakeTicket; RoundController disburses principal + unlocked A9.'),
+          insufficientReason: ticket?.pending ? L('该凭证当前处于链上确认中，请等待完成', 'This StakeTicket already has a pending claim') : '',
+          confirmText: L('确认并签名领奖', 'Confirm & Sign Claim'),
+        });
+        if (!ok) return;
+
+        const prevSnap = ticket
+          ? {
+              principalDone: Boolean(ticket.principalDone),
+              immediateClaimed: Boolean(ticket.immediateClaimed),
+              lockedClaimedRaw: String(ticket.lockedClaimedRaw ?? ticket.rewardClaimedRaw ?? '0'),
+            }
+          : null;
+        const prevBalanceRaw = portfolio?.a9BalanceRaw !== null && portfolio?.a9BalanceRaw !== undefined ? BigInt(portfolio.a9BalanceRaw) : null;
+
         claimingAddr = ticketAddr;
         paint();
         try {
           await tonConnect.sendV15TicketClaim(ticketAddr);
           A9Haptic.success();
           A9Audio.confirm();
-          showToast(L('已提交 StakeTicket 领奖交易，请等待链上确认到账', 'StakeTicket claim tx sent, awaiting on-chain confirmation'));
+          showToast(L('已提交 StakeTicket 领奖交易，正在核验链上到账…', 'StakeTicket claim sent, awaiting on-chain finality…'));
+          const pendingTx = pendingTxManager.start({
+            kind: 'claim',
+            title: `第 ${ticket?.roundId ?? '—'} 轮 StakeTicket 领奖`,
+            titleEn: `Round #${ticket?.roundId ?? '—'} StakeTicket Claim`,
+            amountText: '0.22 GRAM Gas',
+            explorerAddress: ticketAddr,
+            targetRoute: '/claim',
+            maxAttempts: 12,
+          });
+          pendingTxManager.pollUntilConfirmed({
+            txId: pendingTx?.id,
+            intervalMs: 4000,
+            maxAttempts: 12,
+            checkFn: async () => {
+              const addr = store.state.user.address;
+              if (!addr) return false;
+              const next = await fetchUserPortfolio(addr);
+              if (!next) return false;
+              const nextTicket = next.tickets?.find((item) => item.ticketAddress === ticketAddr);
+              const ticketUpdated = Boolean(
+                prevSnap && nextTicket && !nextTicket.pending && (
+                  Boolean(nextTicket.principalDone) !== prevSnap.principalDone ||
+                  Boolean(nextTicket.immediateClaimed) !== prevSnap.immediateClaimed ||
+                  String(nextTicket.lockedClaimedRaw ?? nextTicket.rewardClaimedRaw ?? '0') !== prevSnap.lockedClaimedRaw
+                ),
+              );
+              const balIncreased = prevBalanceRaw !== null && next.a9BalanceRaw !== null && BigInt(next.a9BalanceRaw) > prevBalanceRaw;
+              if (ticketUpdated || balIncreased) {
+                portfolio = next;
+                return {
+                  confirmed: true,
+                  detail: 'StakeTicket 领奖已到账，余额与凭证状态已更新。',
+                  detailEn: 'StakeTicket claim confirmed; wallet balance and ticket updated.',
+                };
+              }
+              return false;
+            },
+            onConfirmed: () => {
+              showToast(L('链上领奖已确认到账！', 'On-chain claim confirmed!'));
+              if (root.isConnected) paint();
+            },
+            onTimeout: () => {
+              showToast(L('区块确认耗时较长，可点击顶部状态条前往 Tonviewer 核验', 'Confirmation taking longer; check Tonviewer via top bar'), 'amber');
+              if (root.isConnected) paint();
+            },
+          });
           await loadTickets();
         } catch (e) {
           A9Haptic.error();

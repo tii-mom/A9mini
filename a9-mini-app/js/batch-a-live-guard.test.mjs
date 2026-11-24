@@ -636,3 +636,186 @@ test('Strict CSP guardrail: index.html has zero inline <script> blocks and _head
   assert.doesNotMatch(scriptSrcMatch[1], /'unsafe-inline'/i, 'script-src must not allow unsafe-inline');
 });
 
+test('Wave 2: shouldDeferRouteRender, buildTonviewerUrl, pendingTxManager (sessionStorage-only), confirmBeforeSign & manifests', () => {
+  const miniAppDir = dirname(JS_DIR);
+  const a9Meta = JSON.parse(readFileSync(join(miniAppDir, 'a9.json'), 'utf8'));
+  const tcManifest = JSON.parse(readFileSync(join(miniAppDir, 'tonconnect-manifest.json'), 'utf8'));
+  assert.equal(tcManifest.url, 'https://app.a9.lat');
+  assert.ok(Array.isArray(a9Meta.websites) && a9Meta.websites.includes(tcManifest.url));
+  assert.equal(a9Meta.image, 'https://app.a9.lat/assets/token/a9-token-2048.png');
+  assert.equal(tcManifest.iconUrl, a9Meta.image);
+  assert.ok(readFileSync(join(miniAppDir, 'assets', 'token', 'a9-token-2048.png')).byteLength > 1024);
+
+  const appSrc = readFileSync(join(JS_DIR, 'app.js'), 'utf8');
+  assert.match(appSrc, /shouldDeferRouteRender/);
+  assert.match(appSrc, /pendingDeferredRender/);
+
+  const out = runScenario(
+    {
+      href: 'https://app.a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat', liveFundsEnabled: true },
+    },
+    `
+      const { store } = await import(JS_URL + '/store.js');
+      const { tonConnect } = await import(JS_URL + '/tonconnect.js');
+      const {
+        shouldDeferRouteRender,
+        buildTonviewerUrl,
+        pendingTxManager,
+        SESSION_PENDING_TX_KEY,
+        renderPendingTxBannerHtml,
+      } = await import(JS_URL + '/tx-ux.js');
+
+      store.persistPrefs();
+
+      const mkClassList = (hidden) => ({ contains: (c) => c === 'hidden' && hidden, add() {}, remove() {} });
+      const idleDoc = {
+        getElementById: (id) => id === 'modal-root' || id === 'sim-drawer' ? { classList: mkClassList(true) } : null,
+        activeElement: { tagName: 'BODY' },
+      };
+      const modalOpenDoc = {
+        getElementById: (id) => id === 'modal-root' ? { classList: mkClassList(false) } : { classList: mkClassList(true) },
+        activeElement: { tagName: 'BODY' },
+      };
+      const drawerOpenDoc = {
+        getElementById: (id) => id === 'sim-drawer' ? { classList: mkClassList(false) } : { classList: mkClassList(true) },
+        activeElement: { tagName: 'BODY' },
+      };
+      const inputFocusedDoc = {
+        getElementById: () => ({ classList: mkClassList(true) }),
+        activeElement: { tagName: 'INPUT' },
+      };
+
+      const deferChecks = {
+        idle: shouldDeferRouteRender(idleDoc),
+        modal: shouldDeferRouteRender(modalOpenDoc),
+        drawer: shouldDeferRouteRender(drawerOpenDoc),
+        input: shouldDeferRouteRender(inputFocusedDoc),
+      };
+
+      const addr = 'UQBqTR8EYSz-uNKIBODC-3z0vOFlqoBGzLJb38wJOvCuiwbX';
+      const mainnetUrl = buildTonviewerUrl(addr, 'mainnet');
+      const testnetUrl = buildTonviewerUrl(addr, 'testnet');
+
+      // 模拟 DOM 弹窗节点测试 tonConnect.confirmBeforeSign 的拦截与放行行为
+      const modalEls = new Map();
+      const modalRootEl = {
+        classList: { add() { this.hidden = true; }, remove() { this.hidden = false; }, contains(c) { return c === 'hidden' && Boolean(this.hidden); } },
+        set innerHTML(html) {
+          this._html = String(html);
+          const okDisabled = /id="tx-confirm-ok"[^>]*disabled/.test(this._html);
+          modalEls.set('tx-confirm-ok', { disabled: okDisabled, onclick: null });
+          modalEls.set('tx-confirm-cancel', { onclick: null });
+          modalEls.set('tx-confirm-close', { onclick: null });
+          modalEls.set('tx-confirm-copy-addr', { onclick: null });
+        },
+        get innerHTML() { return this._html || ''; },
+      };
+      globalThis.document.getElementById = (id) => (id === 'modal-root' ? modalRootEl : modalEls.get(id) || null);
+
+      const pBlocked = tonConnect.confirmBeforeSign({
+        title: 'Confirm',
+        targetAddress: addr,
+        principalText: '1,000 A9',
+        gasText: '0.30 GRAM',
+        totalText: '1,000 A9 + 0.30 GRAM',
+        insufficientReason: '余额不足',
+      });
+      const blockedHasAlert = modalRootEl.innerHTML.includes('余额不足') && modalRootEl.innerHTML.includes('tonviewer.com/' + addr);
+      const blockedOkDisabled = Boolean(modalEls.get('tx-confirm-ok')?.disabled);
+      modalEls.get('tx-confirm-cancel')?.onclick?.();
+      const blockedResolved = await pBlocked;
+
+      const pAccepted = tonConnect.confirmBeforeSign({
+        title: 'Confirm',
+        targetAddress: addr,
+        principalText: '1,000 A9',
+        gasText: '0.30 GRAM',
+        totalText: '1,000 A9 + 0.30 GRAM',
+      });
+      const acceptedOkDisabled = Boolean(modalEls.get('tx-confirm-ok')?.disabled);
+      modalEls.get('tx-confirm-ok')?.onclick?.();
+      const acceptedResolved = await pAccepted;
+
+      // Pending 状态机生命周期：signed -> confirming -> confirmed & timeout，绝不写 localStorage
+      const statuses = [];
+      const unsub = pendingTxManager.subscribe((tx) => statuses.push(tx ? tx.status : 'cleared'));
+      const started = pendingTxManager.start({
+        kind: 'stake',
+        title: '质押测试',
+        titleEn: 'Stake Test',
+        amountText: '1,000 A9',
+        explorerAddress: addr,
+      });
+      const lockedDuringSigned = pendingTxManager.isLocked('stake');
+      const pollConfirmed = await pendingTxManager.pollUntilConfirmed({
+        txId: started.id,
+        intervalMs: 1,
+        maxAttempts: 5,
+        checkFn: async (attempt) => attempt >= 2,
+      });
+      const lockedAfterConfirmed = pendingTxManager.isLocked('stake');
+      const sessionRaw = sessionStorage.getItem(SESSION_PENDING_TX_KEY);
+      const bannerConfirmed = renderPendingTxBannerHtml(pendingTxManager.getActive(), 'mainnet');
+
+      const started2 = pendingTxManager.start({ kind: 'claim', title: '领奖测试', explorerAddress: addr });
+      const pollTimeout = await pendingTxManager.pollUntilConfirmed({
+        txId: started2.id,
+        intervalMs: 1,
+        maxAttempts: 2,
+        checkFn: async () => false,
+      });
+      const lockedAfterTimeout = pendingTxManager.isLocked('claim');
+      const finalActiveStatus = pendingTxManager.getActive()?.status;
+      unsub();
+
+      console.log(JSON.stringify({
+        deferChecks,
+        mainnetUrl,
+        testnetUrl,
+        blockedHasAlert,
+        blockedOkDisabled,
+        blockedResolved,
+        acceptedOkDisabled,
+        acceptedResolved,
+        statuses,
+        lockedDuringSigned,
+        pollConfirmedOk: pollConfirmed.confirmed,
+        lockedAfterConfirmed,
+        hasSessionKey: Boolean(sessionRaw),
+        sessionParsedKind: JSON.parse(sessionRaw || '{}').kind || null,
+        bannerHasTonviewer: bannerConfirmed.includes('https://tonviewer.com/' + addr),
+        pollTimeoutFlag: Boolean(pollTimeout.timeout),
+        lockedAfterTimeout,
+        finalActiveStatus,
+        lsKeys: Object.keys(localStorage._dump()),
+        ssKeys: Object.keys(sessionStorage._dump()),
+      }));
+    `,
+  );
+
+  assert.deepEqual(out.deferChecks, { idle: false, modal: true, drawer: true, input: true });
+  assert.match(out.mainnetUrl, /^https:\/\/tonviewer\.com\/UQ/);
+  assert.match(out.testnetUrl, /^https:\/\/testnet\.tonviewer\.com\/UQ/);
+  assert.equal(out.blockedHasAlert, true);
+  assert.equal(out.blockedOkDisabled, true);
+  assert.equal(out.blockedResolved, false);
+  assert.equal(out.acceptedOkDisabled, false);
+  assert.equal(out.acceptedResolved, true);
+  assert.equal(out.lockedDuringSigned, true);
+  assert.equal(out.pollConfirmedOk, true);
+  assert.equal(out.lockedAfterConfirmed, false);
+  assert.equal(out.hasSessionKey, true);
+  assert.equal(out.sessionParsedKind, 'stake');
+  assert.equal(out.bannerHasTonviewer, true);
+  assert.equal(out.pollTimeoutFlag, true);
+  assert.equal(out.lockedAfterTimeout, false);
+  assert.equal(out.finalActiveStatus, 'timeout');
+  assert.ok(out.statuses.includes('signed'));
+  assert.ok(out.statuses.includes('confirming'));
+  assert.ok(out.statuses.includes('confirmed'));
+  assert.ok(out.statuses.includes('timeout'));
+  assert.deepEqual(out.lsKeys, ['a9_ui_prefs_v1']);
+  assert.deepEqual(out.ssKeys, ['a9_pending_tx_v1']);
+});
+

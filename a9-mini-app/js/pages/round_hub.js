@@ -18,6 +18,7 @@ import { characterArt, getBoxheadItem } from '../wealth-art.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
+import { pendingTxManager } from '../tx-ux.js';
 import { openXShareSheet, buildOgShareUrl } from '../share.js';
 import {
   renderWarmupStage,
@@ -661,8 +662,9 @@ function renderLiveStakeConfirm(root, navigate) {
       ? rawToA9(portfolio.a9BalanceRaw)
       : null;
     const jw = portfolio?.jettonWallet || null;
+    const txLocked = pendingTxManager.isLocked('stake');
     const canSubmit = Boolean(
-      user.connected && user.address && jw && roundController && round.currentRound && round.stage === 'participation' && !submitting,
+      user.connected && user.address && roundController && round.currentRound && round.stage === 'participation' && !submitting && !txLocked,
     );
 
     root.innerHTML = `
@@ -711,7 +713,7 @@ function renderLiveStakeConfirm(root, navigate) {
           ? `<button class="btn btn-secondary" id="btn-live-stake-readonly" type="button" disabled>${icon('lock', 15)} ${L('真实模式只读 · 暂未开放质押', 'Read-Only Mode · Staking Disabled')}</button>`
           : !user.connected
             ? `<button class="btn btn-primary" id="btn-live-connect" type="button">${icon('wallet', 15)} ${L('先连接非托管 TON 钱包', 'Connect TON Wallet First')}</button>`
-            : `<button class="btn btn-primary" id="btn-live-stake-submit" type="button" ${!canSubmit ? 'disabled' : ''}>${icon('bolt', 16)} ${submitting ? L('等待钱包签名…', 'Awaiting Signature…') : L(`签名质押 ${formatNum(amountA9)} A9（+ 0.30 GRAM Gas）`, `Sign & Stake ${formatNum(amountA9)} A9 (+ 0.30 GRAM Gas)`)}</button>`}
+            : `<button class="btn btn-primary" id="btn-live-stake-submit" type="button" ${!canSubmit ? 'disabled' : ''}>${icon(txLocked ? 'clock' : 'bolt', 16)} ${submitting ? L('等待钱包签名…', 'Awaiting Signature…') : txLocked ? L('质押确认中（防重锁）', 'Stake Confirming…') : L(`签名质押 ${formatNum(amountA9)} A9（+ 0.30 GRAM Gas）`, `Sign & Stake ${formatNum(amountA9)} A9 (+ 0.30 GRAM Gas)`)}</button>`}
         <button class="btn btn-secondary" data-nav="/round" type="button">${icon('arrowLeft', 15)} ${L('返回轮次详情', 'Back to Round')}</button>
       </div>
     `;
@@ -748,6 +750,11 @@ function renderLiveStakeConfirm(root, navigate) {
     const submitBtn = root.querySelector('#btn-live-stake-submit');
     if (submitBtn) {
       submitBtn.onclick = async () => {
+        if (submitting || pendingTxManager.isLocked('stake')) {
+          showToast(L('已有质押交易在链上确认中，请勿重复提交', 'Stake transaction already confirming'), 'amber');
+          return;
+        }
+        A9Haptic.light();
         if (!riskAgreed) {
           showToast(L('请先勾选链上风险提示确认', 'Confirm on-chain risk notice first'), 'amber');
           return;
@@ -757,10 +764,30 @@ function renderLiveStakeConfirm(root, navigate) {
           showToast(L(`质押数量不得低于 ${formatNum(minStakeA9)} A9`, `Minimum stake is ${formatNum(minStakeA9)} A9`), 'error');
           return;
         }
-        if (portfolio?.a9BalanceRaw && rawAmt > BigInt(portfolio.a9BalanceRaw)) {
-          showToast(L('链上 A9 余额不足', 'Insufficient on-chain A9 balance'), 'error');
-          return;
+        let insufficientReason = '';
+        if (!jw) {
+          insufficientReason = L('尚未检测到你的 A9 JettonWallet（需先持有 A9）', 'A9 JettonWallet not found (hold A9 first)');
+        } else if (portfolio?.balanceAvailable && portfolio?.a9BalanceRaw !== null && rawAmt > BigInt(portfolio.a9BalanceRaw)) {
+          insufficientReason = L(`链上 A9 余额不足（可用 ${formatNum(balA9, 2)} A9，需 ${formatNum(amountA9, 2)} A9）`, `Insufficient on-chain A9 (${formatNum(balA9, 2)} available, ${formatNum(amountA9, 2)} needed)`);
         }
+
+        const confirmed = await tonConnect.confirmBeforeSign({
+          title: L('确认质押交易（签名前核验）', 'Confirm On-Chain Stake'),
+          contractLabel: L('目标合约 RoundController', 'Target RoundController'),
+          targetAddress: roundController,
+          principalText: `${formatNum(amountA9)} A9`,
+          gasText: `0.30 GRAM (${L('余量原路退回', 'excess refunded')})`,
+          totalText: `${formatNum(amountA9)} A9 + 0.30 GRAM`,
+          note: L(`第 ${round.currentRound} 轮 · 观察期未达 16/24 时段时本轮质押本金将按规则销毁。`, `Round #${round.currentRound} · Staked A9 is burned if fewer than 16/24 slots qualify.`),
+          insufficientReason,
+          confirmText: L('确认并唤起钱包签名', 'Confirm & Sign in Wallet'),
+        });
+        if (!confirmed) return;
+
+        const prevTicket = portfolio?.tickets?.find((t) => Number(t.roundId) === Number(round.currentRound));
+        const prevTicketAmtRaw = BigInt(prevTicket?.amountRaw || '0');
+        const prevBalanceRaw = portfolio?.a9BalanceRaw !== null && portfolio?.a9BalanceRaw !== undefined ? BigInt(portfolio.a9BalanceRaw) : null;
+
         submitting = true;
         paint();
         const sheet = openTransactionSheet(amountA9, () => navigate('/profile'), { assetSymbol: 'A9', gasNote: ' (+ 0.30 GRAM Gas)' });
@@ -774,10 +801,49 @@ function renderLiveStakeConfirm(root, navigate) {
             protocolVersion: protocolVer,
           });
           A9Audio.confirm();
+          A9Haptic.success();
           sheet.done(
             L('质押交易已提交链上', 'Stake Transaction Broadcast'),
             L('请等待区块确认后在「我的 → 闯关凭证」核对 StakeTicket', 'Check your StakeTicket in Me after block confirmation'),
           );
+          const pendingTx = pendingTxManager.start({
+            kind: 'stake',
+            title: `第 ${round.currentRound} 轮质押`,
+            titleEn: `Round #${round.currentRound} Stake`,
+            amountText: `${formatNum(amountA9)} A9`,
+            explorerAddress: roundController,
+            targetRoute: '/claim',
+            maxAttempts: 12,
+          });
+          pendingTxManager.pollUntilConfirmed({
+            txId: pendingTx?.id,
+            intervalMs: 4000,
+            maxAttempts: 12,
+            checkFn: async () => {
+              const next = await fetchUserPortfolio(user.address);
+              if (!next) return false;
+              const nextTicket = next.tickets?.find((t) => Number(t.roundId) === Number(round.currentRound));
+              const nextTicketAmtRaw = BigInt(nextTicket?.amountRaw || '0');
+              const balChanged = prevBalanceRaw !== null && next.a9BalanceRaw !== null && BigInt(next.a9BalanceRaw) < prevBalanceRaw;
+              if (nextTicketAmtRaw > prevTicketAmtRaw || balChanged) {
+                portfolio = next;
+                return {
+                  confirmed: true,
+                  detail: '质押凭证 StakeTicket 已更新到账，可在「金库领奖」核验。',
+                  detailEn: 'StakeTicket updated on-chain; check Claim center.',
+                };
+              }
+              return false;
+            },
+            onConfirmed: () => {
+              showToast(L('质押已上链确认！StakeTicket 凭证已更新', 'Stake confirmed on-chain! StakeTicket updated.'));
+              if (root.isConnected) paint();
+            },
+            onTimeout: () => {
+              showToast(L('区块确认耗时较长，可点击顶部状态条 Tonviewer 核验', 'Taking longer; verify finality on Tonviewer'), 'amber');
+              if (root.isConnected) paint();
+            },
+          });
         } catch (e) {
           A9Audio.error();
           sheet.done(L('签名取消或失败 · 未扣款', 'Cancelled or Failed · No Funds Spent'), e?.message || L('请稍后重试', 'Please retry'), 'error');
