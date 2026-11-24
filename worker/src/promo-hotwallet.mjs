@@ -78,6 +78,37 @@ export class PromoHotWalletEngine {
     };
   }
 
+  hasPendingClaim(walletAddress, nowSec = Math.floor(Date.now() / 1000)) {
+    const key = addressKey(walletAddress);
+    for (const c of this.claims.values()) {
+      if (addressKey(c.walletAddress) !== key) continue;
+      if (c.status === CLAIM_STATUS.FEE_CONFIRMED || c.status === CLAIM_STATUS.PAYOUT_SENT) return true;
+      if (c.status === CLAIM_STATUS.PENDING_FEE && nowSec < c.expiresAt) return true;
+    }
+    return false;
+  }
+
+  mergeBalance(fromWallet, toWallet, nowSec = Math.floor(Date.now() / 1000)) {
+    const fromKey = addressKey(fromWallet);
+    const toKey = addressKey(toWallet);
+    if (!fromKey || !toKey || fromKey === toKey) {
+      return { mergedRaw: '0', fromWallet, toWallet };
+    }
+    if (this.hasPendingClaim(fromWallet, nowSec)) {
+      throw new PromoError('PENDING_CLAIM_ACTIVE', '原钱包存在处理中的推广领币单，请完成后再合并余额');
+    }
+    const src = this.balances.get(fromKey);
+    if (!src || src.claimableRaw <= 0n) {
+      return { mergedRaw: '0', fromWallet, toWallet };
+    }
+    const move = src.claimableRaw;
+    src.claimableRaw = 0n;
+    const dst = this.balances.get(toKey) || { claimableRaw: 0n, totalClaimedRaw: 0n };
+    dst.claimableRaw += move;
+    this.balances.set(toKey, dst);
+    return { mergedRaw: move.toString(), fromWallet, toWallet, targetClaimableRaw: dst.claimableRaw.toString() };
+  }
+
   createClaimIntent(walletAddress, nowSec = Math.floor(Date.now() / 1000)) {
     const key = addressKey(walletAddress);
     const bal = this.balances.get(key);

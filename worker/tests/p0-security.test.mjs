@@ -115,7 +115,8 @@ await test('expired / future auth_date and missing initData are rejected; missin
 });
 
 await test('client-supplied userId never selects the account (prediction bet / record / activation)', async () => {
-  const { route, predictionEngine } = buildRouter();
+  const { route, predictionEngine, identityStore } = buildRouter();
+  await identityStore.bindWallet('4001', 'EQ_WALLET_4001', 900);
   const h = await tgHeaders(4001, { nowSec: 1000 });
   const spoof = await route({ method: 'POST', pathname: '/api/prediction/bet', body: { roundId: 1, userId: '4002', side: 'PASS' }, headers: h, nowSec: 1000 });
   assert.equal(spoof.status, 403);
@@ -172,7 +173,9 @@ await test('user A cannot read, claim or order with user B\'s wallet (body / pat
 });
 
 await test('repeated referral submissions keep the first-touch referrer; self-referral ignored', async () => {
-  const { route, socialStore } = buildRouter();
+  const { route, socialStore, identityStore } = buildRouter();
+  await identityStore.bindWallet('7001', 'EQ_WALLET_7001', 900);
+  await identityStore.bindWallet('7002', 'EQ_WALLET_7002', 900);
   const h = await tgHeaders(7001, { nowSec: 1000 });
   await route({ method: 'POST', pathname: '/api/prediction/bet', body: { roundId: 1, side: 'PASS', referrerId: '7100' }, headers: h, nowSec: 1000 });
   await route({ method: 'POST', pathname: '/api/prediction/bet', body: { roundId: 2, side: 'PASS', referrerId: '7200' }, headers: h, nowSec: 1001 });
@@ -343,12 +346,12 @@ await test('initData replay: a replayed (stolen) initData is valid until expiry 
   // Rewards still go to the victim's bound wallet
   await completePurchase(presale, victimWallet.address, 5, t0);
   pred.placeBet({ roundId: 1, userId: '9201', side: 'PASS' }, t0);
-  pred.settleRoundBets(1, true, 18, '10000000000000', t0 * 1000);
+  await pred.settleRoundBets(1, true, 18, '10000000000000', t0 * 1000);
   const act = await route({ method: 'POST', pathname: '/api/prediction/activate', body: { walletAddress: attackerWallet.address }, headers: stolen, nowSec: t0 + 3700 });
   assert.equal(act.status, 403); // claimed wallet != bound wallet
   const act2 = await route({ method: 'POST', pathname: '/api/prediction/activate', body: {}, headers: stolen, nowSec: t0 + 3700 });
   assert.equal(act2.status, 200);
-  assert.equal(promoEngine.getBalance(victimWallet.address).claimableRaw, '10000000000000');
+  assert.equal(promoEngine.getBalance(victimWallet.address).claimableRaw, '800000000000');
   assert.equal(promoEngine.getBalance(attackerWallet.address).claimableRaw, '0');
   // The replayed initData itself stops working after 24h
   const late = await route({ method: 'GET', pathname: '/api/me', headers: stolen, nowSec: t0 + 24 * 3600 + 1 });
@@ -579,7 +582,7 @@ for (const [name, make] of BACKENDS) {
     await e.processPayouts(1005, { verifier: async () => ({ state: 'CONFIRMED' }) });
     await e.processReferralCredits(1006);
     await e.processReferralCredits(1007);
-    assert.equal(promo.getBalance('EQ_INVITER').claimableRaw, String((10n * 2002n * 1_000_000_000n * 12n) / 100n));
+    assert.equal(promo.getBalance('EQ_INVITER').claimableRaw, String((10n * 2002n * 1_000_000_000n * 6n) / 100n));
 
     const crashing = { creditReward: () => { throw new Error('crash mid-credit'); } };
     const e2 = await make({ promoEngine: crashing });
@@ -1626,7 +1629,7 @@ await test('ineligible user (payout only broadcast, not confirmed) cannot activa
   const { route, identityStore } = buildRouter({ predictionEngine: pred, presaleEngine: presale });
   await identityStore.bindWallet('9501', 'EQ_HALFWAY', 900);
   pred.placeBet({ roundId: 1, userId: '9501', side: 'PASS' }, 1000);
-  pred.settleRoundBets(1, true, 18, '10000000000000', 1_000_000);
+  await pred.settleRoundBets(1, true, 18, '10000000000000', 1_000_000);
   const o = await presale.createOrderIntent('EQ_HALFWAY', '5', 1000);
   await presale.ingestInbound(inbound(o), 1001);
   await presale.queueConfirmedPayouts(1002);
@@ -1716,6 +1719,7 @@ await test('Phase 3: Handbook Stamp progression loop (new user, consecutive chec
     assert.equal(c1Dup.body.error.code, 'ALREADY_CLAIMED');
 
     // 5. 参与 0 GRAM 24H 达标竞猜后，可盖 daily_prediction (+50 EXP)，再盖 daily_observe (+30 EXP) & daily_share (+40 EXP)，集齐 4 章后领取 daily_full_bonus (+80 EXP)
+    await identityStore.bindWallet('3301', 'EQ_ALICE_NO_CAP', day1Sec);
     const betRes = await route({ method: 'POST', pathname: '/api/prediction/bet', headers: hAlice1, body: { roundId: 1, side: 'PASS', guessSlots: 18 }, nowSec: day1Sec });
     assert.equal(betRes.status, 200);
 
@@ -1766,7 +1770,6 @@ await test('Phase 3: Handbook Stamp progression loop (new user, consecutive chec
     assert.equal(c5.body.data.progression.checkinStreak, 1);
 
     // 9. 严格隔离成长数据与真实资产：即便拥有高 EXP / 等级 / 满成就，未完成真实商行购买或链上质押仍不可激活 A9 竞猜奖励券
-    await identityStore.bindWallet('3301', 'EQ_ALICE_NO_CAP', day1Sec);
     await predictionEngine.settleRoundBets(1, true, 18, '10000000000000', day1Sec * 1000);
     const actFail = await route({ method: 'POST', pathname: '/api/prediction/activate', headers: hAlice1, body: {}, nowSec: day1Sec + 10 });
     assert.equal(actFail.status, 400);
@@ -1840,7 +1843,7 @@ await test('Step 0 & Knife 2: Item shop/inventory fully removed (404), pure 1 GR
       nowSec: nowSec + 100,
     });
     assert.equal(settle1.status, 200);
-    assert.equal(settle1.body.data.distributedRaw, '10000000000000'); // 赢家拿满全部 10,000 A9
+    assert.equal(settle1.body.data.distributedRaw, '1600000000000'); // M-3: 2 注 × 800 A9 = 1,600 A9 动态奖池
     assert.equal(settle1.body.data.firstLossBonusCount, 1);
     assert.equal(settle1.body.data.firstLossBonusDistributedRaw, '500000000000');
 
@@ -2270,8 +2273,7 @@ await test('Batch 1 (SQLite + workerd D1): activateToPromo rejects missing/cross
     const memPromo = new PromoHotWalletEngine({ hotWalletAddress: HOT });
     const pred = new D1PredictionEngine({ db: rawDb, defaultPoolA9Raw: '15000000000000000000' });
 
-    await pred.placeBet({ roundId: 1, userId: 'u_b1', side: 'PASS' }, 1000);
-    await pred.settleRoundBets(1, true, 18, '15000000000000000000', 1_100_000);
+    await pred.creditPendingBonus('u_b1', '15000000000000000000', 1_100_000);
 
     // 1) Missing or cross-ledger promo -> fails BEFORE any write; all 3 tables untouched
     await assert.rejects(() => pred.activateToPromo('u_b1', wBounce, null, { qualified: true, nowMs: 1_150_000, activationId: 'b1-no-promo' }), { code: 'PROMO_LEDGER_UNAVAILABLE' }, label);

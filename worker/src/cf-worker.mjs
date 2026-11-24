@@ -10,6 +10,7 @@ import { ChestEngine } from './chest-engine.mjs';
 import { D1ChestEngine } from './d1-chest-store.mjs';
 import { D1PromoStore } from './d1-promo-store.mjs';
 import { D1SocialStore, D1PredictionEngine, D1ProgressionEngine, D1PresaleStore } from './d1-growth-store.mjs';
+import { D1PromoBudgetLedger, MemoryPromoBudgetLedger } from './promo-budget.mjs';
 import { D1IdentityStore, MemoryIdentityStore } from './auth.mjs';
 import { TelegramBroadcaster, D1BroadcastLog, MemoryBroadcastLog } from './tg-broadcaster.mjs';
 import { addressKey } from './ton-address.mjs';
@@ -186,9 +187,10 @@ async function writeRoundsCacheToD1(db, rounds, nowSec) {
 }
 
 // Module-scoped fallbacks for ephemeral preview/dev environments without D1 bindings
+const memBudgetLedger = new MemoryPromoBudgetLedger();
 const memSocialStore = new SocialStore();
-const memChestEngine = new ChestEngine();
-const memPredictionEngine = new PredictionEngine();
+const memChestEngine = new ChestEngine({ budgetLedger: memBudgetLedger });
+const memPredictionEngine = new PredictionEngine({ budgetLedger: memBudgetLedger });
 const memProgressionEngine = new ProgressionEngine();
 const memIdentityStore = new MemoryIdentityStore();
 const memBroadcastLog = new MemoryBroadcastLog();
@@ -440,17 +442,7 @@ export default {
       getRound: (id) => rounds.find((r) => r.roundId === Number(id)) || null,
     };
 
-    const identityStore = hasD1 ? new D1IdentityStore({ db: env.DB }) : memIdentityStore;
-    const socialStore = hasD1 ? new D1SocialStore({ db: env.DB }) : memSocialStore;
-    const predOpts = {
-      firstLossBonusRaw: env.A9_PRED_FIRST_LOSS_BONUS_RAW,
-      firstLossCapRaw: env.A9_PRED_FIRST_LOSS_CAP_RAW,
-    };
-    const predictionEngine = hasD1 ? new D1PredictionEngine({ db: env.DB, ...predOpts }) : memPredictionEngine;
-    const progressionEngine = hasD1 ? new D1ProgressionEngine({ db: env.DB }) : memProgressionEngine;
-    const chestEngine = hasD1 ? new D1ChestEngine({ db: env.DB }) : memChestEngine;
-    const broadcaster = buildBroadcaster(env, { socialStore, identityStore, hasD1 });
-
+    const budgetLedger = hasD1 ? new D1PromoBudgetLedger({ db: env.DB }) : memBudgetLedger;
     const promoEngine = env.A9_PROMO_HOT_WALLET_ADDRESS
       ? (hasD1
           ? new D1PromoStore({
@@ -465,6 +457,21 @@ export default {
               transferGasNano: env.A9_PROMO_TRANSFER_GAS_NANO || '50000000',
             }))
       : null;
+    const onWalletRebound = promoEngine
+      ? ({ fromWalletAddress, toWalletAddress, nowSec: rebindNow }) => promoEngine.mergeBalance(fromWalletAddress, toWalletAddress, rebindNow)
+      : null;
+    const identityStore = hasD1 ? new D1IdentityStore({ db: env.DB, onWalletRebound }) : memIdentityStore;
+    if (!hasD1 && onWalletRebound) identityStore.onWalletRebound = onWalletRebound;
+    const socialStore = hasD1 ? new D1SocialStore({ db: env.DB }) : memSocialStore;
+    const predOpts = {
+      firstLossBonusRaw: env.A9_PRED_FIRST_LOSS_BONUS_RAW,
+      firstLossCapRaw: env.A9_PRED_FIRST_LOSS_CAP_RAW,
+      budgetLedger,
+    };
+    const predictionEngine = hasD1 ? new D1PredictionEngine({ db: env.DB, ...predOpts }) : memPredictionEngine;
+    const progressionEngine = hasD1 ? new D1ProgressionEngine({ db: env.DB }) : memProgressionEngine;
+    const chestEngine = hasD1 ? new D1ChestEngine({ db: env.DB, budgetLedger }) : memChestEngine;
+    const broadcaster = buildBroadcaster(env, { socialStore, identityStore, hasD1 });
 
     // 兑换业务必须显式配置独立热钱包，不再静默回退到推广热钱包；默认关闭，须显式设置 A9_PRESALE_OPEN=1 才开启。
     const presaleHotAddr = env.A9_PRESALE_HOT_WALLET_ADDRESS || null;
@@ -481,6 +488,7 @@ export default {
       socialStore,
       identityStore,
       chestEngine,
+      budgetLedger,
       broadcaster,
     };
     const presaleEngine = presaleHotAddr
@@ -568,6 +576,7 @@ export default {
       predictionEngine,
       progressionEngine,
       chestEngine,
+      budgetLedger,
       userReader,
       identityStore,
       publicKeyResolver: tc ? (addr) => tc.fetchWalletPublicKey(addr) : null,
@@ -609,6 +618,7 @@ export default {
       testnet: String(env.A9_NETWORK || '').trim().toLowerCase() === 'testnet',
     });
     const hasD1 = Boolean(env.DB);
+    const budgetLedger = hasD1 ? new D1PromoBudgetLedger({ db: env.DB }) : memBudgetLedger;
     const identityStore = hasD1 ? new D1IdentityStore({ db: env.DB }) : memIdentityStore;
     const socialStore = hasD1 ? new D1SocialStore({ db: env.DB }) : memSocialStore;
     const predictionEngine = hasD1
@@ -616,6 +626,7 @@ export default {
           db: env.DB,
           firstLossBonusRaw: env.A9_PRED_FIRST_LOSS_BONUS_RAW,
           firstLossCapRaw: env.A9_PRED_FIRST_LOSS_CAP_RAW,
+          budgetLedger,
         })
       : memPredictionEngine;
     const broadcaster = buildBroadcaster(env, { socialStore, identityStore, hasD1 });

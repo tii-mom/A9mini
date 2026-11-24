@@ -254,8 +254,10 @@ await test('Direct paid invitee (TG-only ref) unlocks vault, Captain >=50 gets 5
   assert.equal(actRes.status, 200);
   assert.equal(actRes.body.data.activatedRaw, '500000000000');
 
-  // Captain verifies TG group with 88 members -> 5,000 A9 founding bonus
+  // Captain verifies TG group with 88 members + >=3 bound squad members (M-2) -> 5,000 A9 founding bonus
   await router({ method: 'POST', pathname: '/api/team/bind-tg', headers: hdrOwner, body: { teamId: 'TM-88', name: 'Alpha', tgGroupHandle: '@a9squad' }, nowSec: 1035 });
+  await social.joinTeam({ teamId: 'TM-88', walletAddress: W_H1 }, 1036);
+  await social.joinTeam({ teamId: 'TM-88', walletAddress: W_H2 }, 1037);
   const verRes = await router({ method: 'POST', pathname: '/api/team/verify-tg', headers: hdrOwner, body: { teamId: 'TM-88' }, nowSec: 1040 });
   assert.equal(verRes.status, 200);
   assert.equal(verRes.body.data.tgMemberCount, 88);
@@ -413,14 +415,14 @@ await test('Migrated SQLite D1 (0001..0009): orders, bound group, atomic open-wi
   assert.equal(injectedAssistOnce, true);
   assert.equal(raceOpened.chest.status, 'OPENED');
   assert.equal(raceOpened.chest.currentAssists, 1);
-  assert.equal(raceOpened.chest.boostA9Raw, '69369300000');
-  assert.equal(raceOpened.rewardA9Raw, '69369300000');
-  assert.equal((await d1Promo.getBalance(raceOwnerWallet)).claimableRaw, '69369300000');
+  assert.equal(raceOpened.chest.boostA9Raw, '29729700000');
+  assert.equal(raceOpened.rewardA9Raw, '29729700000');
+  assert.equal((await d1Promo.getBalance(raceOwnerWallet)).claimableRaw, '29729700000');
 
   // 6) Captain founding bonus atomic rollback on prediction_rewards write failure -> retry succeeds once with 5,000 A9
   db.exec(`CREATE TRIGGER fail_captain_vault BEFORE INSERT ON prediction_rewards BEGIN SELECT RAISE(ABORT, 'injected_captain_vault_fail'); END;`);
   await assert.rejects(
-    () => d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-ATOMIC', captainUserId: '6001', captainWallet: W_H4, tgMemberCount: 120, predictionEngine: d1Pred }, 3020),
+    () => d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-ATOMIC', tgChatId: '-100atomic', captainUserId: '6001', captainWallet: W_H4, tgMemberCount: 120, teamMemberCount: 3, predictionEngine: d1Pred }, 3020),
     /injected_captain_vault_fail/,
   );
   const failedGrantRow = await db.prepare('SELECT * FROM captain_founding_bonuses WHERE team_id = ?').bind('TM-ATOMIC').first();
@@ -428,12 +430,12 @@ await test('Migrated SQLite D1 (0001..0009): orders, bound group, atomic open-wi
   assert.equal((await d1Pred.getUserSummary('6001')).pendingActivationRaw, '0');
 
   db.exec('DROP TRIGGER fail_captain_vault;');
-  const g1 = await d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-ATOMIC', captainUserId: '6001', captainWallet: W_H4, tgMemberCount: 120, predictionEngine: d1Pred }, 3022);
+  const g1 = await d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-ATOMIC', tgChatId: '-100atomic', captainUserId: '6001', captainWallet: W_H4, tgMemberCount: 120, teamMemberCount: 3, predictionEngine: d1Pred }, 3022);
   assert.equal(g1.granted, true);
   assert.equal(g1.amountRaw, CAPTAIN_FOUNDING_BONUS_RAW.toString());
   assert.equal((await d1Pred.getUserSummary('6001')).pendingActivationRaw, '5000000000000');
 
-  const g2 = await d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-ATOMIC', captainUserId: '6001', captainWallet: W_H4, tgMemberCount: 120, predictionEngine: d1Pred }, 3025);
+  const g2 = await d1Chest.grantCaptainFoundingBonus({ teamId: 'TM-ATOMIC', tgChatId: '-100atomic', captainUserId: '6001', captainWallet: W_H4, tgMemberCount: 120, teamMemberCount: 3, predictionEngine: d1Pred }, 3025);
   assert.equal(g2.granted, false);
   assert.equal(g2.reason, 'ALREADY_GRANTED');
   assert.equal((await d1Pred.getUserSummary('6001')).pendingActivationRaw, '5000000000000');

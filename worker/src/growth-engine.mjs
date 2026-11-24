@@ -14,6 +14,27 @@ export class GrowthError extends Error {
 export const VOUCHER_TTL_MS = 2 * 86400 * 1000; // 2 rounds / 48h
 export const DEFAULT_FIRST_LOSS_BONUS_RAW = 500_000_000_000n; // 500 A9（设 0 可热关闭）
 export const DEFAULT_FIRST_LOSS_CAP_RAW = 200_000_000_000_000n; // 200,000 A9 / 轮硬上限
+export const PRED_POOL_PER_BET_RAW = 800_000_000_000n; // 动态奖池系数：800 A9 / 有效下注
+export const MAX_PRED_REWARD_PER_USER_RAW = 2_500_000_000_000n; // 单人单轮最高奖金硬上限：2,500 A9
+
+export function computeNextPendingState(curPendingRaw, curExpiresAt, deltaRaw, nowMs) {
+  const curPending = BigInt(curPendingRaw || 0n);
+  const delta = BigInt(deltaRaw || 0n);
+  const curExp = curExpiresAt === null || curExpiresAt === undefined ? null : Number(curExpiresAt);
+  const isExpired = curPending > 0n && curExp !== null && nowMs > curExp;
+  const basePending = isExpired ? 0n : curPending;
+  if (delta <= 0n) {
+    return {
+      nextPendingRaw: basePending,
+      nextExpiresAt: isExpired ? null : curExp,
+    };
+  }
+  const nextExpiresAt = (basePending > 0n && curExp !== null) ? curExp : (nowMs + VOUCHER_TTL_MS);
+  return {
+    nextPendingRaw: basePending + delta,
+    nextExpiresAt,
+  };
+}
 
 function parseOptionalBigInt(val, fallback) {
   if (val === undefined || val === null || val === '') return fallback;
@@ -26,10 +47,16 @@ export class PredictionEngine {
     defaultPoolA9Raw = '1000000000000000',
     firstLossBonusRaw = DEFAULT_FIRST_LOSS_BONUS_RAW,
     firstLossCapRaw = DEFAULT_FIRST_LOSS_CAP_RAW,
-  } = {}) { // default 1,000,000 A9 per round
+    maxRewardPerUserRaw = MAX_PRED_REWARD_PER_USER_RAW,
+    poolPerBetRaw = PRED_POOL_PER_BET_RAW,
+    budgetLedger = null,
+  } = {}) { // default 1,000,000 A9 per round cap
     this.defaultPoolA9Raw = BigInt(defaultPoolA9Raw);
     this.firstLossBonusRaw = parseOptionalBigInt(firstLossBonusRaw, DEFAULT_FIRST_LOSS_BONUS_RAW);
     this.firstLossCapRaw = parseOptionalBigInt(firstLossCapRaw, DEFAULT_FIRST_LOSS_CAP_RAW);
+    this.maxRewardPerUserRaw = parseOptionalBigInt(maxRewardPerUserRaw, MAX_PRED_REWARD_PER_USER_RAW);
+    this.poolPerBetRaw = parseOptionalBigInt(poolPerBetRaw, PRED_POOL_PER_BET_RAW);
+    this.budgetLedger = budgetLedger;
     // key: `${roundId}:${userId}` -> bet record
     this.bets = new Map();
     // key: `${roundId}:${referrerId}` -> Set<inviteeUserId>
@@ -136,27 +163,29 @@ export class PredictionEngine {
    *   Capped at 20n (2.0x).
    * Updates streak, winRate, and pendingExpiresAt (nowMs + 48h).
    */
-  settleRoundBets(roundId, passed, actualQualified, poolA9Raw = this.defaultPoolA9Raw, nowMs = Date.now()) {
+  async settleRoundBets(roundId, passed, actualQualified, poolA9Raw = this.defaultPoolA9Raw, nowMs = Date.now(), { budgetLedger = this.budgetLedger } = {}) {
     const rId = Number(roundId);
     if (this.settledRounds.has(rId)) throw new GrowthError('ROUND_SETTLED', `round ${rId} already settled`);
     const winSide = passed ? 'PASS' : 'BURN';
-    const pool = BigInt(poolA9Raw);
+    const rawPool = BigInt(poolA9Raw);
+
+    const roundBets = [];
+    for (const b of this.bets.values()) {
+      if (b.roundId === rId) roundBets.push(b);
+    }
+    const dynamicCap = this.poolPerBetRaw > 0n ? BigInt(roundBets.length) * this.poolPerBetRaw : rawPool;
+    const effectivePool = rawPool < dynamicCap ? rawPool : dynamicCap;
 
     const winners = [];
+    const losers = [];
     let totalWeight = 0n;
     let firstLossRemaining = this.firstLossCapRaw;
     let firstLossBonusCount = 0;
     let firstLossBonusDistributed = 0n;
-    const expiresAt = nowMs + VOUCHER_TTL_MS;
 
-    for (const b of this.bets.values()) {
-      if (b.roundId !== rId) continue;
+    for (const b of roundBets) {
       const st = this._getOrCreateStats(b.userId);
-      const isFirstSettled = st.totalSettled === 0;
-      st.totalSettled += 1;
       if (b.side === winSide) {
-        st.totalWon += 1;
-        st.streak += 1;
         const exactBoost = b.guessSlots !== null && b.guessSlots === Number(actualQualified) ? 5n : 0n;
         const inviteBoost = BigInt(this.getInviteBoostCount(rId, b.userId));
         const rawW = 10n + exactBoost + inviteBoost;
@@ -164,32 +193,60 @@ export class PredictionEngine {
         winners.push({ bet: b, weight });
         totalWeight += weight;
       } else {
-        st.streak = 0;
-        // 新人首轮押错保底补贴：严格限终身首次结算（totalSettled === 0）且不占赢家主奖池，走相同 48h 作废与防女巫激活门槛
+        const isFirstSettled = st.totalSettled === 0;
         if (isFirstSettled && this.firstLossBonusRaw > 0n && firstLossRemaining >= this.firstLossBonusRaw) {
           firstLossRemaining -= this.firstLossBonusRaw;
           firstLossBonusCount += 1;
           firstLossBonusDistributed += this.firstLossBonusRaw;
-          st.pendingActivationRaw += this.firstLossBonusRaw;
-          st.pendingExpiresAt = expiresAt;
-          b.status = 'LOST_FIRST_BONUS';
-          b.rewardRaw = this.firstLossBonusRaw.toString();
+          losers.push({ bet: b, bonusRaw: this.firstLossBonusRaw });
         } else {
-          b.status = 'LOST';
-          b.rewardRaw = '0';
+          losers.push({ bet: b, bonusRaw: 0n });
         }
       }
     }
 
     let distributed = 0n;
+    const winnerPayouts = [];
     for (const { bet, weight } of winners) {
-      const amt = totalWeight > 0n ? (pool * weight) / totalWeight : 0n;
+      let amt = totalWeight > 0n ? (effectivePool * weight) / totalWeight : 0n;
+      if (this.maxRewardPerUserRaw > 0n && amt > this.maxRewardPerUserRaw) {
+        amt = this.maxRewardPerUserRaw;
+      }
+      distributed += amt;
+      winnerPayouts.push({ bet, amt });
+    }
+
+    const totalBudgetNeed = distributed + firstLossBonusDistributed;
+    if (totalBudgetNeed > 0n && budgetLedger && typeof budgetLedger.reserve === 'function') {
+      await budgetLedger.reserve('prediction', totalBudgetNeed, Math.floor(nowMs / 1000));
+    }
+
+    for (const { bet, bonusRaw } of losers) {
+      const st = this._getOrCreateStats(bet.userId);
+      st.totalSettled += 1;
+      st.streak = 0;
+      if (bonusRaw > 0n) {
+        const next = computeNextPendingState(st.pendingActivationRaw, st.pendingExpiresAt, bonusRaw, nowMs);
+        st.pendingActivationRaw = next.nextPendingRaw;
+        st.pendingExpiresAt = next.nextExpiresAt;
+        bet.status = 'LOST_FIRST_BONUS';
+        bet.rewardRaw = bonusRaw.toString();
+      } else {
+        bet.status = 'LOST';
+        bet.rewardRaw = '0';
+      }
+    }
+
+    for (const { bet, amt } of winnerPayouts) {
+      const st = this._getOrCreateStats(bet.userId);
+      st.totalSettled += 1;
+      st.totalWon += 1;
+      st.streak += 1;
+      const next = computeNextPendingState(st.pendingActivationRaw, st.pendingExpiresAt, amt, nowMs);
+      st.pendingActivationRaw = next.nextPendingRaw;
+      st.pendingExpiresAt = next.nextExpiresAt;
       bet.status = 'WON_PENDING_ACTIVATION';
       bet.rewardRaw = amt.toString();
-      distributed += amt;
-      const st = this._getOrCreateStats(bet.userId);
-      st.pendingActivationRaw += amt;
-      st.pendingExpiresAt = expiresAt;
     }
 
     this.settledRounds.set(rId, winSide);
@@ -197,6 +254,7 @@ export class PredictionEngine {
       roundId: rId,
       winSide,
       winnersCount: winners.length,
+      effectivePoolRaw: effectivePool.toString(),
       distributedRaw: distributed.toString(),
       firstLossBonusCount,
       firstLossBonusDistributedRaw: firstLossBonusDistributed.toString(),
@@ -205,15 +263,17 @@ export class PredictionEngine {
 
   /**
    * Credit pending activation bonus into the user's 48h vault (used by free bronze chests
-   * and captain >=50 TG member founding bonus). Enforces the exact same anti-sybil activation.
+   * and captain >=50 TG member founding bonus). Enforces the exact same anti-sybil activation
+   * and NEVER extends an active earlier pendingExpiresAt.
    */
   creditPendingBonus(userId, amountRaw, nowMs = Date.now()) {
     const uid = String(userId || '').trim();
     const amt = BigInt(amountRaw || 0n);
     if (!uid || amt <= 0n) return { userId: uid, pendingActivationRaw: '0' };
     const st = this._getOrCreateStats(uid);
-    st.pendingActivationRaw += amt;
-    st.pendingExpiresAt = nowMs + VOUCHER_TTL_MS;
+    const next = computeNextPendingState(st.pendingActivationRaw, st.pendingExpiresAt, amt, nowMs);
+    st.pendingActivationRaw = next.nextPendingRaw;
+    st.pendingExpiresAt = next.nextExpiresAt;
     return { userId: uid, pendingActivationRaw: st.pendingActivationRaw.toString(), pendingExpiresAt: st.pendingExpiresAt };
   }
 

@@ -331,12 +331,34 @@ CREATE TABLE IF NOT EXISTS captain_founding_bonuses (
   team_id TEXT PRIMARY KEY,
   captain_user_id TEXT NOT NULL,
   captain_wallet_key TEXT NOT NULL,
+  tg_chat_id TEXT,
   tg_member_count INTEGER NOT NULL,
   amount_raw TEXT NOT NULL,
   grant_token TEXT NOT NULL UNIQUE,
   status TEXT NOT NULL DEFAULT 'CREDITED_PENDING',
   created_at INTEGER NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_captain_bonus_tg_chat
+  ON captain_founding_bonuses(tg_chat_id)
+  WHERE tg_chat_id IS NOT NULL AND tg_chat_id != '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_captain_bonus_user
+  ON captain_founding_bonuses(captain_user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_captain_bonus_wallet
+  ON captain_founding_bonuses(captain_wallet_key);
+
+CREATE TABLE IF NOT EXISTS promo_budget_ledger (
+  bucket_key TEXT PRIMARY KEY,
+  cap_raw TEXT NOT NULL,
+  spent_raw TEXT NOT NULL DEFAULT '0',
+  updated_at INTEGER NOT NULL DEFAULT 0
+);
+
+INSERT OR IGNORE INTO promo_budget_ledger (bucket_key, cap_raw, spent_raw, updated_at) VALUES
+  ('presale_promo', '48000000000000000', '0', 0),
+  ('free_chest_captain', '100000000000000000', '0', 0),
+  ('prediction', '100000000000000000', '0', 0),
+  ('warmup', '52000000000000000', '0', 0);
 
 CREATE TABLE IF NOT EXISTS chest_open_credits (
   chest_id TEXT PRIMARY KEY,

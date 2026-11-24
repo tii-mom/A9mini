@@ -320,14 +320,15 @@ await test('PredictionEngine settles PASS/BURN with 1.5x exact-slot boost and ac
   assert.equal(stats.passCount, 2);
   assert.equal(stats.burnCount, 1);
 
-  const settled = pred.settleRoundBets(1, true, 18);
+  const settled = await pred.settleRoundBets(1, true, 18);
   assert.equal(settled.winnersCount, 2);
-  assert.equal(pred.getUserSummary('tg_alice', 1).pendingActivationRaw, '15000000000000');
-  assert.equal(pred.getUserSummary('tg_bob', 1).pendingActivationRaw, '10000000000000');
+  // M-3 动态奖池：3 注 × 800 A9 = 2,400 A9；权重 15:10 -> 1,440 A9 / 960 A9
+  assert.equal(pred.getUserSummary('tg_alice', 1).pendingActivationRaw, '1440000000000');
+  assert.equal(pred.getUserSummary('tg_bob', 1).pendingActivationRaw, '960000000000');
 
   const act = pred.activateToPromo('tg_alice', 'EQ_ALICE_WALLET', promo, { qualified: true });
-  assert.equal(act.activatedRaw, '15000000000000');
-  assert.equal(promo.getBalance('EQ_ALICE_WALLET').claimableRaw, '15000000000000');
+  assert.equal(act.activatedRaw, '1440000000000');
+  assert.equal(promo.getBalance('EQ_ALICE_WALLET').claimableRaw, '1440000000000');
 });
 
 await test('Dynamic OG card routes /c/round/1 and /c/img/burn/2.svg render valid HTML & SVG', async () => {
@@ -470,7 +471,7 @@ await test('First-touch referral binding blocks self/mutual invites and credits 
   assert.equal(social.bindReferral(REF, BUYER, 103), null);
   assert.equal(social.getReferrer(REF), null);
 
-  // Presale 10 GRAM -> 20,000 A9 -> 12% = 2,400 A9, booked only after the payout is confirmed.
+  // Presale 10 GRAM -> 20,000 A9 -> M-4 6% = 1,200 A9, booked only after the payout is confirmed.
   const order = await presale.createOrderIntent(BUYER, 10, 200, { referrerId: social.getReferrer(BUYER) });
   await presale.ingestInbound({ txHash: 'ref-buy-1', finality: 'finalized', to: HOT, from: BUYER, valueNano: order.payTonNano, memo: order.memo }, 210);
   await presale.queueConfirmedPayouts(211);
@@ -478,9 +479,9 @@ await test('First-touch referral binding blocks self/mutual invites and credits 
   assert.equal(promo.getBalance(REF).claimableRaw, '0');
   await presale.processPayouts(212, { a9Broadcaster: async () => ({ txHash: 'ref-pay-1' }), verifier: async () => ({ state: 'CONFIRMED' }) });
   await presale.processReferralCredits(213);
-  assert.equal(promo.getBalance(REF).claimableRaw, '2400000000000');
+  assert.equal(promo.getBalance(REF).claimableRaw, '1200000000000');
   await presale.processReferralCredits(214);
-  assert.equal(promo.getBalance(REF).claimableRaw, '2400000000000');
+  assert.equal(promo.getBalance(REF).claimableRaw, '1200000000000');
 });
 
 await test('POST /api/prediction/activate enforces anti-sybil capital check and voucher expiry', async () => {
@@ -504,24 +505,24 @@ await test('POST /api/prediction/activate enforces anti-sybil capital check and 
   const route = createApiRouter({ env: { A9_BOT_TOKEN: TEST_BOT_TOKEN }, stateStore, promoEngine: promo, presaleEngine: presale, predictionEngine: pred, identityStore });
 
   pred.placeBet({ roundId: 1, userId: '3001', side: 'PASS' }, 1000);
-  pred.settleRoundBets(1, true, 18, '10000000000000', 1_000_000);
+  await pred.settleRoundBets(1, true, 18, '10000000000000', 1_000_000);
 
   // 1) No completed exchange order & no stake ticket -> 400 ACTIVATION_REQUIREMENT_UNMET
   const denied = await route({ method: 'POST', pathname: '/api/prediction/activate', body: {}, headers: await tgHeaders(3001, { nowSec: 1100 }), nowSec: 1100 });
   assert.equal(denied.status, 400);
   assert.equal(denied.body.error.code, 'ACTIVATION_REQUIREMENT_UNMET');
 
-  // 2) Complete 1 order (payout confirmed) -> activation succeeds & credits promoEngine
+  // 2) Complete 1 order (payout confirmed) -> activation succeeds & credits promoEngine (M-3: 1 bet = 800 A9)
   await completePurchase(presale, WALLET, 5, 1100);
   const okRes = await route({ method: 'POST', pathname: '/api/prediction/activate', body: {}, headers: await tgHeaders(3001, { nowSec: 1110 }), nowSec: 1110 });
   assert.equal(okRes.status, 200);
-  assert.equal(okRes.body.data.activatedRaw, '10000000000000');
-  assert.equal(promo.getBalance(WALLET).claimableRaw, '10000000000000');
+  assert.equal(okRes.body.data.activatedRaw, '800000000000');
+  assert.equal(promo.getBalance(WALLET).claimableRaw, '800000000000');
 
   // 3) Expired voucher -> 400 VOUCHER_EXPIRED and pending balance cleared
   await completePurchase(presale, WALLET2, 5, 1200);
   pred.placeBet({ roundId: 2, userId: '3002', side: 'BURN' }, 2000);
-  pred.settleRoundBets(2, false, 9, '5000000000000', 2_000_000);
+  await pred.settleRoundBets(2, false, 9, '5000000000000', 2_000_000);
   const late = 2000 + 3 * 86400;
   const expired = await route({ method: 'POST', pathname: '/api/prediction/activate', body: {}, headers: await tgHeaders(3002, { nowSec: late }), nowSec: late });
   assert.equal(expired.status, 400);
@@ -549,12 +550,12 @@ await test('PredictionEngine applies up to 2.0x invite+exact boost and returns s
   pred.placeBet({ roundId: 1, userId: '1002', side: 'PASS', guessSlots: 16 }, 120);
 
   const settleMs = 1_700_000_000_000;
-  pred.settleRoundBets(1, true, 18, '30000000000000', settleMs);
+  await pred.settleRoundBets(1, true, 18, '30000000000000', settleMs);
 
-  // Weight split: 20 vs 10 out of 30 => 1001 gets 20,000 A9, 1002 gets 10,000 A9
+  // M-3: 8 bets => 6,400 A9 pool; weight 20/30 = 4,266.66 A9 capped at per-user max 2,500 A9
   const proSummary = await route({ method: 'GET', pathname: '/api/prediction/user/1001', query: { roundId: '1' }, headers: await tgHeaders(1001, { nowSec: 1000 }), nowSec: 1000 });
   assert.equal(proSummary.status, 200);
-  assert.equal(proSummary.body.data.pendingActivationRaw, '20000000000000');
+  assert.equal(proSummary.body.data.pendingActivationRaw, '2500000000000');
   assert.equal(proSummary.body.data.streak, 1);
   assert.equal(proSummary.body.data.winRate, 100);
   assert.equal(proSummary.body.data.inviteBoostCount, 5);
@@ -819,7 +820,7 @@ await test('D1 full-stack persistence loop (real SQLite): bindReferral -> placeB
   assert.equal(blocked.status, 400);
   assert.equal(blocked.body.error.code, 'ACTIVATION_REQUIREMENT_UNMET');
 
-  // 4) Exchange order via API (wallet from binding) -> paid -> confirmed -> 12% (1,200 A9) to REF exactly once
+  // 4) Exchange order via API (wallet from binding) -> paid -> confirmed -> M-4 6% (600 A9) to REF exactly once
   const ordRes = await route({ method: 'POST', pathname: '/api/presale/intent', body: { gramAmount: '5', referrerId: REF }, headers: await H(2020), nowSec: 2020 });
   assert.equal(ordRes.status, 200);
   const ord = ordRes.body.data;
@@ -829,26 +830,26 @@ await test('D1 full-stack persistence loop (real SQLite): bindReferral -> placeB
   await presale.processReferralCredits(2030);
   await presale.processReferralCredits(2031);
   assert.equal((await presale.getOrder(ord.orderId)).status, 'COMPLETED');
-  assert.equal((await promo.getBalance(REF)).claimableRaw, '1200000000000');
+  assert.equal((await promo.getBalance(REF)).claimableRaw, '600000000000');
 
-  // 5) Activate after COMPLETED -> succeeds & credits 20,000 A9 to the bound wallet
+  // 5) Activate after COMPLETED -> succeeds & credits 800 A9 (M-3 dynamic pool for 1 bet) to the bound wallet
   const actRes = await route({ method: 'POST', pathname: '/api/prediction/activate', body: {}, headers: await H(2040), nowSec: 2040 });
   assert.equal(actRes.status, 200);
-  assert.equal(actRes.body.data.activatedRaw, '20000000000000');
-  assert.equal((await promo.getBalance(USER_W)).claimableRaw, '20000000000000');
+  assert.equal(actRes.body.data.activatedRaw, '800000000000');
+  assert.equal((await promo.getBalance(USER_W)).claimableRaw, '800000000000');
 });
 
 await test('PredictionEngine first-loss rookie bonus: first wrong bet earns 500 A9 (48h TTL) without touching winner pool', async () => {
   const { PredictionEngine, VOUCHER_TTL_MS } = await import('../src/growth-engine.mjs');
-  const pred = new PredictionEngine({ defaultPoolA9Raw: '10000000000000' }); // 10,000 A9 winner pool
+  const pred = new PredictionEngine({ defaultPoolA9Raw: '10000000000000' });
   pred.placeBet({ roundId: 1, userId: 'winner_1', side: 'PASS' }, 100);
   pred.placeBet({ roundId: 1, userId: 'rookie_1', side: 'BURN' }, 101);
 
   const nowMs = 1_760_000_000_000;
-  const res = pred.settleRoundBets(1, true, 18, '10000000000000', nowMs);
+  const res = await pred.settleRoundBets(1, true, 18, '10000000000000', nowMs);
   assert.equal(res.winnersCount, 1);
-  // 赢家拿满全部 10,000 A9，新人保底绝不侵占赢家主奖池
-  assert.equal(res.distributedRaw, '10000000000000');
+  // M-3: 2 注 × 800 A9 = 1,600 A9 动态奖池，新人保底绝不侵占赢家主奖池
+  assert.equal(res.distributedRaw, '1600000000000');
   assert.equal(res.firstLossBonusCount, 1);
   assert.equal(res.firstLossBonusDistributedRaw, '500000000000');
 
@@ -871,7 +872,7 @@ await test('PredictionEngine first-loss rookie bonus: second loss gets 0, round 
   pred.placeBet({ roundId: 1, userId: 'r2', side: 'BURN' }, 101);
   pred.placeBet({ roundId: 1, userId: 'r3', side: 'BURN' }, 102);
 
-  const s1 = pred.settleRoundBets(1, true, 17, '10000000000000', 1_000_000);
+  const s1 = await pred.settleRoundBets(1, true, 17, '10000000000000', 1_000_000);
   assert.equal(s1.firstLossBonusCount, 2);
   assert.equal(s1.firstLossBonusDistributedRaw, '1000000000000');
   assert.equal(pred.getUserSummary('r1', 1).pendingActivationRaw, '500000000000');
@@ -882,7 +883,7 @@ await test('PredictionEngine first-loss rookie bonus: second loss gets 0, round 
   // 第 2 轮：r1 再次押错（已非首次结算），不再发放保底；新用户 r4 首次押错照常获得 500 A9
   pred.placeBet({ roundId: 2, userId: 'r1', side: 'BURN' }, 200);
   pred.placeBet({ roundId: 2, userId: 'r4', side: 'BURN' }, 201);
-  const s2 = pred.settleRoundBets(2, true, 18, '10000000000000', 2_000_000);
+  const s2 = await pred.settleRoundBets(2, true, 18, '10000000000000', 2_000_000);
   assert.equal(s2.firstLossBonusCount, 1);
   assert.equal(pred.getUserSummary('r1', 2).pendingActivationRaw, '500000000000'); // 仅保留第 1 轮未变的 500 A9
   assert.equal(pred.getUserSummary('r1', 2).currentBet.status, 'LOST');
@@ -891,7 +892,7 @@ await test('PredictionEngine first-loss rookie bonus: second loss gets 0, round 
   // 设 0 热关闭
   const predOff = new PredictionEngine({ firstLossBonusRaw: '0' });
   predOff.placeBet({ roundId: 1, userId: 'off_u', side: 'BURN' }, 100);
-  const sOff = predOff.settleRoundBets(1, true, 16, '10000000000000', 1_000_000);
+  const sOff = await predOff.settleRoundBets(1, true, 16, '10000000000000', 1_000_000);
   assert.equal(sOff.firstLossBonusCount, 0);
   assert.equal(predOff.getUserSummary('off_u', 1).pendingActivationRaw, '0');
 });
@@ -910,8 +911,7 @@ await test('Batch 1: D1PredictionEngine.activateToPromo is atomic, idempotent on
   const promo = new D1PromoStore({ db, hotWalletAddress: HOT });
   const pred = new D1PredictionEngine({ db, defaultPoolA9Raw: '15000000000000000000' }); // > Number.MAX_SAFE_INTEGER
 
-  await pred.placeBet({ roundId: 1, userId: 'u_atomic', side: 'PASS' }, 1000);
-  await pred.settleRoundBets(1, true, 18, '15000000000000000000', 1_100_000);
+  await pred.creditPendingBonus('u_atomic', '15000000000000000000', 1_100_000);
 
   // 0) Missing or cross-ledger promoEngine -> fail BEFORE any write; all 3 tables untouched
   const memPromo = new PromoHotWalletEngine({ hotWalletAddress: HOT });
@@ -1038,8 +1038,7 @@ await test('Batch 1: reconcilePredictionLedger handles wallet rebind without fal
   // 1) User activates > 64-bit signed int (20,000,000,000,000,000,000 > 9.22e18) to oldW, then rebinds to newW (0 promo) -> MUST be OK
   const hugeAmt = '20000000000000000000';
   await idStore.bindWallet('u_rebind', oldW, 1000);
-  await pred.placeBet({ roundId: 1, userId: 'u_rebind', side: 'PASS' }, 1000);
-  await pred.settleRoundBets(1, true, 18, hugeAmt, 1_100_000);
+  await pred.creditPendingBonus('u_rebind', hugeAmt, 1_100_000);
   await pred.activateToPromo('u_rebind', oldW, promo, { qualified: true, nowMs: 1_200_000, activationId: 'rec-rebind-1' });
   await db.prepare('UPDATE wallet_bindings SET wallet_address = ?, wallet_key = ?, updated_at = 1300 WHERE tg_user_id = ?')
     .bind(newW, `0:${'22'.repeat(32)}`, 'u_rebind').run();
@@ -1102,7 +1101,9 @@ await test('W1-1: POST /api/prediction/bet enforces on-chain round status and st
     listRounds: () => (round ? [{ roundId: currentRoundId, round, candles: [] }] : []),
     getRound: (id) => (round && Number(id) === currentRoundId ? { roundId: currentRoundId, round, candles: [] } : null),
   });
-  const mkRouter = (ss) => createApiRouter({ env: { A9_BOT_TOKEN: TEST_BOT_TOKEN }, stateStore: ss, predictionEngine: pred });
+  const idsW1 = new MemoryIdentityStore();
+  await idsW1.bindWallet('9101', 'EQ_W1_BETTER', 1000);
+  const mkRouter = (ss) => createApiRouter({ env: { A9_BOT_TOKEN: TEST_BOT_TOKEN }, stateStore: ss, predictionEngine: pred, identityStore: idsW1 });
   const h = await tgHeaders(9101, { nowSec: 1500 });
 
   // 1) Chain state unavailable -> 503
@@ -1287,7 +1288,8 @@ await test('W1-5: Warmup blocks cancel->register invite farming and team switch 
     await social.createOrBindTeamGroup({ teamId: 'TM-B', name: 'Team B', captainWallet: 'EQ_CAP_B' }, 1000);
     await social.joinTeam({ teamId: 'TM-A', walletAddress: 'EQ_MOVER' }, 1001);
     assert.equal((await social.getTeamByWallet('EQ_CAP_A')).memberCount, 2, label);
-    await social.joinTeam({ teamId: 'TM-B', walletAddress: 'EQ_MOVER' }, 1002);
+    // M-1: 跨战队切换需过 7 天冷静期
+    await social.joinTeam({ teamId: 'TM-B', walletAddress: 'EQ_MOVER' }, 1001 + 7 * 86400 + 1);
     assert.equal((await social.getTeamByWallet('EQ_CAP_A')).memberCount, 1, `${label}: old team count must decrement on switch`);
     assert.equal((await social.getTeamByWallet('EQ_CAP_B')).memberCount, 2, label);
   }
@@ -1721,11 +1723,11 @@ await test('W2-5: D1PredictionEngine.settleRoundBets is batched & CAS-safe again
   assert.equal(settled.winnersCount, 60);
   assert.equal(racedOnce, true, 'race condition hook must have executed');
 
-  // u_race activated 1,000 A9 earlier; round 2 won 1,000 A9 (60,000 / 60).
-  // MUST have activatedRaw = 1,000 A9 and pendingActivationRaw = 1,000 A9 (NOT resurrected to 2,000 A9!)
+  // u_race activated 1,000 A9 earlier; round 2 won 800 A9 (M-3: 60 bets * 800 A9 / 60).
+  // MUST have activatedRaw = 1,000 A9 and pendingActivationRaw = 800 A9 (NOT resurrected to 1,800 A9!)
   const summary = await pred.getUserSummary('u_race', 2);
   assert.equal(summary.activatedRaw, (1_000n * 1_000_000_000n).toString());
-  assert.equal(summary.pendingActivationRaw, (1_000n * 1_000_000_000n).toString());
+  assert.equal(summary.pendingActivationRaw, (800n * 1_000_000_000n).toString());
   assert.equal((await promo.getBalance(WALLET_RACE)).claimableRaw, (1_000n * 1_000_000_000n).toString());
 });
 

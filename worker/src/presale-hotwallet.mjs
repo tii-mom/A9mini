@@ -79,7 +79,7 @@ export const PASSIVE_FREE_MIN_NANO = 990_000_000n;  // 0.99 GRAM (legacy SKU min
 export const DELIVERY_GAS_FEE_NANO = 60_000_000n;   // 0.06 GRAM user-paid A9 on-chain delivery gas
 export const REFUND_GAS_FEE_NANO = 30_000_000n;     // 0.03 GRAM user-paid on-chain refund gas (0 project gas)
 export const USER_FAULT_FEE_NANO = 50_000_000n;     // 0.05 GRAM optional higher user-fault fee
-export const REFERRAL_BPS = 12n;                     // 12% referral reward (percent)
+export const REFERRAL_BPS = 6n;                      // 6% referral reward (percent, recalibrated in v16.1)
 export const ORDER_TTL_SEC = 30 * 60;               // unpaid order holds its reservation for 30 min
 export const MAX_PAYOUT_ATTEMPTS = 5;
 export const STALE_BROADCAST_SEC = 240;
@@ -133,6 +133,7 @@ export class PresaleEngine {
     identityStore = null,
     chestEngine = null,
     broadcaster = null,
+    budgetLedger = null,
     orderTtlSec = ORDER_TTL_SEC,
     deliveryFeeNano = DELIVERY_GAS_FEE_NANO,
     refundFeeNano = REFUND_GAS_FEE_NANO,
@@ -153,6 +154,7 @@ export class PresaleEngine {
     this.identityStore = identityStore;
     this.chestEngine = chestEngine;
     this.broadcaster = broadcaster;
+    this.budgetLedger = budgetLedger;
     this.orderTtlSec = orderTtlSec;
     this.deliveryFeeNano = BigInt(deliveryFeeNano ?? DELIVERY_GAS_FEE_NANO);
     this.refundFeeNano = BigInt(refundFeeNano ?? REFUND_GAS_FEE_NANO);
@@ -323,8 +325,8 @@ export class PresaleEngine {
     return false;
   }
 
-  /** Sum total COMPLETED GRAM nano volume across a deduplicated set of wallets. */
-  async sumCompletedVolumeNano(wallets = []) {
+  /** Sum total COMPLETED GRAM nano volume across a deduplicated set of wallets (supports optional per-wallet minCreatedAt filter). */
+  async sumCompletedVolumeNano(wallets = [], { minCreatedAtByWallet = null } = {}) {
     const seen = new Set();
     let total = 0n;
     for (const w of wallets || []) {
@@ -333,9 +335,14 @@ export class PresaleEngine {
       const k = addressKey(clean);
       if (seen.has(k)) continue;
       seen.add(k);
+      const minTs = minCreatedAtByWallet instanceof Map && minCreatedAtByWallet.has(k)
+        ? Number(minCreatedAtByWallet.get(k) || 0)
+        : 0;
       const rows = await this.repo.listOrdersByWallet(k);
       for (const o of rows) {
-        if (o.status === PRESALE_STATUS.COMPLETED) total += BigInt(o.tonNano || 0n);
+        if (o.status !== PRESALE_STATUS.COMPLETED) continue;
+        if (minTs > 0 && Number(o.createdAt || 0) < minTs) continue;
+        total += BigInt(o.tonNano || 0n);
       }
     }
     return total;
@@ -855,8 +862,8 @@ export class PresaleEngine {
   }
 
   /** Book referral rewards for COMPLETED orders exactly once (CREDITING is never auto-retried). */
-  async processReferralCredits(nowSec = Math.floor(Date.now() / 1000), { promoEngine = this.promoEngine, identityStore = this.identityStore } = {}) {
-    const s = { credited: 0, deferred: 0, review: 0 };
+  async processReferralCredits(nowSec = Math.floor(Date.now() / 1000), { promoEngine = this.promoEngine, identityStore = this.identityStore, budgetLedger = this.budgetLedger } = {}) {
+    const s = { credited: 0, deferred: 0, review: 0, budgetExhausted: 0 };
     for (const c of await this.repo.listCredits('CREDITING')) {
       await this.repo.patchCredit(c.orderId, { status: 'NEEDS_REVIEW', updatedAt: nowSec });
       s.review += 1;
@@ -880,6 +887,18 @@ export class PresaleEngine {
         }
       }
       if (!(await this.repo.claimCredit(c.orderId, 'PENDING', 'CREDITING', nowSec))) continue;
+      if (budgetLedger && typeof budgetLedger.reserve === 'function') {
+        try {
+          await budgetLedger.reserve('presale_promo', BigInt(c.amountRaw), nowSec);
+        } catch (e) {
+          if (e?.code === 'PROMO_BUDGET_EXHAUSTED') {
+            await this.repo.patchCredit(c.orderId, { status: 'PENDING', updatedAt: nowSec });
+            s.budgetExhausted += 1;
+            continue;
+          }
+          throw e;
+        }
+      }
       await promoEngine.creditReward(targetWallet, BigInt(c.amountRaw), nowSec);
       await this.repo.patchCredit(c.orderId, { status: 'CREDITED', updatedAt: nowSec });
       s.credited += 1;

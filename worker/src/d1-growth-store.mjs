@@ -3,6 +3,7 @@
 import {
   rewardForWarmupRank,
   SocialError,
+  TEAM_SWITCH_COOLDOWN_SEC,
   DEFAULT_WARMUP_ROUND_CONFIG,
   WARMUP_INTENT_A9_ESTIMATE,
   normalizeWarmupIntentTier,
@@ -13,6 +14,9 @@ import {
   VOUCHER_TTL_MS,
   DEFAULT_FIRST_LOSS_BONUS_RAW,
   DEFAULT_FIRST_LOSS_CAP_RAW,
+  PRED_POOL_PER_BET_RAW,
+  MAX_PRED_REWARD_PER_USER_RAW,
+  computeNextPendingState,
   DAILY_STAMP_KEYS,
   PROGRESSION_TASKS,
   utcDayFromSec,
@@ -344,17 +348,29 @@ export class D1SocialStore {
   async joinTeam({ teamId, walletAddress, referrerId = null, aliases = [] }, nowSec = Math.floor(Date.now() / 1000)) {
     const team = await this.db.prepare('SELECT * FROM team_groups WHERE team_id = ?').bind(teamId).first();
     if (!team) throw new Error(`team ${teamId} not found`);
+
+    const memberAliases = addressAliases(walletAddress);
+    const aliasPh = memberAliases.map(() => '?').join(', ');
+    const prevRow = memberAliases.length
+      ? await this.db
+          .prepare(`SELECT wallet_address, team_id, joined_at FROM team_members WHERE wallet_address IN (${aliasPh}) LIMIT 1`)
+          .bind(...memberAliases)
+          .first()
+      : null;
+    const prevTeamId = prevRow?.team_id ? String(prevRow.team_id) : null;
+    const prevJoinedAt = prevRow?.joined_at ? Number(prevRow.joined_at) : 0;
+    if (prevTeamId && prevTeamId !== teamId && prevJoinedAt > 0 && nowSec < prevJoinedAt + TEAM_SWITCH_COOLDOWN_SEC) {
+      throw new SocialError('TEAM_SWITCH_COOLDOWN', '更换战队需间隔 7 天冷却期');
+    }
     if (referrerId) await this.bindReferral(walletAddress, referrerId, nowSec, { aliases });
 
-    const prevRow = await this.db
-      .prepare('SELECT team_id FROM team_members WHERE wallet_address = ? LIMIT 1')
-      .bind(walletAddress)
-      .first();
-    const prevTeamId = prevRow?.team_id ? String(prevRow.team_id) : null;
-
+    const effectiveJoinedAt = prevTeamId === teamId && prevJoinedAt > 0 ? prevJoinedAt : nowSec;
+    if (prevRow && prevRow.wallet_address !== walletAddress) {
+      await this.db.prepare('DELETE FROM team_members WHERE wallet_address = ?').bind(prevRow.wallet_address).run();
+    }
     await this.db
       .prepare('INSERT OR REPLACE INTO team_members (wallet_address, team_id, joined_at) VALUES (?, ?, ?)')
-      .bind(walletAddress, teamId, nowSec)
+      .bind(walletAddress, teamId, effectiveJoinedAt)
       .run();
 
     // 若发生换队，同步重算旧队人数，避免旧队 member_count 虚高
@@ -423,6 +439,17 @@ export class D1SocialStore {
       .bind(String(teamId))
       .all();
     return (res?.results || []).map((r) => String(r.wallet_address));
+  }
+
+  async listTeamMembersWithJoinTime(teamId) {
+    const res = await this.db
+      .prepare('SELECT wallet_address, joined_at FROM team_members WHERE team_id = ?')
+      .bind(String(teamId))
+      .all();
+    return (res?.results || []).map((r) => ({
+      walletAddress: String(r.wallet_address),
+      joinedAt: Number(r.joined_at || 0),
+    }));
   }
 
   /** 返回全部已通过四重真实核验（bind_status = 'bound' 且具备真实 tg_chat_id）的战队群。 */
@@ -886,12 +913,18 @@ export class D1PredictionEngine {
     defaultPoolA9Raw = '1000000000000000',
     firstLossBonusRaw = DEFAULT_FIRST_LOSS_BONUS_RAW,
     firstLossCapRaw = DEFAULT_FIRST_LOSS_CAP_RAW,
+    maxRewardPerUserRaw = MAX_PRED_REWARD_PER_USER_RAW,
+    poolPerBetRaw = PRED_POOL_PER_BET_RAW,
+    budgetLedger = null,
   }) {
     if (!db) throw new Error('Cloudflare D1 binding (env.DB) is required');
     this.db = db;
     this.defaultPoolA9Raw = BigInt(defaultPoolA9Raw);
     this.firstLossBonusRaw = parseOptionalBigInt(firstLossBonusRaw, DEFAULT_FIRST_LOSS_BONUS_RAW);
     this.firstLossCapRaw = parseOptionalBigInt(firstLossCapRaw, DEFAULT_FIRST_LOSS_CAP_RAW);
+    this.maxRewardPerUserRaw = parseOptionalBigInt(maxRewardPerUserRaw, MAX_PRED_REWARD_PER_USER_RAW);
+    this.poolPerBetRaw = parseOptionalBigInt(poolPerBetRaw, PRED_POOL_PER_BET_RAW);
+    this.budgetLedger = budgetLedger;
   }
 
   async placeBet({ roundId, userId, side, guessSlots = null, referrerId = null }, nowSec = Math.floor(Date.now() / 1000)) {
@@ -994,9 +1027,10 @@ export class D1PredictionEngine {
    * 且 prediction_rewards 的 pending_activation_raw/total_settled 快照未发生并发变更；
    * 全程绝不触碰 activated_raw，彻底杜绝并发 activateToPromo 导致的已激活奖励复活双花。
    */
-  _buildAtomicSettlePair(rId, item, curStats, expiresAt, nowSec) {
-    const nextPending = (curStats.pendingActivationRaw + item.deltaPending).toString();
-    const nextExpiresAt = item.deltaPending > 0n ? expiresAt : curStats.pendingExpiresAt;
+  _buildAtomicSettlePair(rId, item, curStats, nowMs, nowSec) {
+    const nextState = computeNextPendingState(curStats.pendingActivationRaw, curStats.pendingExpiresAt, item.deltaPending, nowMs);
+    const nextPending = nextState.nextPendingRaw.toString();
+    const nextExpiresAt = nextState.nextExpiresAt;
     const nextSettled = curStats.totalSettled + 1;
     const nextWon = curStats.totalWon + (item.isWin ? 1 : 0);
     const nextStreak = item.isWin ? curStats.streak + 1 : 0;
@@ -1040,7 +1074,7 @@ export class D1PredictionEngine {
     ];
   }
 
-  async _settleSingleUserWithCas(rId, item, expiresAt, nowSec) {
+  async _settleSingleUserWithCas(rId, item, nowMs, nowSec) {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const betRow = await this.db
         .prepare('SELECT status FROM prediction_bets WHERE round_id = ? AND user_id = ?')
@@ -1050,7 +1084,7 @@ export class D1PredictionEngine {
 
       await this._ensureUserStatsRow(item.userId, nowSec);
       const st = await this._getUserStatsRow(item.userId);
-      const pair = this._buildAtomicSettlePair(rId, item, st, expiresAt, nowSec);
+      const pair = this._buildAtomicSettlePair(rId, item, st, nowMs, nowSec);
       try {
         await this.db.batch(pair);
         return true;
@@ -1063,7 +1097,7 @@ export class D1PredictionEngine {
     throw new GrowthError('SETTLE_CONFLICT', `concurrent settlement conflict for user ${item.userId}`);
   }
 
-  async settleRoundBets(roundId, passed, actualQualified, poolA9Raw = this.defaultPoolA9Raw, nowMs = Date.now(), { batchSize = 25 } = {}) {
+  async settleRoundBets(roundId, passed, actualQualified, poolA9Raw = this.defaultPoolA9Raw, nowMs = Date.now(), { batchSize = 25, budgetLedger = this.budgetLedger } = {}) {
     const rId = Number(roundId);
     const already = await this.db
       .prepare('SELECT winning_side FROM prediction_rounds WHERE round_id = ?')
@@ -1072,7 +1106,7 @@ export class D1PredictionEngine {
     if (already) throw new GrowthError('ROUND_SETTLED', `round ${rId} already settled`);
 
     const winSide = passed ? 'PASS' : 'BURN';
-    const pool = BigInt(poolA9Raw);
+    const rawPool = BigInt(poolA9Raw);
     const nowSec = Math.floor(nowMs / 1000);
     const chunkSize = Math.max(1, Math.min(50, Number(batchSize) || 25));
 
@@ -1081,15 +1115,15 @@ export class D1PredictionEngine {
       .bind(rId)
       .all();
     const bets = betsRes?.results || [];
+    const dynamicCap = this.poolPerBetRaw > 0n ? BigInt(bets.length) * this.poolPerBetRaw : rawPool;
+    const effectivePool = rawPool < dynamicCap ? rawPool : dynamicCap;
 
-    // 第一阶段：基于全量下注确定性计算权重、安慰奖配额与每人的目标结算项
     const winners = [];
     const losers = [];
     let totalWeight = 0n;
     let firstLossRemaining = this.firstLossCapRaw;
     let firstLossBonusCount = 0;
     let firstLossBonusDistributed = 0n;
-    const expiresAt = nowMs + VOUCHER_TTL_MS;
 
     for (const b of bets) {
       if (b.side === winSide) {
@@ -1129,14 +1163,22 @@ export class D1PredictionEngine {
     }
 
     let distributed = 0n;
+    let openBudgetNeed = 0n;
     const pendingItems = [];
     for (const item of losers) {
-      if (item.status === 'OPEN') pendingItems.push(item);
+      if (item.status === 'OPEN') {
+        pendingItems.push(item);
+        openBudgetNeed += item.deltaPending;
+      }
     }
     for (const { bet, weight } of winners) {
-      const amt = totalWeight > 0n ? (pool * weight) / totalWeight : 0n;
+      let amt = totalWeight > 0n ? (effectivePool * weight) / totalWeight : 0n;
+      if (this.maxRewardPerUserRaw > 0n && amt > this.maxRewardPerUserRaw) {
+        amt = this.maxRewardPerUserRaw;
+      }
       distributed += amt;
       if (String(bet.status) === 'OPEN') {
+        openBudgetNeed += amt;
         pendingItems.push({
           userId: bet.user_id,
           status: String(bet.status),
@@ -1146,6 +1188,11 @@ export class D1PredictionEngine {
           deltaPending: amt,
         });
       }
+    }
+
+    // 预算熔断检查在任何落库前原子扣减，预算不足直接抛 PROMO_BUDGET_EXHAUSTED 且零写入
+    if (openBudgetNeed > 0n && budgetLedger && typeof budgetLedger.reserve === 'function') {
+      await budgetLedger.reserve('prediction', openBudgetNeed, nowSec);
     }
 
     // 第二阶段：分批（每批 <= 25 人 / <= 50 条语句）原子 CAS 落库；若批内发生并发冲突则自动降级为单人 CAS 重试
@@ -1165,7 +1212,7 @@ export class D1PredictionEngine {
       const batchStmts = [];
       for (const item of slice) {
         const st = await this._getUserStatsRow(item.userId);
-        const pair = this._buildAtomicSettlePair(rId, item, st, expiresAt, nowSec);
+        const pair = this._buildAtomicSettlePair(rId, item, st, nowMs, nowSec);
         batchStmts.push(...pair);
       }
 
@@ -1175,7 +1222,7 @@ export class D1PredictionEngine {
         const msg = String(e?.message || e);
         if (!/NOT NULL|UNIQUE|constraint/i.test(msg)) throw e;
         for (const item of slice) {
-          await this._settleSingleUserWithCas(rId, item, expiresAt, nowSec);
+          await this._settleSingleUserWithCas(rId, item, nowMs, nowSec);
         }
       }
     }
@@ -1189,6 +1236,7 @@ export class D1PredictionEngine {
       roundId: rId,
       winSide,
       winnersCount: winners.length,
+      effectivePoolRaw: effectivePool.toString(),
       distributedRaw: distributed.toString(),
       firstLossBonusCount,
       firstLossBonusDistributedRaw: firstLossBonusDistributed.toString(),
@@ -1233,22 +1281,22 @@ export class D1PredictionEngine {
     const amt = BigInt(amountRaw || 0n);
     if (!uid || amt <= 0n) return { userId: uid, pendingActivationRaw: '0' };
     const nowSec = Math.floor(nowMs / 1000);
-    const nextExp = nowMs + VOUCHER_TTL_MS;
     await this._ensureUserStatsRow(uid, nowSec);
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const st = await this._getUserStatsRow(uid);
       const curStr = st.pendingActivationRaw.toString();
-      const nextPending = (st.pendingActivationRaw + amt).toString();
+      const next = computeNextPendingState(st.pendingActivationRaw, st.pendingExpiresAt, amt, nowMs);
+      const nextPending = next.nextPendingRaw.toString();
       const res = await this.db
         .prepare(
           `UPDATE prediction_rewards
            SET pending_activation_raw = ?, pending_expires_at = ?, updated_at = ?
            WHERE user_id = ? AND pending_activation_raw = ?`,
         )
-        .bind(nextPending, nextExp, nowSec, uid, curStr)
+        .bind(nextPending, next.nextExpiresAt, nowSec, uid, curStr)
         .run();
       if (Number(res?.meta?.changes || 0) === 1) {
-        return { userId: uid, pendingActivationRaw: nextPending, pendingExpiresAt: nextExp };
+        return { userId: uid, pendingActivationRaw: nextPending, pendingExpiresAt: next.nextExpiresAt };
       }
     }
     throw new GrowthError('CREDIT_CONFLICT', 'concurrent pending bonus update conflict, please retry');

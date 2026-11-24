@@ -8,6 +8,7 @@ import { PresaleHotWalletEngine } from './presale-hotwallet.mjs';
 import { SocialStore } from './social-store.mjs';
 import { PredictionEngine, ProgressionEngine } from './growth-engine.mjs';
 import { ChestEngine } from './chest-engine.mjs';
+import { MemoryPromoBudgetLedger } from './promo-budget.mjs';
 import { TonCenterClient } from './toncenter.mjs';
 import { PromoPayoutRunner } from './promo-runner.mjs';
 import { PresalePayoutRunner } from './presale-runner.mjs';
@@ -48,14 +49,20 @@ const promoEngine = process.env.A9_PROMO_HOT_WALLET_ADDRESS
     })
   : null;
 
+const budgetLedger = new MemoryPromoBudgetLedger();
 const socialStore = new SocialStore();
-const identityStore = new MemoryIdentityStore();
+const identityStore = new MemoryIdentityStore({
+  onWalletRebound: promoEngine
+    ? ({ fromWalletAddress, toWalletAddress, nowSec }) => promoEngine.mergeBalance(fromWalletAddress, toWalletAddress, nowSec)
+    : null,
+});
 const predictionEngine = new PredictionEngine({
   firstLossBonusRaw: process.env.A9_PRED_FIRST_LOSS_BONUS_RAW,
   firstLossCapRaw: process.env.A9_PRED_FIRST_LOSS_CAP_RAW,
+  budgetLedger,
 });
 const progressionEngine = new ProgressionEngine();
-const chestEngine = new ChestEngine();
+const chestEngine = new ChestEngine({ budgetLedger });
 const broadcaster = new TelegramBroadcaster({
   enabled: process.env.A9_BROADCAST_ENABLED === '1',
   botToken: process.env.A9_BOT_TOKEN || '',
@@ -84,6 +91,7 @@ const presaleEngine = presaleHotAddr
       socialStore,
       identityStore,
       chestEngine,
+      budgetLedger,
       broadcaster,
     })
   : null;
@@ -201,7 +209,7 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
   }
 }
 
-const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, chestEngine, userReader, identityStore, publicKeyResolver, walletStateResolver });
+const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, chestEngine, budgetLedger, userReader, identityStore, publicKeyResolver, walletStateResolver });
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${host}:${port}`);

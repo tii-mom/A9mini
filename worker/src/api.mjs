@@ -3,12 +3,14 @@
 import { buildV15ConfigPayload, mapV15RoundDetail } from './v15-indexer.mjs';
 import { PromoError } from './promo-hotwallet.mjs';
 import { PresaleError } from './presale-hotwallet.mjs';
+import { BudgetError } from './promo-budget.mjs';
 import {
   ChestError,
   CHEST_MALL_CATALOG,
   FREE_CHEST_CHAIN,
   CAPTAIN_FOUNDING_BONUS_RAW,
   CAPTAIN_MIN_TG_MEMBERS,
+  CAPTAIN_MIN_TEAM_MEMBERS,
   CHEST_DELIVERY_GAS_GRAM,
   CHEST_DELIVERY_GAS_NANO,
   CHEST_REFUND_GAS_GRAM,
@@ -203,6 +205,7 @@ export function createApiRouter({
   predictionEngine = null,
   progressionEngine = null,
   chestEngine = null,
+  budgetLedger = null,
   userReader = null,
   identityStore = new MemoryIdentityStore(),
   publicKeyResolver = null,
@@ -211,6 +214,12 @@ export function createApiRouter({
   healthChecker = null,
   runnerHeartbeatReader = null,
 }) {
+  // M-5: 24h 换绑冷静期到期晋升时自动将旧钱包推广余额原子合并至新钱包
+  if (promoEngine && typeof promoEngine.mergeBalance === 'function' && identityStore && typeof identityStore === 'object' && !identityStore.onWalletRebound) {
+    identityStore.onWalletRebound = async ({ fromWalletAddress, toWalletAddress, nowSec: rebindNow }) => {
+      await promoEngine.mergeBalance(fromWalletAddress, toWalletAddress, rebindNow);
+    };
+  }
   return async function handleRequest({ method, pathname, query = {}, body = null, headers = {}, origin = '', nowSec = Math.floor(Date.now() / 1000) }) {
     const auth = createRequestAuth({ env, headers, identityStore, nowSec });
     try {
@@ -258,6 +267,7 @@ export function createApiRouter({
           freeTiers: FREE_CHEST_CHAIN,
           captainFoundingBonusRaw: CAPTAIN_FOUNDING_BONUS_RAW.toString(),
           captainMinTgMembers: CAPTAIN_MIN_TG_MEMBERS,
+          captainMinTeamMembers: CAPTAIN_MIN_TEAM_MEMBERS,
         };
         return ok(base);
       }
@@ -316,6 +326,17 @@ export function createApiRouter({
           nowSec,
         });
         if (purpose === 'bind') {
+          // M-5: 若当前钱包存在在途推广领奖（PENDING_GAS/GAS_CONFIRMED/PAYOUT_SENT），阻断发起换绑
+          const existingBinding = await identityStore.getBinding(id.telegramUserId, nowSec);
+          if (
+            existingBinding &&
+            addressKey(address) !== existingBinding.walletKey &&
+            promoEngine &&
+            typeof promoEngine.hasPendingClaim === 'function' &&
+            (await promoEngine.hasPendingClaim(existingBinding.walletAddress, nowSec))
+          ) {
+            return err('PENDING_CLAIM_ACTIVE', 'cannot initiate wallet rebind while a promo claim is in progress', 409);
+          }
           const res = await identityStore.bindVerifiedWallet(id.telegramUserId, address, nowSec);
           if (socialStore && typeof socialStore.syncWarmupWalletForUser === 'function') {
             try {
@@ -362,6 +383,17 @@ export function createApiRouter({
           return err('FORBIDDEN', 'this action needs a proof from the currently bound wallet', 403);
         }
         if (purpose === 'unbind') {
+          // M-5: 钱包存在未领取推广余额或在途领奖单时禁止解绑，防止资产孤立
+          if (promoEngine) {
+            const bal = await promoEngine.getBalance(cur.walletAddress);
+            const claimable = BigInt(bal?.claimableRaw || '0');
+            const hasPending = typeof promoEngine.hasPendingClaim === 'function'
+              ? await promoEngine.hasPendingClaim(cur.walletAddress, nowSec)
+              : false;
+            if (claimable > 0n || hasPending) {
+              return err('PROMO_BALANCE_UNCLAIMED', 'please claim your pending promo balance before unbinding wallet', 409);
+            }
+          }
           await identityStore.unbindWallet(id.telegramUserId);
           return ok({ telegramUserId: id.telegramUserId, status: 'UNBOUND', wallet: null });
         }
@@ -650,11 +682,11 @@ export function createApiRouter({
       if (method === 'GET' && pathname === '/api/warmup/leaderboard') {
         if (!socialStore) return err('SOCIAL_DISABLED', 'social store not configured', 503);
         const roundId = Number(query.roundId || resolveUpcomingWarmupRoundId());
+        // 步骤 2 口径对齐：移除旧版 WARMUP_TIERS（单轮 800 万 A9）兜底回退，仅返回 v2 预约邀请榜
         if (typeof socialStore.getWarmupLeaderboardV2 === 'function') {
-          const v2 = await socialStore.getWarmupLeaderboardV2(roundId, 50);
-          if (v2.length > 0) return ok(v2);
+          return ok(await socialStore.getWarmupLeaderboardV2(roundId, 50));
         }
-        return ok(await socialStore.getWarmupLeaderboard(roundId, 50));
+        return ok([]);
       }
 
       if (method === 'POST' && pathname === '/api/team/bind-tg') {
@@ -684,10 +716,13 @@ export function createApiRouter({
           view.captainBonus = await chestEngine.grantCaptainFoundingBonus(
             {
               teamId: team.teamId,
+              tgChatId: team.tgChatId || null,
               captainUserId: identity.telegramUserId,
               captainWallet: walletAddress,
               tgMemberCount: team.tgMemberCount,
+              teamMemberCount: Number(team.memberCount || 0),
               predictionEngine,
+              budgetLedger,
             },
             nowSec,
           );
@@ -741,11 +776,22 @@ export function createApiRouter({
         return ok(sanitizeTeamView(team, binding.walletKey));
       }
 
-      // 24H PASS/BURN prediction (free entry). userId = verified Telegram user id, never the body.
+      // 24H PASS/BURN prediction (M-3: requires bound active TON wallet; userId = verified Telegram user id).
       if (method === 'POST' && pathname === '/api/prediction/bet') {
         if (!predictionEngine) return err('PREDICTION_DISABLED', 'prediction engine not configured', 503);
-        const id = await auth.telegram();
+        const { identity: id, walletAddress } = await auth.wallet(body?.walletAddress || null);
         if (body?.userId && String(body.userId) !== id.telegramUserId) return err('FORBIDDEN', 'userId does not match the signed-in Telegram user', 403);
+        if (walletStateResolver) {
+          let ws = null;
+          try {
+            ws = await walletStateResolver(walletAddress);
+          } catch (e) {
+            return err('WALLET_STATE_UNAVAILABLE', `无法核验钱包链上状态：${e?.message || 'RPC error'}`, 503);
+          }
+          if (ws?.state !== 'active') {
+            return err('WALLET_NOT_ACTIVE', '预测竞猜需要已激活（active）的 TON 链上钱包', 400);
+          }
+        }
 
         // 严格依据服务端链上轮次与质押截止时间判断预测窗口（防止观察期明牌后下注）
         const requestedRoundId = Number(body?.roundId);
@@ -935,6 +981,7 @@ export function createApiRouter({
                 walletAddress: binding?.walletAddress || null,
                 promoEngine,
                 predictionEngine,
+                budgetLedger,
               },
               nowSec,
             ),
@@ -944,27 +991,46 @@ export function createApiRouter({
         let teamVolumeNano = 0n;
         let teamTgMemberCount = 0;
         if (socialStore && presaleEngine) {
+          const selfKey = addressKey(walletAddress);
           const wallets = new Set([walletAddress]);
+          const directRefKeys = new Set([selfKey]);
+          const minCreatedAtByWallet = new Map();
           if (typeof socialStore.listDirectReferees === 'function') {
             const refs = await socialStore.listDirectReferees([identity.telegramUserId, walletAddress]);
             for (const r of refs) {
               wallets.add(r);
+              directRefKeys.add(addressKey(r));
               if (/^\d{1,20}$/.test(String(r)) && identityStore && typeof identityStore.getBinding === 'function') {
                 const b = await identityStore.getBinding(String(r), nowSec);
-                if (b?.walletAddress) wallets.add(b.walletAddress);
+                if (b?.walletAddress) {
+                  wallets.add(b.walletAddress);
+                  directRefKeys.add(addressKey(b.walletAddress));
+                }
               }
             }
           }
+          // M-1: 严格隔离免费箱战队业绩归属——仅队长可计入战队 TG 群人数与成员入队后成交额；普通成员仅计本人与直推
           const myTeam = await socialStore.getTeamByWallet(walletAddress);
-          if (myTeam) {
+          const isCaptain = Boolean(myTeam && addressKey(myTeam.captainWallet) === selfKey);
+          if (isCaptain) {
             if (myTeam.bindStatus === 'bound') teamTgMemberCount = Number(myTeam.tgMemberCount || 0);
-            if (typeof socialStore.listTeamMemberWallets === 'function') {
+            if (typeof socialStore.listTeamMembersWithJoinTime === 'function') {
+              const members = await socialStore.listTeamMembersWithJoinTime(myTeam.teamId);
+              for (const m of members) {
+                if (!m?.walletAddress) continue;
+                wallets.add(m.walletAddress);
+                const mk = addressKey(m.walletAddress);
+                if (!directRefKeys.has(mk)) {
+                  minCreatedAtByWallet.set(mk, Number(m.joinedAt || 0));
+                }
+              }
+            } else if (typeof socialStore.listTeamMemberWallets === 'function') {
               const members = await socialStore.listTeamMemberWallets(myTeam.teamId);
               for (const m of members) wallets.add(m);
             }
           }
           if (typeof presaleEngine.sumCompletedVolumeNano === 'function') {
-            teamVolumeNano = await presaleEngine.sumCompletedVolumeNano([...wallets]);
+            teamVolumeNano = await presaleEngine.sumCompletedVolumeNano([...wallets], { minCreatedAtByWallet });
           }
         }
         return ok(
@@ -977,6 +1043,7 @@ export function createApiRouter({
               teamTgMemberCount,
               promoEngine,
               predictionEngine,
+              budgetLedger,
             },
             nowSec,
           ),
@@ -1071,7 +1138,7 @@ export function createApiRouter({
           ? body.poolA9Raw
           : predictionEngine.defaultPoolA9Raw;
         return ok(
-          await predictionEngine.settleRoundBets(roundId, body.passed, actualQualified, poolArg, nowSec * 1000),
+          await predictionEngine.settleRoundBets(roundId, body.passed, actualQualified, poolArg, nowSec * 1000, { budgetLedger }),
         );
       }
 
@@ -1247,6 +1314,7 @@ export function createApiRouter({
       return err('NOT_FOUND', `route not found: ${method} ${pathname}`, 404);
     } catch (e) {
       if (e instanceof AuthError) return err(e.code, e.message, e.status || 401);
+      if (e instanceof BudgetError) return err(e.code, e.message, e.code === 'PROMO_BUDGET_EXHAUSTED' ? 503 : 400);
       if (e instanceof SocialError) return err(e.code, e.message, e.code === 'NOT_CAPTAIN' ? 403 : 400);
       if (e instanceof ChestError) return err(e.code, e.message, e.code === 'FORBIDDEN' ? 403 : 400);
       if (e instanceof PromoError || e instanceof PresaleError || e instanceof GrowthError) {

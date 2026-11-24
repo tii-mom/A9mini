@@ -365,9 +365,10 @@ function viewBinding(b) {
 }
 
 export class MemoryIdentityStore {
-  constructor() {
+  constructor({ onWalletRebound = null } = {}) {
     this.payloads = new Map(); // payload -> { tg, expiresAt, usedAt }
     this.bindings = new Map(); // tg -> binding row
+    this.onWalletRebound = onWalletRebound;
   }
 
   async issueProofPayload(tg, nowSec, ttlSec = TON_PROOF_PAYLOAD_TTL_SEC) {
@@ -412,17 +413,28 @@ export class MemoryIdentityStore {
     return (await this.bindVerifiedWallet(tg, walletAddress, nowSec)).binding;
   }
 
-  async getBinding(tg, nowSec = Math.floor(Date.now() / 1000)) {
+  async getBinding(tg, nowSec = Math.floor(Date.now() / 1000), { onWalletRebound = this.onWalletRebound } = {}) {
     const b = this.bindings.get(String(tg));
     if (!b) return null;
+    let promotedFrom = null;
     if (b.pendingWalletKey && b.pendingEffectiveAt <= nowSec) {
       const owner = this._ownerOf(b.pendingWalletKey);
       if (!owner || owner === b.telegramUserId) {
-        Object.assign(b, { walletAddress: b.pendingWalletAddress, walletKey: b.pendingWalletKey, boundAt: nowSec });
+        const prevWalletAddress = b.walletAddress;
+        const nextWalletAddress = b.pendingWalletAddress;
+        Object.assign(b, { walletAddress: nextWalletAddress, walletKey: b.pendingWalletKey, boundAt: nowSec });
+        if (prevWalletAddress && addressKey(prevWalletAddress) !== addressKey(nextWalletAddress)) {
+          promotedFrom = prevWalletAddress;
+        }
       }
       Object.assign(b, { pendingWalletAddress: null, pendingWalletKey: null, pendingEffectiveAt: null });
+      if (promotedFrom && typeof onWalletRebound === 'function') {
+        await onWalletRebound({ tgUserId: b.telegramUserId, fromWalletAddress: promotedFrom, toWalletAddress: b.walletAddress, nowSec });
+      }
     }
-    return viewBinding(b);
+    const view = viewBinding(b);
+    if (promotedFrom && view) view.reboundFrom = promotedFrom;
+    return view;
   }
 
   async cancelPendingRebind(tg) {
@@ -457,9 +469,10 @@ function rowToBinding(r) {
 }
 
 export class D1IdentityStore {
-  constructor({ db }) {
+  constructor({ db, onWalletRebound = null }) {
     if (!db) throw new Error('D1 binding required');
     this.db = db;
+    this.onWalletRebound = onWalletRebound;
   }
 
   async issueProofPayload(tg, nowSec, ttlSec = TON_PROOF_PAYLOAD_TTL_SEC) {
@@ -526,14 +539,17 @@ export class D1IdentityStore {
     return (await this.bindVerifiedWallet(tg, walletAddress, nowSec)).binding;
   }
 
-  async getBinding(tg, nowSec = Math.floor(Date.now() / 1000)) {
+  async getBinding(tg, nowSec = Math.floor(Date.now() / 1000), { onWalletRebound = this.onWalletRebound } = {}) {
     const b = await this._row(tg);
     if (!b) return null;
     if (b.pendingWalletKey && b.pendingEffectiveAt <= nowSec) {
+      const prevWalletAddress = b.walletAddress;
+      const targetWalletAddress = b.pendingWalletAddress;
+      let promoted = false;
       try {
         // wallet_key is UNIQUE: promotion fails (and the pending switch is dropped) if the
         // target wallet was bound to someone else meanwhile.
-        await this.db
+        const res = await this.db
           .prepare(
             `UPDATE wallet_bindings SET wallet_address = pending_wallet_address, wallet_key = pending_wallet_key, bound_at = ?,
                pending_wallet_address = NULL, pending_wallet_key = NULL, pending_effective_at = NULL, updated_at = ?
@@ -541,11 +557,19 @@ export class D1IdentityStore {
           )
           .bind(nowSec, nowSec, String(tg), nowSec)
           .run();
+        promoted = Number(res?.meta?.changes ?? res?.changes ?? 0) === 1;
       } catch (e) {
         if (!/UNIQUE/i.test(String(e?.message))) throw e;
         await this.cancelPendingRebind(tg);
       }
-      return viewBinding(await this._row(tg));
+      const fresh = viewBinding(await this._row(tg));
+      if (promoted && prevWalletAddress && fresh?.walletAddress && addressKey(prevWalletAddress) !== addressKey(fresh.walletAddress)) {
+        if (typeof onWalletRebound === 'function') {
+          await onWalletRebound({ tgUserId: String(tg), fromWalletAddress: prevWalletAddress, toWalletAddress: fresh.walletAddress, nowSec });
+        }
+        fresh.reboundFrom = prevWalletAddress;
+      }
+      return fresh;
     }
     return viewBinding(b);
   }

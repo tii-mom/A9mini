@@ -56,6 +56,95 @@ export class D1PromoStore {
     };
   }
 
+  async hasPendingClaim(walletAddress, nowSec = Math.floor(Date.now() / 1000)) {
+    const aliases = addressAliases(walletAddress);
+    if (!aliases.length) return false;
+    const ph = aliases.map(() => '?').join(', ');
+    const row = await this.db
+      .prepare(
+        `SELECT claim_id FROM promo_claims
+         WHERE wallet_address IN (${ph})
+           AND (status IN (?, ?) OR (status = ? AND expires_at > ?))
+         LIMIT 1`,
+      )
+      .bind(...aliases, CLAIM_STATUS.FEE_CONFIRMED, CLAIM_STATUS.PAYOUT_SENT, CLAIM_STATUS.PENDING_FEE, nowSec)
+      .first();
+    return Boolean(row);
+  }
+
+  async mergeBalance(fromWallet, toWallet, nowSec = Math.floor(Date.now() / 1000)) {
+    const fromKey = addressKey(fromWallet);
+    const toKey = addressKey(toWallet);
+    if (!fromKey || !toKey || fromKey === toKey) {
+      return { mergedRaw: '0', fromWallet, toWallet };
+    }
+    if (await this.hasPendingClaim(fromWallet, nowSec)) {
+      throw new PromoError('PENDING_CLAIM_ACTIVE', '原钱包存在处理中的推广领币单，请完成后再合并余额');
+    }
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const srcRow = await this._findBalanceRow(fromWallet);
+      const move = BigInt(srcRow?.claimable_raw || '0');
+      if (!srcRow || move <= 0n) {
+        return { mergedRaw: '0', fromWallet, toWallet };
+      }
+      const srcKey = String(srcRow.wallet_address);
+      const srcCurStr = String(srcRow.claimable_raw);
+      let dstRow = await this._findBalanceRow(toWallet);
+      if (!dstRow) {
+        await this.db
+          .prepare(
+            `INSERT OR IGNORE INTO promo_balances (wallet_address, claimable_raw, total_claimed_raw, updated_at)
+             VALUES (?, '0', '0', ?)`,
+          )
+          .bind(toKey, nowSec)
+          .run();
+        dstRow = await this._findBalanceRow(toWallet);
+      }
+      if (!dstRow) continue;
+      const dstKey = String(dstRow.wallet_address);
+      const dstCurStr = String(dstRow.claimable_raw || '0');
+      const dstNextStr = (BigInt(dstCurStr) + move).toString();
+
+      try {
+        const out = await this.db.batch([
+          this.db
+            .prepare(
+              `UPDATE promo_balances
+               SET claimable_raw = CASE
+                     WHEN claimable_raw = ?
+                      AND EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ? AND claimable_raw = ?)
+                     THEN '0'
+                     ELSE NULL
+                   END,
+                   updated_at = ?
+               WHERE wallet_address = ?`,
+            )
+            .bind(srcCurStr, dstKey, dstCurStr, nowSec, srcKey),
+          this.db
+            .prepare(
+              `UPDATE promo_balances
+               SET claimable_raw = CASE
+                     WHEN claimable_raw = ?
+                      AND EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ? AND claimable_raw = '0')
+                     THEN ?
+                     ELSE NULL
+                   END,
+                   updated_at = ?
+               WHERE wallet_address = ?`,
+            )
+            .bind(dstCurStr, srcKey, dstNextStr, nowSec, dstKey),
+        ]);
+        if (changes(out?.[0]) === 1 && changes(out?.[1]) === 1) {
+          return { mergedRaw: move.toString(), fromWallet, toWallet, targetClaimableRaw: dstNextStr };
+        }
+      } catch (e) {
+        if (/NOT NULL|UNIQUE|constraint/i.test(String(e?.message || e))) continue;
+        throw e;
+      }
+    }
+    throw new PromoError('CONFLICT', '换绑钱包推广余额合并并发冲突，请重试');
+  }
+
   /**
    * Credit promotion / referral / activated-prediction A9 rewards to D1 promo_balances.
    * Uses optimistic CAS loop on canonical addressKey to prevent concurrent lost updates.

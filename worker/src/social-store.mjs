@@ -2,6 +2,8 @@
 // Backed by in-memory maps locally and schema.sql tables in D1 production.
 import { addressKey, addressAliases } from './ton-address.mjs';
 
+export const TEAM_SWITCH_COOLDOWN_SEC = 7 * 86400;
+
 export const WARMUP_TIERS = Object.freeze([
   { minRank: 1, maxRank: 10, rewardA9: 400000 },
   { minRank: 11, maxRank: 25, rewardA9: 160000 },
@@ -180,9 +182,10 @@ export class SocialStore {
     // v2 pre-round reservations: key `${roundId}:${tgUserId}`
     this.warmupRounds = new Map();
     this.warmupReservations = new Map();
-    // teamId -> { teamId, name, captainWallet, tgGroupHandle, tgChatId, bindStatus, members: Set }
+    // teamId -> { teamId, name, captainWallet, tgGroupHandle, tgChatId, bindStatus, members: Set, memberJoinedAt: Map }
     this.teams = new Map();
     this.memberTeam = new Map(); // wallet -> teamId
+    this.memberJoinedAt = new Map(); // walletKey -> joinedAtSec
     // subjectKey (walletAddress or tgUserId) -> { subjectKey, referrerId, boundAt }
     this.referrals = new Map();
   }
@@ -347,6 +350,7 @@ export class SocialStore {
       tgChatId: null,
       bindStatus: 'unbound',
       members: new Set([captainWallet]),
+      memberJoinedAt: new Map([[addressKey(captainWallet), nowSec]]),
       createdAt: nowSec,
       updatedAt: nowSec,
     };
@@ -363,6 +367,9 @@ export class SocialStore {
     cur.updatedAt = nowSec;
     this.teams.set(teamId, cur);
     this.memberTeam.set(captainWallet, teamId);
+    if (!this.memberJoinedAt.has(addressKey(captainWallet))) {
+      this.memberJoinedAt.set(addressKey(captainWallet), nowSec);
+    }
     return this.formatTeam(cur);
   }
 
@@ -428,19 +435,39 @@ export class SocialStore {
   joinTeam({ teamId, walletAddress, referrerId = null, aliases = [] }, nowSec = Math.floor(Date.now() / 1000)) {
     const team = this.teams.get(teamId);
     if (!team) throw new Error(`team ${teamId} not found`);
+    const wKey = addressKey(walletAddress);
+    let prevTeamId = this.memberTeam.get(walletAddress);
+    if (!prevTeamId) {
+      for (const alias of addressAliases(walletAddress)) {
+        prevTeamId = this.memberTeam.get(alias);
+        if (prevTeamId) break;
+      }
+    }
+    if (prevTeamId && prevTeamId !== teamId) {
+      const prevJoinedAt = Number(this.memberJoinedAt.get(wKey) || 0);
+      if (prevJoinedAt > 0 && nowSec < prevJoinedAt + TEAM_SWITCH_COOLDOWN_SEC) {
+        throw new SocialError('TEAM_SWITCH_COOLDOWN', '更换战队需间隔 7 天冷却期');
+      }
+    }
     if (referrerId) {
       this.bindReferral(walletAddress, referrerId, nowSec, { aliases });
     }
-    // 换队时从旧队成员集合移除，避免旧队人数虚高
-    const prevTeamId = this.memberTeam.get(walletAddress);
     if (prevTeamId && prevTeamId !== teamId) {
       const prevTeam = this.teams.get(prevTeamId);
       if (prevTeam) {
-        prevTeam.members.delete(walletAddress);
+        for (const m of Array.from(prevTeam.members)) {
+          if (addressKey(m) === wKey) prevTeam.members.delete(m);
+        }
+        prevTeam.memberJoinedAt?.delete(wKey);
         prevTeam.updatedAt = nowSec;
       }
     }
     team.members.add(walletAddress);
+    if (!team.memberJoinedAt) team.memberJoinedAt = new Map();
+    if (prevTeamId !== teamId || !team.memberJoinedAt.has(wKey)) {
+      team.memberJoinedAt.set(wKey, nowSec);
+      this.memberJoinedAt.set(wKey, nowSec);
+    }
     team.updatedAt = nowSec;
     this.memberTeam.set(walletAddress, teamId);
     return this.formatTeam(team);
@@ -473,6 +500,15 @@ export class SocialStore {
   listTeamMemberWallets(teamId) {
     const t = this.teams.get(teamId);
     return t ? Array.from(t.members) : [];
+  }
+
+  listTeamMembersWithJoinTime(teamId) {
+    const t = this.teams.get(teamId);
+    if (!t) return [];
+    return Array.from(t.members).map((walletAddress) => ({
+      walletAddress,
+      joinedAt: Number(t.memberJoinedAt?.get(addressKey(walletAddress)) ?? t.createdAt ?? 0),
+    }));
   }
 
   formatTeam(t) {

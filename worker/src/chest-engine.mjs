@@ -28,6 +28,7 @@ export const SHOP_BOOST_TTL_SEC = 24 * 3600;
 export const MAX_DAILY_ASSISTS_PER_WALLET = 3;
 export const CAPTAIN_FOUNDING_BONUS_RAW = 5_000n * A9_RAW; // 5,000 A9
 export const CAPTAIN_MIN_TG_MEMBERS = 50;
+export const CAPTAIN_MIN_TEAM_MEMBERS = 3;
 export const WARMUP_CHEST_BASE_A9_RAW = 300n * A9_RAW; // 300 A9 at min valid invites
 export const WARMUP_CHEST_STEP_A9_RAW = 200n * A9_RAW; // +200 A9 per extra valid invite
 export const WARMUP_CHEST_MIN_INVITES = 2;
@@ -60,8 +61,8 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     baseA9Raw: '1981980000000',
     requiredAssists: 2,
     initBoostBps: 100, // +1%
-    maxBoostBps: 600,  // +6%
-    maxBoostA9Raw: '118918800000', // 118.9188 A9
+    maxBoostBps: 200,  // +2%
+    maxBoostA9Raw: '39639600000', // 39.6396 A9
   },
   chest_silver: {
     skuId: 'chest_silver',
@@ -78,8 +79,8 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     baseA9Raw: '9989980000000',
     requiredAssists: 3,
     initBoostBps: 100, // +1%
-    maxBoostBps: 800,  // +8%
-    maxBoostA9Raw: '799198400000', // 799.1984 A9
+    maxBoostBps: 300,  // +3%
+    maxBoostA9Raw: '299699400000', // 299.6994 A9
   },
   chest_gold: {
     skuId: 'chest_gold',
@@ -96,8 +97,8 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     baseA9Raw: '19999980000000',
     requiredAssists: 4,
     initBoostBps: 100, // +1%
-    maxBoostBps: 1000, // +10%
-    maxBoostA9Raw: '1999998000000', // 1,999.998 A9
+    maxBoostBps: 400,  // +4%
+    maxBoostA9Raw: '799999200000', // 799.9992 A9
   },
   chest_platinum: {
     skuId: 'chest_platinum',
@@ -114,8 +115,8 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     baseA9Raw: '40019980000000',
     requiredAssists: 5,
     initBoostBps: 100, // +1%
-    maxBoostBps: 1100, // +11%
-    maxBoostA9Raw: '4402197800000', // 4,402.1978 A9
+    maxBoostBps: 450,  // +4.5%
+    maxBoostA9Raw: '1800899100000', // 1,800.8991 A9
   },
   chest_diamond: {
     skuId: 'chest_diamond',
@@ -132,8 +133,8 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     baseA9Raw: '200179980000000',
     requiredAssists: 6,
     initBoostBps: 100, // +1%
-    maxBoostBps: 1200, // +12%
-    maxBoostA9Raw: '24021597600000', // 24,021.5976 A9
+    maxBoostBps: 500,  // +5%
+    maxBoostA9Raw: '10008999000000', // 10,008.999 A9
   },
 });
 
@@ -188,9 +189,9 @@ export const FREE_CHEST_CHAIN = Object.freeze([
     slotIndex: 1,
     zh: '白银宝箱',
     en: 'Silver Chest',
-    rewardA9Raw: String(10_000n * A9_RAW),
+    rewardA9Raw: String(6_000n * A9_RAW),
     requiredAssists: 15,
-    minVolumeNano: String(50n * TON_NANO),
+    minVolumeNano: String(100n * TON_NANO),
     minTgMembers: 0,
     goesToPendingVault: false,
   },
@@ -200,7 +201,7 @@ export const FREE_CHEST_CHAIN = Object.freeze([
     slotIndex: 1,
     zh: '黄金宝箱',
     en: 'Gold Chest',
-    rewardA9Raw: String(100_000n * A9_RAW),
+    rewardA9Raw: String(50_000n * A9_RAW),
     requiredAssists: 160,
     minVolumeNano: String(1_000n * TON_NANO),
     minTgMembers: 100,
@@ -212,7 +213,7 @@ export const FREE_CHEST_CHAIN = Object.freeze([
     slotIndex: 1,
     zh: '白金宝箱',
     en: 'Platinum Chest',
-    rewardA9Raw: String(200_000n * A9_RAW),
+    rewardA9Raw: String(120_000n * A9_RAW),
     requiredAssists: 400,
     minVolumeNano: String(2_400n * TON_NANO),
     minTgMembers: 300,
@@ -224,7 +225,7 @@ export const FREE_CHEST_CHAIN = Object.freeze([
     slotIndex: 1,
     zh: '钻石宝箱',
     en: 'Diamond Chest',
-    rewardA9Raw: String(1_000_000n * A9_RAW),
+    rewardA9Raw: String(500_000n * A9_RAW),
     requiredAssists: 2000,
     minVolumeNano: String(12_000n * TON_NANO),
     minTgMembers: 1000,
@@ -347,10 +348,14 @@ export function formatChestRecord(c) {
 }
 
 export class ChestEngine {
-  constructor() {
+  constructor({ budgetLedger = null } = {}) {
+    this.budgetLedger = budgetLedger;
     this.chests = new Map(); // chestId -> record
     this.assists = [];       // { chestId, ownerUserId, helperUserId, helperWalletKey, assistDay, boostDeltaRaw, createdAt }
     this.captainBonuses = new Map(); // teamId -> record
+    this.captainBonusChatIds = new Set();
+    this.captainBonusUsers = new Set();
+    this.captainBonusWallets = new Set();
   }
 
   async claimStarterBronzeChests({ userId, walletAddress = null }, nowSec = Math.floor(Date.now() / 1000)) {
@@ -606,6 +611,7 @@ export class ChestEngine {
       teamTgMemberCount = 0,
       promoEngine = null,
       predictionEngine = null,
+      budgetLedger = this.budgetLedger,
     },
     nowSec = Math.floor(Date.now() / 1000),
   ) {
@@ -620,28 +626,22 @@ export class ChestEngine {
     let rewardRaw = 0n;
     let destination = 'PROMO_BALANCE';
     let nextUnlocked = null;
+    let budgetBucket = 'free_chest_captain';
+    let nextSpec = null;
 
     if (chest.source === 'SHOP_BOOST') {
-      // 商城膨胀宝箱：24H 内随时可收手开箱，本金已归属买家，开箱仅结算推广池膨胀增量 A9
       rewardRaw = BigInt(chest.boostA9Raw || '0');
-      chest.status = 'OPENED';
-      chest.openedAt = nowSec;
-      chest.updatedAt = nowSec;
-      if (rewardRaw > 0n && promoEngine && walletAddress && typeof promoEngine.creditReward === 'function') {
-        await promoEngine.creditReward(walletAddress, rewardRaw, nowSec);
+      budgetBucket = 'presale_promo';
+      if (rewardRaw > 0n && !walletAddress) {
+        throw new ChestError('WALLET_REQUIRED', '领取膨胀奖励需绑定钱包地址');
       }
     } else if (chest.source === 'WARMUP_ROUND') {
       if (chest.currentAssists < chest.requiredAssists) {
         throw new ChestError('ASSISTS_UNMET', `还需 ${chest.requiredAssists - chest.currentAssists} 位已绑活跃钱包的预热好友方可开启`);
       }
       rewardRaw = BigInt(chest.baseA9Raw || '0') + BigInt(chest.boostA9Raw || '0');
-      chest.status = 'OPENED';
-      chest.openedAt = nowSec;
-      chest.updatedAt = nowSec;
       destination = 'PENDING_VAULT';
-      if (rewardRaw > 0n && predictionEngine && typeof predictionEngine.creditPendingBonus === 'function') {
-        await predictionEngine.creditPendingBonus(uid, rewardRaw, nowSec * 1000);
-      }
+      budgetBucket = 'warmup';
     } else {
       const spec = findFreeChestSpec(chest.tier, chest.slotIndex);
       if (!spec) throw new ChestError('BAD_STATE', '未知的免费宝箱档位');
@@ -654,36 +654,44 @@ export class ChestEngine {
       if (Number(teamTgMemberCount || 0) < Number(spec.minTgMembers)) {
         throw new ChestError('TG_GROUP_UNMET', `该档位需绑定真实核验 TG 群且群人数不少于 ${spec.minTgMembers} 人`);
       }
-
       rewardRaw = BigInt(chest.baseA9Raw || '0');
-      chest.status = 'OPENED';
-      chest.openedAt = nowSec;
-      chest.updatedAt = nowSec;
-
-      if (spec.goesToPendingVault && predictionEngine && typeof predictionEngine.creditPendingBonus === 'function') {
-        destination = 'PENDING_VAULT';
-        await predictionEngine.creditPendingBonus(uid, rewardRaw, nowSec * 1000);
-      } else if (rewardRaw > 0n && promoEngine && walletAddress && typeof promoEngine.creditReward === 'function') {
-        destination = 'PROMO_BALANCE';
-        await promoEngine.creditReward(walletAddress, rewardRaw, nowSec);
+      destination = spec.goesToPendingVault ? 'PENDING_VAULT' : 'PROMO_BALANCE';
+      budgetBucket = 'free_chest_captain';
+      if (destination === 'PROMO_BALANCE' && rewardRaw > 0n && !walletAddress) {
+        throw new ChestError('WALLET_REQUIRED', '领取该档位宝箱奖励需绑定钱包地址');
       }
+      nextSpec = nextFreeChestSpec(chest.tier, chest.slotIndex);
+    }
 
-      // 串行激活下一个免费宝箱槽位（青铜 #1 -> #2 -> #3 -> 白银 -> 黄金 -> 白金 -> 钻石）
-      const nextSpec = nextFreeChestSpec(chest.tier, chest.slotIndex);
-      if (nextSpec) {
-        for (const other of this.chests.values()) {
-          if (
-            other.ownerUserId === uid &&
-            other.source === 'FREE_TIER' &&
-            other.tier === nextSpec.tier &&
-            other.slotIndex === nextSpec.slotIndex &&
-            other.status === 'LOCKED'
-          ) {
-            other.status = 'ACTIVE';
-            other.updatedAt = nowSec;
-            nextUnlocked = formatChestRecord(other);
-            break;
-          }
+    if (rewardRaw > 0n && budgetLedger && typeof budgetLedger.reserve === 'function') {
+      await budgetLedger.reserve(budgetBucket, rewardRaw, nowSec);
+    }
+
+    chest.status = 'OPENED';
+    chest.openedAt = nowSec;
+    chest.updatedAt = nowSec;
+
+    if (destination === 'PENDING_VAULT') {
+      if (rewardRaw > 0n && predictionEngine && typeof predictionEngine.creditPendingBonus === 'function') {
+        await predictionEngine.creditPendingBonus(uid, rewardRaw, nowSec * 1000);
+      }
+    } else if (rewardRaw > 0n && promoEngine && walletAddress && typeof promoEngine.creditReward === 'function') {
+      await promoEngine.creditReward(walletAddress, rewardRaw, nowSec);
+    }
+
+    if (nextSpec) {
+      for (const other of this.chests.values()) {
+        if (
+          other.ownerUserId === uid &&
+          other.source === 'FREE_TIER' &&
+          other.tier === nextSpec.tier &&
+          other.slotIndex === nextSpec.slotIndex &&
+          other.status === 'LOCKED'
+        ) {
+          other.status = 'ACTIVE';
+          other.updatedAt = nowSec;
+          nextUnlocked = formatChestRecord(other);
+          break;
         }
       }
     }
@@ -697,28 +705,54 @@ export class ChestEngine {
   }
 
   async grantCaptainFoundingBonus(
-    { teamId, captainUserId, captainWallet, tgMemberCount, predictionEngine = null },
+    {
+      teamId,
+      captainUserId,
+      captainWallet,
+      tgChatId = null,
+      tgMemberCount,
+      teamMemberCount = null,
+      predictionEngine = null,
+      budgetLedger = this.budgetLedger,
+    },
     nowSec = Math.floor(Date.now() / 1000),
   ) {
     const tId = String(teamId || '').trim();
     const cUid = String(captainUserId || '').trim();
+    const chatId = tgChatId ? String(tgChatId).trim() : null;
     const count = Number(tgMemberCount || 0);
     if (!tId || !cUid || count < CAPTAIN_MIN_TG_MEMBERS) {
       return { granted: false, reason: 'BELOW_MIN_MEMBERS', amountRaw: '0' };
     }
-    if (this.captainBonuses.has(tId)) {
+    if (teamMemberCount !== null && teamMemberCount !== undefined && Number(teamMemberCount) < CAPTAIN_MIN_TEAM_MEMBERS) {
+      return { granted: false, reason: 'BELOW_MIN_TEAM_MEMBERS', amountRaw: '0' };
+    }
+    const walletKey = addressKey(captainWallet || cUid);
+    if (
+      this.captainBonuses.has(tId) ||
+      this.captainBonusUsers.has(cUid) ||
+      this.captainBonusWallets.has(walletKey) ||
+      (chatId && this.captainBonusChatIds.has(chatId))
+    ) {
       return { granted: false, reason: 'ALREADY_GRANTED', amountRaw: '0' };
+    }
+    if (budgetLedger && typeof budgetLedger.reserve === 'function') {
+      await budgetLedger.reserve('free_chest_captain', CAPTAIN_FOUNDING_BONUS_RAW, nowSec);
     }
     const rec = {
       teamId: tId,
       captainUserId: cUid,
-      captainWalletKey: addressKey(captainWallet || cUid),
+      captainWalletKey: walletKey,
+      tgChatId: chatId,
       tgMemberCount: count,
       amountRaw: CAPTAIN_FOUNDING_BONUS_RAW.toString(),
       status: 'CREDITED_PENDING',
       createdAt: nowSec,
     };
     this.captainBonuses.set(tId, rec);
+    this.captainBonusUsers.add(cUid);
+    this.captainBonusWallets.add(walletKey);
+    if (chatId) this.captainBonusChatIds.add(chatId);
     if (predictionEngine && typeof predictionEngine.creditPendingBonus === 'function') {
       await predictionEngine.creditPendingBonus(cUid, CAPTAIN_FOUNDING_BONUS_RAW, nowSec * 1000);
     }
