@@ -19,64 +19,62 @@
   --wv-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px), var(--tg-content-safe-area-inset-bottom, 0px));
 
   /* 90% 洁净中性底色与精工实体表面 */
-  --paper-bg: #F4F5F8;
-  --paper-hill-1: #ECEEF3;
-  --paper-hill-2: #E4E7EF;
-  --paper-tray: #ECEEF3;
+  --paper-bg: #F3F4F7;
+  --paper-hill-1: #EAECEF;
+  --paper-hill-2: #E2E5EE;
+  --paper-tray: #EAECEF;
   --paper-tray-deep: #DFE3EC;
 
   --card-bg: #FFFFFF;
   --card-soft: #F9FAFC;
-  --card-border: #E0E3EC;
-  --card-border-strong: #CCD1DE;
-  --card-thickness: #C8CDD9;
+  --card-border: #DCE0EA;
+  --card-border-strong: #C9CFD9;
+  --card-thickness: #C5CBD8;
   --card-stitch: transparent;
-  --card-highlight: rgba(255, 255, 255, 0.98);
+  --card-highlight: rgba(255, 255, 255, 0.96);
 
-  /* Switch 第一方触感层级：L2 纯平信息卡 vs L1 实体硬边按键 */
-  --surface-shadow:
-    0 1px 2px rgba(20, 22, 30, 0.045),
-    0 2px 0 rgba(200, 205, 217, 0.45);
+  /* Switch 第一方触感层级：L2 轻薄贴合信息卡 vs L1 实体硬边按键 */
+  --surface-shadow: 0 1px 0 var(--card-thickness);
   --card-shadow: var(--surface-shadow);
   --interactive-shadow:
-    inset 0 1.5px 0 var(--card-highlight),
-    0 3.5px 0 var(--card-thickness),
-    0 8px 16px rgba(20, 22, 30, 0.06);
+    inset 0 1px 0 var(--card-highlight),
+    0 3px 0 var(--card-thickness),
+    0 6px 14px rgba(20, 22, 30, 0.05);
   --card-shadow-sm:
     inset 0 1px 0 var(--card-highlight),
-    0 3px 0 var(--card-thickness);
+    0 2.5px 0 var(--card-thickness);
 
   /* 利落高对比炭黑字 */
-  --ink: #171920;
-  --nt-svg-stroke: #171920;
-  --ink-soft: #505565;
-  --ink-muted: #7F8598;
+  --ink: #141720;
+  --nt-svg-stroke: #141720;
+  --ink-soft: #52596B;
+  --ink-muted: #7B8396;
 
   /* 8% 唯一任天堂正红行动色（纯平高饱和 #E60012） */
   --nt-red: #E60012;
   --nt-red-top: #E60012;
-  --nt-red-edge: #A3000D;
-  --nt-red-soft: #FFF0F1;
+  --nt-red-edge: #9E000C;
+  --nt-red-soft: #FDECEE;
 
   /* 2% 任天堂四色高辨识语义规范 */
   --nt-blue: #2574E8;
   --nt-blue-top: #2574E8;
-  --nt-blue-edge: #1752AB;
+  --nt-blue-edge: #1851A8;
   --nt-blue-soft: #EDF4FE;
 
   --nt-green: #12A85D;
-  --nt-green-edge: #0B7A42;
-  --nt-green-soft: #E8F8F0;
+  --nt-green-edge: #0B743F;
+  --nt-green-soft: #E9F8F0;
 
-  --nt-gold: #F0AE14;
-  --nt-gold-top: #F7BE2C;
-  --nt-gold-edge: #BA8006;
-  --nt-gold-soft: #FFF7DF;
-  --nt-gold-ink: #8A5900;
+  --nt-gold: #E5A000;
+  --nt-gold-top: #F2B82E;
+  --nt-gold-edge: #A36E00;
+  --nt-gold-soft: #FDF6E3;
+  --nt-gold-ink: #8C5C00;
 
   --nt-rose: #C83E60;
-  --nt-rose-edge: #922641;
-  --nt-rose-soft: #FDF0F3;
+  --nt-rose-edge: #8C253F;
+  --nt-rose-soft: #FBECEF;
 
   /* 几何网格装饰色（替代旧版剪纸布景变量，保持兼容） */
   --diorama-thread: rgba(130, 136, 154, 0.16);
@@ -95,7 +93,7 @@
   --diorama-stitch: transparent;
   --diorama-rim: rgba(255, 255, 255, 0.94);
 
-  --header-bg: rgba(244, 245, 248, 0.96);
+  --header-bg: #FFFFFF;
   --tabbar-bg: #FFFFFF;
   --paper-cut-shadow: drop-shadow(0 6px 12px rgba(20, 22, 30, 0.14));
   --standee-filter: drop-shadow(0 6px 12px rgba(20, 22, 30, 0.14));
@@ -117,7 +115,7 @@
   --green-border: rgba(18, 168, 93, 0.34);
   --emerald-border: rgba(18, 168, 93, 0.34);
   --red-border: rgba(200, 62, 96, 0.34);
-  --gold-border: rgba(186, 128, 6, 0.34);
+  --gold-border: rgba(163, 110, 0, 0.34);
   --blue-border: rgba(37, 116, 232, 0.36);
   --ring-track: var(--paper-tray-deep);
 
@@ -129,62 +127,61 @@
   --ease-spring: cubic-bezier(0.22, 1.4, 0.36, 1);
 }
 
-/* Switch 深石墨炭 × 任天堂正红暗夜主题 */
+/* Switch OLED 深石墨炭 × 任天堂正红暗夜主题（内凹托盘深于卡片表面，恢复物理凹感） */
 [data-theme="dark"] {
-  --paper-bg: #15161A;
-  --paper-hill-1: #1D1E24;
-  --paper-hill-2: #24262E;
-  --paper-tray: #22242C;
-  --paper-tray-deep: #2B2D37;
+  --paper-bg: #101115;
+  --paper-hill-1: #161820;
+  --paper-hill-2: #1E212B;
+  --paper-tray: #13151B;
+  --paper-tray-deep: #222530;
 
-  --card-bg: #1E2027;
-  --card-soft: #252730;
-  --card-border: #323542;
-  --card-border-strong: #434756;
-  --card-thickness: #0C0D11;
+  --card-bg: #1A1C23;
+  --card-soft: #20232C;
+  --card-border: #2B2F3C;
+  --card-border-strong: #3C4152;
+  --card-thickness: #090A0D;
   --card-stitch: transparent;
-  --card-highlight: rgba(255, 255, 255, 0.08);
+  --card-highlight: rgba(255, 255, 255, 0.075);
 
   --surface-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.36),
-    0 2px 0 rgba(12, 13, 17, 0.8);
+    inset 0 1px 0 var(--card-highlight),
+    0 2px 0 var(--card-thickness);
   --card-shadow: var(--surface-shadow);
   --interactive-shadow:
     inset 0 1px 0 var(--card-highlight),
-    0 3.5px 0 var(--card-thickness),
-    0 10px 20px rgba(0, 0, 0, 0.35);
+    0 3px 0 var(--card-thickness);
   --card-shadow-sm:
     inset 0 1px 0 var(--card-highlight),
-    0 3px 0 var(--card-thickness);
+    0 2.5px 0 var(--card-thickness);
 
-  --ink: #F5F6FA;
-  --nt-svg-stroke: #11131A;
-  --ink-soft: #B6BAC7;
-  --ink-muted: #828799;
+  --ink: #F2F4F8;
+  --nt-svg-stroke: #101115;
+  --ink-soft: #A6AEBF;
+  --ink-muted: #767E92;
 
-  --nt-red: #F02232;
-  --nt-red-top: #F02232;
-  --nt-red-edge: #9B0A16;
-  --nt-red-soft: rgba(240, 34, 50, 0.18);
+  --nt-red: #EE2434;
+  --nt-red-top: #EE2434;
+  --nt-red-edge: #8C0E19;
+  --nt-red-soft: #2E181D;
 
-  --nt-blue: #58A4F5;
-  --nt-blue-top: #58A4F5;
-  --nt-blue-edge: #2463A8;
-  --nt-blue-soft: rgba(88, 164, 245, 0.18);
+  --nt-blue: #468DF2;
+  --nt-blue-top: #468DF2;
+  --nt-blue-edge: #1D4B8F;
+  --nt-blue-soft: #172235;
 
-  --nt-green: #22C776;
-  --nt-green-edge: #12854D;
-  --nt-green-soft: rgba(34, 199, 118, 0.16);
+  --nt-green: #22C272;
+  --nt-green-edge: #0E6B3C;
+  --nt-green-soft: #142920;
 
-  --nt-gold: #F5BE3A;
-  --nt-gold-top: #F5BE3A;
-  --nt-gold-edge: #B57F10;
-  --nt-gold-soft: rgba(245, 190, 58, 0.17);
-  --nt-gold-ink: #FFD97A;
+  --nt-gold: #F2B82E;
+  --nt-gold-top: #F2B82E;
+  --nt-gold-edge: #8F6506;
+  --nt-gold-soft: #2B2415;
+  --nt-gold-ink: #F5C44B;
 
-  --nt-rose: #DE5A7A;
-  --nt-rose-edge: #9E304B;
-  --nt-rose-soft: rgba(222, 90, 122, 0.17);
+  --nt-rose: #E05678;
+  --nt-rose-edge: #85223B;
+  --nt-rose-soft: #2E1921;
 
   --diorama-thread: rgba(178, 184, 200, 0.14);
   --diorama-bunting-1: #5B2E36;
@@ -195,23 +192,23 @@
   --diorama-cloud-shadow: #121318;
   --diorama-castle: #25272F;
   --diorama-castle-shade: #1D1E25;
-  --diorama-flag: #F02232;
+  --diorama-flag: #EE2434;
   --diorama-tree: #2B3D34;
   --diorama-trunk: #3E414C;
   --diorama-hill-sage: #222F2A;
   --diorama-stitch: transparent;
   --diorama-rim: rgba(255, 255, 255, 0.08);
 
-  --header-bg: rgba(21, 22, 26, 0.96);
-  --tabbar-bg: #1E2027;
+  --header-bg: #1A1C23;
+  --tabbar-bg: #1A1C23;
   --paper-cut-shadow: brightness(0.96) drop-shadow(0 8px 14px rgba(0, 0, 0, 0.48));
   --standee-filter: brightness(0.95) drop-shadow(0 8px 14px rgba(0, 0, 0, 0.52));
   --glare-color: rgba(255, 255, 255, 0.14);
 
-  --green-border: rgba(34, 199, 118, 0.36);
-  --emerald-border: rgba(34, 199, 118, 0.36);
-  --red-border: rgba(222, 90, 122, 0.36);
-  --gold-border: rgba(245, 190, 58, 0.38);
-  --blue-border: rgba(88, 164, 245, 0.40);
-  --ring-track: #30323C;
+  --green-border: rgba(34, 194, 114, 0.36);
+  --emerald-border: rgba(34, 194, 114, 0.36);
+  --red-border: rgba(224, 86, 120, 0.36);
+  --gold-border: rgba(242, 184, 46, 0.38);
+  --blue-border: rgba(70, 141, 242, 0.40);
+  --ring-track: #262934;
 }

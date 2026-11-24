@@ -967,15 +967,14 @@
 .chest-stage-card {
   position: relative;
   display: grid;
-  grid-template-columns: 98px minmax(0, 1fr);
+  grid-template-columns: 92px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
-  padding: 13px 14px;
-  border-radius: 20px;
+  padding: 12px 14px;
+  border-radius: 18px;
   background: var(--card-bg);
   border: 1.5px solid var(--card-border);
-  border-top: 4px solid var(--nt-red);
-  box-shadow: var(--interactive-shadow);
+  box-shadow: var(--surface-shadow);
 }
 
 .chest-stage-visual {
@@ -1062,12 +1061,12 @@
   gap: 3px;
   padding: 9px 6px 8px;
   border-radius: 15px;
-  border: 1.5px solid var(--card-border);
+  border: 2px solid var(--card-border);
   background: var(--card-bg);
   color: var(--ink);
   cursor: pointer;
   text-align: center;
-  box-shadow: 0 3px 0 var(--card-thickness);
+  box-shadow: 0 2.5px 0 var(--card-thickness);
   transition: transform 0.12s var(--ease-spring), border-color 0.14s ease, box-shadow 0.12s ease;
 }
 
@@ -1083,9 +1082,9 @@
 }
 
 .chest-shelf-item.is-selected {
-  border: 2.5px solid var(--nt-red);
+  border-color: var(--nt-red);
   background: var(--nt-red-soft);
-  box-shadow: 0 3.5px 0 var(--nt-red-edge);
+  box-shadow: 0 3px 0 var(--nt-red-edge);
   transform: translateY(-2px);
 }
 
@@ -1203,10 +1202,9 @@
 /* 免费宝箱：当前唯一聚焦主卡 */
 .free-focus-card {
   padding: 14px;
-  border-radius: 20px;
+  border-radius: 18px;
   background: var(--card-bg);
   border: 1.5px solid var(--card-border);
-  border-top: 4px solid var(--nt-red);
   box-shadow: var(--interactive-shadow);
   display: flex;
   flex-direction: column;
@@ -1307,13 +1305,13 @@
 
 @media (max-width: 374px) {
   .chest-stage-card {
-    grid-template-columns: 82px minmax(0, 1fr);
+    grid-template-columns: 80px minmax(0, 1fr);
     gap: 10px;
     padding: 11px 12px;
   }
   .chest-stage-visual {
-    width: 82px;
-    height: 82px;
+    width: 80px;
+    height: 80px;
   }
   .chest-stage-total {
     font-size: 19px;

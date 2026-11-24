@@ -697,7 +697,7 @@ export function renderSettlementFailed(round) {
       </div>
       <div class="progress-track" style="margin-bottom:10px;"><div class="progress-fill red no-anim" style="width:${failPct}%"></div></div>
       <div>
-        <div class="list-row"><span class="text-sec">${L('本轮参与本金处理', 'Principal')}</span><span class="num-xs text-red">${L('按 v16 规则销毁 BURN', 'Burned per v16')}</span></div>
+        <div class="list-row"><span class="text-sec">${L('本轮参与本金处理', 'Principal')}</span><span class="num-xs text-red">${L('按 v16.1 规则销毁 BURN', 'Burned per v16.1')}</span></div>
         <div class="list-row"><span class="text-sec">${L('战队额度', 'Squad quota')}</span><span class="num-xs text-gold">${L('120,000,000 A9 销毁 / 结转', '120,000,000 A9 burned / carried')}</span></div>
       </div>
       <div class="sub-tile" style="margin-top:10px;">

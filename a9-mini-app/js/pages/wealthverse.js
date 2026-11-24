@@ -313,18 +313,19 @@ export function city() {
     ? Math.max(0, Math.min(100, Math.round((passed / required) * 100)))
     : 0;
 
-  // 24 颗微型实体进度点（观察与结算态展示）
-  const slotDots = Array.from({ length: 24 }, (_, i) => {
+  // 24 颗微型实体进度点 + 外露 8px 迷你赛点条（观察与结算态展示）
+  const slotStates = Array.from({ length: 24 }, (_, i) => {
     const c = Array.isArray(r.candles) ? r.candles.find((x) => x.index === i + 1) || r.candles[i] : null;
-    const state = c?.confirmed
+    return c?.confirmed
       ? (c.bull ? 'pass' : 'miss')
       : c?.status === 'active'
         ? 'active'
         : c?.status === 'pending'
           ? 'pending'
           : 'unknown';
-    return `<i class="slot-dot ${state}${i === 15 ? ' threshold' : ''}" aria-hidden="true"></i>`;
-  }).join('');
+  });
+  const slotDots = slotStates.map((state, i) => `<i class="slot-dot ${state}${i === 15 ? ' threshold' : ''}" aria-hidden="true"></i>`).join('');
+  const miniStripCells = slotStates.map((state, i) => `<i class="plaza-mini-cell ${state}${i === 15 ? ' threshold' : ''}" aria-hidden="true"></i>`).join('');
 
   // 首屏主卡聚焦 3 大核心焦点：1) 本轮奖池 A9/估值  2) 16/24 通关血条视觉  3) 唯一主行动按钮
   let poolKicker = L('本轮用户奖池（上限 15×）', 'ROUND REWARD POOL (15× CAP)');
@@ -371,9 +372,14 @@ export function city() {
     showSlotTrack = true;
   } else if (r.stage === 'observation') {
     hpBadge = passed !== null ? `${passed} / ${required}` : L('待核验', 'Pending');
+    const remSlots = confirmed !== null && Number.isFinite(Number(confirmed)) ? Math.max(0, 24 - Number(confirmed)) : null;
     hpHint = need === null
       ? L('时段数据待核验 · 点击下方查看 24H 明细', 'Slot data pending verification')
-      : L(`距通关还差 ${need} 格 · 已确认 ${confirmed ?? '—'}/24 段`, `${need} more slot(s) to pass · ${confirmed ?? '—'}/24 confirmed`);
+      : remSlots !== null && remSlots < need
+        ? L(`剩 ${remSlots} 格（差 ${need} 格达标）· 关注链上结算`, `${remSlots} slot(s) left (need ${need}) · watch settlement`)
+        : remSlots !== null
+          ? L(`剩 ${remSlots} 格 · 只需再过 ${need} 格即通关`, `${remSlots} left · need ${need} more to pass`)
+          : L(`距通关还差 ${need} 格 · 已确认 ${confirmed ?? '—'}/24 段`, `${need} more slot(s) to pass · ${confirmed ?? '—'}/24 confirmed`);
     ctaText = L('进入 24H 观测盘', 'Open 24H Board');
     dotTone = 'cyan';
     showSlotTrack = true;
@@ -467,6 +473,7 @@ export function city() {
           <span class="chip ${hpTone === 'burn' ? 'chip-red' : hpTone === 'gold' ? 'chip-gold' : 'chip-green'} mono">${hpBadge}</span>
         </div>
         ${showSlotTrack ? `
+          <div class="plaza-mini-strip" id="plaza-mini-strip" title="${L('24H 时段赛点条（红线为第 16 格通关线）', '24H slot strip (red mark = slot 16 goal)')}">${miniStripCells}</div>
           <div class="plaza-hp-track" aria-label="${L('16/24 通关进度血条', '16/24 pass bar')}">
             <div class="plaza-hp-fill${hpTone === 'burn' ? ' is-burn' : ''}" style="width:${hpPct}%;"></div>
           </div>
@@ -474,9 +481,9 @@ export function city() {
             <span>${hpHint}</span>
             <span class="mono text-green" id="live-twap-val">${priceOrDash(r.twap24h ?? r.livePrice)}</span>
           </div>
-          <details class="plaza-slots-drawer">
+          <details class="plaza-slots-drawer" id="plaza-slots-drawer">
             <summary class="plaza-slots-summary">
-              <span>${L('展开 24H 点阵与目标底价', '24H Matrix & Target')} (${priceOrDash(r.targetPrice)})</span>
+              <span>${L('展开 24H 详情与目标底价', '24H Details & Target')} (${priceOrDash(r.targetPrice)})</span>
               <span class="num-xs text-muted">▾</span>
             </summary>
             <a class="city-slot-strip${isMatchPoint ? ' is-matchpoint' : ''}" href="#/observation/records">
@@ -518,7 +525,7 @@ export function city() {
           <span class="chip ${isRedAlert ? 'chip-red' : 'chip-green'}">${isRedAlert ? L('最后 4H 红警', '4H RED ALERT') : L('0 GRAM 免费猜', '0 GRAM Free')}</span>
           <strong class="city-pred-title">${L('24H 预言擂台', '24H Prediction Arena')}</strong>
         </div>
-        <span class="city-pred-go">${curBet ? (curBet.side === 'BURN' ? L('已押 BURN', 'Locked BURN') : L('已押 PASS', 'Locked PASS')) : L('进擂台', 'Arena')} ›</span>
+        <span class="city-pred-go" id="city-pred-status">${curBet ? (curBet.side === 'BURN' ? L('已押 BURN', 'Locked BURN') : L('已押 PASS', 'Locked PASS')) : L('进擂台', 'Arena')} ›</span>
       </div>
       <p class="city-pred-desc">${L('0 GRAM 押 PASS / BURN · 新人首轮保底 500 A9 赠金', '0 GRAM PASS / BURN · 500 A9 rookie floor')}</p>
       ${showPredRatio ? `
@@ -533,12 +540,19 @@ export function city() {
           </div>
         </div>
       ` : ''}
-      ${!predSettled && !curBet ? `
-        <div class="grid-2 plaza-quick-pred" style="gap:8px;margin-top:10px;">
-          <button type="button" class="pred-side-btn pass" data-plaza-pred-side="PASS" style="min-height:38px;font-size:12.5px;">${icon('checkCircle', 14)} ${L('0 GRAM 押 PASS', '0 GRAM PASS')}</button>
-          <button type="button" class="pred-side-btn burn" data-plaza-pred-side="BURN" style="min-height:38px;font-size:12.5px;">${icon('flame', 14)} ${L('0 GRAM 押 BURN', '0 GRAM BURN')}</button>
-        </div>
-      ` : ''}
+      <div id="plaza-pred-action-slot">
+        ${!predSettled && !curBet ? `
+          <div class="grid-2 plaza-quick-pred" style="gap:8px;margin-top:10px;">
+            <button type="button" class="pred-side-btn pass" data-plaza-pred-side="PASS" style="min-height:38px;font-size:12.5px;">${icon('checkCircle', 14)} ${L('0 GRAM 押 PASS', '0 GRAM PASS')}</button>
+            <button type="button" class="pred-side-btn burn" data-plaza-pred-side="BURN" style="min-height:38px;font-size:12.5px;">${icon('flame', 14)} ${L('0 GRAM 押 BURN', '0 GRAM BURN')}</button>
+          </div>
+        ` : (!predSettled && curBet ? `
+          <div class="plaza-pred-followup">
+            <button type="button" class="btn btn-secondary btn-sm" data-plaza-pred-share="${curBet.side}" style="width:100%;min-height:36px;">${icon('send', 13)} ${L('发群战报', 'Share Call')}</button>
+            <a class="btn btn-primary btn-sm" href="#/internal/market" data-plaza-stop="1" style="width:100%;min-height:36px;">${icon('bolt', 13)} ${L('0.99 购箱抽暴击', '0.99 Crit Chest')}</a>
+          </div>
+        ` : '')}
+      </div>
     </div>
 
     <a class="card clickable" id="city-warmup-card" href="#/warmup" style="display:block;text-decoration:none;color:inherit;">
@@ -777,6 +791,38 @@ export function renderCity(root, navigate) {
     trustBtn.onclick = () => openContractTrustModal(navigate);
   }
 
+  const miniStrip = root.querySelector('#plaza-mini-strip');
+  const slotsDrawer = root.querySelector('#plaza-slots-drawer');
+  if (miniStrip && slotsDrawer) {
+    miniStrip.onclick = () => {
+      A9Haptic.tick();
+      slotsDrawer.open = !slotsDrawer.open;
+    };
+  }
+
+  const bindPlazaFollowup = () => {
+    root.querySelectorAll('[data-plaza-stop]').forEach((el) => {
+      el.onclick = (e) => e.stopPropagation();
+    });
+    root.querySelectorAll('[data-plaza-pred-share]').forEach((shareBtn) => {
+      shareBtn.onclick = (e) => {
+        e.stopPropagation();
+        A9Haptic.light();
+        const side = shareBtn.dataset.plazaPredShare === 'BURN' ? 'BURN' : 'PASS';
+        const roundId = store.state.round?.currentRound || 1;
+        const shareLink = buildStartAppLink('bet', roundId);
+        const sideText = side === 'BURN' ? L('销毁 BURN', 'BURN') : L('通关 PASS', 'PASS');
+        const copy = L(
+          `我在 A9 第 ${roundId} 轮 24H 预言擂台 0 GRAM 押了【${sideText}】，新人首轮保底 500 A9 赠金，来站队对赌：`,
+          `I locked [${sideText}] for 0 GRAM in A9 Round #${roundId} 24H Arena (500 A9 rookie floor):`
+        );
+        A9TMA.shareInvite(shareLink, copy);
+        showToast(L('已调起 Telegram 群分享战报', 'Opened Telegram share'));
+      };
+    });
+  };
+  bindPlazaFollowup();
+
   root.querySelectorAll('[data-plaza-pred-side]').forEach((btn) => {
     btn.onclick = async (e) => {
       e.stopPropagation();
@@ -788,7 +834,8 @@ export function renderCity(root, navigate) {
         showToast(L('请在 Telegram 内打开或先连接 TON 钱包', 'Open in Telegram or connect TON wallet first'), 'amber');
         return;
       }
-      btn.disabled = true;
+      const allBtns = root.querySelectorAll('[data-plaza-pred-side]');
+      allBtns.forEach((b) => { b.disabled = true; });
       try {
         await submitPredictionBet({
           roundId,
@@ -799,15 +846,29 @@ export function renderCity(root, navigate) {
         });
         A9Haptic.success();
         A9Audio.confirm();
+        burstParticles(btn);
         store.update((s) => {
           s.prediction.currentBet = { side, guessSlots: null };
         });
         showToast(L(`已 0 GRAM 锁定本轮立场：${side === 'BURN' ? '销毁 BURN' : '通关 PASS'}`, `0 GRAM prediction locked: ${side}`));
-        if (root.isConnected) renderCity(root, navigate);
+        if (root.isConnected) {
+          const statusEl = root.querySelector('#city-pred-status');
+          if (statusEl) statusEl.textContent = `${side === 'BURN' ? L('已押 BURN', 'Locked BURN') : L('已押 PASS', 'Locked PASS')} ›`;
+          const slotEl = root.querySelector('#plaza-pred-action-slot');
+          if (slotEl) {
+            slotEl.innerHTML = `
+              <div class="plaza-pred-followup">
+                <button type="button" class="btn btn-secondary btn-sm" data-plaza-pred-share="${side}" style="width:100%;min-height:36px;">${icon('send', 13)} ${L('发群战报', 'Share Call')}</button>
+                <a class="btn btn-primary btn-sm" href="#/internal/market" data-plaza-stop="1" style="width:100%;min-height:36px;">${icon('bolt', 13)} ${L('0.99 购箱抽暴击', '0.99 Crit Chest')}</a>
+              </div>
+            `;
+            bindPlazaFollowup();
+          }
+        }
       } catch (err) {
         A9Haptic.error();
         showToast(err?.message || L('提交预言失败，请重试', 'Prediction submit failed'), 'error');
-        btn.disabled = false;
+        allBtns.forEach((b) => { b.disabled = false; });
       }
     };
   });

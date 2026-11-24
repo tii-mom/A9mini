@@ -45,7 +45,7 @@
 /* 高频主卡状态指示：纯平底面 + 顶部 4px 任天堂语义色条（零渐变零发光） */
 .city-hub-stage {
   background: var(--card-bg);
-  border-top: 4px solid var(--nt-red);
+  border-top: 3px solid var(--nt-red);
 }
 .city-hub-stage[data-mood="warmup"],
 .city-hub-stage[data-mood="participation"],
@@ -68,7 +68,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: nowrap;
+  gap: 5px;
+  min-width: 0;
 }
 
 .city-round-pill {
@@ -2015,13 +2017,21 @@
 /* 极窄屏 320px–374px 排版加固 */
 @media (max-width: 374px) {
   .city-hub-top {
-    flex-wrap: wrap;
-    gap: 5px;
+    flex-wrap: nowrap;
+    gap: 4px;
   }
   .city-round-pill,
-  .city-cd-badge {
-    font-size: 10.5px;
-    padding: 3px 8px;
+  .city-cd-badge,
+  .plaza-trust-capsule {
+    font-size: 10px;
+    padding: 3px 6px;
+  }
+  .identity-thumb {
+    width: 52px;
+    height: 52px;
+  }
+  .identity-thumb .wv-person {
+    height: 44px;
   }
   .game-gates {
     gap: 6px;
@@ -2115,7 +2125,7 @@
 
 /* P0-3：我的页面统一金库 / 领奖中心 */
 .unified-vault-card {
-  border-top: 3.5px solid var(--nt-gold);
+  border-top: 1.5px solid var(--card-border);
 }
 
 .unified-vault-total {
@@ -2292,15 +2302,56 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 40px;
-  max-height: 48px;
-  padding: 6px 11px;
-  border-radius: 13px;
-  border: 1.5px solid var(--nt-gold-edge, rgba(217, 138, 28, 0.50));
-  background: var(--nt-gold-soft);
+  min-height: 36px;
+  max-height: 44px;
+  padding: 5px 10px;
+  border-radius: 11px;
+  border: 1px solid var(--card-border);
+  border-left: 3px solid var(--nt-gold);
+  background: var(--paper-tray);
   color: var(--ink);
   text-decoration: none;
-  box-shadow: var(--card-shadow-sm);
+  box-shadow: none;
+}
+
+.plaza-mini-strip {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  gap: 2px;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+
+.plaza-mini-cell {
+  position: relative;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+}
+
+.plaza-mini-cell.pass { background: var(--nt-green); border-color: var(--nt-green); }
+.plaza-mini-cell.miss { background: var(--nt-rose); border-color: var(--nt-rose); }
+.plaza-mini-cell.active { background: var(--nt-blue); border-color: var(--nt-blue); }
+.plaza-mini-cell.threshold::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  right: -1.5px;
+  width: 2px;
+  background: var(--nt-red);
+  border-radius: 99px;
+  z-index: 2;
+}
+
+.plaza-pred-followup {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--card-border);
 }
 
 .plaza-compact-left {

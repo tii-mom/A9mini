@@ -646,6 +646,13 @@ export function renderParticipateConfirm(root, navigate) {
         </div>
       </div>
 
+      ${user.a9Available !== null && user.a9Available !== undefined && Number(user.a9Available) < 1000 ? `
+        <div class="sub-tile row-between" style="border-color:var(--gold-border);gap:8px;">
+          <span class="num-xs text-sec">${L(`当前可用 A9 不足 1,000（还差 ${formatNum(Math.ceil(1000 - Number(user.a9Available)))} A9）`, `Need ${formatNum(Math.ceil(1000 - Number(user.a9Available)))} more A9 to reach 1,000 minimum`)}</span>
+          <a class="btn btn-primary btn-sm" href="#/internal/market" style="white-space:nowrap;">${L('宝箱补足', 'Get A9')} ›</a>
+        </div>
+      ` : ''}
+
       ${renderStakeSummaryCardHtml({ amountA9: amount, round, weightMultiplier: calcWeight, prefix: 'demo', minStakeA9: 1000 })}
 
       <div class="risk-check" id="risk-consent-row" role="checkbox" aria-checked="false" tabindex="0">
@@ -805,7 +812,8 @@ function renderLiveStakeConfirm(root, navigate) {
   const roundController = cfg.contracts?.roundController || null;
   const minStakeRaw = BigInt(String(cfg.minStakeRaw || '1000000000000'));
   const minStakeA9 = Number(minStakeRaw / 1_000_000_000n) || 1000;
-  const protocolVer = cfg.stakeProtocolVersion || (cfg.protocolVersion === 'v16' ? 'v16.1' : config.stakeProtocolVersion);
+  const protocolVer = cfg.stakeProtocolVersion || (cfg.protocolVersion === 'v16' ? 'v16' : config.stakeProtocolVersion);
+  const protocolBadge = protocolVer === 'v16' ? 'V16.1' : String(protocolVer || 'v16').toUpperCase();
 
   let portfolio = null;
   let loadError = null;
@@ -836,7 +844,7 @@ function renderLiveStakeConfirm(root, navigate) {
       <div class="col-gap anim-page-enter">
         <div class="card card-hero">
           <div class="row-between" style="margin-bottom:10px;">
-            <span class="chip chip-gold">${L(`第 ${round.currentRound ?? '—'} 轮 · ${protocolVer.toUpperCase()}`, `Round ${round.currentRound ?? '—'} · ${protocolVer.toUpperCase()}`)}</span>
+            <span class="chip chip-gold">${L(`第 ${round.currentRound ?? '—'} 轮 · ${protocolBadge}`, `Round ${round.currentRound ?? '—'} · ${protocolBadge}`)}</span>
             <span class="num-xs text-sec">${L('可用 A9 余额', 'Available A9')}: ${balA9 === null ? L('未获取', 'Unavailable') : `${formatNum(balA9, 2)} A9`}</span>
           </div>
           <div class="input-box">
@@ -852,12 +860,20 @@ function renderLiveStakeConfirm(root, navigate) {
           ${loadError ? `<div class="num-xs text-red" style="margin-top:8px;">${escapeHtml(loadError)}</div>` : ''}
         </div>
 
+        ${balA9 !== null && balA9 < minStakeA9 ? `
+          <div class="sub-tile row-between" style="border-color:var(--gold-border);gap:8px;">
+            <span class="num-xs text-sec">${L(`当前可用 A9 不足 ${formatNum(minStakeA9)}（还差 ${formatNum(Math.ceil(minStakeA9 - balA9))} A9）`, `Need ${formatNum(Math.ceil(minStakeA9 - balA9))} more A9 for ${formatNum(minStakeA9)} minimum`)}</span>
+            <a class="btn btn-primary btn-sm" href="#/internal/market" style="white-space:nowrap;">${L('宝箱补足', 'Get A9')} ›</a>
+          </div>
+        ` : ''}
+
         ${renderStakeSummaryCardHtml({ amountA9, round, weightMultiplier: calcWeight, prefix: 'live', minStakeA9, roundController })}
 
         ${!store.fundsEnabled ? `
           <div class="card" id="live-readonly-stake-notice" style="border-color:var(--gold-border);">
             <div class="row-start" style="font-weight:600;margin-bottom:4px;">${icon('shieldAlert', 15, 'text-gold')} ${L('真实只读模式 · 暂未开放质押签名', 'Live Read-Only · Staking Disabled')}</div>
-            <div class="num-xs text-sec" style="line-height:1.5;">${L('真实只读模式 · 暂不发起签名或扣款。', 'Live read-only · no signature or transfer.')}</div>
+            <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:8px;">${L('真实只读模式 · 暂不发起签名或扣款。你可以先参与 0 GRAM 24H 预言擂台。', 'Live read-only · no signature or transfer. Try the 0 GRAM 24H Prediction Arena meantime.')}</div>
+            <a class="btn btn-secondary btn-sm" href="#/round" style="width:100%;">${icon('radar', 13)} ${L('先去 0 GRAM 预言擂台参与本轮', 'Join 0 GRAM Prediction Arena')} ›</a>
           </div>
         ` : ''}
 

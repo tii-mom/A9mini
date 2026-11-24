@@ -82,7 +82,7 @@ export function renderTeamHome(root, navigate) {
             <div class="row-start" style="font-size:17px;font-weight:900;">${escapeHtml(team.name || L('我的战队', 'My Squad'))} ${icon('shieldCheck', 16, 'text-green')}</div>
             <div class="row-start" style="margin-top:4px;gap:6px;">
               <span class="chip chip-green">${L('队长', 'Captain')} · Lv.${team.level || 1}</span>
-              <span class="chip chip-gold">+${team.boostPct || 0}% ${L('加成', 'Boost')}</span>
+              <span class="chip chip-gold">${L('直推返佣 6%', '6% Referral')} · DEMO</span>
             </div>
           </div>
           ${rolePill}
@@ -98,8 +98,8 @@ export function renderTeamHome(root, navigate) {
             <span class="num-md">${team.directInvites}</span>
           </div>
           <div class="metric-cell">
-            <span class="num-xs text-muted">${L('预估分红', 'Est. 1%')}</span>
-            <span class="num-md text-gold" id="captain-dividend-val">${formatNum(team.captainDividendTon || 0, 2)} GRAM</span>
+            <span class="num-xs text-muted">${L('累计推广', 'Promo A9')}</span>
+            <span class="num-md text-gold" id="captain-dividend-val">${formatNum(team.captainHistoryA9 || 5000)} A9</span>
           </div>
         </div>
 
@@ -122,7 +122,7 @@ export function renderTeamHome(root, navigate) {
             ? `<div class="empty-state" style="padding:14px;grid-column:1/-1;"><div class="num-xs text-muted">${L('暂无成员闯关战绩', 'No active members yet')}</div></div>`
             : (team.topMembers || []).map((m,i) => `
             <div class="guild-member"><img src="./assets/boxheads/activity/avatars/act-0${[5,4,6][i%3]}.png" alt=""><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
-              <div class="num-xs text-green mono" style="font-weight:800;">${formatNum(m.ton)} GRAM</div>
+              <div class="num-xs text-green mono" style="font-weight:800;">${formatNum(m.ton)} A9</div>
             </div>
           `).join('')}
         </div>
@@ -150,19 +150,19 @@ export function renderTeamHome(root, navigate) {
             <div style="font-size:17px;font-weight:900;">${L('星航冲锋战队', 'Star Voyagers')}</div>
             <div class="row-start" style="margin-top:4px;gap:6px;">
               <span class="chip chip-cyan">${L('成员', 'Member')} · Lv.3</span>
-              <span class="chip chip-gold">+10% ${L('加成', 'Boost')}</span>
+              <span class="chip chip-gold">${L('直推返佣 6%', '6% Referral')} · DEMO</span>
             </div>
           </div>
           ${rolePill}
         </div>
-        <div class="num-xs text-muted" style="margin-bottom:6px;">${L('升级进度 84% · 差 16 人升级 Lv.4 (+15%)', '84% · 16 more for Lv.4 (+15%)')}</div>
+        <div class="num-xs text-muted" style="margin-bottom:6px;">${L('战队活跃进度 84% · 直推购箱享 6% 实时返佣（演示样例）', '84% active · 6% direct chest referral (Demo sample)')}</div>
         <div class="progress-track" style="margin-bottom:10px;"><div class="progress-fill" style="width:84%"></div></div>
 
         <div class="metric-strip">
-          <div class="metric-cell"><span class="num-xs text-muted">${L('团队加成收益', 'Squad Bonus')}</span><span class="num-md text-green">+184,200 A9</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('邀友奖励', 'Invite Rewards')}</span><span class="num-md text-gold">+96,500 A9</span></div>
+          <div class="metric-cell"><span class="num-xs text-muted">${L('战队累计参与', 'Squad Volume')}</span><span class="num-md text-green">184,200 A9</span></div>
+          <div class="metric-cell"><span class="num-xs text-muted">${L('我的 6% 邀友返佣', 'My 6% Referral')}</span><span class="num-md text-gold">+96,500 A9</span></div>
         </div>
-        <button class="btn btn-primary" data-nav="/team/invite">${icon('qr', 16)} ${L('邀请好友 · 冲击 Lv.4 (+15%)', 'Invite Friends · Reach +15%')}</button>
+        <button class="btn btn-primary" data-nav="/team/invite">${icon('qr', 16)} ${L('生成招募海报 · 享 6% 直推返佣', 'Invite Poster · 6% Referral')}</button>
       </div>
 
       <div class="grid-3">
@@ -177,18 +177,18 @@ export function renderTeamHome(root, navigate) {
     `;
   } else {
     const squads = [
-      { id: 'TM-0001', name: L('A9 冒险战队', 'A9 Quest Squad'), lv: 'Lv.4', boost: '+15%', members: '412/500' },
-      { id: 'TM-8829', name: L('星航冲锋战队', 'Star Voyagers'), lv: 'Lv.3', boost: '+10%', members: '84/100' },
-      { id: 'TM-3042', name: L('金箔典藏战队', 'Gold Foil Collectors'), lv: 'Lv.3', boost: '+10%', members: '66/100' }
+      { id: 'TM-0001', name: L('A9 冒险战队', 'A9 Quest Squad'), lv: 'Lv.4', tag: L('6% 返佣', '6% Ref'), members: '412/500' },
+      { id: 'TM-8829', name: L('星航冲锋战队', 'Star Voyagers'), lv: 'Lv.3', tag: L('活跃榜', 'Active'), members: '84/100' },
+      { id: 'TM-3042', name: L('金箔典藏战队', 'Gold Foil Collectors'), lv: 'Lv.3', tag: L('同行队', 'Co-Op'), members: '66/100' }
     ];
     html = `
       <div class="card card-hero guild-board">
         <div class="row-between" style="margin-bottom:6px;">
-          <span class="chip chip-gold">${L('未加入战队 · 最高 +15%', 'No Squad · Up to +15%')}</span>
+          <span class="chip chip-gold">${L('v16.1 战队 · 6% 直推返佣', 'v16.1 Squad · 6% Referral')}</span>
           ${rolePill}
         </div>
         <div style="font-size:17px;font-weight:900;">${L('加入一个活跃战队', 'Join an Active Squad')}</div>
-        <div class="text-sec" style="font-size:12px;margin-top:4px;">${L('免费加入后，自动提升每轮收益分配与宝箱商城可用额度。', 'Join free to boost round rewards and Chest Mall quota.')}</div>
+        <div class="text-sec" style="font-size:12px;margin-top:4px;">${L('免费入队同步 24H 赛点战报；直推好友购箱享 6% 返佣，群主绑群领 5,000 A9 创世金库。', 'Join free for 24H squad alerts; earn 6% direct chest referral and 5,000 A9 captain founding vault.')}</div>
       </div>
 
       <div class="card">
@@ -204,7 +204,7 @@ export function renderTeamHome(root, navigate) {
                 <div class="num-xs text-muted">${s.lv} · ${s.members} ${L('人', 'members')}</div>
               </div>
               <div class="row-start" style="gap:6px;">
-                <span class="chip chip-gold">${s.boost}</span>
+                <span class="chip chip-gold">${s.tag}</span>
                 <button class="btn btn-primary btn-sm" data-join-team="${s.id}">${L('加入', 'Join')}</button>
               </div>
             </div>
@@ -217,7 +217,7 @@ export function renderTeamHome(root, navigate) {
   root.innerHTML = `<div class="col-gap anim-page-enter">${html}</div>`;
 
   const divEl = root.querySelector('#captain-dividend-val');
-  if (divEl) animateSlotCounter(divEl, Number(team.captainDividendTon) || 0, { duration: 600, decimals: 2, suffix: ' GRAM' });
+  if (divEl) animateSlotCounter(divEl, Number(team.captainHistoryA9) || 5000, { duration: 600, decimals: 0, suffix: ' A9' });
 
   const roleBtn = root.querySelector('#btn-role-sheet');
   if (roleBtn) {
@@ -225,9 +225,9 @@ export function renderTeamHome(root, navigate) {
       title: L('切换团队角色视角', 'Switch Squad View'),
       selected: role,
       options: [
-        { value: 'captain', label: L('队长指挥中枢', 'Captain Console'), sub: L('查看全队质押与 1% 实时分红', 'Team volume & 1% live fee') },
-        { value: 'member',  label: L('普通成员视图', 'Member View'),     sub: L('查看团队加成与升级进度', 'Squad boost & level progress') },
-        { value: 'none',    label: L('未加入 · 团队大厅', 'Squad Lobby'), sub: L('浏览并一键加入精英团队', 'Browse & join top squads') }
+        { value: 'captain', label: L('队长指挥中枢', 'Captain Console'), sub: L('查看全队参与、6% 返佣与 5,000 A9 创世金库', 'Squad volume, 6% referral & 5,000 A9 vault') },
+        { value: 'member',  label: L('普通成员视图', 'Member View'),     sub: L('查看战队动态与 6% 邀友返佣', 'Squad activity & 6% referral') },
+        { value: 'none',    label: L('未加入 · 团队大厅', 'Squad Lobby'), sub: L('浏览并一键加入活跃战队', 'Browse & join active squads') }
       ],
       onSelect: (val) => {
         store.update(s => { s.team.role = val; });
@@ -304,12 +304,12 @@ export function renderTeamProfile(root, navigate, id) {
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
       <div class="card card-hero">
-        <span class="chip chip-gold">#${safeId} · Lv.4</span>
+        <span class="chip chip-gold">#${safeId} · Lv.4 · DEMO</span>
         <div class="row-start" style="font-size:20px;font-weight:700;margin-top:8px;">${L('A9 冒险战队', 'A9 Quest Squad')} ${icon('shieldCheck', 18, 'text-green')}</div>
         <div class="metric-strip cols-3">
-          <div class="metric-cell"><span class="num-xs text-muted">${L('加成', 'Boost')}</span><span class="num-md text-green">+15%</span></div>
+          <div class="metric-cell"><span class="num-xs text-muted">${L('直推返佣', 'Referral')}</span><span class="num-md text-green">6%</span></div>
           <div class="metric-cell"><span class="num-xs text-muted">${L('成员', 'Members')}</span><span class="num-md">412</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('质押', 'Staked')}</span><span class="num-md">580,000</span></div>
+          <div class="metric-cell"><span class="num-xs text-muted">${L('质押 A9', 'Staked A9')}</span><span class="num-md">580,000</span></div>
         </div>
         <button class="btn btn-primary" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L('加入并参与质押', 'Join & Stake')}</button>
       </div>
@@ -539,9 +539,9 @@ export function renderInviteShare(root) {
             <span class="num-xs text-muted">${L('有效 16 人', '16 Valid')}</span>
           </div>
           <div class="col-gap">
-            <div class="list-row"><div><div class="num-sm">UQ...8892</div><div class="num-xs text-muted">5,000 GRAM · 2.0x</div></div><span class="chip chip-green">${L('已达标', 'Passed')}</span></div>
-            <div class="list-row"><div><div class="num-sm">EQ...3312</div><div class="num-xs text-muted">2,000 GRAM · 2.0x</div></div><span class="chip chip-gold">${L('观察中', 'Live')}</span></div>
-            <div class="list-row"><div><div class="num-sm">UQ...77ea</div><div class="num-xs text-muted">0 GRAM</div></div><span class="chip chip-muted">${L('待参与', 'Pending')}</span></div>
+            <div class="list-row"><div><div class="num-sm">UQ...8892</div><div class="num-xs text-muted">5,000 A9 · 2.0×</div></div><span class="chip chip-green">${L('已达标', 'Passed')}</span></div>
+            <div class="list-row"><div><div class="num-sm">EQ...3312</div><div class="num-xs text-muted">2,000 A9 · 2.0×</div></div><span class="chip chip-gold">${L('观察中', 'Live')}</span></div>
+            <div class="list-row"><div><div class="num-sm">UQ...77ea</div><div class="num-xs text-muted">0 A9</div></div><span class="chip chip-muted">${L('待参与', 'Pending')}</span></div>
           </div>
         </div>` : `<div class="card">
           <div class="card-header"><span class="card-title">${icon('team', 15)} ${L('被邀请人列表', 'Invitees')}</span></div>

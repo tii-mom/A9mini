@@ -899,7 +899,7 @@ export function renderProofDetail(root, navigate, certId) {
               </div>
             </div>
             <div class="cert-foot">
-              <span class="num-xs text-muted mono">A9 v16 · ${isSettled ? L('已结算', 'SETTLED') : L('24H 观察中', 'OBSERVING')}</span>
+              <span class="num-xs text-muted mono">A9 v16.1 · ${isSettled ? L('已结算', 'SETTLED') : L('24H 观察中', 'OBSERVING')}</span>
               ${renderMiniBarcode()}
             </div>
           </div>

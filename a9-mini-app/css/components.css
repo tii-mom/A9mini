@@ -72,17 +72,16 @@ img {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  min-height: calc(54px + var(--wv-safe-top));
-  padding: var(--wv-safe-top) 14px 0;
+  gap: 8px;
+  min-height: calc(50px + var(--wv-safe-top));
+  padding: var(--wv-safe-top) 12px 0;
   background: var(--header-bg);
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  border-bottom: 1px solid var(--card-border);
+  transition: border-color 0.2s ease;
 }
 
 .app-header.scrolled {
-  border-bottom-color: var(--card-border);
-  box-shadow: 0 3px 10px rgba(20, 22, 30, 0.04);
+  border-bottom-color: var(--card-border-strong);
 }
 
 .header-left, .header-right {
@@ -359,9 +358,8 @@ img {
 
 /* 主角卡：纯正任天堂精工实体硬卡 */
 .card-hero {
-  border-radius: 20px;
+  border-radius: 18px;
   border: 1.5px solid var(--card-border);
-  border-top: 4px solid var(--nt-red);
   box-shadow: var(--interactive-shadow);
 }
 
@@ -1415,20 +1413,20 @@ img {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: max(12px, var(--wv-safe-bottom));
+  bottom: max(10px, var(--wv-safe-bottom));
   width: min(calc(100% - 24px), 416px);
-  height: 64px;
-  padding: 6px;
-  border-radius: 22px;
-  border: 1px solid var(--card-border);
+  height: 58px;
+  padding: 4px;
+  border-radius: 20px;
+  border: 1.5px solid var(--card-border);
   background: var(--tabbar-bg);
   box-shadow:
     inset 0 1px 0 var(--card-highlight),
-    0 4px 0 var(--card-thickness),
-    0 12px 24px rgba(20, 22, 30, 0.12);
+    0 3.5px 0 var(--card-thickness),
+    0 10px 20px rgba(20, 22, 30, 0.10);
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+  gap: 4px;
   z-index: 45;
 }
 
@@ -1442,7 +1440,7 @@ img {
   transform: translateX(-50%);
   bottom: 0;
   width: min(100vw, 440px);
-  height: calc(44px + var(--wv-safe-bottom));
+  height: calc(40px + var(--wv-safe-bottom));
   background: linear-gradient(180deg, transparent 0%, var(--paper-bg) 56%, var(--paper-bg) 100%);
   pointer-events: none;
   z-index: 42;
@@ -1465,20 +1463,33 @@ img {
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
-  padding: 0;
-  transition: transform 0.18s var(--ease-spring), background 0.14s ease, color 0.14s ease;
+  padding: 2px 0 0;
+  transition: background 0.14s ease, color 0.14s ease;
 }
 
-.tab-item svg { width: 22px; height: 22px; }
+.tab-item svg { width: 21px; height: 21px; }
 
+/* Switch 精工指示灯选中态：柔和哑光底 + 正红图标文字 + 顶部 3px 指示短杠 */
 .tab-item.active {
-  background: var(--nt-red);
-  color: #FFFFFF;
-  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.34), 0 3px 0 var(--nt-red-edge);
-  transform: translateY(-2px);
+  background: var(--nt-red-soft);
+  color: var(--nt-red);
+  box-shadow: none;
+  transform: none;
 }
 
-.tab-item.active svg { animation: tab-boing 320ms var(--ease-spring); }
+.tab-item.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 22px;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: var(--nt-red);
+}
+
+.tab-item.active svg { animation: tab-boing 260ms var(--ease-spring); }
 
 .tab-badge {
   position: absolute;
@@ -1490,7 +1501,7 @@ img {
   background: var(--nt-red);
 }
 
-.tab-item.active .tab-badge { background: #FFFFFF; }
+.tab-item.active .tab-badge { background: var(--nt-red); }
 
 /* --------------------------------------------------------------------------
    八、底部抽屉弹层 & 轻提示 Toast
