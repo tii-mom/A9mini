@@ -150,7 +150,7 @@ function renderUnifiedVaultHtml({
       </div>
 
       <div class="grid-3" style="gap:6px;margin-top:10px;">
-        <a class="btn btn-primary btn-sm" href="#/claim" style="width:100%;min-height:38px;">${L('金库领奖', 'Claim')}</a>
+        <a class="btn btn-nt-green btn-sm" href="#/claim" style="width:100%;min-height:38px;">${L('金库领奖', 'Claim')}</a>
         <a class="btn btn-secondary btn-sm" href="#/team/invite" style="width:100%;min-height:38px;">${L('推广领奖', 'Promo')}</a>
         <a class="btn btn-secondary btn-sm" href="#/rewards" style="width:100%;min-height:38px;">${L('解锁档位', 'Vesting')}</a>
       </div>
@@ -869,14 +869,20 @@ export function renderProofDetail(root, navigate, certId) {
         <div class="cert-flip-card" id="cert-flip-card">
           <div class="cert-pass cert-detail-card cert-face front ${isSettled ? 'is-settled' : ''}">
             <div class="cert-top-bar">
-              <span class="cert-serial">SBT PASS · R${String(cert.round).padStart(2, '0')}</span>
+              <span class="row-start" style="gap:7px;">
+                <span class="cert-grip-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="cert-serial">SBT PASS · R${String(cert.round).padStart(2, '0')}</span>
+              </span>
               <span class="cert-status-pill">${icon('shieldCheck', 11)} ${config.isDemo ? L('演示凭证', 'DEMO') : L('链上验真', 'VERIFIED')}</span>
             </div>
             <div class="cert-body">
               <div class="cert-id-row">
-                <div>
+                <div style="min-width:0;">
                   <div class="cert-id-title">#${escapeHtml(cert.id)}</div>
-                  <div class="num-xs text-muted mono" style="margin-top:2px;">${escapeHtml(cert.txHash || 'PENDING')}</div>
+                  <button type="button" class="cert-hash-copy-btn" id="copy-cert-hash" title="${L('复制存证哈希', 'Copy Proof Hash')}">
+                    <span class="mono">${escapeHtml(cert.txHash || 'PENDING')}</span>
+                    ${icon('copy', 11)}
+                  </button>
                 </div>
                 <span class="cert-flip-pill">${icon('refresh', 11)} ${L('翻转验真', 'Flip')}</span>
               </div>
@@ -886,15 +892,15 @@ export function renderProofDetail(root, navigate, certId) {
               <div class="cert-metrics-grid">
                 <div class="cert-metric-tile">
                   <small>${L('质押本金', 'Stake')}</small>
-                  <strong>${formatNum(cert.stakeTon)}</strong>
+                  <strong>${formatNum(cert.stakeTon)}<span class="cert-unit">A9</span></strong>
                 </div>
-                <div class="cert-metric-tile">
+                <div class="cert-metric-tile is-gold">
                   <small>${L('早鸟权重', 'Boost')}</small>
                   <strong class="text-gold">${(Number(cert.multiplier) || 1).toFixed(1)}×</strong>
                 </div>
-                <div class="cert-metric-tile">
+                <div class="cert-metric-tile is-green">
                   <small>${estLabel}</small>
-                  <strong class="text-green">${formatNum(cert.estRewardA9)}</strong>
+                  <strong class="text-green">+${formatNum(cert.estRewardA9)}<span class="cert-unit">A9</span></strong>
                 </div>
               </div>
             </div>
@@ -906,7 +912,10 @@ export function renderProofDetail(root, navigate, certId) {
 
           <div class="cert-pass cert-face back">
             <div class="cert-top-bar">
-              <span class="cert-serial">TVM L1 VERIFICATION</span>
+              <span class="row-start" style="gap:7px;">
+                <span class="cert-grip-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="cert-serial">TVM L1 VERIFICATION</span>
+              </span>
               <span class="cert-status-pill">${icon('refresh', 11)} ${L('翻回正面', 'Front')}</span>
             </div>
             <div class="cert-body">
@@ -923,10 +932,9 @@ export function renderProofDetail(root, navigate, certId) {
       </div>
 
       <div class="grid-2">
-        <button class="btn btn-primary" id="btn-flex-cert" style="min-height:46px;font-size:14px;">${icon('qr', 15)} ${L('生成凭证海报', 'Proof Poster')}</button>
+        <button class="btn btn-nt-green" id="btn-flex-cert" style="min-height:46px;font-size:14px;">${icon('qr', 15)} ${L('生成凭证海报', 'Proof Poster')}</button>
         <button class="btn btn-secondary" id="btn-x-proof" style="min-height:46px;font-size:14px;">${icon('xBrand', 14)} ${L('发 X 炫耀凭证', 'Share on X')}</button>
       </div>
-      <button class="btn btn-secondary" id="copy-cert-hash" style="min-height:42px;font-size:13px;">${icon('copy', 14)} ${L('复制存证哈希', 'Copy Proof Hash')}</button>
 
       ${renderCorridorRadar(round.candles || [], round.targetPrice, round.activeCandleSec || 0, round.livePrice, { qualified: round.qualifiedCandles || 0, minQualified: round.minQualifiedCandles || 16, seen: round.candlesSeen || 0 })}
 
@@ -977,7 +985,7 @@ export function renderProofDetail(root, navigate, certId) {
         </div>
         <canvas id="flex-modal-canvas" class="poster-canvas ${posterMode === 'story' ? 'story-aspect' : ''}"></canvas>
         <div class="grid-2">
-          <button class="btn btn-primary" id="flex-dl-btn" style="min-height:46px;font-size:14px;">${icon('download', 15)} ${L('保存高清 PNG', 'Save PNG')}</button>
+          <button class="btn btn-nt-green" id="flex-dl-btn" style="min-height:46px;font-size:14px;">${icon('download', 15)} ${L('保存高清 PNG', 'Save PNG')}</button>
           <button class="btn btn-secondary" id="flex-story-btn" style="min-height:46px;font-size:14px;">${icon('story', 15)} ${L('一键发 TG Story', 'Post TG Story')}</button>
         </div>
       `);
@@ -1031,7 +1039,14 @@ export function renderProofDetail(root, navigate, certId) {
       context: { roundId: round.currentRound, qualified: round.qualifiedCandles, required: round.minQualifiedCandles }
     });
   });
-  root.querySelector('#copy-cert-hash').onclick = () => copyText(cert.txHash, L('已复制哈希', 'Copied'));
+  const copyHashBtn = root.querySelector('#copy-cert-hash');
+  if (copyHashBtn) {
+    copyHashBtn.onclick = (e) => {
+      e.stopPropagation();
+      A9Haptic.light();
+      copyText(cert.txHash, L('已复制存证哈希', 'Proof hash copied'));
+    };
+  }
 }
 
 export function renderRenewPage(root) {
@@ -1192,23 +1207,27 @@ export function renderLedgerPage(root) {
           </div>
 
           <section class="ledger-hero-card is-records">
-            <div class="row-between" style="margin-bottom:4px;">
-              <span class="num-xs text-muted">${L('累计质押本金', 'Total Staked Principal')}</span>
-              <span class="chip chip-muted mono">${history.length} ${L('轮', 'rounds')}</span>
+            <div class="ledger-ticket-head is-red">
+              <span class="row-start" style="gap:6px;"><span class="cert-grip-bars" aria-hidden="true"><i></i><i></i><i></i></span><span class="cert-serial">QUEST HISTORY</span></span>
+              <span class="cert-status-pill mono">${history.length} ${L('轮', 'ROUNDS')}</span>
             </div>
-            <div class="num-hero">${formatNum(totalStaked)} <span class="num-md text-green">A9</span></div>
-            <div class="ledger-kpi-strip">
-              <div class="ledger-kpi-box">
-                <small>${L('已结算', 'Settled')}</small>
-                <strong class="text-green">${settledCnt}</strong>
-              </div>
-              <div class="ledger-kpi-box">
-                <small>${L('观察中', 'Observing')}</small>
-                <strong class="text-cyan">${obsCnt}</strong>
-              </div>
-              <div class="ledger-kpi-box">
-                <small>${L('最高权重', 'Max Boost')}</small>
-                <strong class="text-gold">${history.length ? Math.max(...history.map(h => Number(h.multiplier) || 1)).toFixed(1) + '×' : '—'}</strong>
+            <div class="ledger-hero-body">
+              <span class="num-xs text-muted">${L('累计质押本金', 'Total Staked Principal')}</span>
+              <div class="num-hero" style="margin-top:2px;">${formatNum(totalStaked)} <span class="num-md text-green">A9</span></div>
+              <div class="cert-perf" aria-hidden="true"><span class="cert-perf-line"></span></div>
+              <div class="ledger-kpi-strip">
+                <div class="ledger-kpi-box">
+                  <small>${L('已结算', 'Settled')}</small>
+                  <strong class="text-green">${settledCnt}</strong>
+                </div>
+                <div class="ledger-kpi-box">
+                  <small>${L('观察中', 'Observing')}</small>
+                  <strong class="text-cyan">${obsCnt}</strong>
+                </div>
+                <div class="ledger-kpi-box">
+                  <small>${L('最高权重', 'Max Boost')}</small>
+                  <strong class="text-gold">${history.length ? Math.max(...history.map(h => Number(h.multiplier) || 1)).toFixed(1) + '×' : '—'}</strong>
+                </div>
               </div>
             </div>
           </section>
@@ -1258,23 +1277,27 @@ export function renderLedgerPage(root) {
         </div>
 
         <section class="ledger-hero-card">
-          <div class="row-between" style="margin-bottom:4px;">
-            <span class="num-xs text-muted">${L('累计记录收益', 'Cumulative Ledger Total')}</span>
-            <span class="chip chip-green mono">${rowsAll.length} ${L('笔', 'entries')}</span>
+          <div class="ledger-ticket-head is-green">
+            <span class="row-start" style="gap:6px;"><span class="cert-grip-bars" aria-hidden="true"><i></i><i></i><i></i></span><span class="cert-serial">REWARD LEDGER</span></span>
+            <span class="cert-status-pill mono">${rowsAll.length} ${L('笔', 'TX')}</span>
           </div>
-          <div class="num-hero text-green">+${formatNum(totalEarned)} <span class="num-md text-green">A9</span></div>
-          <div class="ledger-kpi-strip">
-            <div class="ledger-kpi-box">
-              <small>${L('用户奖励', 'User')}</small>
-              <strong>${userCnt} ${L('笔', '')}</strong>
-            </div>
-            <div class="ledger-kpi-box">
-              <small>${L('邀友奖励', 'Invite')}</small>
-              <strong class="text-gold">${promoCnt} ${L('笔', '')}</strong>
-            </div>
-            <div class="ledger-kpi-box">
-              <small>${L('开局预热', 'Pre-Round')}</small>
-              <strong class="text-cyan">${warmupCnt} ${L('笔', '')}</strong>
+          <div class="ledger-hero-body">
+            <span class="num-xs text-muted">${L('累计记录收益', 'Cumulative Ledger Total')}</span>
+            <div class="num-hero text-green" style="margin-top:2px;">+${formatNum(totalEarned)} <span class="num-md text-green">A9</span></div>
+            <div class="cert-perf" aria-hidden="true"><span class="cert-perf-line"></span></div>
+            <div class="ledger-kpi-strip">
+              <div class="ledger-kpi-box">
+                <small>${L('用户奖励', 'User')}</small>
+                <strong>${userCnt} ${L('笔', '')}</strong>
+              </div>
+              <div class="ledger-kpi-box">
+                <small>${L('邀友奖励', 'Invite')}</small>
+                <strong class="text-gold">${promoCnt} ${L('笔', '')}</strong>
+              </div>
+              <div class="ledger-kpi-box">
+                <small>${L('开局预热', 'Pre-Round')}</small>
+                <strong class="text-cyan">${warmupCnt} ${L('笔', '')}</strong>
+              </div>
             </div>
           </div>
         </section>
@@ -1335,11 +1358,14 @@ export function renderRecordsPage(root) {
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         <section class="ledger-hero-card is-records">
-          <div class="row-between" style="margin-bottom:4px;">
-            <span class="num-xs text-muted">${L('累计质押本金', 'Total Staked')}</span>
-            <span class="chip chip-muted mono">${history.length} ${L('轮', 'rounds')}</span>
+          <div class="ledger-ticket-head is-red">
+            <span class="row-start" style="gap:6px;"><span class="cert-grip-bars" aria-hidden="true"><i></i><i></i><i></i></span><span class="cert-serial">QUEST HISTORY</span></span>
+            <span class="cert-status-pill mono">${history.length} ${L('轮', 'ROUNDS')}</span>
           </div>
-          <div class="num-hero">${formatNum(totalStaked)} <span class="num-md text-green">A9</span></div>
+          <div class="ledger-hero-body">
+            <span class="num-xs text-muted">${L('累计质押本金', 'Total Staked')}</span>
+            <div class="num-hero" style="margin-top:2px;">${formatNum(totalStaked)} <span class="num-md text-green">A9</span></div>
+          </div>
         </section>
 
         <div class="filter-row">

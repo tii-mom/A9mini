@@ -164,8 +164,8 @@ function buildAngles(type, id, ctx = {}) {
         label: L('链上规则透明', 'Transparent'),
         text: isBoost
           ? L(
-              `A9 宝箱商城透明规则：1 GRAM = 2,002 A9 固定本金 100% 保底，开箱触发服务端随机暴击（5%–30% 区间，四档概率全公开）。`,
-              `A9 Chest Mall rules: 1 GRAM = 2,002 A9 base 100% guaranteed, plus server-side CSPRNG random crit (up to +5%–+30% across 4 transparent tiers).`
+              `A9 宝箱商城透明规则：付费宝箱 100% 固定本金保底直发，开箱触发服务端随机暴击（5%–30% 区间，四档概率全公开）。`,
+              `A9 Chest Mall rules: paid chests credit 100% base principal directly, plus server-side CSPRNG random crit (up to +5%–+30% across 4 transparent tiers).`
             )
           : L(
               `A9 协议双人同行礼：仅需连接链上活跃 TON 钱包校验（0 扣款、防女巫公开可查），同行推进【${label}】并自动激活青铜宝箱 #1。`,

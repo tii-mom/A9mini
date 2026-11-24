@@ -39,9 +39,12 @@ import { openXShareSheet, buildOgShareUrl, buildTmaDeepLink, getShareRef } from 
 
 const TIER_PRIORITY = ['diamond', 'platinum', 'gold', 'silver', 'bronze'];
 
-function openChestCelebrationModal({ tier = 'gold', title = '', totalA9 = 0, openedCount = 1, nextUnlocked = null, critCount = 0, legendaryCount = 0, budgetCapped = false } = {}) {
+function openChestCelebrationModal({ tier = 'gold', title = '', totalA9 = 0, baseA9 = 0, bonusA9 = null, openedCount = 1, nextUnlocked = null, critCount = 0, legendaryCount = 0, budgetCapped = false } = {}) {
   A9Audio.chestOpen();
   A9Haptic.success();
+  const hasPaidSplit = Number(baseA9) > 0;
+  const resolvedBonusA9 = bonusA9 !== null && bonusA9 !== undefined ? Number(bonusA9) : (hasPaidSplit ? Math.max(0, Number(totalA9) - Number(baseA9)) : Number(totalA9));
+  const displayTotalA9 = hasPaidSplit ? (Number(baseA9) + resolvedBonusA9) : Number(totalA9);
   const countLabel = openedCount > 1
     ? L(`已一键开启 ${openedCount} 个宝箱`, `Opened ${openedCount} Chests`)
     : (title || L('宝箱已开启', 'Chest Opened'));
@@ -50,6 +53,18 @@ function openChestCelebrationModal({ tier = 'gold', title = '', totalA9 = 0, ope
     : critCount > 0
       ? `<span class="chip chip-green" style="font-weight:900;">${L(`史诗暴击 ×${critCount}`, `Epic Crit ×${critCount}`)}</span>`
       : '';
+  const splitHtml = hasPaidSplit
+    ? `<div class="chest-burst-breakdown">
+         <div class="chest-burst-cell">
+           <small>${L('保底本金（购箱已到账）', 'Base Principal (Credited)')}</small>
+           <strong class="mono">${formatNum(baseA9, 2)} A9</strong>
+         </div>
+         <div class="chest-burst-cell is-bonus">
+           <small>${L('随机暴击（本次入账）', 'Random Crit (Just Added)')}</small>
+           <strong class="mono text-green">+${formatNum(resolvedBonusA9, 2)} A9</strong>
+         </div>
+       </div>`
+    : '';
   const capNote = budgetCapped
     ? `<div class="num-xs text-muted">${L('300M 活动暴击池已达上限，100% 固定本金不受影响', '300M bonus pool reached cap; 100% base principal unaffected')}</div>`
     : '';
@@ -60,18 +75,20 @@ function openChestCelebrationModal({ tier = 'gold', title = '', totalA9 = 0, ope
   openModal(`
     <div class="sheet-handle"></div>
     <div class="chest-burst-stage" id="chest-burst-stage">
-      ${renderChestOpenBurstSvg(tier, { size: 196 })}
+      ${renderChestOpenBurstSvg(tier, { size: 184 })}
       ${critChip}
+      <div class="chest-burst-kicker">${hasPaidSplit ? L('本箱累计总获得', 'Total Chest Yield') : L('本次开箱获得', 'Chest Reward')}</div>
       <div class="chest-burst-amount">
         ${renderA9CoinSvg({ size: 26 })}
-        <span>+${formatNum(totalA9, 2)} A9</span>
+        <span>+${formatNum(displayTotalA9, 2)} A9</span>
       </div>
       <div class="chest-burst-sub">${escapeHtml(countLabel)}</div>
+      ${splitHtml}
       ${capNote}
       ${nextNote}
       <div class="grid-2" style="width:100%;gap:8px;margin-top:8px;">
         <button class="btn btn-primary btn-sm" id="btn-burst-stake" type="button" style="width:100%;min-height:42px;">${icon('bolt', 14)} ${L('带 A9 去本轮闯关', 'Stake This Round')}</button>
-        <button class="btn btn-secondary btn-sm" id="btn-burst-collect" type="button" style="width:100%;min-height:42px;">${icon('checkCircle', 14)} ${L('收入金库', 'Collect A9')}</button>
+        <button class="btn btn-nt-green btn-sm" id="btn-burst-collect" type="button" style="width:100%;min-height:42px;">${icon('checkCircle', 14)} ${L('收入金库', 'Collect A9')}</button>
       </div>
       ${hasCritShare ? `<button class="btn btn-sm" id="btn-burst-share-crit" type="button" style="width:100%;margin-top:4px;background:transparent;color:var(--nt-gold-deep, var(--gold));font-weight:800;">${icon('send', 13)} ${L('炫耀暴击战报给群友', 'Share Crit Report')}</button>` : ''}
     </div>
@@ -836,7 +853,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
         ${activeTab === 'mall' ? `
           ${critFeed.length > 0 ? `<button type="button" class="mall-crit-ticker" id="mall-crit-ticker" aria-live="polite">${formatCritTickerInner(critFeed[critIndex % critFeed.length], critIndex % critFeed.length, critFeed.length)}</button>` : ''}
           <div class="mall-info-strip">
-            <span class="mall-rate-tag">1 GRAM = 2,002 A9</span>
+            <span class="mall-rate-tag is-green">${icon('shieldCheck', 12, 'text-green')} ${L('100% 本金保底 · 最高 +30% 暴击', '100% Base Safe · Up to +30% Crit')}</span>
             <div class="mall-quick-pills">
               ${activeShopChests.length > 0 ? `<button type="button" class="mall-quick-btn is-hot" id="btn-jump-active-chests">${L('持有宝箱', 'Held')} ${activeShopChests.length}</button>` : ''}
               <button type="button" class="mall-quick-btn" data-nav="/internal/records">${icon('receipt', 12)} ${L('小票', 'Receipts')}${config.isDemo && market.records.length ? ` (${market.records.length})` : (liveOrdersCount ? ` (${liveOrdersCount})` : '')}</button>
@@ -902,7 +919,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
 
               <div class="sub-tile" style="padding:8px 11px;margin:8px 0;">
                 <div class="row-between num-xs">
-                  <span class="text-sec">${L('宝箱货款（1 GRAM = 2,002 A9）', 'Chest Principal (1 GRAM = 2,002 A9)')}</span>
+                  <span class="text-sec">${L('宝箱货款（固定本金直发）', 'Chest Principal (Base A9 Direct)')}</span>
                   <span class="mono">${sel.priceGram} GRAM</span>
                 </div>
                 <div class="row-between num-xs" style="margin-top:4px;">
@@ -1292,10 +1309,14 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
             if (TIER_PRIORITY.indexOf(t) < TIER_PRIORITY.indexOf(bestTier)) bestTier = t;
           }
         }
+        const batchBaseA9 = rawToA9(batchRes.totalBaseA9Raw) || 0;
+        const batchBonusA9 = rawToA9(batchRes.totalRewardA9Raw) || 0;
         openChestCelebrationModal({
           tier: bestTier,
           title: fallbackTitle || L(targets[0].labelZh, targets[0].labelEn),
-          totalA9: rawToA9(batchRes.totalRewardA9Raw) || 0,
+          baseA9: batchBaseA9,
+          bonusA9: batchBonusA9,
+          totalA9: batchBaseA9 + batchBonusA9,
           openedCount: Number(batchRes.openedCount || 0),
           critCount: Number(batchRes.critCount || 0),
           legendaryCount: Number(batchRes.legendaryCount || 0),

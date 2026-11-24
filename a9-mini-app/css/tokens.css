@@ -62,9 +62,10 @@
   --nt-blue-edge: #1851A8;
   --nt-blue-soft: #EDF4FE;
 
-  --nt-green: #12A85D;
-  --nt-green-edge: #0B743F;
-  --nt-green-soft: #E9F8F0;
+  --nt-green: #00A859;
+  --nt-green-edge: #00743D;
+  --nt-green-soft: #E7F8EF;
+  --nt-green-ink: #006B38;
 
   --nt-gold: #E5A000;
   --nt-gold-top: #F2B82E;
@@ -169,9 +170,10 @@
   --nt-blue-edge: #1D4B8F;
   --nt-blue-soft: #172235;
 
-  --nt-green: #22C272;
-  --nt-green-edge: #0E6B3C;
-  --nt-green-soft: #142920;
+  --nt-green: #22C876;
+  --nt-green-edge: #0E7542;
+  --nt-green-soft: #132B20;
+  --nt-green-ink: #4BE598;
 
   --nt-gold: #F2B82E;
   --nt-gold-top: #F2B82E;

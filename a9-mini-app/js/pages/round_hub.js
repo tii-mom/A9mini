@@ -1069,20 +1069,59 @@ export function renderParticipateSuccess(root, navigate, certId) {
   const boxhead = getBoxheadItem(tier, series);
   const seriesCode = series === 'wealth' ? 'WLT' : 'ACT';
 
+  const bars = [2, 1, 3, 1, 2, 2, 1, 3, 1, 2];
+  const miniBarcode = `<span class="receipt-barcode" aria-hidden="true">${bars.map((w) => `<i style="width:${w}px;"></i>`).join('')}</span>`;
+  const estReward = Number(cert.estRewardA9) || Math.round((Number(cert.stakeTon) || 0) * (Number(cert.multiplier) || 1) * 7.5);
+
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
-      <div class="cert-pass cert-detail-card success-cert-stage anim-cert-drop anim-card-thump" id="success-cert-card" style="text-align:center;">
-        <span class="cert-corner tl"></span><span class="cert-corner tr"></span>
-        <span class="cert-corner bl"></span><span class="cert-corner br"></span>
-        <span class="success-stamp-seal anim-seal-slam" id="success-stamp-seal" aria-hidden="true">
-          <b>${L('已出征', 'SEALED')}</b>
-          <span>ROUND ${cert.round}</span>
-        </span>
-        <div class="icon-badge neon" style="width:48px;height:48px;margin:0 auto 10px;border-radius:14px;">${icon('checkCircle', 24)}</div>
-        <div style="font-size:18px;font-weight:900;">${L('入场成功 · 凭证已盖章出征', 'Quest Entry Sealed')}</div>
-        <div class="num-lg text-green" style="margin:6px 0;">${formatNum(cert.stakeTon)} A9 · ${cert.multiplier.toFixed(1)}x</div>
-        <div class="num-xs text-sec clickable" id="copy-tx">#${cert.id} ${icon('copy', 12)}</div>
-        <div class="num-xs text-muted" style="margin-top:4px;">${config.isDemo ? L('演示模式 · 凭证与哈希为模拟数据', 'DEMO · certificate and hash are simulated') : L('等待链上确认后开放凭证分享', 'Proof sharing opens after on-chain confirmation')}</div>
+      <div class="cert-pass is-settled cert-detail-card success-cert-stage anim-cert-drop anim-card-thump" id="success-cert-card">
+        <div class="cert-top-bar">
+          <span class="row-start" style="gap:7px;">
+            <span class="cert-grip-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="cert-serial">QUEST ENTRY · R${String(cert.round).padStart(2, '0')}</span>
+          </span>
+          <span class="cert-status-pill">${icon('shieldCheck', 11)} ${config.isDemo ? 'DEMO' : L('已上链', 'ON-CHAIN')}</span>
+        </div>
+
+        <div class="cert-body" style="position:relative;">
+          <span class="success-stamp-seal tone-green anim-seal-slam" id="success-stamp-seal" aria-hidden="true">
+            <b>${L('已出征', 'SEALED')}</b>
+            <span>ROUND ${cert.round}</span>
+          </span>
+
+          <div style="text-align:center;padding:4px 0 2px;">
+            <div class="icon-badge neon" style="width:44px;height:44px;margin:0 auto 8px;border-radius:13px;">${icon('checkCircle', 22)}</div>
+            <div style="font-size:17.5px;font-weight:900;color:var(--ink);">${L('入场成功 · 凭证已盖章出征', 'Quest Entry Sealed')}</div>
+            <div class="num-lg text-green mono" style="margin:5px 0 6px;font-weight:900;">${formatNum(cert.stakeTon)} A9 · ${(Number(cert.multiplier) || 1).toFixed(1)}×</div>
+            <button type="button" class="cert-hash-copy-btn" id="copy-tx" style="margin:0 auto;">
+              <span class="mono">#${escapeHtml(cert.id)}</span>
+              ${icon('copy', 11)}
+            </button>
+          </div>
+
+          <div class="cert-perf" aria-hidden="true"><span class="cert-perf-line"></span></div>
+
+          <div class="cert-metrics-grid">
+            <div class="cert-metric-tile is-green">
+              <small>${L('预计奖励', 'Est. Reward')}</small>
+              <strong class="text-green">+${formatNum(estReward)}<span class="cert-unit">A9</span></strong>
+            </div>
+            <div class="cert-metric-tile">
+              <small>${L('达标门槛', 'Pass Goal')}</small>
+              <strong>16 / 24</strong>
+            </div>
+            <div class="cert-metric-tile is-gold">
+              <small>${L('24H 观测', '24H Board')}</small>
+              <strong class="text-gold">${L('已启动', 'LIVE')}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="cert-foot">
+          <span class="num-xs text-muted">${config.isDemo ? L('演示模式 · 模拟凭证', 'DEMO · simulated pass') : L('链上确认后可公开核验', 'On-chain verifiable')}</span>
+          ${miniBarcode}
+        </div>
       </div>
 
       <section class="success-cheer-card">
@@ -1096,7 +1135,7 @@ export function renderParticipateSuccess(root, navigate, certId) {
         </div>
       </section>
 
-      <button class="btn btn-primary" id="share-cert-btn">${icon('send', 15)} ${L('分享战绩 · 邀友奖励 6%', 'Share · 6% Invite')}</button>
+      <button class="btn btn-nt-green" id="share-cert-btn">${icon('send', 15)} ${L('分享战绩 · 邀友奖励 6%', 'Share · 6% Invite')}</button>
       <div class="grid-2">
         <button class="btn btn-secondary" data-nav="/proof/${cert.id}">${icon('shieldCheck', 15)} ${L('闯关凭证', 'Quest Pass')}</button>
         <button class="btn btn-secondary" data-nav="/round">${icon('radar', 15)} ${L('查看观测盘', '24H Board')}</button>
