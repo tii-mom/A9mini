@@ -146,7 +146,6 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
 **前置门禁**：
 - STON.fi 主网 A9/GRAM 初始流动性池已建立并产生稳定 24H TWAP 行情；
 - 再次核对 `RoundController` JettonWallet 余额精确为 `8,200,000,000 A9` 且 `teamWallet` 为正确多签/硬件地址；
-- **波次 3 前前端必过验收项（v16 托管退款入口）**：Live 态 `/claim` 页面、TonConnect 发送层（`sendV16ClaimFailedRefund`）与 Worker `get_failed_refund` 查询均已挂接并通过本地单测；开轮前仅需在测试网补一次低 Gas 失败退回实测验收；
 
 ### 3.1 轮次日常运维（主网强制严格 K 线对齐）
 ```bash

@@ -69,9 +69,16 @@ export function mapV15RoundDetail(roundId, round, candles = [], nowSec = Math.fl
   };
 }
 
+export function resolveProtocolVersion(rawValue, defaultVersion = 'v16') {
+  const raw = String(rawValue ?? '').trim().toLowerCase();
+  if (!raw) return defaultVersion;
+  if (raw === 'v16' || raw === 'v15') return raw;
+  throw new Error(`Unsupported A9_PROTOCOL_VERSION: "${rawValue}" (expected "v16" or "v15")`);
+}
+
 export function buildV15ConfigPayload(env = {}, protocolState = null) {
   const A9 = 1_000_000_000n;
-  const proto = String(env.A9_PROTOCOL_VERSION || 'v15').trim().toLowerCase() === 'v16' ? 'v16' : 'v15';
+  const proto = resolveProtocolVersion(env.A9_PROTOCOL_VERSION, 'v16');
   const maxRoundId = proto === 'v16' ? 4294967295 : 255;
   const ps = protocolState && typeof protocolState === 'object' ? protocolState : null;
   const dataAvailable = Boolean(

@@ -21,6 +21,7 @@ const DETERMINISTIC_PROMO_SKIP_CODES = new Set([
   'CLAIM_EXPIRED',
   'INSUFFICIENT_BALANCE',
   'WRONG_DEST',
+  'WRONG_PAYER',
 ]);
 
 export class PromoPayoutRunner {

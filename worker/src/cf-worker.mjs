@@ -475,7 +475,6 @@ export default {
             jettonMasterAddress: jmAddr,
             roundControllerAddress: rcAddr,
             roundIds,
-            includeFailedRefund: String(env.A9_PROTOCOL_VERSION || '').trim().toLowerCase() === 'v16',
           });
         }
       : null;

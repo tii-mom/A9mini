@@ -142,7 +142,7 @@ export function demoFundsClaimPromo(state) {
 
 export function demoFundsStake(state, amount) {
   const amt = Number(amount);
-  if (!amt || amt < 10 || amt > state.user.tonBalance) return null;
+  if (!amt || amt < 1000 || amt > state.user.a9Available) return null;
   const certId = `A9-STAKE-R0${state.round.currentRound}-${Math.floor(100000 + Math.random() * 899999)}`;
   const mult = state.round.myEarlyTier || 2;
   const cert = {
@@ -151,13 +151,13 @@ export function demoFundsStake(state, amount) {
     stakeTon: amt,
     multiplier: mult,
     weight: amt * mult,
-    estRewardA9: Math.round(amt * mult * 126),
+    estRewardA9: Math.round(amt * mult * 7.5),
     status: 'observation',
     autoRenew: state.user.autoRenew,
     txHash: demoTxHash(),
     timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19) + ' (UTC+8)'
   };
-  state.user.tonBalance = Number((state.user.tonBalance - amt).toFixed(2));
+  state.user.a9Available = Number((state.user.a9Available - amt).toFixed(2));
   state.user.profileMode = 'active';
   state.round.myStakeTon += amt;
   state.round.myWeight += amt * mult;
@@ -274,10 +274,10 @@ export function applyDemoInitialState(state) {
     {
       id: 'A9-STAKE-R03-882419',
       round: 3,
-      stakeTon: 500,
+      stakeTon: 5000,
       multiplier: 2.0,
-      weight: 1000,
-      estRewardA9: 126000,
+      weight: 10000,
+      estRewardA9: 75000,
       status: 'observation',
       autoRenew: true,
       txHash: 'EQB9A4C72F...81E4',
@@ -286,10 +286,10 @@ export function applyDemoInitialState(state) {
     {
       id: 'A9-STAKE-R02-641205',
       round: 2,
-      stakeTon: 300,
+      stakeTon: 3000,
       multiplier: 1.4,
-      weight: 420,
-      estRewardA9: 128400,
+      weight: 4200,
+      estRewardA9: 45000,
       status: 'settled',
       autoRenew: false,
       txHash: 'EQD3F8B19A...4C02',

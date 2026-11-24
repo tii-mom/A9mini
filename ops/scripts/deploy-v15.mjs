@@ -4,7 +4,12 @@ import { spawnSync } from 'node:child_process';
 import { validateDeployPreflight } from './lib/v15-core.mjs';
 
 function parseArgs(argv) {
-  const out = { profile: process.env.A9_PROFILE || process.env.A9_NETWORK || 'testnet', execute: false, strict: false, protocol: 'v15' };
+  const out = {
+    profile: process.env.A9_PROFILE || process.env.A9_NETWORK || 'testnet',
+    execute: false,
+    strict: false,
+    protocol: process.env.A9_PROTOCOL_VERSION || 'v16',
+  };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--profile' || argv[i] === '--network') out.profile = argv[++i];
     else if (argv[i] === '--protocol') out.protocol = argv[++i];

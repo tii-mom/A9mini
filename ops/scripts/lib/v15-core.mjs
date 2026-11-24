@@ -10,10 +10,11 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const OPS_ROOT = resolve(__dirname, '../..');
 export const V15_ROOT = resolve(OPS_ROOT, '../v15');
-export function resolveProtocolRoot(protocolVersion) {
+export const V16_ROOT = resolve(OPS_ROOT, '../v16');
+export function resolveProtocolRoot(protocolVersion = 'v16') {
+  if (protocolVersion === 'v16') return V16_ROOT;
   if (protocolVersion === 'v15') return V15_ROOT;
-  if (protocolVersion === 'v16') return resolve(OPS_ROOT, '../v16');
-  throw new Error('--protocol must be v15 or v16');
+  throw new Error(`--protocol must be v16 or v15, got ${protocolVersion}`);
 }
 
 
@@ -137,8 +138,8 @@ export function validateParams(p) {
   return true;
 }
 
-export function verifyV15Artifacts(v15Root = V15_ROOT) {
-  const manifestPath = resolve(v15Root, 'ci/artifacts.sha256');
+export function verifyV15Artifacts(protocolRoot = V16_ROOT) {
+  const manifestPath = resolve(protocolRoot, 'ci/artifacts.sha256');
   const lines = readFileSync(manifestPath, 'utf8')
     .split('\n')
     .map((l) => l.trim())
@@ -146,14 +147,14 @@ export function verifyV15Artifacts(v15Root = V15_ROOT) {
   const results = [];
   for (const line of lines) {
     const [expectedHash, relPath] = line.split(/\s+/);
-    const fullPath = resolve(v15Root, relPath);
+    const fullPath = resolve(protocolRoot, relPath);
     const actualHash = createHash('sha256').update(readFileSync(fullPath)).digest('hex');
     if (actualHash !== expectedHash) {
       throw new Error(`artifact hash mismatch for ${relPath}: expected ${expectedHash}, got ${actualHash}`);
     }
     results.push({ relPath, sha256: actualHash });
   }
-  if (results.length !== 4) throw new Error(`expected 4 v15 artifacts, found ${results.length}`);
+  if (results.length !== 4) throw new Error(`expected 4 contract artifacts, found ${results.length}`);
   return results;
 }
 
@@ -527,7 +528,7 @@ export function parseActonDerivedAddresses(stdout = '') {
  * and execution confirmation gates.
  */
 export function validateDeployPreflight({
-  protocol = 'v15',
+  protocol = 'v16',
   profile = 'testnet',
   env = process.env,
   execute = false,

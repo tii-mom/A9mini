@@ -12,7 +12,6 @@ export const V15_OPCODES = Object.freeze({
   JETTON_TRANSFER: 0x0f8a7ea5,
   STAKE_DEPOSIT: 0x5254000f,
   STAKE_DEPOSIT_V16: 0x52540010,
-  CLAIM_FAILED_REFUND_V16: 0x52540005,
   TICKET_CLAIM: 0x52540303,
 });
 
@@ -20,7 +19,6 @@ export const V15_GAS = Object.freeze({
   STAKE_FORWARD_NANO: '150000000',       // 0.15 TON forward to RoundController
   STAKE_TOTAL_NANO: '300000000',         // 0.30 TON attached to user's JettonWallet
   CLAIM_NANO: '220000000',               // 0.22 TON attached to StakeTicket
-  CLAIM_FAILED_REFUND_NANO: '150000000', // 0.15 TON user-paid gas to pull v16 escrowed refund
   PROMO_FEE_NANO: '60000000',            // 0.06 TON user-covered gas to promo hot wallet
 });
 
@@ -209,7 +207,7 @@ export function encodeStakeJettonTransferBoc({
   roundId,
   queryId = BigInt(Date.now()),
   forwardTonNano = V15_GAS.STAKE_FORWARD_NANO,
-  protocolVersion = 'v15',
+  protocolVersion = 'v16',
 }) {
   if (!roundController || !responseDestination) throw new Error('roundController and responseDestination required');
   if (BigInt(amountA9Raw) <= 0n) throw new Error('amountA9Raw must be positive');
@@ -246,7 +244,7 @@ export function buildV15StakeTx({
   amountA9Raw,
   roundId,
   queryId = BigInt(Date.now()),
-  protocolVersion = 'v15',
+  protocolVersion = 'v16',
 }) {
   if (!userJettonWallet) throw new Error('userJettonWallet is required');
   return {
@@ -311,29 +309,6 @@ export function buildV15PresaleTx({ payTo, tonNano, memo }) {
         address: payTo,
         amount: String(tonNano),
         payload: encodeTextCommentBoc(memo),
-      },
-    ],
-  };
-}
-
-/** Build v16 RoundController ClaimFailedRefund BOC: op(0x52540005, 32b) + queryId(64b) */
-export function encodeClaimFailedRefundBoc(queryId = BigInt(Date.now())) {
-  const b = new BitBuilder()
-    .storeUint(V15_OPCODES.CLAIM_FAILED_REFUND_V16, 32)
-    .storeUint(BigInt(queryId), 64);
-  return encodeCellsBoc(b);
-}
-
-/** Ready-to-sign TON Connect 2.0 tx for pulling v16 W3 escrowed low-gas/bounced refunds */
-export function buildV16ClaimFailedRefundTx(roundController, queryId = BigInt(Date.now())) {
-  if (!roundController) throw new Error('roundController is required');
-  return {
-    validUntil: Math.floor(Date.now() / 1000) + 300,
-    messages: [
-      {
-        address: roundController,
-        amount: V15_GAS.CLAIM_FAILED_REFUND_NANO,
-        payload: encodeClaimFailedRefundBoc(queryId),
       },
     ],
   };

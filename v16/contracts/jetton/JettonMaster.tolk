@@ -1,18 +1,12 @@
-// A9 Protocol v15 — Standard TEP-74 / TEP-89 Jetton Master (mint-once-then-drop-admin)
+// A9 协议 v16 — 标准 TEP-74 / TEP-89 JettonMaster（100 亿一次性铸造后永久放弃管理员权限）
 import "@gen/JettonWallet.code"
-import "errors"
-import "fees-management"
-import "jetton-utils"
-import "messages"
-import "sharding"
 import "storage"
 
-// 10,000,000,000 A9 (9 decimals)
 const TOTAL_SUPPLY_RAW: coins = 10000000000000000000;
 
 contract JettonMaster {
     author: "A9 Protocol"
-    version: "15.0.0"
+    version: "16.0.0"
     description: "Standard TEP-74 Jetton Master: mint 10B A9 once then permanently renounce admin."
     storage: MasterStorage
     incomingMessages: MasterAllowedMessage
@@ -66,7 +60,7 @@ fun onInternalMessage(in: InMessage) {
 
             reserveToncoinsOnBalance(ton("0.01"), RESERVE_MODE_EXACT_AMOUNT);
 
-            val deployMsg = createMessage({
+            createMessage({
                 bounce: BounceMode.Only256BitsOfBody,
                 dest: calcDeployedJettonWallet(msg.recipient, contract.getAddress(), jettonWalletCompiledCode()),
                 value: msg.tonAmount,
@@ -78,8 +72,7 @@ fun onInternalMessage(in: InMessage) {
                     forwardTonAmount: 0,
                     forwardPayload: msg.forwardPayload,
                 },
-            });
-            deployMsg.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+            }).send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
         }
 
         BurnNotificationForMinter => {

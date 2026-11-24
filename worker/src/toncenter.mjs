@@ -777,27 +777,11 @@ export class TonCenterClient {
     }
   }
 
-  /** Read v16 RoundController.get_failed_refund(owner) escrowed low-gas/bounced refund balance. */
-  async fetchUserFailedRefund(roundControllerAddress, ownerAddress) {
-    const ownerBoc = encodeAddressSliceBoc(ownerAddress);
-    const s = await this.runGetMethod(roundControllerAddress, 'get_failed_refund', [
-      ['tvm.Slice', ownerBoc],
-    ]);
-    if (!Array.isArray(s) || s.length < 1) {
-      throw new Error('get_failed_refund returned empty stack');
-    }
-    const amt = TonCenterClient.parseStrictNum(s[0], { allowNegative: false });
-    if (amt === null) {
-      throw new Error('get_failed_refund returned malformed balance');
-    }
-    return amt.toString();
-  }
-
   /**
-   * 读取用户链上 JettonWallet、A9 余额、活跃 StakeTicket 与可选 v16 托管退款余额（P0-G）。
+   * 读取用户链上 JettonWallet、A9 余额与活跃 StakeTicket（P0-G）。
    * 链上未配置或请求失败时严格返回 null 与不可用标记，绝不将查询失败显示为余额 0。
    */
-  async fetchUserPortfolio(ownerAddress, { jettonMasterAddress = null, roundControllerAddress = null, roundIds = [], includeFailedRefund = false } = {}) {
+  async fetchUserPortfolio(ownerAddress, { jettonMasterAddress = null, roundControllerAddress = null, roundIds = [] } = {}) {
     let jettonWallet = null;
     let a9BalanceRaw = null;
     let balanceAvailable = false;
@@ -825,17 +809,6 @@ export class TonCenterClient {
         }
       }
     }
-    let failedRefundRaw = null;
-    let failedRefundAvailable = false;
-    if (roundControllerAddress && includeFailedRefund) {
-      try {
-        failedRefundRaw = await this.fetchUserFailedRefund(roundControllerAddress, ownerAddress);
-        failedRefundAvailable = true;
-      } catch {
-        failedRefundRaw = null;
-        failedRefundAvailable = false;
-      }
-    }
     const onchainAvailable = Boolean(
       (jettonMasterAddress || roundControllerAddress) &&
       (!jettonMasterAddress || balanceAvailable) &&
@@ -847,7 +820,6 @@ export class TonCenterClient {
       balanceAvailable,
       tickets,
       ticketsAvailable,
-      ...(includeFailedRefund ? { failedRefundRaw, failedRefundAvailable } : {}),
       onchainAvailable,
     };
   }

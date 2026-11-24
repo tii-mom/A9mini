@@ -99,15 +99,22 @@ function resolveApiBase() {
 
 export const V15_SOURCE = Object.freeze({
   project: 'A9mini',
-  protocolVersion: 'v15',
-  contractsDir: 'A9mini/v15/',
+  protocolVersion: 'v16',
+  contractsDir: 'A9mini/v16/',
   workerDir: 'A9mini/worker/',
-  spec: '4 合约极简架构（标准 TEP-74 Jetton + RoundController + StakeTicket）+ 0 合约推广热钱包（0.06 GRAM）',
-  note: 'Batch A 已关闭 live 资金入口并限制非信任 API URL 覆盖；待 B–F 独立验收通过后再开放实盘。'
+  spec: '4 合约极简架构（标准零魔改 TEP-74 Jetton + O(1) 零待决字典 RoundController + StakeTicket）+ 0 合约推广热钱包（0.06 GRAM）',
+  note: 'v16 纯净版已锁定为唯一主网基准；live 资金入口默认关闭并限制非信任 API URL 覆盖。'
 });
 
 // 保留别名兼容旧引用
 export const BAM_SOURCE = V15_SOURCE;
+
+function resolveStakeProtocolVersion(raw) {
+  if (raw === undefined || raw === null || raw === '') return 'v16';
+  const v = String(raw).trim().toLowerCase();
+  if (v === 'v16' || v === 'v15') return v;
+  throw new Error(`不支持的质押协议版本配置: ${raw}（仅允许 v16 或 v15）`);
+}
 
 const resolvedMode = readMode();
 const resolvedApi = resolveApiBase();
@@ -121,7 +128,7 @@ export const config = Object.freeze({
   // 真实资金签名总闸：仅允许由受信任部署配置 window.__A9_CONFIG__.liveFundsEnabled === true 显式开启，
   // 绝不接受 URL 参数覆盖，默认严格保持 false（只读验收态）。
   liveFundsEnabled: resolvedMode === 'live' && injected.liveFundsEnabled === true,
-  stakeProtocolVersion: injected.stakeProtocolVersion === 'v16' ? 'v16' : 'v15',
+  stakeProtocolVersion: resolveStakeProtocolVersion(injected.stakeProtocolVersion),
   timeoutMs: Number(params.get('timeout')) > 0 ? Number(params.get('timeout')) : 15000,
   pollMs: Number(params.get('poll')) > 0 ? Number(params.get('poll')) : 15000
 });

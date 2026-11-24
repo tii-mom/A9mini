@@ -71,8 +71,8 @@ function buildAngles(type, id, ctx = {}) {
         key: 'data',
         label: L('数据派', 'Data'),
         text: L(
-          `A9 第 ${roundNum} 轮链上闯关凭证 #${id} 已生成：参与 ${stakeTon} GRAM，早鸟权重 ${mult}x，当前 24H 达标时段 ${passed}/${required}，目标底价 ${target}。`,
-          `A9 Round #${roundNum} Proof #${id}: ${stakeTon} GRAM staked at ${mult}x early weight. 24H slots ${passed}/${required}, target ${target}.`
+          `A9 第 ${roundNum} 轮链上闯关凭证 #${id} 已生成：质押 ${stakeTon} A9，早鸟权重 ${mult}x，当前 24H 达标时段 ${passed}/${required}，目标底价 ${target}。`,
+          `A9 Round #${roundNum} Proof #${id}: ${stakeTon} A9 staked at ${mult}x early weight. 24H slots ${passed}/${required}, target ${target}.`
         )
       },
       {
@@ -87,8 +87,8 @@ function buildAngles(type, id, ctx = {}) {
         key: 'casual',
         label: L('吃瓜自嘲派', 'Banter'),
         text: L(
-          `把 ${stakeTon} GRAM 押进了 A9 第 ${roundNum} 轮 24H 赛点，目前 ${passed}/${required} 段达标，是吃肉还是看烟花就看接下来几小时了。`,
-          `Put ${stakeTon} GRAM into A9 Round #${roundNum}. Currently ${passed}/${required} slots qualified—either settlement or fireworks next.`
+          `把 ${stakeTon} A9 押进了 A9 第 ${roundNum} 轮 24H 赛点，目前 ${passed}/${required} 段达标，是吃肉还是看烟花就看接下来几小时了。`,
+          `Put ${stakeTon} A9 into A9 Round #${roundNum}. Currently ${passed}/${required} slots qualified—either settlement or fireworks next.`
         )
       }
     ];

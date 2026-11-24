@@ -315,7 +315,7 @@ export function city() {
   if (r.stage === 'participation') {
     focusKicker = L('参与窗口开放中 · 早鸟权重', 'ENTRY OPEN · EARLY WEIGHT');
     focusHtml = `<span class="focus-accent-gold">2.0×</span> <span class="focus-unit">${L('首段早鸟', 'Early Tier')}</span>`;
-    focusSub = L('最低 10 GRAM 参与 · 权重档位 2.0× / 1.4× / 1.0×', 'From 10 GRAM · Weight tiers 2.0× / 1.4× / 1.0×');
+    focusSub = L('最低 1,000 A9 参与 · 权重档位 2.0× / 1.4× / 1.0×', 'From 1,000 A9 · Weight tiers 2.0× / 1.4× / 1.0×');
     ctaText = L('查看参与条件', 'Check entry rules');
     dotTone = 'gold';
   } else if (r.stage === 'warmup') {

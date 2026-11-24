@@ -1,10 +1,9 @@
-// A9 Protocol v16 — Standard TEP-74 JettonMaster + JettonWallet unit tests
+// A9 协议 v16 — 标准 TEP-74 JettonMaster + JettonWallet 单元测试
 import "@acton/emulation/network"
 import "@acton/emulation/testing"
 import "@acton/testing/expect"
 import "@acton/types/message"
 import "@contracts/jetton/storage"
-import "@contracts/jetton/errors"
 import "helpers"
 
 get fun `test jetton mint once 10B then admin permanently dropped`() {
@@ -14,7 +13,7 @@ get fun `test jetton mint once 10B then admin permanently dropped`() {
     expect(data.mintable).toEqual(false);
     expect(data.adminAddress == null).toEqual(true);
 
-    // Second mint attempt must fail with MintClosed
+    // 二次铸币必须以 MintClosed 拒绝
     expect(net.send(env.treasury, createMessage({
         bounce: true,
         value: ton("1"),
@@ -39,7 +38,6 @@ get fun `test jetton standard transfer and burn reduce total supply`() {
     expect(balanceOf(env, alice)).toEqual(3000 * A9);
     expect(balanceOf(env, bob)).toEqual(2000 * A9);
 
-    // Bob burns 500 A9
     val supBefore = totalSupply(env);
     expect(net.send(bob, createMessage({
         bounce: true,

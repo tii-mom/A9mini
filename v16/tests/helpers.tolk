@@ -1,4 +1,4 @@
-// A9 Protocol v16 — Test fixtures & helpers (Acton 1.1.0)
+// A9 协议 v16 — 测试环境与辅助函数 (Acton 1.1.0)
 import "@stdlib/strings"
 import "@acton/build"
 import "@acton/emulation/network"
@@ -8,7 +8,6 @@ import "@acton/types/message"
 
 import "@contracts/jetton/storage"
 import "@contracts/types"
-import "@contracts/ticket"
 
 struct (0x00000015) MintOnceMsg {
     queryId: uint64
@@ -101,7 +100,7 @@ fun transfer(from: address, wallet: address, to: address, amount: coins, forward
 }
 
 fun deployMaster(admin: address): address {
-    val deployer = testing.treasury("v15-jetton-deployer");
+    val deployer = testing.treasury("v16-jetton-deployer");
     var metadata: OnchainMetadataReply = { contentDict: [] };
     metadata.contentDict.set("uri".sha256(), "https://a9.lat/a9.json".prefixWith00());
     val storage = MasterStorage { totalSupply: 0, adminAddress: admin, nextAdminAddress: null, metadata: metadata.toCell() };
@@ -113,15 +112,11 @@ fun deployMaster(admin: address): address {
 }
 
 fun setup(): Env {
-    return setupWithFunding(RC_FUNDING);
-}
-
-fun setupWithFunding(rcFunding: coins): Env {
     testing.setNow(T0);
-    val treasury = testing.treasury("v15-treasury");
-    val keeper = testing.treasury("v15-keeper");
-    val opener = testing.treasury("v15-opener");
-    val team = testing.treasury("v15-team");
+    val treasury = testing.treasury("v16-treasury");
+    val keeper = testing.treasury("v16-keeper");
+    val opener = testing.treasury("v16-opener");
+    val team = testing.treasury("v16-team");
 
     val master = deployMaster(treasury.address);
     expect(net.send(treasury.address, createMessage({
@@ -166,7 +161,6 @@ fun setupWithFunding(rcFunding: coins): Env {
     val st = Storage {
         config: cfg.toCell(),
         rounds: [],
-        recovery: emptyRecovery().toCell(),
         currentRoundId: 0,
         successCount: 0,
         poolRemainingRaw: REWARD_POOL,
@@ -178,7 +172,7 @@ fun setupWithFunding(rcFunding: coins): Env {
         activeLockedRounds: 0,
     };
 
-    val deployer = testing.treasury("v15-rc-deployer");
+    val deployer = testing.treasury("v16-rc-deployer");
     val init = ContractState { code: build("RoundController"), data: st.toCell() };
     val rc = AutoDeployAddress { stateInit: init }.calculateAddress();
     expect(net.send(deployer.address, createMessage({ bounce: false, value: ton("10"), dest: { stateInit: init }, body: TopUpTons {} })))
@@ -196,10 +190,8 @@ fun setupWithFunding(rcFunding: coins): Env {
     };
     expect(net.runGetMethod<address>(rc, "get_jetton_wallet_address")).toEqual(env.rcWallet);
 
-    if (rcFunding > 0) {
-        transfer(treasury.address, env.treasuryWallet, rc, rcFunding, 0, emptyPayload(), ton("0.2"));
-        expect(balanceOf(env, rc)).toEqual(rcFunding);
-    }
+    transfer(treasury.address, env.treasuryWallet, rc, RC_FUNDING, 0, emptyPayload(), ton("0.2"));
+    expect(balanceOf(env, rc)).toEqual(RC_FUNDING);
     return env;
 }
 
@@ -280,21 +272,4 @@ fun round(env: Env, roundId: uint32): RoundView {
 
 fun preview(env: Env, roundId: uint32, weight: uint128): RewardPreview {
     return net.runGetMethod<RewardPreview>(env.rc, "get_reward_preview", [roundId, weight]);
-}
-
-fun failedRefundOf(env: Env, owner: address): uint128 {
-    return net.runGetMethod<uint128>(env.rc, "get_failed_refund", [owner]);
-}
-
-fun recoveryMeta(env: Env): RecoveryMetaView {
-    return net.runGetMethod<RecoveryMetaView>(env.rc, "get_recovery_meta");
-}
-
-fun claimFailedRefund(env: Env, owner: address, value: coins): SendResultList {
-    return net.send(owner, createMessage({
-        bounce: true,
-        value,
-        dest: env.rc,
-        body: ClaimFailedRefund { queryId: 99 },
-    }));
 }

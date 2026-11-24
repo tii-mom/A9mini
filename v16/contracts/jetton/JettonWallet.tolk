@@ -1,26 +1,16 @@
-// A9 Protocol v15 — 100% Standard, Unmodified TEP-74 Jetton Wallet
+// A9 协议 v16 — 100% 标准零魔改 TEP-74 JettonWallet
 import "@stdlib/gas-payments"
-import "errors"
-import "fees-management"
-import "jetton-utils"
-import "messages"
-import "sharding"
 import "storage"
 
 contract JettonWallet {
     author: "A9 Protocol"
-    version: "15.0.0"
+    version: "16.0.0"
     description: "Unmodified standard TEP-74 Jetton Wallet."
     storage: WalletStorage
     incomingMessages: AllowedMessageToWallet
 }
 
-type AllowedMessageToWallet =
-    | AskToTransfer
-    | AskToBurn
-    | InternalTransferStep
-    | TopUpTons
-
+type AllowedMessageToWallet = AskToTransfer | AskToBurn | InternalTransferStep | TopUpTons
 type BounceOpToHandle = InternalTransferStep | BurnNotificationForMinter
 
 fun onBouncedMessage(in: InMessageBounced) {

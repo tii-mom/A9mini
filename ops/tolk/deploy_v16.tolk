@@ -1,4 +1,4 @@
-// A9 Protocol v16 — Minimalist 4-contract deployment script with W3 RecoveryState & 4-step idempotent resume (Acton 1.1.0).
+// A9 Protocol v16 — Minimalist 4-contract deployment script with 4-step idempotent resume (Acton 1.1.0).
 // Run from A9mini/v16 via ops/scripts/deploy-v15.mjs --protocol v16 (default dry-run).
 import "@stdlib/strings"
 import "@acton/env"
@@ -138,7 +138,6 @@ fun main() {
         data: Storage {
             config: cfg.toCell(),
             rounds: [],
-            recovery: emptyRecovery().toCell(),
             currentRoundId: 0,
             successCount: 0,
             poolRemainingRaw: rewardPool,

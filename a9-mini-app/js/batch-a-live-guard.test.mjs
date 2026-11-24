@@ -577,62 +577,42 @@ test('Phase 0: liveRound(/round) preserves staking gate across read-only, closed
   assert.equal(liveEnabled.obsHasDisabledBtn, true);
 });
 
-test('W3: sendV16ClaimFailedRefund enforces liveFundsEnabled gate and live /claim renders v16 escrowed refund card', () => {
-  // 1) Read-only live mode blocks sendV16ClaimFailedRefund
-  const blocked = runScenario(
+test('P0-1 / P0-4 / P0-5: default v16 config, live Chest Mall never falls back to DEMO_CHEST_SKUS, and stake unit is A9', () => {
+  const out = runScenario(
     {
       href: 'https://a9.lat/?mode=live',
       injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat', liveFundsEnabled: false },
-      sdkConnected: true,
     },
     `
-      const { tonConnect } = await import(JS_URL + '/tonconnect.js');
-      tonConnect.init();
-      let code = null;
-      try {
-        await tonConnect.sendV16ClaimFailedRefund('kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18');
-      } catch (e) { code = e?.code || null; }
-      console.log(JSON.stringify({ code, txCount: sdkCalls.sendTransaction }));
-    `,
-  );
-  assert.equal(blocked.code, 'LIVE_FUNDS_DISABLED');
-  assert.equal(blocked.txCount, 0);
-
-  // 2) liveFundsEnabled=true dispatches 0.15 GRAM (150000000) ClaimFailedRefund tx to RoundController
-  const enabled = runScenario(
-    {
-      href: 'https://a9.lat/?mode=live',
-      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat', liveFundsEnabled: true },
-      sdkConnected: true,
-    },
-    `
+      const { config } = await import(JS_URL + '/config.js');
       const { store } = await import(JS_URL + '/store.js');
-      const { tonConnect } = await import(JS_URL + '/tonconnect.js');
-      const RC = 'kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18';
-      store.update((s) => {
-        s.round.protocolConfig = { protocolVersion: 'v16', contracts: { roundController: RC } };
-      });
-      tonConnect.init();
-      const res = await tonConnect.sendV16ClaimFailedRefund();
+      const { renderInternalMarket } = await import(JS_URL + '/pages/warmup_market.js');
+      // Simulate server response WITHOUT chestMall.skus
+      store.update((s) => { s.round.chestMall = null; });
+      const root = {
+        isConnected: true,
+        innerHTML: '',
+        querySelector() { return null; },
+        querySelectorAll() { return []; },
+      };
+      renderInternalMarket(root, () => {});
       console.log(JSON.stringify({
-        simulated: res.simulated,
-        txCount: sdkCalls.sendTransaction,
-        to: sdkCalls.lastTx?.messages?.[0]?.address,
-        amount: sdkCalls.lastTx?.messages?.[0]?.amount,
-        hasPayload: Boolean(sdkCalls.lastTx?.messages?.[0]?.payload),
+        stakeProto: config.stakeProtocolVersion,
+        hasUnavailableCard: root.innerHTML.includes('live-chest-skus-unavailable'),
+        leakedDemoPrice: root.innerHTML.includes('0.99 GRAM</span>'),
       }));
     `,
   );
-  assert.equal(enabled.simulated, false);
-  assert.equal(enabled.txCount, 1);
-  assert.equal(enabled.to, 'kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18');
-  assert.equal(enabled.amount, '150000000');
-  assert.equal(enabled.hasPayload, true);
+  assert.equal(out.stakeProto, 'v16');
+  assert.equal(out.hasUnavailableCard, true);
+  assert.equal(out.leakedDemoPrice, false);
 
-  // 3) profile.js live /claim page renders v16 escrowed refund card & binds #btn-claim-failed-refund
-  const profileSrc = readFileSync(join(JS_DIR, 'pages', 'profile.js'), 'utf8');
-  assert.match(profileSrc, /id="live-failed-refund-card"/);
-  assert.match(profileSrc, /id="btn-claim-failed-refund"/);
-  assert.match(profileSrc, /sendV16ClaimFailedRefund/);
+  const wvSrc = readFileSync(join(JS_DIR, 'pages', 'wealthverse.js'), 'utf8');
+  const rhSrc = readFileSync(join(JS_DIR, 'pages', 'round_hub.js'), 'utf8');
+  const pfSrc = readFileSync(join(JS_DIR, 'pages', 'profile.js'), 'utf8');
+  assert.match(wvSrc, /最低 1,000 A9 参与/);
+  assert.doesNotMatch(wvSrc, /最低 10 GRAM/);
+  assert.doesNotMatch(rhSrc, /最低参与 10 GRAM/);
+  assert.doesNotMatch(pfSrc, /最低 10 GRAM/);
 });
 

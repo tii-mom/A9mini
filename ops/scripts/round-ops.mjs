@@ -11,7 +11,12 @@ import {
 } from './lib/v15-core.mjs';
 
 function parseArgs(argv) {
-  const out = { execute: false, protocol: 'v15', profile: process.env.A9_PROFILE || process.env.A9_NETWORK || 'testnet', queryId: String(Date.now()) };
+  const out = {
+    execute: false,
+    protocol: process.env.A9_PROTOCOL_VERSION || 'v16',
+    profile: process.env.A9_PROFILE || process.env.A9_NETWORK || 'testnet',
+    queryId: String(Date.now()),
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--action') out.action = argv[++i];

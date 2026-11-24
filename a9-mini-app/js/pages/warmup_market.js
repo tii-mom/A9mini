@@ -358,7 +358,8 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
   };
 
   const resolveChestSkus = () => {
-    const serverSkus = !config.isDemo ? store.state.round?.chestMall?.skus : null;
+    if (config.isDemo) return DEMO_CHEST_SKUS;
+    const serverSkus = store.state.round?.chestMall?.skus;
     if (Array.isArray(serverSkus) && serverSkus.length) {
       return serverSkus.map((s) => ({
         skuId: s.skuId,
@@ -372,13 +373,13 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
         requiredAssists: Number(s.requiredAssists || 2)
       }));
     }
-    return DEMO_CHEST_SKUS;
+    return [];
   };
 
   const render = () => {
     const skus = resolveChestSkus();
-    const sel = skus.find((s) => s.skuId === selectedSkuId) || skus[0];
-    const totalIfBoost = Number((sel.baseA9 + sel.maxBoostA9).toFixed(2));
+    const sel = skus.length ? (skus.find((s) => s.skuId === selectedSkuId) || skus[0]) : null;
+    const totalIfBoost = sel ? Number((sel.baseA9 + sel.maxBoostA9).toFixed(2)) : 0;
     const activeShopChests = (chestData.shopChests || []).filter((c) => c.status !== 'OPENED');
 
     root.innerHTML = `
@@ -411,6 +412,13 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                 </div>
               ` : ''}
 
+              ${!sel ? `
+                <div class="sub-tile" id="live-chest-skus-unavailable" style="margin-bottom:12px;border-color:var(--gold-border);">
+                  <div class="row-start" style="font-weight:700;margin-bottom:4px;">${icon('shieldAlert', 14, 'text-gold')} ${L('宝箱商城档位配置暂不可用', 'Chest Mall Tiers Unavailable')}</div>
+                  <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:8px;">${L('真实模式未获取到服务端宝箱档位配置，严格禁止展示演示价格。请检查网络连接后点击重试。', 'Live mode did not receive server chest tier data; demo prices are never displayed. Check network and retry.')}</div>
+                  <button class="btn btn-secondary btn-sm" id="btn-retry-chest-skus" type="button">${icon('refresh', 13)} ${L('重新加载商城配置', 'Retry Loading Tiers')}</button>
+                </div>
+              ` : `
               <div class="col-gap" style="gap:8px;margin-bottom:12px;">
                 ${skus.map((sku) => {
                   const active = sku.skuId === sel.skuId;
@@ -445,19 +453,22 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                   <b class="mono text-green">${formatNum(openMode === 'BOOST' ? totalIfBoost : sel.baseA9, 2)} A9</b>
                 </div>
               </div>
+              `}
 
               <div class="num-xs text-muted" style="margin-bottom:10px;line-height:1.5;">
                 ${L('膨胀模式 24H 内随时可收手开箱；售罄自动触发 ≥0.99 GRAM 零手续费被动退款。', 'Stop & open anytime within 24H. Sold-out passive refunds >= 0.99 GRAM are 0-fee.')}
               </div>
 
-              <button class="btn ${canPurchaseNow() ? 'btn-primary' : 'btn-secondary'}" id="btn-buy-chest" type="button" ${!canPurchaseNow() || buyBusy ? 'disabled' : ''}>
+              <button class="btn ${sel && canPurchaseNow() ? 'btn-primary' : 'btn-secondary'}" id="btn-buy-chest" type="button" ${!sel || !canPurchaseNow() || buyBusy ? 'disabled' : ''}>
                 ${!store.fundsEnabled
                   ? `${icon('lock', 15)} ${L('真实模式只读 · 宝箱购箱暂未开放', 'Live Read-Only · Purchase Disabled')}`
-                  : !config.isDemo && !isPresaleServerOpen()
-                    ? `${icon('lock', 15)} ${L('宝箱商城通道尚未开售', 'Chest Mall Not Yet Open')}`
-                    : config.isDemo
-                      ? `${icon('bolt', 16)} ${L(`演示购买 ${L(sel.zh, sel.en)}（${sel.priceGram} GRAM）`, `Demo Buy ${sel.en} (${sel.priceGram} GRAM)`)}`
-                      : `${icon('bolt', 16)} ${buyBusy ? L('等待钱包确认…', 'Awaiting Wallet…') : L(`立即购买 ${L(sel.zh, sel.en)}（${sel.priceGram} GRAM）`, `Buy ${sel.en} (${sel.priceGram} GRAM)`)}`}
+                  : !sel
+                    ? `${icon('shieldAlert', 15)} ${L('档位配置未就绪 · 请先重试加载', 'Tiers Unavailable · Retry First')}`
+                    : !config.isDemo && !isPresaleServerOpen()
+                      ? `${icon('lock', 15)} ${L('宝箱商城通道尚未开售', 'Chest Mall Not Yet Open')}`
+                      : config.isDemo
+                        ? `${icon('bolt', 16)} ${L(`演示购买 ${L(sel.zh, sel.en)}（${sel.priceGram} GRAM）`, `Demo Buy ${sel.en} (${sel.priceGram} GRAM)`)}`
+                        : `${icon('bolt', 16)} ${buyBusy ? L('等待钱包确认…', 'Awaiting Wallet…') : L(`立即购买 ${L(sel.zh, sel.en)}（${sel.priceGram} GRAM）`, `Buy ${sel.en} (${sel.priceGram} GRAM)`)}`}
               </button>
             </div>
           </section>
@@ -591,6 +602,17 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
         render();
       };
     });
+
+    const retrySkusBtn = root.querySelector('#btn-retry-chest-skus');
+    if (retrySkusBtn) {
+      retrySkusBtn.onclick = async () => {
+        retrySkusBtn.disabled = true;
+        try {
+          if (typeof store.refreshLive === 'function') await store.refreshLive();
+        } catch (_) {}
+        await loadChests();
+      };
+    }
 
     const buyBtn = root.querySelector('#btn-buy-chest');
     if (buyBtn) {

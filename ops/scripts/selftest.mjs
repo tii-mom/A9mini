@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import {
   loadParams,
   verifyV15Artifacts,
+  resolveProtocolRoot,
   computeCorridor,
   assertTargetInCorridor,
   aggregateCandles,
@@ -25,9 +26,10 @@ function test(name, fn) {
 
 console.log('Running A9 v15 ops offline self-test...');
 
-test('v15 compiled artifacts match ci/artifacts.sha256 (4 contracts)', () => {
+test('v16 compiled artifacts match ci/artifacts.sha256 (4 contracts) and invalid protocol throws', () => {
   const list = verifyV15Artifacts();
   assert.equal(list.length, 4);
+  assert.throws(() => resolveProtocolRoot('v14'), /must be v16 or v15/);
 });
 
 test('testnet / testnet-fast / mainnet param profiles validate cleanly', () => {

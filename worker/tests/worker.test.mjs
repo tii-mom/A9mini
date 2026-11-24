@@ -45,17 +45,22 @@ await test('promo hot-wallet full flow: 0.06 TON fee -> finalized verify -> TEP-
 
   // Reject unfinalized tx
   assert.throws(() => engine.verifyInboundFeeTx({
-    txHash: 'tx-unfinalized', finality: 'confirmed', to: HOT, valueNano: '60000000', memo: intent.memo,
+    txHash: 'tx-unfinalized', finality: 'confirmed', to: HOT, from: USER, valueNano: '60000000', memo: intent.memo,
   }, 10_010));
+
+  // Reject wrong payer (non-matching sender wallet)
+  assert.throws(() => engine.verifyInboundFeeTx({
+    txHash: 'tx-wrong-payer', finality: 'finalized', to: HOT, from: 'EQ_STRANGER_WALLET', valueNano: '60000000', memo: intent.memo,
+  }, 10_010), { code: 'WRONG_PAYER' });
 
   // Reject underpaid fee (< 0.06 TON)
   assert.throws(() => engine.verifyInboundFeeTx({
-    txHash: 'tx-low', finality: 'finalized', to: HOT, valueNano: '50000000', memo: intent.memo,
+    txHash: 'tx-low', finality: 'finalized', to: HOT, from: USER, valueNano: '50000000', memo: intent.memo,
   }, 10_010));
 
   // Valid finalized 0.06 TON fee -> generates TEP-74 transfer with sendExcessesTo = HOT
   const res = engine.verifyInboundFeeTx({
-    txHash: 'tx-ok-1', finality: 'finalized', to: HOT, valueNano: '60000000', memo: intent.memo,
+    txHash: 'tx-ok-1', finality: 'finalized', to: HOT, from: USER, valueNano: '60000000', memo: intent.memo,
   }, 10_020);
   assert.equal(res.claim.status, CLAIM_STATUS.FEE_CONFIRMED);
   assert.equal(res.payoutInstruction.recipient, USER);
@@ -65,7 +70,7 @@ await test('promo hot-wallet full flow: 0.06 TON fee -> finalized verify -> TEP-
 
   // Strict anti-replay on same txHash
   assert.throws(() => engine.verifyInboundFeeTx({
-    txHash: 'tx-ok-1', finality: 'finalized', to: HOT, valueNano: '60000000', memo: intent.memo,
+    txHash: 'tx-ok-1', finality: 'finalized', to: HOT, from: USER, valueNano: '60000000', memo: intent.memo,
   }, 10_030));
 
   const done = engine.markPayoutCompleted(intent.claimId, 'tx-payout-1', 10_040);
@@ -94,7 +99,7 @@ await test('API router serves /api/health, /api/config, /api/rounds/:id, and aut
   assert.equal(h.body.ok, true);
 
   const cfg = await route({ method: 'GET', pathname: '/api/config' });
-  assert.equal(cfg.body.data.protocolVersion, 'v15');
+  assert.equal(cfg.body.data.protocolVersion, 'v16');
   assert.equal(cfg.body.data.openEnded, true);
   assert.equal(cfg.body.data.promoHotWallet.userFeeTon, '0.06');
 
@@ -2441,53 +2446,56 @@ await test('W2-9: Final audit fixes (v3 cold/asc cursor advancement without dead
   assert.ok(retryUrl.includes('start_utime=1795449700'), 'retry attempt > 1 should anchor start_utime to updatedAt - 300');
 });
 
-await test('W3-1: TonCenterClient.fetchUserFailedRefund & fetchUserPortfolio(includeFailedRefund: true) read v16 escrow and never fake 0 on error', async () => {
-  const { TonCenterClient, encodeAddressSliceBoc } = await import('../src/toncenter.mjs');
-  const rawAddr = '0:' + '22'.repeat(32);
-  const rcAddr = '0:' + '33'.repeat(32);
-  const jmAddr = '0:' + '44'.repeat(32);
-  const boc = encodeAddressSliceBoc(rawAddr);
+await test('v16 default protocol validation, D1PromoStore WRONG_PAYER check, and NEEDS_REVIEW chain-verified recovery', async () => {
+  const { buildV15ConfigPayload } = await import('../src/v15-indexer.mjs');
+  const { validateDaemonConfig } = await import('../src/payout-daemon.mjs');
+  assert.equal(buildV15ConfigPayload({}, null).protocolVersion, 'v16');
+  assert.throws(() => buildV15ConfigPayload({ A9_PROTOCOL_VERSION: 'v14' }, null), /Unsupported A9_PROTOCOL_VERSION/);
+  const baseDaemonEnv = {
+    A9_NETWORK: 'testnet',
+    A9_SQLITE_PATH: ':memory:',
+    TONCENTER_API_BASE: 'https://testnet.toncenter.com/api/v2',
+    A9_PROMO_HOT_WALLET_ADDRESS: 'kQDNHik_ofaZns7ki5yuMYHMHODiRSs_lcTG9R5p2iyJwt4X',
+  };
+  assert.equal(validateDaemonConfig(baseDaemonEnv).protocolVersion, 'v16');
+  assert.throws(() => validateDaemonConfig({ ...baseDaemonEnv, A9_PROTOCOL_VERSION: 'bad' }), /Unsupported A9_PROTOCOL_VERSION/);
 
-  let failRefundMethod = false;
-  const tc = new TonCenterClient({
-    apiBase: 'http://mock-v16-refund.local',
-    minIntervalMs: 0,
-    fetchImpl: async (_url, opts) => {
-      const req = JSON.parse(opts.body);
-      if (req.method === 'get_wallet_address') {
-        return { ok: true, json: async () => ({ ok: true, result: { exit_code: 0, stack: [['cell', { bytes: boc }]] } }) };
-      }
-      if (req.method === 'get_wallet_data') {
-        return { ok: true, json: async () => ({ ok: true, result: { exit_code: 0, stack: [['num', '0x3b9aca00']] } }) };
-      }
-      if (req.method === 'get_failed_refund') {
-        if (failRefundMethod) {
-          return { ok: true, json: async () => ({ ok: true, result: { exit_code: 11, stack: [] } }) };
-        }
-        return { ok: true, json: async () => ({ ok: true, result: { exit_code: 0, stack: [['num', '0x174876e800']] } }) }; // 100 A9
-      }
-      throw new Error(`unexpected method ${req.method}`);
-    },
-  });
+  const db = createSqliteD1(MIGRATIONS);
+  const HOT = 'kQDNHik_ofaZns7ki5yuMYHMHODiRSs_lcTG9R5p2iyJwt4X';
+  const USER = 'kQAZFnSDKMIwiflOo8YWiNweqnxTRuwejtg7qmic4pjf1rIP';
+  const STRANGER = 'kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18';
+  const store = new D1PromoStore({ db, hotWalletAddress: HOT });
+  await store.creditReward(USER, '10000000000000', 1000);
+  const intent = await store.createClaimIntent(USER, 1001);
 
-  const pfOk = await tc.fetchUserPortfolio(rawAddr, {
-    jettonMasterAddress: jmAddr,
-    roundControllerAddress: rcAddr,
-    roundIds: [],
-    includeFailedRefund: true,
-  });
-  assert.equal(pfOk.failedRefundRaw, '100000000000');
-  assert.equal(pfOk.failedRefundAvailable, true);
+  await assert.rejects(
+    () => store.verifyInboundFeeTx({ txHash: 'wrong-payer-tx', finality: 'finalized', to: HOT, from: STRANGER, valueNano: '60000000', memo: intent.memo }, 1005),
+    { code: 'WRONG_PAYER' },
+  );
 
-  failRefundMethod = true;
-  const pfFail = await tc.fetchUserPortfolio(rawAddr, {
-    jettonMasterAddress: jmAddr,
-    roundControllerAddress: rcAddr,
-    roundIds: [],
-    includeFailedRefund: true,
+  await store.verifyInboundFeeTx({ txHash: 'ok-payer-tx', finality: 'finalized', to: HOT, from: USER, valueNano: '60000000', memo: intent.memo }, 1006);
+  const [p] = await store.listOpenPromoPayouts();
+  await store.markPromoPayoutNeedsReview(p.payoutId, 'manual test escalation', 1010);
+
+  // 1) Uncertain/PENDING on-chain state MUST refuse re-queue (prevents double payout)
+  await assert.rejects(
+    () => store.resolvePromoPayoutReview(p.payoutId, { payoutVerifier: async () => ({ state: 'PENDING' }), nowSec: 1020 }),
+    { code: 'PAYOUT_STILL_UNCERTAIN' },
+  );
+  // 2) NOT_FOUND on-chain safely re-queues with a fresh rotated queryId
+  const req = await store.resolvePromoPayoutReview(p.payoutId, { payoutVerifier: async () => ({ state: 'NOT_FOUND' }), nowSec: 1030 });
+  assert.equal(req.action, 'REQUEUED');
+  assert.notEqual(req.queryId, p.queryId);
+
+  // 3) If escalated again and later confirmed on-chain, resolves directly to COMPLETED without re-sending
+  await store.markPromoPayoutNeedsReview(p.payoutId, 'escalated again', 1040);
+  const settled = await store.resolvePromoPayoutReview(p.payoutId, {
+    payoutVerifier: async () => ({ state: 'CONFIRMED', txHash: '0xchain_confirmed' }),
+    nowSec: 1050,
   });
-  assert.equal(pfFail.failedRefundRaw, null);
-  assert.equal(pfFail.failedRefundAvailable, false);
+  assert.equal(settled.action, 'COMPLETED_FROM_CHAIN');
+  assert.equal(settled.claim.status, CLAIM_STATUS.COMPLETED);
+  assert.equal(settled.claim.payoutTxHash, '0xchain_confirmed');
 });
 
 console.log(`All ${passed} A9 v15 worker tests passed.`);

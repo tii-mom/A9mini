@@ -1,82 +1,58 @@
-// A9 Protocol v16 — Minimalist constants, errors, storage, messages, events, and views.
+// A9 协议 v16 — 极简常量、错误码、主控/凭证存储结构、消息、事件与只读视图
 
 // ===========================================================================
-// Opcodes
+// 消息操作码 (Opcodes)
 // ===========================================================================
-const OP_OPEN_ROUND: uint32 = 0x52540001;          // roundOpener: open next round
-const OP_SETTLE_ROUND: uint32 = 0x52540002;        // keeper / roundOpener: single-tx settle
-const OP_ABORT_ROUND: uint32 = 0x52540003;         // anyone: escape hatch after abortTimeout
-const OP_BURN_INACTIVE_LOCKED: uint32 = 0x52540004; // anyone: burn unresolved slices after 90d
-const OP_CLAIM_FAILED_REFUND: uint32 = 0x52540005;  // user: pull escrowed failed/low-gas refund
-const OP_STAKE_DEPOSIT: uint32 = 0x52540010;       // forward_payload op of TEP-74 transfer
+const OP_OPEN_ROUND: uint32 = 0x52540001;
+const OP_SETTLE_ROUND: uint32 = 0x52540002;
+const OP_ABORT_ROUND: uint32 = 0x52540003;
+const OP_BURN_INACTIVE_LOCKED: uint32 = 0x52540004;
+const OP_STAKE_DEPOSIT: uint32 = 0x52540010;        // v16 TEP-74 forward_payload 操作码（32 位轮号）
 
-// RC <-> StakeTicket
-const OP_TICKET_ADD_STAKE: uint32 = 0x52540301;    // RC -> Ticket (deploy / top-up stake)
-const OP_TICKET_CONFIRM: uint32 = 0x52540302;      // RC -> Ticket (update claimed state after Jetton transfer succeeds)
-const OP_TICKET_CLAIM: uint32 = 0x52540303;        // owner -> Ticket
-const OP_TICKET_CLAIM_REQ: uint32 = 0x52540305;      // Ticket -> RC
-const OP_TICKET_CLAIM_ROLLBACK: uint32 = 0x52540306; // RC -> Ticket (rollback claimed delta on Jetton transfer bounce)
-const OP_TICKET_STAKE_ACK: uint32 = 0x52540307;      // Ticket -> RC (acknowledge stake recorded; clears transient pendingStake)
+const OP_TICKET_ADD_STAKE: uint32 = 0x52540301;
+const OP_TICKET_CONFIRM: uint32 = 0x52540302;
+const OP_TICKET_CLAIM: uint32 = 0x52540303;
+const OP_TICKET_CLAIM_REQ: uint32 = 0x52540305;
 
-// Standard TEP-74 opcodes
 const OP_JETTON_TRANSFER: uint32 = 0x0f8a7ea5;
 const OP_JETTON_BURN: uint32 = 0x595f07bc;
 
 // ===========================================================================
-// Round status (4 clean states)
+// 轮次状态与经济学 / Gas 常量
 // ===========================================================================
 const STATUS_UNOPENED: uint8 = 0;
-const STATUS_ACTIVE: uint8 = 1;     // staking in [stakeOpenAt, stakeCloseAt), observing after
+const STATUS_ACTIVE: uint8 = 1;
 const STATUS_SUCCEEDED: uint8 = 2;
 const STATUS_FAILED: uint8 = 3;
 const STATUS_ABORTED: uint8 = 4;
 
-// ===========================================================================
-// Protocol economics & gas constants
-// ===========================================================================
 const MAX_ROUNDS: uint32 = 4294967295;
 const BPS: uint128 = 10000;
 const MAX_REWARD_MULTIPLIER: uint128 = 15;
-const TIMING_BPS_FIRST: uint128 = 20000;   // 2.0x (first 1/3 of staking window)
-const TIMING_BPS_SECOND: uint128 = 14000;  // 1.4x (middle 1/3)
-const TIMING_BPS_LAST: uint128 = 10000;    // 1.0x (last 1/3)
+const TIMING_BPS_FIRST: uint128 = 20000;            // 前 1/3 质押期：2.0x 早鸟权重
+const TIMING_BPS_SECOND: uint128 = 14000;           // 中 1/3 质押期：1.4x 权重
+const TIMING_BPS_LAST: uint128 = 10000;             // 后 1/3 质押期：1.0x 权重
 
 const VALUE_JETTON_ACTION: coins = ton("0.1");
-const VALUE_TICKET_MSG: coins = ton("0.025");
-const VALUE_TICKET_ACK: coins = ton("0.025");
+const VALUE_TICKET_MSG: coins = ton("0.02");
 const TICKET_MIN_BALANCE: coins = ton("0.02");
 const RC_MIN_BALANCE: coins = ton("0.1");
-const MIN_DEPOSIT_VALUE: coins = ton("0.12");
-const MIN_REFUND_VALUE: coins = ton("0.08");
-const MIN_ESCROW_GAS: coins = ton("0.015");
-const MIN_ESCROW_AMOUNT: uint128 = 1000000000;       // 1 A9: sub-1-A9 dust with <0.015 TON is ignored (anti-griefing)
-const MIN_CLAIM_REFUND_VALUE: coins = ton("0.12");
+const MIN_DEPOSIT_VALUE: coins = ton("0.1");
+const MIN_REFUND_VALUE: coins = ton("0.06");
 const MIN_CLAIM_VALUE: coins = ton("0.2");
 const MIN_RC_CLAIM_VALUE: coins = ton("0.15");
 const MIN_SETTLE_VALUE: coins = ton("0.25");
 
-const PENDING_CLAIM_KIND_TICKET: uint8 = 1;
-const PENDING_CLAIM_KIND_INSTANT_REFUND: uint8 = 2;
-const PENDING_CLAIM_KIND_PULL_REFUND: uint8 = 3;
-const PENDING_GC_TTL: uint64 = 300;
-const PENDING_OP_FLAG: uint64 = 0x8000000000000000;
-const NON_PENDING_QUERY_MASK: uint64 = 0x7FFFFFFFFFFFFFFF;
-
-// ===========================================================================
-// Errors
-// ===========================================================================
 enum Errors {
     Unauthorized = 101,
     NotJettonWallet = 104,
     UnknownMessage = 106,
-
     BadRoundId = 200,
     BadRoundStatus = 201,
     ProtocolEnded = 204,
     TooEarly = 208,
     BadInput = 211,
     BadTargetPrice = 216,
-
     NothingToClaim = 230,
     NotEnoughValue = 234,
     WrongWorkchain = 235,
@@ -87,7 +63,7 @@ enum Errors {
 }
 
 // ===========================================================================
-// Config (immutable after deployment)
+// 协议配置与 O(1) 主控存储（零待决字典）
 // ===========================================================================
 struct ProtocolEcon {
     teamWallet: address
@@ -98,13 +74,13 @@ struct ProtocolEcon {
 }
 
 struct ProtocolTiming {
-    stakeDurationSeconds: uint32   // mainnet: 129,600 (36h)
-    observationSeconds: uint32     // mainnet: 86,400 (24h)
-    candleCount: uint8             // mainnet: 24
-    minQualifiedCandles: uint8     // mainnet: 16
-    abortTimeoutSeconds: uint32    // mainnet: 604,800 (7d)
-    fallbackUnlockSeconds: uint32  // mainnet: 2,592,000 (30d)
-    inactivityBurnSeconds: uint32  // mainnet: 7,776,000 (90d)
+    stakeDurationSeconds: uint32
+    observationSeconds: uint32
+    candleCount: uint8
+    minQualifiedCandles: uint8
+    abortTimeoutSeconds: uint32
+    fallbackUnlockSeconds: uint32
+    inactivityBurnSeconds: uint32
 }
 
 struct ProtocolCodes {
@@ -121,9 +97,6 @@ struct ProtocolConfig {
     codes: Cell<ProtocolCodes>
 }
 
-// ===========================================================================
-// Round & root storage (strictly O(1) per round, zero pending dicts)
-// ===========================================================================
 struct RoundMeta {
     candleHash: uint256
     immediateBps: uint16
@@ -148,66 +121,22 @@ struct RoundData {
     meta: Cell<RoundMeta>
 }
 
-struct PendingStake {
-    roundId: uint32
-    owner: address
-    refundTo: address
-    amountRaw: uint128
-    weightRaw: uint128
-    userQueryId: uint64
-    createdAt: uint64
-}
-
-struct PendingClaim {
-    kind: uint8
-    owner: address
-    roundId: uint32
-    userQueryId: uint64
-    revertPrincipal: bool
-    revertImm: bool
-    revertLockedRaw: uint128
-    amountRaw: uint128
-    createdAt: uint64
-}
-
-struct RecoveryState {
-    nextOpId: uint64
-    pendingStakes: map<uint64, Cell<PendingStake>>
-    pendingClaims: map<uint64, Cell<PendingClaim>>
-    failedRefunds: map<address, uint128>
-}
-
-fun emptyRecovery(): RecoveryState {
-    return {
-        nextOpId: 0,
-        pendingStakes: [],
-        pendingClaims: [],
-        failedRefunds: [],
-    };
-}
-
 struct Storage {
     config: Cell<ProtocolConfig>
     rounds: map<uint32, RoundData>
-    recovery: Cell<RecoveryState>
     currentRoundId: uint32
     successCount: uint32
-    poolRemainingRaw: uint128      // starts at 7,000,000,000 A9
+    poolRemainingRaw: uint128
     carryRaw: uint128
-    teamPoolRemainingRaw: uint128  // starts at 1,200,000,000 A9
+    teamPoolRemainingRaw: uint128
     teamCarryRaw: uint128
     lastSuccessAt: uint64
     endAt: uint64
-    activeLockedRounds: uint128     // up to 4 packed uint32 round IDs
+    activeLockedRounds: uint128                     // 最多打包 4 个活跃锁定轮号（4 × uint32）
 }
 
-fun Storage.load(): Storage {
-    return Storage.fromCell(contract.getData());
-}
-
-fun Storage.save(self) {
-    contract.setData(self.toCell());
-}
+fun Storage.load(): Storage { return Storage.fromCell(contract.getData()); }
+fun Storage.save(self) { contract.setData(self.toCell()); }
 
 fun emptyMeta(): RoundMeta {
     return {
@@ -222,7 +151,76 @@ fun emptyMeta(): RoundMeta {
 }
 
 // ===========================================================================
-// Inbound messages
+// StakeTicket 凭证存储、消息与确定性地址派生
+// ===========================================================================
+struct TicketStorage {
+    rc: address
+    owner: address
+    roundId: uint32
+    amountRaw: uint128
+    weightRaw: uint128
+    principalDone: bool
+    immediateClaimed: bool
+    lockedClaimedRaw: uint128
+    pending: bool
+}
+
+fun TicketStorage.load(): TicketStorage { return TicketStorage.fromCell(contract.getData()); }
+fun TicketStorage.save(self) { contract.setData(self.toCell()); }
+
+struct (0x52540301) TicketAddStake {
+    queryId: uint64
+    amountRaw: uint128
+    weightRaw: uint128
+}
+
+struct (0x52540302) TicketConfirm {
+    queryId: uint64
+    principalDone: bool
+    immediateClaimed: bool
+    lockedClaimedRaw: uint128
+}
+
+struct (0x52540303) TicketClaim { queryId: uint64 }
+
+struct (0x52540305) TicketClaimReq {
+    queryId: uint64
+    owner: address
+    roundId: uint32
+    amountRaw: uint128
+    weightRaw: uint128
+    principalDone: bool
+    immediateClaimed: bool
+    lockedClaimedRaw: uint128
+}
+
+struct TicketView {
+    rc: address
+    owner: address
+    roundId: uint32
+    amountRaw: uint128
+    weightRaw: uint128
+    principalDone: bool
+    immediateClaimed: bool
+    lockedClaimedRaw: uint128
+    pending: bool
+}
+
+fun calcDeployedTicket(rc: address, owner: address, roundId: uint32, ticketCode: cell): AutoDeployAddress {
+    val init: TicketStorage = {
+        rc, owner, roundId,
+        amountRaw: 0, weightRaw: 0,
+        principalDone: false, immediateClaimed: false, lockedClaimedRaw: 0, pending: false,
+    };
+    return { workchain: BASECHAIN, stateInit: { code: ticketCode, data: init.toCell() } };
+}
+
+fun calcTicketAddress(rc: address, owner: address, roundId: uint32, ticketCode: cell): address {
+    return calcDeployedTicket(rc, owner, roundId, ticketCode).calculateAddress();
+}
+
+// ===========================================================================
+// RoundController 入站消息、链上事件与只读视图
 // ===========================================================================
 struct (0x52540001) OpenRound {
     queryId: uint64
@@ -237,17 +235,8 @@ struct (0x52540002) SettleRound {
     candleHash: uint256
 }
 
-struct (0x52540003) AbortRound {
-    queryId: uint64
-}
-
-struct (0x52540004) BurnInactiveLocked {
-    queryId: uint64
-}
-
-struct (0x52540005) ClaimFailedRefund {
-    queryId: uint64
-}
+struct (0x52540003) AbortRound { queryId: uint64 }
+struct (0x52540004) BurnInactiveLocked { queryId: uint64 }
 
 struct (0x7362d09c) TransferNotification {
     queryId: uint64
@@ -256,15 +245,8 @@ struct (0x7362d09c) TransferNotification {
     forwardPayload: RemainingBitsAndRefs
 }
 
-struct (0xd53276db) ReturnExcessesIgnore {
-    queryId: uint64
-}
+struct (0xd53276db) ReturnExcessesIgnore { queryId: uint64 }
 
-struct (0xd372158c) TopUpTons {}
-
-// ===========================================================================
-// External-out events (for indexer / UI)
-// ===========================================================================
 struct (0x52540101) EvRoundOpened {
     roundId: uint32
     twap24hUsdE8: uint128
@@ -310,32 +292,6 @@ struct (0x52540106) EvInactiveLockedBurned {
     at: uint64
 }
 
-struct (0x52540107) EvDepositRefundEscrowed {
-    recipient: address
-    amountRaw: uint128
-}
-
-struct (0x52540108) EvStakeBounced {
-    roundId: uint32
-    owner: address
-    recipient: address
-    amountRaw: uint128
-}
-
-struct (0x52540109) EvClaimBounced {
-    owner: address
-    roundId: uint32
-    amountRaw: uint128
-}
-
-struct (0x5254010A) EvFailedRefundClaimed {
-    recipient: address
-    amountRaw: uint128
-}
-
-// ===========================================================================
-// Clean get-method views
-// ===========================================================================
 struct ProtocolStateView {
     currentRoundId: uint32
     successCount: uint32
@@ -374,10 +330,4 @@ struct RewardPreview {
     lockedRaw: uint128
     unlockedLockedRaw: uint128
     burnedLockedRaw: uint128
-}
-
-struct RecoveryMetaView {
-    nextOpId: uint64
-    hasPendingStakes: bool
-    hasPendingClaims: bool
 }

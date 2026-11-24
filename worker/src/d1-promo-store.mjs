@@ -188,6 +188,9 @@ export class D1PromoStore {
     if (claimRow.status !== CLAIM_STATUS.PENDING_FEE) {
       throw new PromoError('INVALID_STATE', `claim ${claimRow.claim_id} is ${claimRow.status}`);
     }
+    if (!tx.from || addressKey(tx.from) !== addressKey(claimRow.wallet_address)) {
+      throw new PromoError('WRONG_PAYER', 'fee sender does not match claim wallet');
+    }
     const paidAt = Number(tx.utime) > 0 ? Number(tx.utime) : nowSec;
     if (paidAt > Number(claimRow.expires_at)) {
       throw new PromoError('CLAIM_EXPIRED', `claim ${claimRow.claim_id} expired`);
@@ -246,6 +249,9 @@ export class D1PromoStore {
     if (!claimRow) throw new PromoError('UNKNOWN_MEMO', `no claim matches memo: ${memo}`);
     if (claimRow.status !== CLAIM_STATUS.PENDING_FEE) {
       throw new PromoError('INVALID_STATE', `claim ${claimRow.claim_id} is ${claimRow.status}`);
+    }
+    if (!tx.from || addressKey(tx.from) !== addressKey(claimRow.wallet_address)) {
+      throw new PromoError('WRONG_PAYER', 'fee sender does not match claim wallet');
     }
     const paidAt = Number(tx.utime) > 0 ? Number(tx.utime) : nowSec;
     if (paidAt > Number(claimRow.expires_at)) {
@@ -491,13 +497,62 @@ export class D1PromoStore {
   async completePromoPayout(payoutId, claimId, txHash, nowSec) {
     await this.db.batch([
       this.db
-        .prepare("UPDATE promo_payouts SET status = 'CONFIRMED', ambiguous = 0, tx_hash = COALESCE(?, tx_hash), updated_at = ? WHERE payout_id = ? AND status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT')")
+        .prepare("UPDATE promo_payouts SET status = 'CONFIRMED', ambiguous = 0, tx_hash = COALESCE(?, tx_hash), updated_at = ? WHERE payout_id = ? AND status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT', 'NEEDS_REVIEW')")
         .bind(txHash, nowSec, payoutId),
       this.db
         .prepare('UPDATE promo_claims SET status = ?, payout_tx_hash = COALESCE(?, payout_tx_hash), updated_at = ? WHERE claim_id = ? AND status IN (?, ?)')
         .bind(CLAIM_STATUS.COMPLETED, txHash, nowSec, claimId, CLAIM_STATUS.FEE_CONFIRMED, CLAIM_STATUS.PAYOUT_SENT),
     ]);
     return this.getClaim(claimId);
+  }
+
+  /**
+   * 人工复核恢复保护（防双发硬门禁）：
+   * 强制先通过链上核验器确认原出账是否已到账；若链上已 CONFIRMED 则直接结单为 COMPLETED，
+   * 若仍在 PENDING 则拒绝重排，仅当明确为 NOT_FOUND / FAILED 时才派生全新 queryId 重新入队。
+   */
+  async resolvePromoPayoutReview(payoutId, { payoutVerifier, nowSec = Math.floor(Date.now() / 1000) } = {}) {
+    if (typeof payoutVerifier !== 'function') {
+      throw new PromoError('VERIFIER_REQUIRED', 'chain payoutVerifier is required before resolving NEEDS_REVIEW');
+    }
+    const r = await this.db
+      .prepare('SELECT * FROM promo_payouts WHERE payout_id = ? LIMIT 1')
+      .bind(payoutId)
+      .first();
+    if (!r) throw new PromoError('NOT_FOUND', `promo payout not found: ${payoutId}`);
+    if (r.status !== 'NEEDS_REVIEW') {
+      throw new PromoError('INVALID_STATE', `payout ${payoutId} is ${r.status}, expected NEEDS_REVIEW`);
+    }
+    const payout = {
+      payoutId: r.payout_id,
+      claimId: r.claim_id,
+      kind: 'A9',
+      recipient: r.wallet_address,
+      walletKey: r.wallet_key,
+      amount: String(r.amount_raw),
+      queryId: String(r.query_id),
+      status: r.status,
+      attempts: Number(r.attempts || 0),
+      ambiguous: Number(r.ambiguous || 0) === 1,
+      txHash: r.tx_hash || null,
+      createdAt: Number(r.created_at),
+      updatedAt: Number(r.updated_at),
+    };
+    const v = await payoutVerifier(payout);
+    if (v?.state === 'CONFIRMED') {
+      const claim = await this.completePromoPayout(payout.payoutId, payout.claimId, v.txHash || payout.txHash, nowSec);
+      return { action: 'COMPLETED_FROM_CHAIN', claim };
+    }
+    if (v?.state !== 'NOT_FOUND' && v?.state !== 'FAILED') {
+      throw new PromoError('PAYOUT_STILL_UNCERTAIN', `cannot re-queue payout while chain state is ${v?.state || 'UNKNOWN'}`);
+    }
+    const freshQueryId = deriveClaimQueryId(payout.claimId, payout.attempts + 100 + (nowSec % 97));
+    const res = await this.db
+      .prepare("UPDATE promo_payouts SET status = 'PENDING', attempts = 0, ambiguous = 0, query_id = ?, tx_hash = NULL, updated_at = ? WHERE payout_id = ? AND status = 'NEEDS_REVIEW'")
+      .bind(freshQueryId, nowSec, payoutId)
+      .run();
+    if (changes(res) !== 1) throw new PromoError('CONFLICT', 'concurrent NEEDS_REVIEW resolution conflict');
+    return { action: 'REQUEUED', payoutId, queryId: freshQueryId };
   }
 
   async getScanCursor(walletAddress) {

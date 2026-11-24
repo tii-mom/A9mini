@@ -90,7 +90,12 @@ export function validateDaemonConfig(env = {}, { executeFlag = false } = {}) {
     promoWalletName,
     presaleWalletName,
     jettonMasterAddress: String(env.A9_JETTON_MASTER_ADDRESS || '').trim() || null,
-    protocolVersion: String(env.A9_PROTOCOL_VERSION || 'v15').trim().toLowerCase() === 'v16' ? 'v16' : 'v15',
+    protocolVersion: (() => {
+      const raw = String(env.A9_PROTOCOL_VERSION ?? '').trim().toLowerCase();
+      if (!raw) return 'v16';
+      if (raw === 'v16' || raw === 'v15') return raw;
+      throw new Error(`Unsupported A9_PROTOCOL_VERSION: "${env.A9_PROTOCOL_VERSION}" (expected "v16" or "v15")`);
+    })(),
     runnerId: String(env.A9_RUNNER_ID || `daemon-${network}-${process.pid}`),
     intervalMs: Math.max(2000, Number(env.A9_DAEMON_INTERVAL_MS || 10000)),
     healthPort: Number(env.A9_DAEMON_HEALTH_PORT || 0),

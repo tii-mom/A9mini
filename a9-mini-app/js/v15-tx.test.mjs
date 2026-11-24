@@ -10,8 +10,6 @@ import {
   buildV15ClaimTx,
   buildV15PromoFeeTx,
   buildV15PresaleTx,
-  encodeClaimFailedRefundBoc,
-  buildV16ClaimFailedRefundTx,
   V15_GAS,
 } from './v15-tx.js';
 
@@ -75,7 +73,7 @@ test('buildV15StakeTx builds valid 2-cell TEP-74 AskToTransfer BOC with 0x525400
   assert.equal(raw.readBigUInt64BE(17), 77n);
 });
 
-test('v16 stake encodes full 32-bit round IDs and keeps v15 payloads distinct', () => {
+test('v16 stake is default and encodes full 32-bit round IDs while keeping explicit v15 distinct', () => {
   const address = '0:' + 'ab'.repeat(32);
   const stake = {
     userJettonWallet: address,
@@ -85,13 +83,14 @@ test('v16 stake encodes full 32-bit round IDs and keeps v15 payloads distinct', 
     queryId: 77n,
   };
   const encode = (roundId, protocolVersion) => Buffer.from(
-    buildV15StakeTx({ ...stake, roundId, protocolVersion }).messages[0].payload, 'base64',
+    buildV15StakeTx({ ...stake, roundId, ...(protocolVersion !== undefined ? { protocolVersion } : {}) }).messages[0].payload, 'base64',
   );
-  assert.equal(encode(255).subarray(-6).toString('hex'), '5254000fff20');
-  assert.equal(encode(256, 'v16').subarray(-9).toString('hex'), '525400100000010020');
-  assert.equal(encode(0xffffffff, 'v16').subarray(-9).toString('hex'), '52540010ffffffff20');
-  assert.throws(() => encode(256), /1\.\.255/);
-  assert.throws(() => encode(0x100000000, 'v16'), /1\.\.4294967295/);
+  assert.equal(encode(256).subarray(-9).toString('hex'), '525400100000010020');
+  assert.equal(encode(0xffffffff).subarray(-9).toString('hex'), '52540010ffffffff20');
+  assert.equal(encode(255, 'v15').subarray(-6).toString('hex'), '5254000fff20');
+  assert.throws(() => encode(256, 'v15'), /1\.\.255/);
+  assert.throws(() => encode(0x100000000), /1\.\.4294967295/);
+  assert.throws(() => encode(1, 'v14'), /unsupported stake protocol version/);
 });
 
 test('buildV15ClaimTx and buildV15PromoFeeTx produce valid TON Connect 2.0 message payloads', () => {
@@ -127,17 +126,6 @@ test('buildV15PresaleTx builds valid buy:<orderId> TON Connect 2.0 payload and r
   assert.equal(raw.subarray(0, 4).toString('hex'), 'b5ee9c72');
   assert.throws(() => buildV15PresaleTx({ payTo: 'EQ_X', tonNano: '990000000', memo: 'claim:123' }));
   assert.throws(() => buildV15PresaleTx({ payTo: 'EQ_X', tonNano: '0', memo: 'buy:123' }));
-});
-
-test('buildV16ClaimFailedRefundTx encodes 0x52540005 + queryId with 0.15 GRAM gas', () => {
-  const boc = encodeClaimFailedRefundBoc(42n);
-  const raw = Buffer.from(boc, 'base64');
-  assert.equal(raw.subarray(0, 4).toString('hex'), 'b5ee9c72');
-  assert.ok(raw.toString('hex').includes('52540005000000000000002a'));
-  const tx = buildV16ClaimFailedRefundTx('EQ_V16_RC_DEMO', 42n);
-  assert.equal(tx.messages[0].address, 'EQ_V16_RC_DEMO');
-  assert.equal(tx.messages[0].amount, '150000000');
-  assert.throws(() => buildV16ClaimFailedRefundTx(''));
 });
 
 console.log(`All ${passed} v15 frontend tx-builder tests passed.`);

@@ -131,6 +131,9 @@ export class PromoHotWalletEngine {
     if (claim.status !== CLAIM_STATUS.PENDING_FEE) {
       throw new PromoError('INVALID_STATE', `claim ${claimId} is ${claim.status}`);
     }
+    if (!tx.from || addressKey(tx.from) !== addressKey(claim.walletAddress)) {
+      throw new PromoError('WRONG_PAYER', 'fee sender does not match claim wallet');
+    }
     const paidAt = Number(tx.utime) > 0 ? Number(tx.utime) : nowSec;
     if (paidAt > claim.expiresAt) {
       throw new PromoError('CLAIM_EXPIRED', `claim ${claimId} expired`);
@@ -175,6 +178,9 @@ export class PromoHotWalletEngine {
     const claim = this.claims.get(claimId);
     if (claim.status !== CLAIM_STATUS.PENDING_FEE) {
       throw new PromoError('INVALID_STATE', `claim ${claimId} is ${claim.status}`);
+    }
+    if (!tx.from || addressKey(tx.from) !== addressKey(claim.walletAddress)) {
+      throw new PromoError('WRONG_PAYER', 'fee sender does not match claim wallet');
     }
     const paidAt = Number(tx.utime) > 0 ? Number(tx.utime) : nowSec;
     if (paidAt > claim.expiresAt) {

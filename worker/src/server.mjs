@@ -107,7 +107,6 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
     roundIds: Array.isArray(rangeOpts?.roundIds) && rangeOpts.roundIds.length
       ? rangeOpts.roundIds
       : Array.from(liveState.rounds.keys()),
-    includeFailedRefund: String(process.env.A9_PROTOCOL_VERSION || '').trim().toLowerCase() === 'v16',
   });
 
   const syncChain = async () => {
