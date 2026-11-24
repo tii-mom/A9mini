@@ -1,5 +1,6 @@
 import { personalRanks, teamRanks, DEMO_CHEST_SKUS, demoBuyChest } from '../demo-data.js';
 import {
+  fetchWarmupCurrent,
   fetchWarmupRank,
   fetchMyChests,
   claimStarterChests,
@@ -13,11 +14,13 @@ import {
   rawToA9,
 } from '../data.js';
 /**
- * Warm-up & Chest Mall Pages — 2-Tab Unified Chest Mall (Paid Boost + Free 5-Tier Viral Chain)
- * - Paid Chest Mall: 5 fixed SKUs (0.99 / 4.99 / 9.99 / 19.99 / 99.99 GRAM) at 1 GRAM = 2,002 A9
- *   with Instant vs 24H Social Boost toggle (stoppable anytime, principal never held hostage).
- * - Free Chests: Bronze #1/#2/#3 serial (300/300/400 A9) -> Silver (10k) -> Gold (100k) -> Platinum (200k) -> Diamond (1,000k).
- * - Live mode stays strictly read-only on purchase/write actions.
+ * Warm-up v2 & Chest Mall Pages
+ * - Warm-up v2: Zero-friction TG reservation, real-time participant count & progress bar,
+ *   optional A9 intent tier, Bot opening reminder, and per-round WARMUP_ROUND viral chest
+ *   (2 valid active-wallet friends = 300 A9 base, up to 5 = 900 A9 max -> PENDING_VAULT).
+ * - Paid Chest Mall: 5 fixed SKUs (0.99 / 4.99 / 9.99 / 19.99 / 99.99 GRAM) at 1 GRAM = 2,002 A9.
+ * - Free Chests: Bronze #1/#2/#3 serial -> Silver -> Gold -> Platinum -> Diamond.
+ * - Live mode stays strictly read-only on purchase/chest-open actions unless store.fundsEnabled.
  */
 
 import { store } from '../store.js';
@@ -27,185 +30,447 @@ import { A9Haptic, A9TMA } from '../tma.js';
 import { escapeHtml, formatNum, formatTimer, showToast, copyText, burstParticles, openModal, closeModal } from '../components.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
-import { SHOP_SCALLOP_AWNING } from '../paper-art.js';
+import { renderChestSvg, resolveChestTier, CHEST_TIER_META } from '../chest-art.js';
 import { openXShareSheet, buildOgShareUrl, buildTmaDeepLink, getShareRef } from '../share.js';
 
-export function renderWarmupHome(root, navigate) {
-  const { user, round } = store.state;
-  const reg = user.warmupRegistered;
-  const safeAddr = (user.shortAddress || 'A9USER').replace(/[^a-zA-Z0-9]/g, '');
-  const inviteUrl = config.isDemo
-    ? `${window.location.origin}${window.location.pathname}?startapp=invite_${safeAddr}`
-    : buildTmaDeepLink(`invite_${getShareRef()}`);
+const WARMUP_INTENT_OPTIONS = [
+  { key: '1000',       zh: '1,000 A9',   en: '1,000 A9' },
+  { key: '5000',       zh: '5,000 A9',   en: '5,000 A9' },
+  { key: '20000_plus', zh: '20,000+ A9', en: '20,000+ A9' },
+  { key: 'watching',   zh: '先观望',     en: 'Watching' },
+];
 
-  const distSteps = [
-    { key: 'pending_freeze', label: L('待冻结 (T)', 'Freeze (T)') },
-    { key: 'confirming',     label: L('名单确认 (T+24H)', 'Verify (T+24H)') },
-    { key: 'distributing',   label: L('自动发放中', 'Sending') },
-    { key: 'done',           label: L('已发放 (T+48H)', 'Sent (T+48H)') }
-  ];
+export function renderWarmupHome(root, navigate, _param = null, query = {}) {
+  const queryRoundId = Number(query?.round);
+  const requestedRoundId = Number.isInteger(queryRoundId) && queryRoundId >= 1 ? queryRoundId : null;
+  let loadSeq = 0;
+  let state = {
+    loading: true,
+    error: null,
+    data: null,
+    busy: false,
+    selectedTier: null,
+    remindEnabled: true,
+  };
 
-  const roundLabel = round.currentRound
-    ? L(`第 ${round.currentRound} 轮开局预热 (12H)`, `R${round.currentRound} Pre-Round (12H)`)
-    : L('开局预热待核验', 'Pre-Round Pending');
-  const cdText = round.earlyBirdSec === null || round.earlyBirdSec === undefined
-    ? '—'
-    : formatTimer(round.earlyBirdSec);
+  const canOpenChestNow = () => config.isDemo || store.fundsEnabled;
 
-  root.innerHTML = `
-    <div class="col-gap anim-page-enter">
-      <div class="card card-hero">
-        <div class="row-between" style="margin-bottom:10px;">
-          <span class="chip chip-gold">${roundLabel}</span>
-          <span class="row-start num-sm text-sec">${icon('clock', 13)} <span id="early-cd" class="mono">${cdText}</span></span>
-        </div>
-        <div class="num-xs text-muted">${L('本轮开局预热池', 'Pre-Round Pool')}</div>
-        <div class="num-hero" style="margin-top:4px;">${config.isDemo ? '8,000,000 <span class="num-md text-green">A9</span>' : L('待核验', 'Awaiting verification')}</div>
+  const formatPlannedOpen = (ms) => {
+    const n = Number(ms);
+    if (!Number.isFinite(n) || n <= 0) return L('由协议公告通知', 'TBA by announcement');
+    try {
+      return new Date(n).toLocaleString(L('zh-CN', 'en-US'), {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return L('待公布', 'TBA');
+    }
+  };
 
-        ${config.isDemo ? `
-        <div class="metric-strip cols-3">
-          <div class="metric-cell"><span class="num-xs text-muted">${L('有效直邀', 'Invites')}</span><span class="num-md">${reg ? user.warmupInvites : 0}</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('预热排名', 'Rank')}</span><span class="num-md text-gold">${reg ? 'No.08' : '--'}</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('预计奖励', 'Est. A9')}</span><span class="num-md text-green">${!reg ? '0' : '400,000'}</span></div>
-        </div>
-        ` : ''}
+  const load = async () => {
+    const seq = ++loadSeq;
+    state.loading = true;
+    state.error = null;
+    if (root.isConnected) paint();
+    try {
+      const data = await fetchWarmupCurrent(requestedRoundId);
+      if (seq !== loadSeq || !root.isConnected) return;
+      state.data = data;
+      state.loading = false;
+      const myRes = data?.myReservation;
+      state.selectedTier = myRes && myRes.status === 'ACTIVE' ? (myRes.intentTier ?? null) : null;
+      state.remindEnabled = myRes ? Boolean(myRes.remindEnabled) : true;
+      store.update((s) => {
+        s.user.warmupRegistered = Boolean(data?.isReserved);
+        s.user.warmupInvites = Number(myRes?.validInvites || 0);
+      });
+    } catch (e) {
+      if (seq !== loadSeq || !root.isConnected) return;
+      state.loading = false;
+      state.error = e?.message || L('预热数据暂不可读取，请重试', 'Warm-up data unavailable');
+    }
+    if (root.isConnected) paint();
+  };
 
-        ${!reg
-          ? `<button class="btn btn-primary" id="btn-register-warmup">${icon('bolt', 16)} ${L('立即报名开局预热 (需 ≥1 有效直邀)', 'Join Pre-Round (≥1 Invite)')}</button>`
-          : `<button class="btn btn-primary" id="btn-share-warmup">${icon('send', 15)} ${L('分享冲榜 · 冲击前 10 名', 'Share to Reach Top 10')}</button>`
-        }
-      </div>
+  const paint = () => {
+    const d = state.data;
+    const targetRoundId =
+      Number(d?.roundId) ||
+      requestedRoundId ||
+      ((Number(d?.currentOnchainRoundId ?? store.state.round?.currentRound) || 0) + 1);
+    const totalRegistered = Number(d?.stats?.totalRegistered ?? 0);
+    const walletBoundCount = Number(d?.stats?.walletBoundCount ?? 0);
+    const targetUsers = Number(d?.config?.targetUsers ?? 0);
+    const progressPct = Math.max(0, Math.min(100, Number(d?.stats?.progressPct ?? 0)));
+    const isRoundOpen = d ? Boolean(d.open) : true;
+    const myRes = d?.myReservation && d.myReservation.status === 'ACTIVE' ? d.myReservation : null;
+    const chest = d?.myWarmupChest || null;
+    const isReserved = Boolean(myRes);
+    const hasTgAuth = config.isDemo || Boolean(A9TMA.getRawInitData());
 
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">${icon('clock', 15, 'text-gold')} ${L('热钱包自动发放进度', 'Auto-Distribution Timeline')}</div>
-          <span class="chip chip-green">${L('无需手动领取', 'Auto-Drop')}</span>
-        </div>
-        <div class="grid-2">
-          ${distSteps.map((st, idx) => `
-            <div class="list-row" style="${idx === 0 ? 'border-color:var(--gold-border);' : ''}">
-              <span class="num-xs ${idx === 0 ? 'text-gold' : 'text-muted'}">${idx + 1}. ${st.label}</span>
+    const fallbackDeepLink = config.isDemo
+      ? `${window.location.origin}${window.location.pathname}?startapp=warmup_${targetRoundId}_demo01`
+      : buildTmaDeepLink(`warmup_${targetRoundId}_${getShareRef()}`);
+    const inviteUrl = d?.inviteDeepLink || fallbackDeepLink;
+
+    const validInvites = Number(myRes?.validInvites ?? chest?.currentAssists ?? 0);
+    const rawInvites = Number(myRes?.rawInvites ?? 0);
+    const baseReq = Number(chest?.requiredAssists ?? d?.config?.chestMinInvites ?? 2);
+    const maxFriends = Number(d?.config?.chestMaxInvites ?? 5);
+    const totalChestA9 = chest ? (rawToA9(chest.totalA9Raw ?? chest.baseA9Raw) || 0) : 0;
+    const baseUnlockA9 = rawToA9(d?.config?.chestBaseA9Raw || '300000000000') || 300;
+    const maxChestA9 = rawToA9(
+      (BigInt(String(d?.config?.chestBaseA9Raw || '300000000000')) +
+        BigInt(Math.max(0, maxFriends - baseReq)) * BigInt(String(d?.config?.chestStepA9Raw || '200000000000'))).toString()
+    ) || 900;
+    const chestPct = maxFriends > 0 ? Math.min(100, Math.round((Math.min(validInvites, maxFriends) / maxFriends) * 100)) : 0;
+    const chestOpened = chest?.status === 'OPENED';
+    const chestReady = Boolean(chest && !chestOpened && (chest.status === 'READY' || validInvites >= baseReq));
+
+    const openTimeText = formatPlannedOpen(d?.config?.plannedOpenAtMs);
+
+    root.innerHTML = `
+      <div class="col-gap anim-page-enter">
+        <section class="card card-hero">
+          <div class="row-between" style="margin-bottom:8px;">
+            <span class="chip chip-gold">${L(`第 ${targetRoundId} 轮开局预热`, `Round ${targetRoundId} Warm-Up`)}</span>
+            <span class="chip ${!isRoundOpen ? 'chip-muted' : isReserved ? 'chip-green' : 'chip-muted'}">${!isRoundOpen ? L('本轮预约已关闭', 'Closed') : isReserved ? L('已预约', 'Reserved') : L('零门槛预约', '0-Cost Reserve')}</span>
+          </div>
+
+          <div class="num-xs text-muted">${L('当前全网已预约参与人数', 'Total Reserved Players')}</div>
+          <div class="row-between" style="align-items:baseline;margin-top:4px;gap:8px;">
+            <div class="num-hero mono">${state.loading && !d ? '—' : formatNum(totalRegistered)} <span class="num-md text-sec">${L('人', 'players')}</span></div>
+            <span class="num-xs text-sec mono">${targetUsers > 0 ? `${L('目标', 'Goal')} ${formatNum(targetUsers)} (${progressPct}%)` : '—'}</span>
+          </div>
+
+          <div class="progress-track" style="height:8px;margin:10px 0 8px;">
+            <div class="progress-fill" style="width:${progressPct}%;"></div>
+          </div>
+
+          <div class="metric-strip cols-3" style="margin-bottom:12px;">
+            <div class="metric-cell">
+              <span class="num-xs text-muted">${L('活跃钱包已绑', 'Wallet Bound')}</span>
+              <span class="num-md mono">${state.loading && !d ? '—' : formatNum(walletBoundCount)}</span>
             </div>
-          `).join('')}
+            <div class="metric-cell">
+              <span class="num-xs text-muted">${L('我的预热邀请', 'My Invites')}</span>
+              <span class="num-md mono text-green">${isReserved ? `${validInvites}/${rawInvites}` : '0'}</span>
+            </div>
+            <div class="metric-cell">
+              <span class="num-xs text-muted">${L('预计开轮时间', 'Est. Open')}</span>
+              <span class="num-xs mono" style="font-weight:700;">${escapeHtml(openTimeText)}</span>
+            </div>
+          </div>
+
+          ${state.error ? `
+            <div class="sub-tile" style="margin-bottom:10px;border-color:var(--gold-border);">
+              <div class="row-between">
+                <span class="num-xs text-red">${escapeHtml(state.error)}</span>
+                <button class="btn btn-secondary btn-sm" id="btn-warmup-retry" type="button">${L('重试', 'Retry')}</button>
+              </div>
+            </div>
+          ` : ''}
+
+          ${!isRoundOpen ? `
+            <button class="btn btn-secondary" type="button" disabled>${icon('lock', 15)} ${L('本轮预热预约已暂停或结束', 'Warm-Up Closed')}</button>
+          ` : !isReserved ? `
+            <button class="btn btn-primary" id="btn-register-warmup" type="button" ${state.busy ? 'disabled' : ''}>
+              ${icon('bolt', 16)} ${state.busy ? L('提交中…', 'Reserving…') : L(`一键预约第 ${targetRoundId} 轮 · 领专属预热宝箱`, `Reserve Round ${targetRoundId} & Get Chest`)}
+            </button>
+          ` : `
+            <div class="grid-2" style="gap:8px;">
+              <button class="btn btn-primary" id="btn-share-warmup" type="button">${icon('send', 15)} ${L('邀友预热解锁宝箱', 'Invite to Unlock')}</button>
+              <button class="btn btn-secondary" id="btn-copy-invite" type="button">${icon('copy', 15)} ${L('复制预热链接', 'Copy Link')}</button>
+            </div>
+          `}
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <div class="card-title">${icon('trophy', 15, 'text-gold')} ${L(`第 ${targetRoundId} 轮预热裂变宝箱`, `Round ${targetRoundId} Warm-Up Chest`)}</div>
+            <span class="chip ${chestOpened ? 'chip-muted' : chestReady ? 'chip-green' : 'chip-gold'}">
+              ${chestOpened ? L('已开箱入库', 'Opened') : chestReady ? L('可开箱', 'Ready') : isReserved ? L('解锁中', 'In Progress') : L('预约即领', 'Free on Reserve')}
+            </span>
+          </div>
+          <p class="num-xs text-sec" style="margin:0 0 10px;line-height:1.5;">
+            ${L(`预约后立领 1 个本轮专属预热宝箱：邀请 ${baseReq} 位好友预约并绑定活跃 TON 钱包即解锁 ${formatNum(baseUnlockA9)} A9，之后每多 1 位 +200 A9（满 ${maxFriends} 位封顶 ${formatNum(maxChestA9)} A9），开箱进入待激活金库，开轮后参与闯关（最低 1,000 A9）或购箱即刻激活。`, `Reserve to receive 1 Round Warm-Up Chest: invite ${baseReq} friends who reserve & bind an active TON wallet to unlock ${formatNum(baseUnlockA9)} A9, plus +200 A9 per extra friend up to ${maxFriends} (${formatNum(maxChestA9)} A9 max) into your Pending Vault.`)}
+          </p>
+
+          <div class="sub-tile" style="margin-bottom:10px;">
+            <div class="row-between num-xs" style="margin-bottom:6px;">
+              <span>${L('有效活跃钱包好友', 'Valid Wallet Friends')}: <b class="mono">${validInvites} / ${maxFriends}</b> <span class="text-muted">(${L(`已预约 ${rawInvites} 人`, `${rawInvites} reserved`)})</span></span>
+              <b class="mono text-green">${chestReady || chestOpened ? `${formatNum(totalChestA9)} A9` : L(`满 ${baseReq} 人解锁 ${formatNum(baseUnlockA9)} A9`, `${formatNum(baseUnlockA9)} A9 at ${baseReq}`)}</b>
+            </div>
+            <div class="progress-track" style="height:7px;margin-bottom:6px;">
+              <div class="progress-fill" style="width:${chestPct}%;"></div>
+            </div>
+            <div class="row-between num-xs text-muted">
+              <span>2 ${L('人', 'inv')} = 300 A9</span>
+              <span>3 ${L('人', 'inv')} = 500 A9</span>
+              <span>4 ${L('人', 'inv')} = 700 A9</span>
+              <span class="text-gold" style="font-weight:700;">5 ${L('人', 'inv')} = ${formatNum(maxChestA9)} A9</span>
+            </div>
+          </div>
+
+          ${isReserved && chest ? `
+            <div class="grid-2" style="gap:8px;">
+              <button class="btn btn-secondary btn-sm" id="btn-warmup-share-chest" type="button">${icon('send', 13)} ${L('分享拉好友绑钱包', 'Share Invite')}</button>
+              <button class="btn ${chestReady && canOpenChestNow() ? 'btn-primary' : 'btn-secondary'} btn-sm" id="btn-open-warmup-chest" type="button" ${chestOpened || !chestReady || !canOpenChestNow() || state.busy ? 'disabled' : ''}>
+                ${icon(chestOpened ? 'checkCircle' : canOpenChestNow() ? 'unlock' : 'lock', 13)}
+                ${chestOpened ? L('已开箱入待激活金库', 'Opened to Vault') : !canOpenChestNow() ? L('只读模式暂未开放开箱', 'Read-Only Mode') : chestReady ? L(`开启宝箱 (+${formatNum(totalChestA9)} A9)`, `Open (+${formatNum(totalChestA9)} A9)`) : L(`还差 ${Math.max(0, baseReq - validInvites)} 位有效好友`, `${Math.max(0, baseReq - validInvites)} more needed`)}
+              </button>
+            </div>
+          ` : `
+            <div class="num-xs text-muted">${L('完成上方一键预约后自动发放本轮预热宝箱；好友仅点预约不计入防女巫进度，绑定链上活跃 TON 钱包后自动补算。', 'Reserve above to receive your chest. Invited friends count automatically once they bind an active TON wallet.')}</div>
+          `}
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <div class="card-title">${icon('clock', 15, 'text-gold')} ${L('意向档位与开轮提醒（可选）', 'Intent Tier & Opening Alert (Optional)')}</div>
+            <span class="chip chip-muted">${L('不锁资金', 'Non-binding')}</span>
+          </div>
+          <div class="num-xs text-muted" style="margin-bottom:8px;">${L('选填你本轮预计参与的 A9 体量（链上最低质押 1,000 A9，随时可改，不扣款）：', 'Optionally select your planned A9 size (min on-chain stake 1,000 A9, non-binding):')}</div>
+          <div class="grid-2" style="gap:8px;margin-bottom:10px;">
+            ${WARMUP_INTENT_OPTIONS.map((opt) => {
+              const active = state.selectedTier === opt.key;
+              return `<button type="button" class="btn btn-sm ${active ? 'btn-primary' : 'btn-secondary'}" data-intent-tier="${opt.key}" ${!isRoundOpen || state.busy ? 'disabled' : ''}>${L(opt.zh, opt.en)}</button>`;
+            }).join('')}
+          </div>
+          <div class="list-row" style="padding:8px 10px;">
+            <div>
+              <div class="num-sm" style="font-weight:700;">${L('开轮 Bot 私信通知', 'Bot DM Opening Alert')}</div>
+              <div class="num-xs text-muted">${L('第 ' + targetRoundId + ' 轮开放入场时第一时间推送 2.0× / 1.4× / 1.0× 早鸟入口', 'Get notified when Round ' + targetRoundId + ' opens (2.0× / 1.4× / 1.0× early-bird)')}</div>
+            </div>
+            <button type="button" class="chip ${state.remindEnabled ? 'chip-green' : 'chip-muted'}" id="btn-toggle-remind" style="cursor:pointer;border:none;" ${!isRoundOpen || state.busy ? 'disabled' : ''}>
+              ${state.remindEnabled ? L('已开启', 'ON') : L('已关闭', 'OFF')}
+            </button>
+          </div>
+        </section>
+
+        <div class="grid-2">
+          <button class="btn btn-secondary" data-nav="/warmup/rank" type="button">${icon('trophy', 15)} ${L('预热裂变榜', 'Warm-Up Board')}</button>
+          <button class="btn btn-secondary" id="btn-copy-invite-bottom" type="button">${icon('copy', 15)} ${L('复制专属链接', 'Copy Link')}</button>
         </div>
+
+        ${isReserved ? `<button class="btn btn-sm" id="btn-cancel-warmup" type="button" style="width:100%;background:transparent;color:var(--text-muted);font-weight:500;" ${state.busy ? 'disabled' : ''}>${L('取消本轮预热预约', 'Cancel Warm-Up Reservation')}</button>` : ''}
+        ${!hasTgAuth ? `<div class="num-xs text-muted" style="text-align:center;">${L('请在 Telegram 小程序内打开以完成零门槛预约与接收 Bot 开轮提醒。', 'Open inside Telegram Mini App to reserve and receive Bot alerts.')}</div>` : ''}
       </div>
+    `;
 
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">${icon('trophy', 15, 'text-gold')} ${L('前 50 名阶梯奖励', 'Top 50 Tiers')}</div>
-        </div>
-        ${config.isDemo ? `
-        <div class="col-gap">
-          <div class="list-row"><b>${L('第 1–10 名', 'Top 1–10')}</b><span class="num-sm text-green">400,000 A9 / ${L('人', 'ea')}</span></div>
-          <div class="list-row"><b>${L('第 11–25 名', 'Top 11–25')}</b><span class="num-sm text-gold">160,000 A9 / ${L('人', 'ea')}</span></div>
-          <div class="list-row"><b>${L('第 26–50 名', 'Top 26–50')}</b><span class="num-sm text-sec">64,000 A9 / ${L('人', 'ea')}</span></div>
-        </div>
-        ` : `<div class="num-xs text-muted">${L('预热奖池与阶梯发放标准等待服务端公布后展示。', 'Warm-up reward tiers await server publication.')}</div>`}
-      </div>
+    const retryBtn = root.querySelector('#btn-warmup-retry');
+    if (retryBtn) retryBtn.onclick = () => load();
 
-      <div class="grid-2">
-        <button class="btn btn-secondary" data-nav="/warmup/rank">${icon('trophy', 15)} ${L('早鸟先锋榜', 'Early Bird Board')}</button>
-        <button class="btn btn-secondary" id="btn-copy-invite">${icon('copy', 15)} ${L('复制邀请链', 'Copy Link')}</button>
-      </div>
-
-      ${reg ? `<button class="btn btn-sm" id="btn-cancel-warmup" style="width:100%;background:transparent;color:var(--text-muted);font-weight:500;">${L('取消本轮开局预热报名', 'Cancel Pre-Round Registration')}</button>` : ''}
-    </div>
-  `;
-
-  const regBtn = root.querySelector('#btn-register-warmup');
-  if (regBtn) {
-    regBtn.onclick = async () => {
-      if (!config.isDemo) {
-        const uid = getEffectiveUserId(user);
-        if (!uid) {
-          showToast(L('请在 Telegram 内打开或先连接 TON 钱包', 'Open in Telegram or connect TON wallet first'), 'amber');
-          tonConnect.openConnectModal(() => renderWarmupHome(root, navigate));
-          return;
-        }
-        regBtn.disabled = true;
-        try {
-          await registerWarmup({ roundId: round.currentRound || 1, walletAddress: user.address, userId: uid, referrerId: store.state.referral.referrerId });
-          A9Haptic.success();
-          burstParticles(regBtn);
-          store.update(s => { s.user.warmupRegistered = true; });
-          showToast(L('开局预热报名成功', 'Pre-Round registered'));
-          renderWarmupHome(root, navigate);
-        } catch (e) {
-          showToast(e?.message || L('预热报名失败，请重试', 'Registration failed'), 'error');
-          regBtn.disabled = false;
-        }
-        return;
+    const submitReserve = async (overrides = {}) => {
+      if (!config.isDemo && !A9TMA.getRawInitData()) {
+        showToast(L('请在 Telegram 小程序内打开后再一键预约', 'Open inside Telegram Mini App to reserve'), 'amber');
+        return false;
       }
-      A9Haptic.success();
-      store.update(s => { s.user.warmupRegistered = true; });
-      burstParticles(regBtn);
-      showToast(L('报名成功 · 当前排位 No.08', 'Joined · Rank #08'));
-      renderWarmupHome(root, navigate);
+      state.busy = true;
+      paint();
+      try {
+        const hasIntentOverride = Object.prototype.hasOwnProperty.call(overrides, 'intentTier');
+        const hasRemindOverride = Object.prototype.hasOwnProperty.call(overrides, 'remindEnabled');
+        await registerWarmup({
+          roundId: targetRoundId,
+          walletAddress: store.state.user.address || null,
+          userId: getEffectiveUserId(store.state.user),
+          referrerId: store.state.referral.referrerId || null,
+          intentTier: hasIntentOverride ? overrides.intentTier : state.selectedTier,
+          remindEnabled: hasRemindOverride ? overrides.remindEnabled : state.remindEnabled,
+        });
+        A9Haptic.success();
+        if (!isReserved) burstParticles(root);
+        showToast(
+          overrides._silent
+            ? L('已更新预约偏好', 'Reservation preferences saved')
+            : L(`预约成功！已发放第 ${targetRoundId} 轮预热宝箱`, `Reserved! Round ${targetRoundId} Warm-Up Chest granted`)
+        );
+        state.busy = false;
+        await load();
+        return true;
+      } catch (e) {
+        A9Haptic.error();
+        showToast(e?.message || L('预热预约失败，请重试', 'Reservation failed'), 'error');
+        state.busy = false;
+        if (root.isConnected) paint();
+        return false;
+      }
     };
-  }
-  const shareBtn = root.querySelector('#btn-share-warmup');
-  if (shareBtn) {
-    shareBtn.onclick = () => {
-      A9TMA.shareInvite(inviteUrl, config.isDemo ? 'A9 8,000,000 A9 Pre-Round Pool' : L('A9 协议开局预热入口', 'A9 Protocol Pre-Round'));
-      showToast(L('已调起分享', 'Share opened'));
+
+    const regBtn = root.querySelector('#btn-register-warmup');
+    if (regBtn) regBtn.onclick = () => submitReserve();
+
+    const doShare = () => {
+      const shareText = L(
+        `我已预约 A9 第 ${targetRoundId} 轮开局预热！点链接零门槛预约立领专属预热宝箱，绑活跃 TON 钱包一起解锁最高 ${formatNum(maxChestA9)} A9：`,
+        `I reserved A9 Round ${targetRoundId} Warm-Up! Tap to reserve with 0 cost, get your Warm-Up Chest, and unlock up to ${formatNum(maxChestA9)} A9:`
+      );
+      A9TMA.shareInvite(inviteUrl, shareText);
+      showToast(L('已调起 Telegram 好友分享', 'Opened Telegram share'));
     };
-  }
-  const cancelBtn = root.querySelector('#btn-cancel-warmup');
-  if (cancelBtn) {
-    cancelBtn.onclick = async () => {
-      if (!config.isDemo) {
-        const uid = getEffectiveUserId(user);
-        if (!uid) {
-          showToast(L('请在 Telegram 内打开或先连接 TON 钱包', 'Open in Telegram or connect TON wallet first'), 'amber');
-          tonConnect.openConnectModal(() => renderWarmupHome(root, navigate));
-          return;
+
+    const shareBtn = root.querySelector('#btn-share-warmup');
+    if (shareBtn) shareBtn.onclick = doShare;
+    const shareChestBtn = root.querySelector('#btn-warmup-share-chest');
+    if (shareChestBtn) shareChestBtn.onclick = doShare;
+
+    const copyHandler = () => copyText(inviteUrl, L('已复制专属预热链接', 'Copied warm-up link'));
+    const copyTop = root.querySelector('#btn-copy-invite');
+    if (copyTop) copyTop.onclick = copyHandler;
+    const copyBottom = root.querySelector('#btn-copy-invite-bottom');
+    if (copyBottom) copyBottom.onclick = copyHandler;
+
+    root.querySelectorAll('[data-intent-tier]').forEach((btn) => {
+      btn.onclick = async () => {
+        A9Haptic.tick();
+        const prev = state.selectedTier;
+        const tier = btn.dataset.intentTier;
+        const next = prev === tier ? null : tier;
+        state.selectedTier = next;
+        if (isReserved) {
+          const okSave = await submitReserve({ intentTier: next, _silent: true });
+          if (!okSave && root.isConnected) {
+            state.selectedTier = prev;
+            paint();
+          }
+        } else {
+          paint();
         }
-        cancelBtn.disabled = true;
-        try {
-          await cancelWarmup({ roundId: round.currentRound || 1, walletAddress: user.address, userId: uid });
+      };
+    });
+
+    const toggleRemind = root.querySelector('#btn-toggle-remind');
+    if (toggleRemind) {
+      toggleRemind.onclick = async () => {
+        A9Haptic.tick();
+        const prev = state.remindEnabled;
+        const next = !prev;
+        state.remindEnabled = next;
+        if (isReserved) {
+          const okSave = await submitReserve({ remindEnabled: next, _silent: true });
+          if (!okSave && root.isConnected) {
+            state.remindEnabled = prev;
+            paint();
+          }
+        } else {
+          paint();
+        }
+      };
+    }
+
+    const openWarmupChestBtn = root.querySelector('#btn-open-warmup-chest');
+    if (openWarmupChestBtn && chest) {
+      openWarmupChestBtn.onclick = async () => {
+        if (!canOpenChestNow()) {
           A9Haptic.warning();
-          store.update(s => { s.user.warmupRegistered = false; });
-          showToast(L('已取消本轮预热报名', 'Registration cancelled'), 'amber');
-          renderWarmupHome(root, navigate);
-        } catch (e) {
-          showToast(e?.message || L('取消预热报名失败，请重试', 'Cancellation failed'), 'error');
-          cancelBtn.disabled = false;
+          showToast(L('当前真实模式处于只读验收阶段，宝箱开箱入账暂未开放', 'Live mode is read-only; chest opening disabled'), 'amber');
+          return;
         }
-        return;
-      }
-      A9Haptic.warning();
-      store.update(s => { s.user.warmupRegistered = false; });
-      showToast(L('已取消本轮预热报名', 'Registration cancelled'), 'amber');
-      renderWarmupHome(root, navigate);
-    };
-  }
-  root.querySelector('#btn-copy-invite').onclick = () => copyText(inviteUrl, L('已复制链接', 'Copied'));
+        state.busy = true;
+        paint();
+        try {
+          const res = await openChestById(chest.chestId, store.state, store.state.user.address);
+          const gotA9 = rawToA9(res?.rewardA9Raw) || totalChestA9;
+          A9Haptic.success();
+          burstParticles(openWarmupChestBtn);
+          showToast(L(`预热宝箱开启成功！+${formatNum(gotA9)} A9 已进入待激活金库`, `Warm-Up Chest opened! +${formatNum(gotA9)} A9 added to Pending Vault`));
+          state.busy = false;
+          await load();
+        } catch (e) {
+          A9Haptic.error();
+          showToast(e?.message || L(`暂未满足开箱条件（需 ≥${baseReq} 位绑定活跃钱包的预约好友）`, `Need ≥${baseReq} wallet-bound friends to open`), 'amber');
+          state.busy = false;
+          if (root.isConnected) paint();
+        }
+      };
+    }
+
+    const cancelBtn = root.querySelector('#btn-cancel-warmup');
+    if (cancelBtn) {
+      cancelBtn.onclick = async () => {
+        state.busy = true;
+        paint();
+        try {
+          await cancelWarmup({
+            roundId: targetRoundId,
+            walletAddress: store.state.user.address || null,
+            userId: getEffectiveUserId(store.state.user),
+          });
+          A9Haptic.warning();
+          state.selectedTier = null;
+          store.update((s) => { s.user.warmupRegistered = false; });
+          showToast(L('已取消本轮预热预约', 'Warm-up reservation cancelled'), 'amber');
+          state.busy = false;
+          await load();
+        } catch (e) {
+          A9Haptic.error();
+          showToast(e?.message || L('取消预约失败，请重试', 'Cancellation failed'), 'error');
+          state.busy = false;
+          if (root.isConnected) paint();
+        }
+      };
+    }
+  };
+
+  load();
 }
 
 export function renderWarmupRank(root) {
   if (!config.isDemo) {
-    const panel=document.createElement('div');
-    panel.className='card col-gap';
+    const panel = document.createElement('div');
+    panel.className = 'card col-gap';
     root.replaceChildren(panel);
-    const load=async()=>{
-      if (!store.state.round.currentRound) {
-        panel.textContent=L('暂无预热排名','No warm-up rankings yet');
-        return;
-      }
-      panel.textContent=L('正在读取早鸟先锋榜','Loading early bird rankings');
+    let rankSeq = 0;
+    const load = async () => {
+      const seq = ++rankSeq;
+      panel.textContent = L('正在读取预热裂变榜…', 'Loading warm-up leaderboard…');
       try {
-        const rows=await fetchWarmupRank(store.state.round.currentRound);
-        panel.textContent=L('预热邀请榜','Warm-up invites');
-        for(const entry of rows) {
-          const row=document.createElement('div');row.className='list-row';
-          row.textContent='#'+entry.rank+' · '+entry.walletAddress+' · '+entry.validInvites+' '+L('邀请','invites');panel.append(row);
+        let targetRoundId = Number(store.state.round.currentRound) ? Number(store.state.round.currentRound) + 1 : 1;
+        try {
+          const cur = await fetchWarmupCurrent();
+          if (cur?.roundId) targetRoundId = Number(cur.roundId);
+        } catch (_) {}
+        const rows = await fetchWarmupRank(targetRoundId);
+        if (seq !== rankSeq || !panel.isConnected) return;
+        panel.replaceChildren();
+        const header = document.createElement('div');
+        header.className = 'card-header';
+        header.innerHTML = `<div class="card-title">${icon('trophy', 15, 'text-gold')} ${L(`第 ${targetRoundId} 轮预热裂变榜`, `Round ${targetRoundId} Warm-Up Board`)}</div><span class="chip chip-muted">${Array.isArray(rows) ? rows.length : 0}</span>`;
+        panel.append(header);
+        if (!Array.isArray(rows) || !rows.length) {
+          const empty = document.createElement('div');
+          empty.className = 'num-xs text-muted';
+          empty.textContent = L('暂无预热邀请排名，快去预约并邀请好友冲榜！', 'No warm-up rankings yet.');
+          panel.append(empty);
+          return;
         }
-        if (!rows.length) panel.textContent=L('暂无预热排名','No warm-up rankings yet');
+        for (const entry of rows) {
+          const row = document.createElement('div');
+          row.className = 'list-row';
+          const uid = entry.tgUserId ?? entry.userId;
+          const who = entry.label || entry.walletAddress || (uid ? `TG#${String(uid).slice(-4)}` : L('玩家', 'Player'));
+          const rawPart = Number(entry.rawInvites) > Number(entry.validInvites)
+            ? ` (${L('共邀', 'total')} ${entry.rawInvites})`
+            : '';
+          row.textContent = `#${entry.rank} · ${who} · ${entry.validInvites} ${L('位有效邀请', 'valid invites')}${rawPart}`;
+          panel.append(row);
+        }
       } catch {
-        panel.textContent=L('榜单暂不可读取','Rankings unavailable');
-        const retry=document.createElement('button');retry.className='btn btn-secondary';retry.textContent=L('重试','Retry');retry.onclick=load;panel.append(retry);
+        if (seq !== rankSeq || !panel.isConnected) return;
+        panel.textContent = L('榜单暂不可读取', 'Rankings unavailable');
+        const retry = document.createElement('button');
+        retry.className = 'btn btn-secondary';
+        retry.textContent = L('重试', 'Retry');
+        retry.onclick = load;
+        panel.append(retry);
       }
-    };load();return;
+    };
+    load();
+    return;
   }
   let tab = 'personal';
   const paint = () => {
@@ -361,17 +626,24 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     if (config.isDemo) return DEMO_CHEST_SKUS;
     const serverSkus = store.state.round?.chestMall?.skus;
     if (Array.isArray(serverSkus) && serverSkus.length) {
-      return serverSkus.map((s) => ({
-        skuId: s.skuId,
-        tier: s.tier,
-        zh: s.zh,
-        en: s.en,
-        priceGram: String(s.priceGram),
-        baseA9: Number(s.baseA9),
-        maxBoostPct: Math.round(Number(s.maxBoostBps || 0) / 100),
-        maxBoostA9: Number(((Number(s.maxBoostA9Raw || 0)) / 1e9).toFixed(2)),
-        requiredAssists: Number(s.requiredAssists || 2)
-      }));
+      return serverSkus.map((s) => {
+        const priceNum = Number(s.priceGram || 0);
+        const feeStr = String(s.deliveryFeeGram || store.state.round?.chestMall?.deliveryFeeGram || '0.06');
+        const totalStr = String(s.totalPayGram || (priceNum + Number(feeStr)).toFixed(2));
+        return {
+          skuId: s.skuId,
+          tier: s.tier,
+          zh: s.zh,
+          en: s.en,
+          priceGram: String(s.priceGram),
+          deliveryFeeGram: feeStr,
+          totalPayGram: totalStr,
+          baseA9: Number(s.baseA9),
+          maxBoostPct: Math.round(Number(s.maxBoostBps || 0) / 100),
+          maxBoostA9: Number(((Number(s.maxBoostA9Raw || 0)) / 1e9).toFixed(2)),
+          requiredAssists: Number(s.requiredAssists || 2)
+        };
+      });
     }
     return [];
   };
@@ -379,125 +651,211 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
   const render = () => {
     const skus = resolveChestSkus();
     const sel = skus.length ? (skus.find((s) => s.skuId === selectedSkuId) || skus[0]) : null;
+    const selTier = sel ? resolveChestTier(sel) : 'bronze';
     const totalIfBoost = sel ? Number((sel.baseA9 + sel.maxBoostA9).toFixed(2)) : 0;
+    const displayTotalA9 = sel ? (openMode === 'BOOST' ? totalIfBoost : sel.baseA9) : 0;
     const activeShopChests = (chestData.shopChests || []).filter((c) => c.status !== 'OPENED');
+    const freeList = chestData.freeChests || [];
+
+    // 免费宝箱：计算 5 阶进度轨状态 + 当前唯一聚焦主角卡
+    const tierOrder = ['bronze', 'silver', 'gold', 'platinum', 'diamond'];
+    const focusChest = freeList.find((c) => c.status === 'READY' || (c.status !== 'LOCKED' && c.status !== 'OPENED'))
+      || freeList.find((c) => c.status !== 'OPENED')
+      || freeList[0]
+      || null;
+    const focusTier = focusChest ? resolveChestTier(focusChest) : 'bronze';
+    const readyFreeCount = freeList.filter((c) => c.status === 'READY' || (c.status !== 'LOCKED' && c.status !== 'OPENED' && c.currentAssists >= c.requiredAssists)).length;
+
+    const renderFreeFocusCard = (c) => {
+      if (!c) return '';
+      const tier = resolveChestTier(c);
+      const rewardA9 = rawToA9(c.baseA9Raw) || 0;
+      const volReq = formatVolumeReq(c.minVolumeNano);
+      const isLocked = c.status === 'LOCKED';
+      const isOpened = c.status === 'OPENED';
+      const isReady = c.status === 'READY' || (!isLocked && !isOpened && c.currentAssists >= c.requiredAssists);
+      const badgeCls = isOpened ? 'chip-muted' : isReady ? 'chip-green' : isLocked ? 'chip-muted' : 'chip-gold';
+      const badgeTxt = isOpened ? L('已开启', 'Opened') : isReady ? L('可开箱', 'Ready') : isLocked ? L('待解锁', 'Locked') : L('助力中', 'Active');
+      const totalSegs = Math.max(1, Math.min(8, Number(c.requiredAssists) || 2));
+      const filledSegs = c.requiredAssists > 0
+        ? Math.min(totalSegs, Math.round((Number(c.currentAssists || 0) / Number(c.requiredAssists)) * totalSegs))
+        : 0;
+
+      return `
+        <section class="free-focus-card">
+          <div class="free-focus-top">
+            <div class="free-focus-icon chest-stage-visual tier-${tier}">
+              ${renderChestSvg(tier, { size: 64, state: isOpened ? 'opened' : isLocked ? 'locked' : 'normal' })}
+            </div>
+            <div class="chest-stage-meta">
+              <div class="chest-stage-head">
+                <h3 class="chest-stage-name">${escapeHtml(L(c.labelZh, c.labelEn))}</h3>
+                <span class="chip ${badgeCls}">${badgeTxt}</span>
+              </div>
+              <div class="chest-stage-total">+${formatNum(rewardA9)} A9</div>
+              <div class="chest-stage-stats">
+                <span>${L('活跃助力', 'Assists')} <b class="mono">${formatNum(c.currentAssists)}/${formatNum(c.requiredAssists)}</b></span>
+                <span>· ${c.tier === 'bronze' ? L('入待激活金库', 'Pending Vault') : L('可提现余额', 'Claimable')}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="free-seg-bar" style="grid-template-columns:repeat(${totalSegs}, minmax(0, 1fr));" aria-hidden="true">
+            ${Array.from({ length: totalSegs }, (_, i) => `<i class="${i < filledSegs ? 'filled' : ''}"></i>`).join('')}
+          </div>
+
+          ${(volReq || c.minTgMembers > 0) ? `
+            <div class="num-xs text-muted">
+              ${L('门槛', 'Gate')}: ${volReq ? L(`购箱额 ≥ ${volReq}`, `Vol >= ${volReq}`) : ''}${volReq && c.minTgMembers > 0 ? ' · ' : ''}${c.minTgMembers > 0 ? L(`TG群 ≥ ${formatNum(c.minTgMembers)}人`, `TG >= ${formatNum(c.minTgMembers)}`) : ''}
+            </div>
+          ` : ''}
+
+          ${!isLocked && !isOpened ? (
+            isReady ? `
+              <button class="btn ${canOpenChestNow() ? 'btn-primary' : 'btn-secondary'}" data-open-chest="${c.chestId}" type="button" ${!canOpenChestNow() ? 'disabled' : ''}>
+                ${icon(canOpenChestNow() ? 'unlock' : 'lock', 15)} ${canOpenChestNow() ? L(`立即开箱领 ${formatNum(rewardA9)} A9`, `Open Chest (+${formatNum(rewardA9)} A9)`) : L('真实只读模式 · 暂未开放开箱', 'Read-Only Mode')}
+              </button>
+            ` : `
+              <div class="free-action-row">
+                <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;min-height:42px;">${icon('send', 14)} ${L('TG 邀好友助力', 'Invite on TG')}</button>
+                <button class="btn btn-secondary btn-sm" data-share-x="${c.chestId}" type="button" style="width:100%;min-height:42px;">${icon('xBrand', 13)} X</button>
+              </div>
+            `
+          ) : ''}
+        </section>
+      `;
+    };
 
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         <div class="seg-tabs" id="chest-mall-tabs">
-          <button class="seg-tab ${activeTab === 'mall' ? 'active' : ''}" data-cm-tab="mall" type="button">${L('宝箱商城（购箱膨胀）', 'Chest Mall')}</button>
-          <button class="seg-tab ${activeTab === 'free' ? 'active' : ''}" data-cm-tab="free" type="button">${L('免费宝箱（助力领 A9）', 'Free Chests')}</button>
+          <button class="seg-tab ${activeTab === 'mall' ? 'active' : ''}" data-cm-tab="mall" type="button">${L('购箱膨胀', 'Chest Mall')}</button>
+          <button class="seg-tab ${activeTab === 'free' ? 'active' : ''}" data-cm-tab="free" type="button">${L('免费领箱', 'Free Chests')}${readyFreeCount > 0 ? ` (${readyFreeCount})` : ''}</button>
         </div>
 
         ${activeTab === 'mall' ? `
-          <section class="card card-hero exchange-counter">
-            ${SHOP_SCALLOP_AWNING}
-            <div class="shop-counter-body">
-              <header class="counter-keeper">
-                <div class="counter-keeper-left">
-                  <img src="./assets/boxheads/wealth/avatars/wlt-08.png" alt="">
-                  <div>
-                    <h2>${L('A9 宝箱商城 · 固定本金 + 助力暴涨', 'A9 Chest Mall · Fixed Base + Boost')}</h2>
-                    <div class="num-xs text-muted mono">1 GRAM = 2,002 A9 · ${L('0.99 GRAM 起售 · 本金绝不扣押', 'From 0.99 GRAM · Base always yours')}</div>
-                  </div>
-                </div>
-                <span class="chip ${config.isDemo ? 'chip-green' : canPurchaseNow() ? 'chip-green' : 'chip-gold'}">${config.isDemo ? L('演示开放', 'DEMO OPEN') : canPurchaseNow() ? L('已开放', 'OPEN') : L('只读模式', 'READ-ONLY')}</span>
-              </header>
-              ${!config.isDemo && liveQuota ? `
-                <div class="sub-tile" style="margin-bottom:10px;">
-                  <div class="row-between num-xs">
-                    <span class="text-sec">${L('当前钱包剩余购箱额度', 'Wallet Remaining Quota')}</span>
-                    <b class="mono text-green">${formatGramFromNano(liveQuota.availQuotaNano ?? liveQuota.remainingNano)}</b>
-                  </div>
-                </div>
-              ` : ''}
-
-              ${!sel ? `
-                <div class="sub-tile" id="live-chest-skus-unavailable" style="margin-bottom:12px;border-color:var(--gold-border);">
-                  <div class="row-start" style="font-weight:700;margin-bottom:4px;">${icon('shieldAlert', 14, 'text-gold')} ${L('宝箱商城档位配置暂不可用', 'Chest Mall Tiers Unavailable')}</div>
-                  <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:8px;">${L('真实模式未获取到服务端宝箱档位配置，严格禁止展示演示价格。请检查网络连接后点击重试。', 'Live mode did not receive server chest tier data; demo prices are never displayed. Check network and retry.')}</div>
-                  <button class="btn btn-secondary btn-sm" id="btn-retry-chest-skus" type="button">${icon('refresh', 13)} ${L('重新加载商城配置', 'Retry Loading Tiers')}</button>
-                </div>
-              ` : `
-              <div class="col-gap" style="gap:8px;margin-bottom:12px;">
-                ${skus.map((sku) => {
-                  const active = sku.skuId === sel.skuId;
-                  return `
-                    <button type="button" class="list-row clickable" data-pick-sku="${sku.skuId}" style="width:100%;text-align:left;padding:10px 12px;border-radius:12px;border:1.5px solid ${active ? 'var(--green)' : 'var(--border)'};background:${active ? 'var(--paper-tray)' : 'transparent'};">
-                      <div>
-                        <div style="font-weight:800;font-size:14px;">${L(sku.zh, sku.en)} <span class="chip chip-gold" style="margin-left:4px;">${sku.priceGram} GRAM</span></div>
-                        <div class="num-xs text-sec" style="margin-top:3px;">${L('基础', 'Base')} <b class="mono">${formatNum(sku.baseA9, 2)} A9</b> · ${L('助力最高', 'Boost up to')} <b class="mono text-green">+${sku.maxBoostPct}% (+${formatNum(sku.maxBoostA9, 2)} A9)</b></div>
-                      </div>
-                      <span class="chip ${active ? 'chip-green' : 'chip-muted'}">${active ? L('已选', 'Picked') : `${sku.requiredAssists}${L('人满', ' max')}`}</span>
-                    </button>
-                  `;
-                }).join('')}
-              </div>
-
-              <div class="seg-tabs" style="margin-bottom:10px;">
-                <button class="seg-tab ${openMode === 'BOOST' ? 'active' : ''}" data-open-mode="BOOST" type="button">${L(`助力膨胀开启（最高 +${sel.maxBoostPct}%）`, `Social Boost (+${sel.maxBoostPct}% max)`)}</button>
-                <button class="seg-tab ${openMode === 'INSTANT' ? 'active' : ''}" data-open-mode="INSTANT" type="button">${L('直接开启（固定本金）', 'Open Instantly')}</button>
-              </div>
-
-              <div class="sub-tile" style="margin-bottom:12px;">
-                <div class="row-between num-xs">
-                  <span class="text-sec">${L('固定必得基础 A9（1 GRAM = 2,002 A9）', 'Fixed base A9 (1 GRAM = 2,002 A9)')}</span>
-                  <b class="mono">${formatNum(sel.baseA9, 2)} A9</b>
-                </div>
-                <div class="row-between num-xs" style="margin-top:5px;">
-                  <span class="text-sec">${openMode === 'BOOST' ? L(`24H 助力膨胀增量（初始 +1%，${sel.requiredAssists} 人满 +${sel.maxBoostPct}%）`, `24H Boost (+1% start, +${sel.maxBoostPct}% at ${sel.requiredAssists} assists)`) : L('当前模式：不助力直接落袋', 'Instant mode: no boost window')}</span>
-                  <b class="mono ${openMode === 'BOOST' ? 'text-green' : 'text-muted'}">${openMode === 'BOOST' ? `最高 +${formatNum(sel.maxBoostA9, 2)} A9` : '0 A9'}</b>
-                </div>
-                <div class="row-between num-sm" style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);">
-                  <span style="font-weight:700;">${L('预计总获得', 'Est. Total')}</span>
-                  <b class="mono text-green">${formatNum(openMode === 'BOOST' ? totalIfBoost : sel.baseA9, 2)} A9</b>
-                </div>
-              </div>
-              `}
-
-              <div class="num-xs text-muted" style="margin-bottom:10px;line-height:1.5;">
-                ${L('膨胀模式 24H 内随时可收手开箱；售罄自动触发 ≥0.99 GRAM 零手续费被动退款。', 'Stop & open anytime within 24H. Sold-out passive refunds >= 0.99 GRAM are 0-fee.')}
-              </div>
-
-              <button class="btn ${sel && canPurchaseNow() ? 'btn-primary' : 'btn-secondary'}" id="btn-buy-chest" type="button" ${!sel || !canPurchaseNow() || buyBusy ? 'disabled' : ''}>
-                ${!store.fundsEnabled
-                  ? `${icon('lock', 15)} ${L('真实模式只读 · 宝箱购箱暂未开放', 'Live Read-Only · Purchase Disabled')}`
-                  : !sel
-                    ? `${icon('shieldAlert', 15)} ${L('档位配置未就绪 · 请先重试加载', 'Tiers Unavailable · Retry First')}`
-                    : !config.isDemo && !isPresaleServerOpen()
-                      ? `${icon('lock', 15)} ${L('宝箱商城通道尚未开售', 'Chest Mall Not Yet Open')}`
-                      : config.isDemo
-                        ? `${icon('bolt', 16)} ${L(`演示购买 ${L(sel.zh, sel.en)}（${sel.priceGram} GRAM）`, `Demo Buy ${sel.en} (${sel.priceGram} GRAM)`)}`
-                        : `${icon('bolt', 16)} ${buyBusy ? L('等待钱包确认…', 'Awaiting Wallet…') : L(`立即购买 ${L(sel.zh, sel.en)}（${sel.priceGram} GRAM）`, `Buy ${sel.en} (${sel.priceGram} GRAM)`)}`}
-              </button>
+          <div class="mall-info-strip">
+            <span class="mall-rate-tag">1 GRAM = 2,002 A9</span>
+            <div class="mall-quick-pills">
+              ${activeShopChests.length > 0 ? `<button type="button" class="mall-quick-btn is-hot" id="btn-jump-active-chests">${L('进行中', 'Active')} ${activeShopChests.length}</button>` : ''}
+              <button type="button" class="mall-quick-btn" data-nav="/internal/records">${icon('receipt', 12)} ${L('小票', 'Receipts')}${config.isDemo && market.records.length ? ` (${market.records.length})` : (liveOrdersCount ? ` (${liveOrdersCount})` : '')}</button>
             </div>
-          </section>
+          </div>
+
+          ${!config.isDemo && liveQuota ? `
+            <div class="mall-info-strip" style="padding:7px 12px;">
+              <span class="num-xs text-sec">${L('剩余购箱额度', 'Remaining Quota')}</span>
+              <b class="mono num-xs text-green">${formatGramFromNano(liveQuota.availQuotaNano ?? liveQuota.remainingNano)}</b>
+            </div>
+          ` : ''}
+
+          ${!sel ? `
+            <section class="card" id="live-chest-skus-unavailable" style="border-color:var(--gold-border);">
+              <div class="row-start" style="font-weight:800;margin-bottom:4px;">${icon('shieldAlert', 14, 'text-gold')} ${L('宝箱档位配置暂不可用', 'Chest Tiers Unavailable')}</div>
+              <div class="num-xs text-sec" style="margin-bottom:10px;">${L('未获取到服务端档位配置，请重试加载。', 'Server tier data unavailable. Please retry.')}</div>
+              <button class="btn btn-secondary btn-sm" id="btn-retry-chest-skus" type="button">${icon('refresh', 13)} ${L('重新加载', 'Retry')}</button>
+            </section>
+          ` : `
+            <section class="chest-stage-card">
+              <div class="chest-stage-visual tier-${selTier}">
+                ${renderChestSvg(selTier, { size: 80 })}
+              </div>
+              <div class="chest-stage-meta">
+                <div class="chest-stage-head">
+                  <h2 class="chest-stage-name">${L(sel.zh, sel.en)}</h2>
+                  <span class="chip chip-green">${L('本金必得', 'Base Safe')}</span>
+                </div>
+                <div class="chest-stage-total">${openMode === 'BOOST' ? L('至高 ', 'Up to ') : ''}${formatNum(displayTotalA9, 2)} A9</div>
+                <div class="chest-stage-stats">
+                  <span>${L('保底', 'Base')} <b class="mono">${formatNum(sel.baseA9, 2)}</b></span>
+                  ${openMode === 'BOOST'
+                    ? `<span class="text-green">· ${L('助力', 'Boost')} <b class="mono">+${sel.maxBoostPct}%</b> (${sel.requiredAssists}${L('人满', ' max')})</span>`
+                    : `<span class="text-muted">· ${L('直接落袋', 'Instant')}</span>`}
+                </div>
+              </div>
+            </section>
+
+            <div class="chest-shelf-grid" role="radiogroup" aria-label="${L('选择宝箱档位', 'Select chest tier')}">
+              ${skus.map((sku) => {
+                const tier = resolveChestTier(sku);
+                const meta = CHEST_TIER_META[tier];
+                const active = sku.skuId === sel.skuId;
+                return `
+                  <button type="button" class="chest-shelf-item ${active ? 'is-selected' : ''}" data-pick-sku="${sku.skuId}" aria-checked="${active}" role="radio">
+                    ${meta?.hot ? `<span class="chest-hot-tag">${L('热门', 'HOT')}</span>` : ''}
+                    ${renderChestSvg(tier, { size: 46 })}
+                    <span class="chest-shelf-name">${L(meta.shortZh, meta.shortEn)}</span>
+                    <span class="chest-shelf-price">${sku.priceGram} GRAM</span>
+                    <span class="chest-shelf-boost">+${sku.maxBoostPct}%</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+
+            <section class="mall-checkout-panel">
+              <div class="seg-tabs">
+                <button class="seg-tab ${openMode === 'BOOST' ? 'active' : ''}" data-open-mode="BOOST" type="button">${L(`24H 助力膨胀 (+${sel.maxBoostPct}%)`, `24H Boost (+${sel.maxBoostPct}%)`)}</button>
+                <button class="seg-tab ${openMode === 'INSTANT' ? 'active' : ''}" data-open-mode="INSTANT" type="button">${L('直接领本金', 'Instant Base')}</button>
+              </div>
+
+              <div class="sub-tile" style="padding:8px 11px;margin:8px 0;">
+                <div class="row-between num-xs">
+                  <span class="text-sec">${L('宝箱货款（1 GRAM = 2,002 A9）', 'Chest Principal (1 GRAM = 2,002 A9)')}</span>
+                  <span class="mono">${sel.priceGram} GRAM</span>
+                </div>
+                <div class="row-between num-xs" style="margin-top:4px;">
+                  <span class="text-sec">${L('A9 链上发放 Gas（用户承担）', 'On-Chain A9 Delivery Gas (User Paid)')}</span>
+                  <span class="mono">+${sel.deliveryFeeGram || '0.06'} GRAM</span>
+                </div>
+                <div class="row-between num-xs" style="margin-top:5px;padding-top:5px;border-top:1px dashed var(--border);font-weight:800;">
+                  <span>${L('应付总额', 'Total Payable')}</span>
+                  <span class="mono text-green">${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM</span>
+                </div>
+              </div>
+
+              <button class="btn ${canPurchaseNow() ? 'btn-primary' : 'btn-secondary'}" id="btn-buy-chest" type="button" ${!canPurchaseNow() || buyBusy ? 'disabled' : ''}>
+                ${!store.fundsEnabled
+                  ? `${icon('lock', 15)} ${L('真实模式只读 · 暂未开放购箱', 'Live Read-Only · Purchase Disabled')}`
+                  : !config.isDemo && !isPresaleServerOpen()
+                    ? `${icon('lock', 15)} ${L('宝箱商城尚未开售', 'Chest Mall Not Open Yet')}`
+                    : config.isDemo
+                      ? `${icon('bolt', 16)} ${L(`演示购买 ${L(sel.zh, sel.en)} · 实付 ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`, `Demo Buy ${sel.en} · Pay ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`)}`
+                      : `${icon('bolt', 16)} ${buyBusy ? L('等待钱包确认…', 'Awaiting Wallet…') : L(`立即购买 ${L(sel.zh, sel.en)} · 实付 ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`, `Buy ${sel.en} · Pay ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`)}`}
+              </button>
+
+              <div class="mall-footnote">${L('固定本金实时锁定 · 发币 Gas (0.06 GRAM) 与原路退款 Gas (0.03 GRAM) 由用户自担', 'Base A9 locked · User covers 0.06 GRAM delivery gas & 0.03 GRAM refund gas')}</div>
+            </section>
+          `}
 
           ${activeShopChests.length > 0 ? `
-            <section class="card">
+            <section class="card" id="active-boost-chests">
               <div class="card-header">
-                <div class="card-title">${icon('flame', 15, 'text-gold')} ${L('我的 24H 膨胀中宝箱', 'My Active 24H Boost Chests')}</div>
+                <div class="card-title">${icon('flame', 15, 'text-gold')} ${L('24H 膨胀中宝箱', 'Active 24H Boost')}</div>
                 <span class="chip chip-green">${activeShopChests.length}</span>
               </div>
               <div class="col-gap" style="gap:10px;">
                 ${activeShopChests.map((c) => {
+                  const tier = resolveChestTier(c);
                   const boostA9 = rawToA9(c.boostA9Raw) || 0;
                   const maxBoostA9 = rawToA9(c.maxBoostA9Raw) || 0;
                   const pct = c.requiredAssists > 0 ? Math.min(100, Math.round((c.currentAssists / c.requiredAssists) * 100)) : 100;
                   return `
                     <div class="sub-tile">
-                      <div class="row-between">
-                        <strong>${escapeHtml(L(c.labelZh, c.labelEn))}</strong>
-                        <span class="chip chip-gold mono">${c.currentAssists}/${c.requiredAssists} ${L('助力', 'assists')}</span>
+                      <div class="row-between" style="margin-bottom:6px;">
+                        <div class="row-start" style="gap:8px;">
+                          ${renderChestSvg(tier, { size: 36 })}
+                          <div>
+                            <strong style="font-size:13.5px;">${escapeHtml(L(c.labelZh, c.labelEn))}</strong>
+                            <div class="num-xs text-green mono" style="font-weight:800;">+${formatNum(boostA9, 2)} / +${formatNum(maxBoostA9, 2)} A9</div>
+                          </div>
+                        </div>
+                        <span class="chip chip-gold mono">${c.currentAssists}/${c.requiredAssists}</span>
                       </div>
-                      <div class="num-xs text-green mono" style="margin:6px 0 4px;font-weight:800;">
-                        ${L('当前已膨胀', 'Boosted')}: +${formatNum(boostA9, 2)} A9 / ${L('上限', 'Max')} +${formatNum(maxBoostA9, 2)} A9
-                      </div>
-                      <div class="progress-track" style="height:6px;margin-bottom:10px;"><div class="progress-fill" style="width:${pct}%"></div></div>
+                      <div class="progress-track" style="height:6px;margin-bottom:9px;"><div class="progress-fill" style="width:${pct}%"></div></div>
                       <div class="grid-3" style="gap:6px;">
-                        <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;">${icon('send', 12)} ${L('群里拉助力', 'Share TG')}</button>
-                        <button class="btn btn-secondary btn-sm" data-share-x="${c.chestId}" type="button" style="width:100%;">${icon('xBrand', 12)} ${L('发 X 助力', 'Share X')}</button>
-                        <button class="btn btn-secondary btn-sm" data-open-chest="${c.chestId}" type="button" style="width:100%;" ${!canOpenChestNow() ? 'disabled' : ''}>${icon(canOpenChestNow() ? 'unlock' : 'lock', 12)} ${canOpenChestNow() ? L('立即开箱', 'Open Now') : L('只读暂未开放', 'Read-Only')}</button>
+                        <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;">${icon('send', 12)} ${L('拉助力', 'TG')}</button>
+                        <button class="btn btn-secondary btn-sm" data-share-x="${c.chestId}" type="button" style="width:100%;">${icon('xBrand', 12)} X</button>
+                        <button class="btn btn-secondary btn-sm" data-open-chest="${c.chestId}" type="button" style="width:100%;" ${!canOpenChestNow() ? 'disabled' : ''}>${icon(canOpenChestNow() ? 'unlock' : 'lock', 12)} ${canOpenChestNow() ? L('开箱', 'Open') : L('只读', 'RO')}</button>
                       </div>
                     </div>
                   `;
@@ -505,79 +863,73 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
               </div>
             </section>
           ` : ''}
-
-          <div class="card" style="padding:14px 18px;">
-            <div class="list-row clickable" data-nav="/internal/records" style="padding:0;">
-              <div class="row-start">
-                <span class="icon-badge sky" style="width:36px;height:36px;border-radius:11px;">${icon('receipt', 15)}</span>
-                <div>
-                  <div style="font-weight:600;font-size:14px;">${L('购箱小票与退款明细', 'Chest Receipts & Refunds')}</div>
-                  <div class="num-xs text-muted">${config.isDemo ? L(`共 ${market.records.length} 笔订单`, `${market.records.length} orders`) : (liveOrdersCount === null ? L('连接钱包后查看真实订单', 'Connect wallet for live orders') : L(`共 ${formatNum(liveOrdersCount)} 笔订单`, `${formatNum(liveOrdersCount)} orders`))}</div>
-                </div>
-              </div>
-              <span class="text-muted">${icon('chevronRight', 16)}</span>
-            </div>
-          </div>
         ` : `
-          <section class="card card-hero">
-            <div class="row-between" style="margin-bottom:6px;">
-              <span class="chip chip-gold">${L('0 GRAM 裂变宝箱 · 串行解锁', '0 GRAM Viral Chests · Serial Unlock')}</span>
-              <span class="chip chip-muted">${L('活跃钱包助力', 'Active Wallet Only')}</span>
+          <section class="free-stage-card">
+            <div class="row-between">
+              <strong style="font-size:13.5px;font-weight:900;">${L('5 阶免费宝箱闯关', '5-Tier Free Quest')}</strong>
+              <span class="chip chip-muted">${L('按序解锁 · 助力满即开', 'Serial Unlock')}</span>
             </div>
-            <h2 style="margin:4px 0 6px;font-size:18px;font-weight:900;">${L('青铜 3 连开 → 白银 → 黄金 → 白金 → 钻石', 'Bronze x3 -> Silver -> Gold -> Platinum -> Diamond')}</h2>
-            <p class="num-xs text-sec" style="margin:0;line-height:1.5;">
-              ${L('只有打开上一个宝箱后才能激活下一个宝箱。好友通过 Telegram / X 连接链上活跃 TON 钱包助力开启，助力者顺手自动领取青铜宝箱 #1。', 'Open each chest to activate the next. Friends assist via active TON wallet and auto-claim their own Bronze Chest #1.')}
-            </p>
-            ${chestData.loaded && chestData.freeChests.length === 0 ? (
+            <div class="free-stage-track">
+              ${tierOrder.map((tKey) => {
+                const meta = CHEST_TIER_META[tKey];
+                const matching = freeList.filter((c) => resolveChestTier(c) === tKey);
+                const allOpened = matching.length > 0 && matching.every((c) => c.status === 'OPENED');
+                const isCur = focusChest && focusTier === tKey && !allOpened;
+                const st = allOpened ? 'opened' : isCur ? 'normal' : 'locked';
+                return `
+                  <div class="free-stage-node ${allOpened ? 'is-done' : isCur ? 'is-current' : ''}">
+                    ${renderChestSvg(tKey, { size: 32, state: st })}
+                    <span>${L(meta.shortZh, meta.shortEn)}</span>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+            ${chestData.loaded && freeList.length === 0 ? (
               (!config.isDemo && !A9TMA.getRawInitData())
-                ? `<div class="sub-tile" style="margin-top:10px;"><div class="num-xs text-sec">${L('请在 Telegram 小程序内打开以同步并领取你的免费青铜宝箱 #1。', 'Open inside Telegram Mini App to sync and claim your free Bronze Chest #1.')}</div></div>`
-                : `<button class="btn btn-primary" id="btn-claim-starter" type="button" style="margin-top:12px;">${icon('bolt', 15)} ${L('0 成本领取青铜宝箱 #1（300 A9）', 'Claim Free Bronze Chest #1 (300 A9)')}</button>`
+                ? `<div class="num-xs text-sec">${L('请在 Telegram 小程序内打开以领取青铜宝箱 #1。', 'Open in Telegram Mini App to claim Bronze #1.')}</div>`
+                : `<button class="btn btn-primary" id="btn-claim-starter" type="button">${icon('bolt', 15)} ${L('0 成本领取青铜宝箱 #1（300 A9）', 'Claim Free Bronze #1 (300 A9)')}</button>`
             ) : ''}
           </section>
 
-          <div class="col-gap" style="gap:10px;">
-            ${(chestData.freeChests || []).map((c) => {
-              const rewardA9 = rawToA9(c.baseA9Raw) || 0;
-              const pct = c.requiredAssists > 0 ? Math.min(100, Math.round((c.currentAssists / c.requiredAssists) * 100)) : 0;
-              const volReq = formatVolumeReq(c.minVolumeNano);
-              const isLocked = c.status === 'LOCKED';
-              const isOpened = c.status === 'OPENED';
-              const isReady = c.status === 'READY' || (!isLocked && !isOpened && c.currentAssists >= c.requiredAssists);
-              const badgeCls = isOpened ? 'chip-muted' : isReady ? 'chip-green' : isLocked ? 'chip-muted' : 'chip-gold';
-              const badgeTxt = isOpened ? L('已开启', 'Opened') : isReady ? L('可开箱', 'Ready') : isLocked ? L('待解锁', 'Locked') : L('助力中', 'Active');
-              return `
-                <section class="card" style="opacity:${isLocked ? '0.72' : '1'};">
-                  <div class="row-between" style="margin-bottom:6px;">
-                    <div>
-                      <strong style="font-size:15px;">${escapeHtml(L(c.labelZh, c.labelEn))}</strong>
-                      <span class="num-sm text-green mono" style="font-weight:900;margin-left:6px;">${formatNum(rewardA9)} A9</span>
+          ${focusChest ? renderFreeFocusCard(focusChest) : ''}
+
+          ${freeList.length > 1 ? `
+            <div class="free-queue-list">
+              ${freeList.filter((c) => !focusChest || c.chestId !== focusChest.chestId).map((c) => {
+                const tier = resolveChestTier(c);
+                const rewardA9 = rawToA9(c.baseA9Raw) || 0;
+                const isLocked = c.status === 'LOCKED';
+                const isOpened = c.status === 'OPENED';
+                const volReq = formatVolumeReq(c.minVolumeNano);
+                const sub = isOpened
+                  ? L('已开启入库', 'Opened')
+                  : `${L('助力', 'Assists')} ${formatNum(c.currentAssists)}/${formatNum(c.requiredAssists)}${volReq ? ` · ≥${volReq}` : ''}`;
+                return `
+                  <div class="free-queue-row ${isLocked ? 'is-locked' : ''}">
+                    <div class="free-queue-left">
+                      ${renderChestSvg(tier, { size: 38, state: isOpened ? 'opened' : isLocked ? 'locked' : 'normal' })}
+                      <div class="free-queue-copy">
+                        <strong>${escapeHtml(L(c.labelZh, c.labelEn))} · <span class="mono text-green">${formatNum(rewardA9)} A9</span></strong>
+                        <small>${sub}</small>
+                      </div>
                     </div>
-                    <span class="chip ${badgeCls}">${badgeTxt}</span>
+                    <span class="chip ${isOpened ? 'chip-green' : 'chip-muted'}">${isOpened ? L('已领', 'Done') : L('待解锁', 'Locked')}</span>
                   </div>
-                  <div class="row-between num-xs text-sec" style="margin-bottom:5px;">
-                    <span>${L('活跃钱包助力', 'Active Wallet Assists')}: <b class="mono">${formatNum(c.currentAssists)} / ${formatNum(c.requiredAssists)}</b></span>
-                    <span>${c.tier === 'bronze' ? L('入待激活金库', 'Pending Vault') : L('入可提现推广余额', 'Claimable Promo')}</span>
-                  </div>
-                  <div class="progress-track" style="height:6px;margin-bottom:8px;"><div class="progress-fill" style="width:${pct}%"></div></div>
-                  ${(volReq || c.minTgMembers > 0) ? `
-                    <div class="num-xs text-muted" style="margin-bottom:8px;">
-                      ${L('附加门槛', 'Extra gates')}: ${volReq ? L(`直邀/战队真实购箱额 ≥ ${volReq}`, `Team volume >= ${volReq}`) : ''}${volReq && c.minTgMembers > 0 ? ' · ' : ''}${c.minTgMembers > 0 ? L(`已核验 TG 群 ≥ ${formatNum(c.minTgMembers)} 人`, `Verified TG group >= ${formatNum(c.minTgMembers)}`) : ''}
-                    </div>
-                  ` : ''}
-                  ${!isLocked && !isOpened ? `
-                    <div class="grid-3" style="gap:6px;">
-                      <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;">${icon('send', 12)} ${L('TG 拉助力', 'TG Share')}</button>
-                      <button class="btn btn-secondary btn-sm" data-share-x="${c.chestId}" type="button" style="width:100%;">${icon('xBrand', 12)} ${L('X 发卡片', 'X Share')}</button>
-                      <button class="btn ${isReady && canOpenChestNow() ? 'btn-primary' : 'btn-secondary'} btn-sm" data-open-chest="${c.chestId}" type="button" style="width:100%;" ${!canOpenChestNow() ? 'disabled' : ''}>${icon(canOpenChestNow() ? 'unlock' : 'lock', 12)} ${canOpenChestNow() ? L('开箱', 'Open') : L('只读', 'Read-Only')}</button>
-                    </div>
-                  ` : ''}
-                </section>
-              `;
-            }).join('')}
-          </div>
+                `;
+              }).join('')}
+            </div>
+          ` : ''}
         `}
       </div>
     `;
+
+    const jumpBtn = root.querySelector('#btn-jump-active-chests');
+    if (jumpBtn) {
+      jumpBtn.onclick = () => {
+        A9Haptic.light();
+        root.querySelector('#active-boost-chests')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+    }
 
     root.querySelectorAll('[data-cm-tab]').forEach((b) => {
       b.onclick = () => {
@@ -741,95 +1093,251 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
 }
 
 export function renderInternalRecords(root) {
+  // 根据支付 GRAM 金额或 skuId 推断对应 5 阶宝箱图标
+  const inferTierByGram = (gramVal, skuHint = '') => {
+    if (skuHint) return resolveChestTier(skuHint);
+    const g = Number(gramVal) || 0;
+    if (g >= 50) return 'diamond';
+    if (g >= 15) return 'platinum';
+    if (g >= 8) return 'gold';
+    if (g >= 3) return 'silver';
+    return 'bronze';
+  };
+
+  // 确定性几何防伪条码（根据订单号/哈希生成不同宽度的条纹，零随机闪烁）
+  const renderBarcode = (seedStr = 'A9') => {
+    const s = String(seedStr || 'A9');
+    const widths = Array.from({ length: 10 }, (_, i) => {
+      const code = s.charCodeAt(i % s.length) + i * 7;
+      return (code % 3) === 0 ? 3 : (code % 2) === 0 ? 2 : 1;
+    });
+    return `<span class="receipt-barcode" aria-hidden="true">${widths.map((w) => `<i style="width:${w}px;"></i>`).join('')}</span>`;
+  };
+
+  const renderReceiptTicket = ({ a9Val, gramVal, statusText, chipCls, tone, serial, copyVal, timeText, tier }) => `
+    <article class="nt-receipt-ticket tone-${tone}">
+      <div class="receipt-upper">
+        <div class="receipt-upper-left">
+          <div class="receipt-chest-badge chest-stage-visual tier-${tier}">
+            ${renderChestSvg(tier, { size: 36 })}
+          </div>
+          <div class="receipt-amounts">
+            <div class="receipt-a9-val text-green">+${formatNum(a9Val, 2)} A9</div>
+            <div class="receipt-gram-sub">-${formatNum(gramVal, 2)} GRAM · ${L(CHEST_TIER_META[tier].shortZh, CHEST_TIER_META[tier].shortEn)}</div>
+          </div>
+        </div>
+        <span class="chip ${chipCls}">${escapeHtml(statusText)}</span>
+      </div>
+
+      <div class="receipt-perf" aria-hidden="true"><span class="receipt-perf-line"></span></div>
+
+      <div class="receipt-stub">
+        <div class="receipt-stub-meta">
+          <button type="button" class="receipt-hash-btn" data-copy-receipt="${escapeHtml(copyVal)}">
+            <span>#${escapeHtml(serial)}</span>
+            ${icon('copy', 11)}
+          </button>
+          <span class="receipt-time">${escapeHtml(timeText)}</span>
+        </div>
+        ${renderBarcode(serial)}
+      </div>
+    </article>
+  `;
+
+  let activeFilter = 'all';
+
+  const bindCopyButtons = () => {
+    root.querySelectorAll('[data-copy-receipt]').forEach((btn) => {
+      btn.onclick = () => {
+        A9Haptic.light();
+        copyText(btn.dataset.copyReceipt, L('已复制订单凭证号', 'Receipt ID copied'));
+      };
+    });
+  };
+
   if (!config.isDemo) {
     const addr = store.state.user.address;
+    let liveOrdersCache = null;
+
+    const statusMap = {
+      PENDING:           ['chip-gold',  'gold',  'pending',   L('待付款', 'Pending')],
+      PENDING_PAYMENT:   ['chip-gold',  'gold',  'pending',   L('待付款', 'Pending')],
+      PAYMENT_CONFIRMED: ['chip-gold',  'gold',  'pending',   L('已收款', 'Paid')],
+      PAYOUT_PENDING:    ['chip-gold',  'gold',  'pending',   L('待发币', 'Queued')],
+      PAYOUT_SENT:       ['chip-gold',  'gold',  'pending',   L('核验中', 'Verifying')],
+      PAYOUT_RETRY:      ['chip-gold',  'gold',  'pending',   L('重试中', 'Retrying')],
+      COMPLETED:         ['chip-green', 'green', 'completed', L('已完成', 'Completed')],
+      REFUND_PENDING:    ['chip-gold',  'gold',  'refund',    L('退款中', 'Refunding')],
+      REFUND_SENT:       ['chip-gold',  'gold',  'refund',    L('退款核验', 'Verifying')],
+      REFUNDED:          ['chip-muted', 'muted', 'refund',    L('已退款', 'Refunded')],
+      PAYMENT_EXCEPTION: ['chip-red',   'rose',  'refund',    L('入账异常', 'Exception')],
+      NEEDS_REVIEW:      ['chip-red',   'rose',  'refund',    L('人工复核', 'Review')],
+      EXPIRED:           ['chip-muted', 'muted', 'refund',    L('已过期', 'Expired')],
+      CANCELLED:         ['chip-muted', 'muted', 'refund',    L('已取消', 'Cancelled')],
+    };
+
     const paintLiveOrders = (orders, note = '') => {
-      const statusMap = {
-        PENDING: ['chip-gold', L('待付款', 'Pending')],
-        PENDING_PAYMENT: ['chip-gold', L('待付款', 'Pending')],
-        PAYMENT_CONFIRMED: ['chip-gold', L('已收款 · 待发币', 'Paid · Queued')],
-        PAYOUT_PENDING: ['chip-gold', L('待发币', 'Payout Queued')],
-        PAYOUT_SENT: ['chip-gold', L('发币核验中', 'Verifying Payout')],
-        PAYOUT_RETRY: ['chip-gold', L('发币重试中', 'Retrying Payout')],
-        COMPLETED: ['chip-green', L('已完成', 'Completed')],
-        REFUND_PENDING: ['chip-gold', L('退款排队中', 'Refund Queued')],
-        REFUND_SENT: ['chip-gold', L('退款核验中', 'Verifying Refund')],
-        REFUNDED: ['chip-muted', L('已退款', 'Refunded')],
-        PAYMENT_EXCEPTION: ['chip-red', L('入账异常 · 待复核', 'Payment Exception')],
-        NEEDS_REVIEW: ['chip-red', L('人工复核', 'Review')],
-        EXPIRED: ['chip-muted', L('已过期', 'Expired')],
-        CANCELLED: ['chip-muted', L('已取消', 'Cancelled')],
-      };
+      const listAll = Array.isArray(orders) ? orders : [];
+      const filtered = activeFilter === 'all'
+        ? listAll
+        : listAll.filter((o) => (statusMap[o.status]?.[2] || 'pending') === activeFilter);
+      const totalA9 = listAll.reduce((sum, o) => sum + (o.status === 'COMPLETED' ? (rawToA9(o.a9AmountRaw) || 0) : 0), 0);
+
       root.innerHTML = `
         <div class="col-gap anim-page-enter">
-          <div class="card">
-            <div class="card-header">
-              <div class="card-title">${icon('receipt', 15)} ${L('购箱小票与退款明细', 'Chest Receipts & Refunds')}</div>
-              <span class="chip chip-muted">${orders ? orders.length : '—'}</span>
+          <section class="receipt-summary-card">
+            <div class="receipt-summary-cell">
+              <small>${L('小票总数', 'Total Receipts')}</small>
+              <strong>${orders === null ? '—' : formatNum(listAll.length)}</strong>
             </div>
-            ${note ? `<div class="num-xs text-muted" style="margin-bottom:8px;">${escapeHtml(note)}</div>` : ''}
-            ${!orders || orders.length === 0 ? `
-              <div class="empty-state"><div class="num-sm text-muted">${addr ? L('暂无真实订单记录', 'No live orders yet') : L('请先连接钱包后查看真实订单', 'Connect wallet to view live orders')}</div></div>
-            ` : `
-              <div class="col-gap">
-                ${orders.map((o) => {
-                  const [cls, txt] = statusMap[o.status] || ['chip-muted', o.status || '—'];
-                  const a9 = rawToA9(o.a9AmountRaw) || 0;
-                  const gram = Number(BigInt(String(o.tonNano || '0'))) / 1e9;
-                  const ts = o.createdAt ? new Date(Number(o.createdAt) * 1000).toLocaleString() : '—';
-                  return `
-                    <div class="list-row">
-                      <div>
-                        <div class="num-sm mono">${formatNum(a9, 2)} A9 <span class="num-xs text-muted">(-${formatNum(gram, 2)} GRAM)</span></div>
-                        <div class="num-xs text-muted mono">${escapeHtml(o.orderId || '')} · ${escapeHtml(ts)}</div>
-                      </div>
-                      <span class="chip ${cls}">${txt}</span>
-                    </div>
-                  `;
-                }).join('')}
-              </div>
-            `}
+            <div class="receipt-summary-cell">
+              <small>${L('已完成入账 A9', 'Completed A9')}</small>
+              <strong class="text-green">${orders === null ? '—' : formatNum(totalA9, 2)}</strong>
+            </div>
+          </section>
+
+          <div class="filter-row">
+            ${[
+              ['all', L('全部', 'All')],
+              ['completed', L('已完成', 'Done')],
+              ['pending', L('处理中', 'Pending')],
+              ['refund', L('退款/异常', 'Refund')],
+            ].map(([k, lbl]) => `<button type="button" class="filter-pill ${activeFilter === k ? 'active' : ''}" data-rcpt-filter="${k}">${lbl}</button>`).join('')}
           </div>
-          <button class="btn btn-secondary" data-nav="/internal/market">${icon('arrowLeft', 15)} ${L('返回宝箱商城', 'Back to Chest Mall')}</button>
+
+          ${note ? `<div class="num-xs text-muted" style="padding:0 2px;">${escapeHtml(note)}</div>` : ''}
+
+          ${filtered.length === 0 ? `
+            <div class="card empty-state">
+              ${renderChestSvg('gold', { size: 56 })}
+              <div class="num-sm text-sec" style="font-weight:800;">${addr ? L('暂无该状态购箱小票', 'No receipts in this state') : L('连接钱包后查看真实小票', 'Connect wallet for live receipts')}</div>
+              <button class="btn btn-primary btn-sm" style="margin-top:4px;" data-nav="/internal/market" type="button">${L('前往宝箱商城', 'Go to Chest Mall')}</button>
+            </div>
+          ` : `
+            <div class="col-gap">
+              ${filtered.map((o) => {
+                const [chipCls, tone, , statusText] = statusMap[o.status] || ['chip-muted', 'muted', 'pending', o.status || '—'];
+                const a9Val = rawToA9(o.a9AmountRaw) || 0;
+                const principalGramVal = Number(BigInt(String(o.tonNano || '0'))) / 1e9;
+                const payGramVal = Number(BigInt(String(o.payTonNano || o.tonNano || '0'))) / 1e9;
+                const ts = o.createdAt ? new Date(Number(o.createdAt) * 1000).toLocaleString() : '—';
+                const serial = o.orderId || 'A9-ORD';
+                return renderReceiptTicket({
+                  a9Val,
+                  gramVal: payGramVal,
+                  statusText,
+                  chipCls,
+                  tone,
+                  serial,
+                  copyVal: serial,
+                  timeText: ts,
+                  tier: inferTierByGram(principalGramVal, o.skuId),
+                });
+              }).join('')}
+            </div>
+          `}
+
+          <button class="btn btn-secondary" data-nav="/internal/market" type="button">${icon('arrowLeft', 15)} ${L('返回宝箱商城', 'Back to Chest Mall')}</button>
         </div>
       `;
+
+      root.querySelectorAll('[data-rcpt-filter]').forEach((b) => {
+        b.onclick = () => {
+          A9Haptic.light();
+          activeFilter = b.dataset.rcptFilter;
+          paintLiveOrders(liveOrdersCache, note);
+        };
+      });
+      bindCopyButtons();
     };
+
     if (!addr) {
-      paintLiveOrders([], L('连接并验证 TON 钱包后自动同步服务端小票', 'Connect and verify wallet to load receipts'));
+      liveOrdersCache = [];
+      paintLiveOrders([], L('连接并验证 TON 钱包后自动同步服务端小票', 'Connect & verify wallet to sync receipts'));
       return;
     }
-    paintLiveOrders(null, L('正在读取真实订单明细…', 'Loading live orders…'));
+    paintLiveOrders(null, L('正在读取真实订单小票…', 'Loading live receipts…'));
     fetchPresaleOrders(addr)
-      .then((orders) => { if (root.isConnected) paintLiveOrders(Array.isArray(orders) ? orders : []); })
-      .catch((e) => { if (root.isConnected) paintLiveOrders([], e?.message || L('订单读取失败，请重试', 'Failed to load orders')); });
+      .then((orders) => {
+        liveOrdersCache = Array.isArray(orders) ? orders : [];
+        if (root.isConnected) paintLiveOrders(liveOrdersCache);
+      })
+      .catch((e) => {
+        liveOrdersCache = [];
+        if (root.isConnected) paintLiveOrders([], e?.message || L('小票读取失败，请重试', 'Failed to load receipts'));
+      });
     return;
   }
-  const { records } = store.state.market;
-  const badgeCls = (st) => st === '已成交' ? 'chip-green' : st === '退款中' ? 'chip-gold' : st === '已退款' ? 'chip-muted' : 'chip-gold';
 
-  root.innerHTML = `
-    <div class="col-gap anim-page-enter">
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">${icon('receipt', 15)} ${L('兑换小票', 'Exchange Receipts')}</div>
-          <span class="chip chip-muted">${records.length}</span>
+  // Demo 模式：精美任天堂实体购箱小票视图
+  const { records } = store.state.market;
+  const paintDemo = () => {
+    const classify = (st) => st === '已成交' ? 'completed' : (st === '已退款' || st === '退款中') ? 'refund' : 'pending';
+    const filtered = activeFilter === 'all' ? records : records.filter((r) => classify(r.status) === activeFilter);
+    const totalA9 = records.reduce((sum, r) => sum + (Number(r.a9) || 0), 0);
+
+    root.innerHTML = `
+      <div class="col-gap anim-page-enter">
+        <section class="receipt-summary-card">
+          <div class="receipt-summary-cell">
+            <small>${L('小票总数', 'Total Receipts')}</small>
+            <strong>${formatNum(records.length)}</strong>
+          </div>
+          <div class="receipt-summary-cell">
+            <small>${L('累计入账 A9', 'Total A9')}</small>
+            <strong class="text-green">${formatNum(totalA9, 2)}</strong>
+          </div>
+        </section>
+
+        <div class="filter-row">
+          ${[
+            ['all', L('全部', 'All')],
+            ['completed', L('已成交', 'Done')],
+            ['refund', L('退款', 'Refund')],
+          ].map(([k, lbl]) => `<button type="button" class="filter-pill ${activeFilter === k ? 'active' : ''}" data-rcpt-filter="${k}">${lbl}</button>`).join('')}
         </div>
-        ${records.length === 0 ? `
-          <div class="empty-state"><div class="num-sm text-muted">${L('暂无兑换小票', 'No receipts yet')}</div></div>
+
+        ${filtered.length === 0 ? `
+          <div class="card empty-state">
+            ${renderChestSvg('gold', { size: 56 })}
+            <div class="num-sm text-sec" style="font-weight:800;">${L('暂无购箱小票', 'No receipts yet')}</div>
+            <button class="btn btn-primary btn-sm" style="margin-top:4px;" data-nav="/internal/market" type="button">${L('前往宝箱商城', 'Go to Chest Mall')}</button>
+          </div>
         ` : `
           <div class="col-gap">
-            ${records.map(r => `
-              <div class="list-row">
-                <div>
-                  <div class="num-sm">${formatNum(r.a9)} A9 <span class="num-xs text-muted">(-${r.ton} GRAM)</span></div>
-                  <div class="num-xs text-muted">${r.time} · ${r.hash}</div>
-                </div>
-                <span class="chip ${badgeCls(r.status)}">${r.status}</span>
-              </div>
-            `).join('')}
+            ${filtered.map((r) => {
+              const isDone = r.status === '已成交';
+              const isRefund = r.status === '已退款';
+              const chipCls = isDone ? 'chip-green' : isRefund ? 'chip-muted' : 'chip-gold';
+              const tone = isDone ? 'green' : isRefund ? 'muted' : 'gold';
+              return renderReceiptTicket({
+                a9Val: Number(r.a9) || 0,
+                gramVal: Number(r.ton) || 0,
+                statusText: r.status || L('已成交', 'Done'),
+                chipCls,
+                tone,
+                serial: r.hash || 'A9-DEMO',
+                copyVal: r.hash || 'A9-DEMO',
+                timeText: r.time || '—',
+                tier: inferTierByGram(r.ton, r.skuId),
+              });
+            }).join('')}
           </div>
         `}
+
+        <button class="btn btn-secondary" data-nav="/internal/market" type="button">${icon('arrowLeft', 15)} ${L('返回宝箱商城', 'Back to Chest Mall')}</button>
       </div>
-    </div>
-  `;
+    `;
+
+    root.querySelectorAll('[data-rcpt-filter]').forEach((b) => {
+      b.onclick = () => {
+        A9Haptic.light();
+        activeFilter = b.dataset.rcptFilter;
+        paintDemo();
+      };
+    });
+    bindCopyButtons();
+  };
+
+  paintDemo();
 }

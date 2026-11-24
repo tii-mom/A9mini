@@ -1,11 +1,11 @@
 /* ==========================================================================
-   A9 · 纯任天堂暖棉纸立体书专项布局
-   - 主城随阶段变化焦点卡 / 任天堂 24H 集章手账板 / 紧凑背包身份栏 / 图鉴与宝库
+   A9 · 纯任天堂广场与闯关专项布局
+   - 广场随阶段变化焦点卡 / 任天堂 24H 印章簿 / 紧凑个人身份栏 / 图鉴与金库
    - 彻底移除旧版圆形星轨罗盘样式
    ========================================================================== */
 
 /* --------------------------------------------------------------------------
-   一、主城首屏：随轮次阶段变化的立体书主卡 (.city-hub-stage)
+   一、广场首屏：随轮次阶段变化的任天堂主卡 (.city-hub-stage)
    -------------------------------------------------------------------------- */
 .wv-hero.game-city {
   display: flex;
@@ -17,38 +17,13 @@
   position: relative;
   border-radius: 22px;
   border: 1px solid var(--card-border);
-  background: linear-gradient(180deg, var(--card-soft) 0%, var(--paper-bg) 100%);
+  background: var(--card-bg);
   box-shadow: var(--interactive-shadow);
   padding: 14px 15px 13px;
   overflow: hidden;
 }
 
-.diorama-stage::before {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: 17px;
-  border: 1px dashed var(--card-stitch);
-  pointer-events: none;
-  z-index: 1;
-}
-
-.diorama-stage.prism::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    115deg,
-    transparent 24%,
-    rgba(243, 184, 44, 0.13) 44%,
-    rgba(58, 136, 214, 0.09) 56%,
-    transparent 76%
-  );
-  background-size: 230% 230%;
-  animation: prism-glide 5s ease-in-out infinite;
-  pointer-events: none;
-  z-index: 1;
-}
+.diorama-stage::before { display: none; }
 
 .diorama-svg {
   position: absolute;
@@ -67,23 +42,21 @@
   transition: background 0.35s ease, border-color 0.3s ease;
 }
 
-/* 动态沙盘情绪天色（极低饱和度暖棉纸叠色，绝不抢内容对比度） */
-.city-hub-stage[data-mood="warmup"],
-.city-hub-stage[data-mood="participation"] {
-  background: linear-gradient(180deg, var(--nt-gold-soft) 0%, var(--card-soft) 45%, var(--paper-bg) 100%);
+/* 高频主卡状态指示：纯平底面 + 顶部 4px 任天堂语义色条（零渐变零发光） */
+.city-hub-stage {
+  background: var(--card-bg);
+  border-top: 4px solid var(--nt-red);
 }
+.city-hub-stage[data-mood="warmup"],
+.city-hub-stage[data-mood="participation"],
 .city-hub-stage[data-mood="matchpoint"] {
-  background: linear-gradient(180deg, var(--nt-gold-soft) 0%, var(--nt-red-soft) 42%, var(--paper-bg) 100%);
-  border-color: var(--gold-border);
-  animation: matchpoint-glow 2.6s ease-in-out infinite;
+  border-top-color: var(--nt-gold);
 }
 .city-hub-stage[data-mood="pass"] {
-  background: linear-gradient(180deg, var(--nt-green-soft) 0%, var(--card-soft) 48%, var(--paper-bg) 100%);
-  border-color: var(--green-border);
+  border-top-color: var(--nt-green);
 }
 .city-hub-stage[data-mood="burn"] {
-  background: linear-gradient(180deg, var(--nt-rose-soft) 0%, var(--card-soft) 50%, var(--paper-bg) 100%);
-  border-color: var(--red-border);
+  border-top-color: var(--nt-rose);
 }
 
 .city-hub-stage > *:not(.diorama-svg) {
@@ -186,7 +159,7 @@
   filter: var(--paper-cut-shadow);
 }
 
-/* 24 格纸雕能量轨 + 第 16 格立体金色达标旗帜 + 赛点光晕 */
+/* 24 格实体进度轨 + 第 16 格金色达标旗帜 */
 .city-slot-strip {
   display: flex;
   flex-direction: column;
@@ -225,15 +198,15 @@
 }
 
 .slot-dot.pass {
-  background: linear-gradient(180deg, #3BB67A 0%, var(--nt-green) 100%);
+  background: var(--nt-green);
   box-shadow: 0 1.5px 0 var(--nt-green-edge);
 }
 .slot-dot.miss {
-  background: linear-gradient(180deg, #E86278 0%, var(--nt-rose) 100%);
+  background: var(--nt-rose);
   box-shadow: 0 1.5px 0 var(--nt-rose-edge);
 }
 .slot-dot.active {
-  background: linear-gradient(180deg, var(--nt-blue-top) 0%, var(--nt-blue) 100%);
+  background: var(--nt-blue);
   box-shadow: 0 0 0 2px var(--nt-blue-soft), 0 1.5px 0 var(--nt-blue-edge);
   transform: scaleY(1.16);
 }
@@ -254,7 +227,7 @@
   height: 13px;
   line-height: 13px;
   border-radius: 4px 4px 4px 1px;
-  background: linear-gradient(180deg, var(--nt-gold-top) 0%, var(--nt-gold) 100%);
+  background: var(--nt-gold);
   color: #FFFFFF;
   font-family: var(--font-mono);
   font-size: 8.5px;
@@ -336,7 +309,7 @@
   height: 22px;
 }
 
-/* 唯一珊瑚红厚纸主行动按钮 */
+/* 任天堂正红实体主行动按钮 */
 .game-play {
   display: inline-flex;
   align-items: center;
@@ -346,7 +319,7 @@
   min-height: 47px;
   padding: 10px 16px;
   border-radius: 15px;
-  background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
+  background: var(--nt-red);
   color: #FFFFFF;
   font-size: 14.5px;
   font-weight: 900;
@@ -369,13 +342,13 @@
   justify-content: space-between;
   gap: 8px;
   padding-top: 8px;
-  border-top: 1px dashed var(--card-border);
+  border-top: 1px solid var(--card-border);
   font-size: 11.5px;
   font-weight: 800;
   color: var(--ink-soft);
 }
 
-/* L1 四宫格厚纸贴纸服务入口 */
+/* L1 四宫格任天堂矢量服务入口 */
 .game-gates {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -402,28 +375,21 @@
   box-shadow: 0 0.5px 0 var(--card-thickness);
 }
 
-.game-gates img {
-  width: 50px;
-  height: 50px;
-  padding: 6px;
-  border-radius: 14px;
-  background: radial-gradient(circle at 50% 30%, var(--card-bg) 0%, var(--paper-tray) 100%);
-  border: 1px solid var(--card-border);
-  box-shadow: inset 0 1px 0 var(--card-highlight);
-  object-fit: contain;
-  filter: var(--paper-cut-shadow);
+.game-gates .nt-gate-icon-wrap {
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--paper-tray);
+  border: 1.5px solid var(--card-border);
   margin-bottom: 3px;
 }
-
-.game-gates a:nth-child(1) img { background: radial-gradient(circle at 50% 25%, #FFFFFF 0%, var(--nt-red-soft) 100%); border-color: rgba(230, 0, 18, 0.14); }
-.game-gates a:nth-child(2) img { background: radial-gradient(circle at 50% 25%, #FFFFFF 0%, var(--nt-gold-soft) 100%); border-color: rgba(242, 178, 27, 0.22); }
-.game-gates a:nth-child(3) img { background: radial-gradient(circle at 50% 25%, #FFFFFF 0%, var(--nt-blue-soft) 100%); border-color: rgba(47, 128, 237, 0.16); }
-.game-gates a:nth-child(4) img { background: radial-gradient(circle at 50% 25%, #FFFFFF 0%, var(--nt-green-soft) 100%); border-color: rgba(20, 176, 100, 0.18); }
-
-[data-theme="dark"] .game-gates a:nth-child(1) img { background: radial-gradient(circle at 50% 28%, rgba(240, 34, 50, 0.26) 0%, rgba(33, 34, 40, 0.94) 100%); }
-[data-theme="dark"] .game-gates a:nth-child(2) img { background: radial-gradient(circle at 50% 28%, rgba(245, 190, 58, 0.24) 0%, rgba(33, 34, 40, 0.94) 100%); }
-[data-theme="dark"] .game-gates a:nth-child(3) img { background: radial-gradient(circle at 50% 28%, rgba(90, 168, 245, 0.24) 0%, rgba(33, 34, 40, 0.94) 100%); }
-[data-theme="dark"] .game-gates a:nth-child(4) img { background: radial-gradient(circle at 50% 28%, rgba(36, 201, 121, 0.24) 0%, rgba(33, 34, 40, 0.94) 100%); }
+.game-gates a:nth-child(1) .nt-gate-icon-wrap { background: var(--nt-red-soft); border-color: rgba(230, 0, 18, 0.20); }
+.game-gates a:nth-child(2) .nt-gate-icon-wrap { background: var(--nt-gold-soft); border-color: rgba(240, 174, 20, 0.28); }
+.game-gates a:nth-child(3) .nt-gate-icon-wrap { background: var(--nt-blue-soft); border-color: rgba(37, 116, 232, 0.22); }
+.game-gates a:nth-child(4) .nt-gate-icon-wrap { background: var(--nt-green-soft); border-color: rgba(18, 168, 93, 0.22); }
 
 .game-gates span {
   font-size: 11.5px;
@@ -512,29 +478,29 @@
 }
 
 /* --------------------------------------------------------------------------
-   二、背包顶部紧凑横向身份铭牌栏 (.profile-identity-bar)
+   二、我的顶部极简头像栏 (.profile-identity-bar：仅钱包地址 + GRAM 余额)
    -------------------------------------------------------------------------- */
 .profile-identity-bar {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 11px 12px;
+  gap: 12px;
+  padding: 10px 12px;
   border-radius: 20px;
-  border: 1px solid var(--card-border);
-  background: linear-gradient(135deg, var(--card-bg) 0%, var(--card-soft) 100%);
+  border: 1.5px solid var(--card-border);
+  background: var(--card-bg);
   box-shadow: var(--surface-shadow);
-  min-height: 102px;
+  min-height: 82px;
 }
 
 .identity-thumb {
   position: relative;
-  width: 82px;
-  height: 84px;
+  width: 62px;
+  height: 62px;
   border-radius: 16px;
-  background: radial-gradient(circle at 50% 34%, #FFFFFF 0%, var(--nt-blue-soft) 56%, var(--paper-tray) 100%);
+  background: var(--paper-tray);
   border: 1.5px solid var(--card-border);
-  box-shadow: inset 0 1px 0 var(--card-highlight), 0 3px 8px rgba(22, 24, 34, 0.06);
+  box-shadow: 0 2.5px 0 var(--card-thickness);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -543,26 +509,25 @@
 }
 
 [data-theme="dark"] .identity-thumb {
-  background: radial-gradient(circle at 50% 36%, rgba(90, 168, 245, 0.28) 0%, rgba(36, 39, 52, 0.96) 68%, #1C1E26 100%);
+  background: var(--paper-tray);
   border-color: rgba(255, 255, 255, 0.14);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 4px 12px rgba(0, 0, 0, 0.35);
 }
 
 .identity-base {
   position: absolute;
-  bottom: 5px;
-  width: 54px;
-  height: 8px;
+  bottom: 4px;
+  width: 42px;
+  height: 6px;
   border-radius: 50%;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  box-shadow: 0 2px 0 var(--card-thickness);
+  box-shadow: 0 1.5px 0 var(--card-thickness);
 }
 
 .identity-thumb .wv-person {
   position: relative;
   z-index: 2;
-  height: 74px;
+  height: 54px;
   width: auto;
   object-fit: contain;
   filter: var(--standee-filter);
@@ -586,53 +551,51 @@
 .identity-meta {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
 }
 
-.identity-meta h1 {
-  margin: 2px 0 2px;
-  font-size: 16.5px;
-  font-weight: 900;
-  color: var(--ink);
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.identity-addr-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
-.identity-meta p {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-weight: 700;
+.identity-addr {
+  font-size: 12px;
+  font-weight: 800;
   color: var(--ink-soft);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.identity-meta small {
-  display: block;
-  margin-top: 2px;
-  font-size: 10.5px;
-  font-weight: 700;
-  color: var(--ink-muted);
+.identity-gram {
+  font-size: 17px;
+  font-weight: 900;
+  color: var(--ink);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .identity-gallery-link {
-  align-self: flex-start;
+  align-self: center;
 }
 
-/* 可微翘贴纸角标 */
+/* 实体胶囊角标按钮 */
 .peel-badge {
   position: relative;
   display: inline-flex;
   align-items: center;
   gap: 3px;
   padding: 5px 14px 5px 10px;
-  border-radius: 10px 4px 10px 10px;
+  border-radius: 10px;
   background: var(--card-bg);
   color: var(--ink);
   border: 1px solid var(--card-border);
@@ -644,16 +607,7 @@
   transition: transform 0.13s var(--ease-spring);
 }
 
-.peel-badge::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 8px;
-  height: 8px;
-  background: linear-gradient(225deg, var(--paper-bg) 46%, var(--card-thickness) 52%, var(--card-bg) 100%);
-  border-bottom-left-radius: 3px;
-}
+.peel-badge::after { display: none; }
 
 .peel-badge:active { transform: translateY(1.5px); box-shadow: none; }
 
@@ -684,7 +638,7 @@
   border-radius: 50%;
   background: var(--card-bg);
   border: 1.5px solid var(--card-border);
-  box-shadow: 0 3px 0 var(--card-thickness), 0 6px 12px rgba(43, 37, 35, 0.12);
+  box-shadow: 0 3px 0 var(--card-thickness), 0 6px 12px rgba(20, 22, 30, 0.12);
 }
 
 .standee-slot::after {
@@ -704,87 +658,71 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 6px;
-  padding: 12px 15px 14px;
+  gap: 10px;
+  padding: 14px 14px 14px;
+  border-radius: 22px;
+  border: 1.5px solid var(--card-border);
+  border-top: 4px solid var(--nt-red);
+  background: var(--card-bg);
+  box-shadow: var(--interactive-shadow);
+  overflow: visible;
 }
 
-.wv-gallery-hero > *:not(.diorama-svg) {
-  position: relative;
-  z-index: 2;
+.wv-gallery-hero.series-wealth {
+  border-top-color: var(--nt-gold);
 }
 
 .wv-gallery-hero .wv-person {
   position: relative;
   z-index: 2;
-  height: 138px;
+  height: 176px;
   width: auto;
   object-fit: contain;
   filter: var(--standee-filter);
   cursor: pointer;
 }
 
-/* 角色轻点翻身专属折纸语音气泡 */
-.speech-bubble {
-  position: absolute;
-  top: 2px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: min(88%, 272px);
-  padding: 6px 11px;
-  border-radius: 13px;
-  background: var(--card-bg);
-  border: 1.5px solid var(--card-border);
-  box-shadow: 0 3px 0 var(--card-thickness), 0 8px 16px rgba(43, 37, 35, 0.14);
-  font-size: 11.5px;
-  font-weight: 800;
-  color: var(--ink);
-  line-height: 1.35;
-  text-align: center;
-  z-index: 6;
-  pointer-events: none;
-  animation: speech-pop 280ms var(--ease-spring) both;
-}
-
-.speech-bubble::after {
-  content: '';
-  position: absolute;
-  bottom: -6px;
-  left: 50%;
-  width: 10px;
-  height: 10px;
-  background: var(--card-bg);
-  border-right: 1.5px solid var(--card-border);
-  border-bottom: 1.5px solid var(--card-border);
-  transform: translateX(-50%) rotate(45deg);
-}
-
 .wv-gallery-hero .wv-person.is-locked-preview {
-  filter: sepia(0.32) saturate(0.55) brightness(0.92) var(--standee-filter);
+  filter: grayscale(0.45) brightness(0.92) var(--standee-filter);
 }
 
-.wv-copy small {
-  display: inline-block;
-  padding: 2px 9px;
-  border-radius: 999px;
-  background: var(--paper-tray);
-  color: var(--ink-soft);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 800;
+.wv-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
 }
 
 .wv-copy h1 {
-  margin: 5px 0 3px;
-  font-size: 20px;
+  margin: 0;
+  font-size: 18px;
   font-weight: 900;
   color: var(--ink);
+  line-height: 1.2;
 }
 
 .wv-copy p {
   margin: 0;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
+}
+
+.gallery-action-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-top: 10px;
+  border-top: 1px solid var(--card-border);
+}
+
+.gallery-action-bar .btn {
+  flex: 1 1 0;
+  min-height: 38px;
+  padding: 6px 8px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .wv-missing {
@@ -827,7 +765,7 @@
 .wv-gallery a.is-locked {
   background: var(--paper-tray);
   border: 1.5px dashed var(--card-thickness);
-  box-shadow: inset 0 1px 4px rgba(43, 37, 35, 0.06);
+  box-shadow: inset 0 1px 4px rgba(20, 22, 30, 0.06);
 }
 
 .wv-gallery a.is-locked img {
@@ -985,7 +923,7 @@
 }
 
 /* --------------------------------------------------------------------------
-   五、任天堂 24H 集章手账板 (.wv-tower / .stamp-logbook / .star-reading)
+   五、任天堂 24H 印章簿 (.wv-tower / .stamp-logbook / .star-reading)
    -------------------------------------------------------------------------- */
 .wv-tower {
   position: relative;
@@ -1033,7 +971,7 @@
   align-items: center;
   justify-content: center;
   gap: 1px;
-  border-radius: 50%;
+  border-radius: 10px;
   background: var(--paper-tray);
   color: var(--ink-muted);
   border: 1px dashed rgba(147, 137, 129, 0.4);
@@ -1073,7 +1011,7 @@
   position: relative;
   aspect-ratio: 1;
   padding: 0;
-  border-radius: 50%;
+  border-radius: 10px;
   border: 1.5px solid transparent;
   background: var(--paper-tray);
   color: var(--ink-muted);
@@ -1094,7 +1032,7 @@
   width: 15px;
   height: 15px;
   border-radius: 50%;
-  background: linear-gradient(180deg, var(--nt-gold-top) 0%, var(--nt-gold) 100%);
+  background: var(--nt-gold);
   color: #FFFFFF;
   font-size: 9px;
   line-height: 15px;
@@ -1123,7 +1061,7 @@
 
 .stamp-pad[data-state="active"] {
   border-radius: 13px;
-  background: linear-gradient(180deg, var(--nt-blue-top) 0%, var(--nt-blue) 100%);
+  background: var(--nt-blue);
   color: #FFFFFF;
   border-color: #FFFFFF;
   box-shadow: 0 3px 0 var(--nt-blue-edge);
@@ -1164,7 +1102,7 @@
 .key-active { background: var(--nt-blue); border-radius: 2px; }
 .key-pending { background: var(--card-thickness); }
 
-/* 固定高度单段判定明细纸卡（切格零跳动） */
+/* 固定高度单段判定明细卡（切格零跳动） */
 .star-reading {
   min-height: 174px;
   background: var(--card-bg);
@@ -1241,7 +1179,7 @@
 .stamp-explain {
   margin: 0;
   padding-top: 8px;
-  border-top: 1px dashed var(--card-border);
+  border-top: 1px solid var(--card-border);
   font-size: 11.5px;
   font-weight: 700;
   color: var(--ink-soft);
@@ -1313,7 +1251,7 @@
 }
 
 /* --------------------------------------------------------------------------
-   七、阶段三：主城手账集章卡 (.handbook-stamp-card)
+   七、阶段三：广场每日集章卡 (.handbook-stamp-card)
    -------------------------------------------------------------------------- */
 .handbook-stamp-card {
   position: relative;
@@ -1370,7 +1308,7 @@
   border: 2px solid var(--nt-green, #2DA069);
   background: var(--nt-green, #2DA069);
   color: #FFFFFF;
-  transform: rotate(-6deg);
+  transform: none;
   box-shadow: 0 2px 0 rgba(25, 110, 70, 0.28);
 }
 
@@ -1398,7 +1336,7 @@
   gap: 6px;
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px dashed var(--card-border);
+  border-top: 1px solid var(--card-border);
 }
 
 .handbook-ach-pill {
@@ -1421,11 +1359,11 @@
 }
 
 /* --------------------------------------------------------------------------
-   八、第一刀：待提现金库条、2.0x 早鸟条、老赢家锁仓护盾、红警模式与手账折叠降权
+   八、第一刀：待提现金库条、2.0x 早鸟条、老赢家锁仓护盾、红警模式与集章折叠降权
    -------------------------------------------------------------------------- */
 .vault-unlock-banner {
   border: 2px solid var(--nt-gold-edge, #D98A1C);
-  background: linear-gradient(135deg, var(--card-bg) 0%, var(--nt-gold-soft, rgba(243, 184, 44, 0.14)) 100%);
+  background: var(--card-bg);
   box-shadow: 0 3.5px 0 rgba(184, 115, 16, 0.24), var(--surface-shadow);
 }
 
@@ -1459,14 +1397,14 @@
   flex: 1;
   height: 2px;
   border-radius: 2px;
-  background: linear-gradient(90deg, var(--nt-green, #2DA069) 0%, var(--nt-gold-edge, #D98A1C) 100%);
+  background: var(--nt-green);
 }
 
 .early-bird-banner {
   padding: 11px 13px;
   border-radius: 16px;
   border: 1.5px solid var(--nt-gold-edge, rgba(217, 138, 28, 0.55));
-  background: linear-gradient(90deg, var(--nt-gold-soft, rgba(243, 184, 44, 0.18)) 0%, var(--card-bg) 100%);
+  background: var(--nt-gold-soft);
   box-shadow: var(--card-shadow-sm);
 }
 
@@ -1567,6 +1505,61 @@
   background: transparent;
 }
 
+.identity-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.identity-name-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.3;
+  background: var(--nt-red-soft);
+  color: var(--nt-red);
+  border: 1px solid rgba(230, 0, 18, 0.20);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 148px;
+}
+
+.identity-name-pill.series-wealth {
+  background: var(--nt-gold-soft);
+  color: var(--nt-gold-ink);
+  border-color: rgba(217, 138, 28, 0.36);
+}
+
+.gallery-series-tabs .seg-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.seg-tab-count {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(20, 22, 30, 0.08);
+  color: inherit;
+}
+
+[data-theme="dark"] .seg-tab-count {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.gallery-series-tabs .seg-tab.active .seg-tab-count {
+  background: rgba(255, 255, 255, 0.22);
+}
+
 /* --------------------------------------------------------------------------
    九、Boxheads 双轨收集册 & 1 对 1 精装卡背 3D 翻卡舞台
    -------------------------------------------------------------------------- */
@@ -1581,24 +1574,28 @@
 .boxhead-flip-scene {
   position: relative;
   width: 100%;
-  height: 214px;
+  height: 224px;
   display: flex;
   align-items: center;
   justify-content: center;
-  perspective: 960px;
-  margin: 4px 0 2px;
+  perspective: 1000px;
+  -webkit-perspective: 1000px;
+  cursor: pointer;
+  margin: 2px 0;
 }
 
 .boxhead-flip-card {
   position: relative;
-  width: 192px;
-  height: 206px;
+  width: 212px;
+  height: 220px;
   transform-style: preserve-3d;
-  transition: transform 0.56s cubic-bezier(0.22, 1, 0.36, 1);
+  -webkit-transform-style: preserve-3d;
+  transition: transform 0.52s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .boxhead-flip-card.is-flipped {
   transform: rotateY(180deg);
+  -webkit-transform: rotateY(180deg);
 }
 
 .boxhead-face {
@@ -1609,37 +1606,76 @@
   justify-content: center;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+  transition: opacity 0.2s ease;
+}
+
+.boxhead-face.front {
+  transform: rotateY(0deg) translateZ(1px);
+  -webkit-transform: rotateY(0deg) translateZ(1px);
+  opacity: 1;
+}
+
+.boxhead-stage-aura {
+  position: absolute;
+  width: 186px;
+  height: 186px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(230, 0, 18, 0.12) 0%, rgba(230, 0, 18, 0) 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.boxhead-face.front.series-wealth .boxhead-stage-aura {
+  background: radial-gradient(circle, rgba(240, 174, 20, 0.20) 0%, rgba(240, 174, 20, 0) 70%);
+}
+
+.boxhead-flip-card.is-flipped .boxhead-face.front {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .boxhead-face.front.series-activity .wv-person {
-  width: 176px;
-  height: 176px;
+  position: relative;
+  z-index: 2;
+  width: 192px;
+  height: 192px;
   border-radius: 22px;
   object-fit: cover;
-  box-shadow: 0 10px 22px rgba(22, 24, 34, 0.16), 0 3px 0 rgba(22, 24, 34, 0.08);
+  border: 2px solid var(--card-border);
+  box-shadow: 0 4px 0 var(--card-thickness), 0 12px 24px rgba(20, 22, 30, 0.14);
   filter: none;
 }
 
 .boxhead-face.front.series-wealth .wv-person {
-  width: 176px;
-  height: 176px;
+  position: relative;
+  z-index: 2;
+  width: 192px;
+  height: 192px;
   object-fit: contain;
   filter: var(--standee-filter);
 }
 
 .boxhead-face.back {
-  transform: rotateY(180deg);
+  transform: rotateY(180deg) translateZ(1px);
+  -webkit-transform: rotateY(180deg) translateZ(1px);
+  opacity: 0;
+  pointer-events: none;
   cursor: pointer;
 }
 
+.boxhead-flip-card.is-flipped .boxhead-face.back {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .boxhead-card-img {
-  max-width: 186px;
-  max-height: 204px;
+  max-width: 212px;
+  max-height: 220px;
   width: auto;
   height: auto;
   object-fit: contain;
   border-radius: 14px;
-  box-shadow: 0 12px 24px rgba(14, 16, 24, 0.28);
+  box-shadow: 0 10px 24px rgba(14, 16, 24, 0.24);
 }
 
 .boxhead-flip-btn {
@@ -1647,13 +1683,13 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 34px;
-  padding: 6px 14px;
+  min-height: 32px;
+  padding: 5px 12px;
   border-radius: 999px;
   border: 1.5px solid var(--card-border);
   background: var(--card-bg);
   color: var(--ink);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 800;
   cursor: pointer;
   box-shadow: 0 2.5px 0 var(--card-thickness);
@@ -1671,8 +1707,172 @@
   color: var(--nt-red);
 }
 
-.wv-gallery.series-activity img {
+.gallery-trait-line {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.gallery-voice-pill {
+  margin: 4px 0 0;
+  padding: 5px 11px;
   border-radius: 12px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+.gallery-unlock-panel {
+  width: 100%;
+  padding: 10px 11px;
+  border-radius: 14px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.gallery-unlock-panel.is-done {
+  background: var(--nt-green-soft);
+  border-color: rgba(18, 168, 93, 0.28);
+}
+
+.gallery-unlock-label {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.gallery-unlock-stat {
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.gallery-unlock-panel.is-done .gallery-unlock-stat {
+  color: var(--nt-green);
+}
+
+.gallery-progress-track {
+  height: 6px;
+  background: var(--card-bg);
+}
+
+.gallery-progress-track .progress-fill.is-gold {
+  background: var(--nt-gold);
+}
+
+.gallery-unlock-foot {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  gap: 8px;
+}
+
+.gallery-unlock-cta {
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--nt-red);
+  white-space: nowrap;
+}
+
+/* 5 种宝箱迷你计数条 */
+.chest-tally-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.chest-tally-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 7px 4px;
+  border-radius: 13px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow-sm);
+  transition: border-color 0.15s ease, transform 0.12s ease;
+}
+
+.chest-tally-pill.is-target {
+  border: 1.5px solid var(--nt-red);
+  background: var(--nt-red-soft);
+}
+
+.chest-tally-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-muted);
+}
+
+.chest-tally-pill.tone-bronze .chest-tally-dot { background: #C87D4B; }
+.chest-tally-pill.tone-silver .chest-tally-dot { background: #8E9BAE; }
+.chest-tally-pill.tone-gold .chest-tally-dot { background: #E6A817; }
+.chest-tally-pill.tone-platinum .chest-tally-dot { background: #5B8DEE; }
+.chest-tally-pill.tone-diamond .chest-tally-dot { background: #9B6BFF; }
+
+.chest-tally-name {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--ink-soft);
+  line-height: 1.1;
+}
+
+.chest-tally-pill b {
+  font-size: 12.5px;
+  font-weight: 900;
+  color: var(--ink-muted);
+  line-height: 1.1;
+}
+
+.chest-tally-pill.has-any b {
+  color: var(--ink);
+}
+
+.gallery-slot-num {
+  position: absolute;
+  top: 5px;
+  left: 6px;
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--ink-muted);
+  line-height: 16px;
+}
+
+.gallery-slot-req {
+  margin-top: 2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--paper-tray);
+  font-size: 9.5px;
+  font-weight: 800;
+  color: var(--ink-muted);
+  line-height: 1.35;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wv-gallery a[aria-current="true"] .gallery-slot-req {
+  background: var(--card-bg);
+  color: var(--nt-blue);
+}
+
+.wv-gallery.series-activity img {
+  border-radius: 13px;
   object-fit: cover;
   filter: none;
   box-shadow: 0 3px 8px rgba(22, 24, 34, 0.10);
@@ -1689,3 +1889,147 @@
   }
 }
 
+
+/* --------------------------------------------------------------------------
+   十、任天堂第一方代码化实体卡带/收藏卡组件（告别 AI 乱码卡背，支持双语与亮暗主题）
+   -------------------------------------------------------------------------- */
+.nt-cartridge-back {
+  width: 204px;
+  height: 212px;
+  border-radius: 18px;
+  border: 2px solid var(--card-border);
+  background: var(--card-bg);
+  box-shadow: 0 5px 0 var(--card-thickness), 0 12px 24px rgba(14, 16, 24, 0.18);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+.nt-cartridge-back.is-wealth {
+  background: #1A1C24;
+  border-color: #3A3D4D;
+  color: #F5F6FA;
+  box-shadow: 0 5px 0 #0B0C10, 0 12px 24px rgba(0, 0, 0, 0.36);
+}
+.nt-cart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  background: var(--nt-red);
+  color: #FFFFFF;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+.nt-cartridge-back.is-wealth .nt-cart-header {
+  background: #F0AE14;
+  color: #171920;
+}
+.nt-cart-body {
+  flex: 1;
+  padding: 10px 11px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.nt-cart-title {
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.2;
+  color: var(--ink);
+}
+.nt-cartridge-back.is-wealth .nt-cart-title { color: #FFFFFF; }
+.nt-cart-trait {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  line-height: 1.35;
+}
+.nt-cartridge-back.is-wealth .nt-cart-trait { color: #B8BCC9; }
+.nt-cart-unlock {
+  margin-top: auto;
+  padding: 6px 7px;
+  border-radius: 8px;
+  background: var(--paper-tray);
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--nt-green);
+  line-height: 1.35;
+}
+.nt-cartridge-back.is-wealth .nt-cart-unlock {
+  background: rgba(240, 174, 20, 0.14);
+  color: #FFD97A;
+}
+.nt-cart-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-top: 1px solid var(--card-border);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--ink-muted);
+}
+.nt-cartridge-back.is-wealth .nt-cart-footer {
+  border-top-color: #2E3140;
+  color: #828799;
+}
+
+/* --------------------------------------------------------------------------
+   十一、深度精修：暗夜模式矢量图标高对比托盘 & 首屏 3D 徽章容器
+   -------------------------------------------------------------------------- */
+[data-theme="dark"] .game-gates a:nth-child(1) .nt-gate-icon-wrap { background: rgba(240, 34, 50, 0.24); border-color: rgba(240, 34, 50, 0.42); }
+[data-theme="dark"] .game-gates a:nth-child(2) .nt-gate-icon-wrap { background: rgba(245, 190, 58, 0.22); border-color: rgba(245, 190, 58, 0.40); }
+[data-theme="dark"] .game-gates a:nth-child(3) .nt-gate-icon-wrap { background: rgba(88, 164, 245, 0.22); border-color: rgba(88, 164, 245, 0.40); }
+[data-theme="dark"] .game-gates a:nth-child(4) .nt-gate-icon-wrap { background: rgba(34, 199, 118, 0.22); border-color: rgba(34, 199, 118, 0.40); }
+
+[data-theme="dark"] .nt-gate-svg {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
+}
+
+.city-hub-emblem {
+  width: 62px;
+  height: 62px;
+  padding: 5px;
+  border-radius: 16px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  box-shadow: 0 3px 0 var(--card-thickness);
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: none;
+}
+
+.handbook-seal {
+  border-radius: 9px;
+}
+
+.handbook-stamp-cell {
+  border-style: solid;
+  border-width: 1.5px;
+}
+
+/* 极窄屏 320px–374px 排版加固 */
+@media (max-width: 374px) {
+  .city-hub-top {
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .city-round-pill,
+  .city-cd-badge {
+    font-size: 10.5px;
+    padding: 3px 8px;
+  }
+  .game-gates {
+    gap: 6px;
+  }
+  .game-gates small {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

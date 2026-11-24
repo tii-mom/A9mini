@@ -1,8 +1,16 @@
 /* ==========================================================================
-   A9 · 任天堂红白雪宣纸立体书设计变量单源真值
-   - 90% 雪宣纸白中性底色 / 8% 唯一任天堂正红 #E60012 行动色 / 2% 清脆语义色
-   - 严格三层纸张厚度规范：L1 可点击厚卡 / L2 轻边信息卡 / L3 卡片内虚线分组
+   A9 · 纯正任天堂第一方触感 UI 设计变量（双端统一单源真值）
+   - 90% 洁净雪白中性面 (#F4F5F8 / #FFFFFF) / 8% 任天堂正红 (#E60012) / 2% 语义色
+   - 纯正任天堂 Switch 级实体硬边按键触感与亮暗双主题
    ========================================================================== */
+
+@font-face {
+  font-family: 'Rubik';
+  font-style: normal;
+  font-weight: 500 900;
+  font-display: swap;
+  src: url('../assets/fonts/rubik-latin.woff2') format('woff2');
+}
 
 :root,
 [data-theme="light"] {
@@ -10,87 +18,88 @@
   --wv-safe-top: max(env(safe-area-inset-top, 0px), var(--tg-safe-area-inset-top, 0px), var(--tg-content-safe-area-inset-top, 0px));
   --wv-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px), var(--tg-content-safe-area-inset-bottom, 0px));
 
-  /* 90% 雪宣纸白基底与厚卡纸层（去黄提纯，保留清晰厚纸层次） */
-  --paper-bg: #F6F6F8;
-  --paper-hill-1: #ECEEF2;
-  --paper-hill-2: #E4E7EE;
-  --paper-tray: #EFEFF3;
-  --paper-tray-deep: #E3E5EC;
+  /* 90% 洁净中性底色与精工实体表面 */
+  --paper-bg: #F4F5F8;
+  --paper-hill-1: #ECEEF3;
+  --paper-hill-2: #E4E7EF;
+  --paper-tray: #ECEEF3;
+  --paper-tray-deep: #DFE3EC;
 
   --card-bg: #FFFFFF;
-  --card-soft: #FAFAFC;
-  --card-border: #E4E6EE;
-  --card-thickness: #D1D4DF;
-  --card-stitch: rgba(138, 144, 162, 0.28);
+  --card-soft: #F9FAFC;
+  --card-border: #E0E3EC;
+  --card-border-strong: #CCD1DE;
+  --card-thickness: #C8CDD9;
+  --card-stitch: transparent;
   --card-highlight: rgba(255, 255, 255, 0.98);
 
-  /* 三层纸张阴影规范：L2 静态信息卡 vs L1 可点击厚纸控件 */
+  /* Switch 第一方触感层级：L2 纯平信息卡 vs L1 实体硬边按键 */
   --surface-shadow:
-    0 1px 0 rgba(22, 24, 34, 0.04),
-    0 4px 12px rgba(22, 24, 34, 0.045);
+    0 1px 2px rgba(20, 22, 30, 0.045),
+    0 2px 0 rgba(200, 205, 217, 0.45);
   --card-shadow: var(--surface-shadow);
   --interactive-shadow:
-    inset 0 1px 0 var(--card-highlight),
+    inset 0 1.5px 0 var(--card-highlight),
     0 3.5px 0 var(--card-thickness),
-    0 8px 16px rgba(22, 24, 34, 0.065);
+    0 8px 16px rgba(20, 22, 30, 0.06);
   --card-shadow-sm:
     inset 0 1px 0 var(--card-highlight),
-    0 3px 0 var(--card-thickness),
-    0 6px 12px rgba(22, 24, 34, 0.05);
+    0 3px 0 var(--card-thickness);
 
-  /* 利落深炭墨字 */
-  --ink: #1B1D24;
-  --ink-soft: #565B6B;
-  --ink-muted: #868C9D;
+  /* 利落高对比炭黑字 */
+  --ink: #171920;
+  --nt-svg-stroke: #171920;
+  --ink-soft: #505565;
+  --ink-muted: #7F8598;
 
-  /* 8% 唯一任天堂正红行动色（红白机正红 #E60012） */
+  /* 8% 唯一任天堂正红行动色（纯平高饱和 #E60012） */
   --nt-red: #E60012;
-  --nt-red-top: #F72434;
-  --nt-red-edge: #A8000E;
+  --nt-red-top: #E60012;
+  --nt-red-edge: #A3000D;
   --nt-red-soft: #FFF0F1;
 
-  /* 2% 任天堂四色语义规范：青蓝(选中/观察中) / 翠绿(达标) / 金币金(奖励/收藏) / 低饱和莓红(未达标，与正红避让) */
-  --nt-blue: #2F80ED;
-  --nt-blue-top: #4B94F5;
-  --nt-blue-edge: #1D5EC0;
+  /* 2% 任天堂四色高辨识语义规范 */
+  --nt-blue: #2574E8;
+  --nt-blue-top: #2574E8;
+  --nt-blue-edge: #1752AB;
   --nt-blue-soft: #EDF4FE;
 
-  --nt-green: #14B064;
-  --nt-green-edge: #0D8249;
+  --nt-green: #12A85D;
+  --nt-green-edge: #0B7A42;
   --nt-green-soft: #E8F8F0;
 
-  --nt-gold: #F2B21B;
-  --nt-gold-top: #FFCB45;
-  --nt-gold-edge: #C28608;
+  --nt-gold: #F0AE14;
+  --nt-gold-top: #F7BE2C;
+  --nt-gold-edge: #BA8006;
   --nt-gold-soft: #FFF7DF;
-  --nt-gold-ink: #8C5B00;
+  --nt-gold-ink: #8A5900;
 
-  --nt-rose: #C74968;
-  --nt-rose-edge: #962E48;
+  --nt-rose: #C83E60;
+  --nt-rose-edge: #922641;
   --nt-rose-soft: #FDF0F3;
 
-  /* 立体书低饱和雪白纸雕布景 */
-  --diorama-thread: rgba(130, 136, 154, 0.34);
+  /* 几何网格装饰色（替代旧版剪纸布景变量，保持兼容） */
+  --diorama-thread: rgba(130, 136, 154, 0.16);
   --diorama-bunting-1: #FAD5D8;
   --diorama-bunting-2: #FCE8B8;
   --diorama-bunting-3: #D5EEDB;
-  --diorama-star: #F4C44E;
+  --diorama-star: #F0AE14;
   --diorama-cloud: #FFFFFF;
   --diorama-cloud-shadow: #E2E5EE;
   --diorama-castle: #EAECEF;
   --diorama-castle-shade: #DFE2EA;
-  --diorama-flag: #F39AA2;
+  --diorama-flag: #E60012;
   --diorama-tree: #D7EEDF;
   --diorama-trunk: #C8CDD8;
-  --diorama-hill-sage: #E3EFE8;
-  --diorama-stitch: rgba(134, 140, 158, 0.34);
+  --diorama-hill-sage: #E8F3EE;
+  --diorama-stitch: transparent;
   --diorama-rim: rgba(255, 255, 255, 0.94);
 
-  --header-bg: rgba(246, 246, 248, 0.96);
+  --header-bg: rgba(244, 245, 248, 0.96);
   --tabbar-bg: #FFFFFF;
-  --paper-cut-shadow: drop-shadow(0 6px 10px rgba(22, 24, 34, 0.12));
-  --standee-filter: drop-shadow(0 5px 8px rgba(22, 24, 34, 0.13));
-  --glare-color: rgba(255, 255, 255, 0.48);
+  --paper-cut-shadow: drop-shadow(0 6px 12px rgba(20, 22, 30, 0.14));
+  --standee-filter: drop-shadow(0 6px 12px rgba(20, 22, 30, 0.14));
+  --glare-color: rgba(255, 255, 255, 0.45);
 
   /* 语义别名兼容 */
   --bg-canvas: var(--paper-bg);
@@ -105,68 +114,70 @@
   --red: var(--nt-rose);
   --gold: var(--nt-gold-ink);
   --cyan: var(--nt-blue);
-  --green-border: rgba(20, 176, 100, 0.34);
-  --emerald-border: rgba(20, 176, 100, 0.34);
-  --red-border: rgba(199, 73, 104, 0.34);
-  --gold-border: rgba(194, 134, 8, 0.34);
-  --blue-border: rgba(47, 128, 237, 0.36);
+  --green-border: rgba(18, 168, 93, 0.34);
+  --emerald-border: rgba(18, 168, 93, 0.34);
+  --red-border: rgba(200, 62, 96, 0.34);
+  --gold-border: rgba(186, 128, 6, 0.34);
+  --blue-border: rgba(37, 116, 232, 0.36);
   --ring-track: var(--paper-tray-deep);
 
-  --font-sans: 'Nunito', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Nunito', ui-monospace, SFMono-Regular, monospace;
+  /* 双端统一本地字体栈：自托管 Rubik + 原生系统中文无衬线 + 等宽数字 */
+  --font-sans: 'Rubik', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'Rubik', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-decelerate: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-spring: cubic-bezier(0.22, 1.45, 0.36, 1);
+  --ease-spring: cubic-bezier(0.22, 1.4, 0.36, 1);
 }
 
 /* Switch 深石墨炭 × 任天堂正红暗夜主题 */
 [data-theme="dark"] {
-  --paper-bg: #161619;
-  --paper-hill-1: #1E1F24;
-  --paper-hill-2: #25272E;
-  --paper-tray: #212228;
-  --paper-tray-deep: #2B2D35;
+  --paper-bg: #15161A;
+  --paper-hill-1: #1D1E24;
+  --paper-hill-2: #24262E;
+  --paper-tray: #22242C;
+  --paper-tray-deep: #2B2D37;
 
-  --card-bg: #1F2026;
-  --card-soft: #26272F;
-  --card-border: #333540;
-  --card-thickness: #0E0F12;
-  --card-stitch: rgba(242, 244, 250, 0.12);
+  --card-bg: #1E2027;
+  --card-soft: #252730;
+  --card-border: #323542;
+  --card-border-strong: #434756;
+  --card-thickness: #0C0D11;
+  --card-stitch: transparent;
   --card-highlight: rgba(255, 255, 255, 0.08);
 
   --surface-shadow:
-    0 1px 0 rgba(0, 0, 0, 0.32),
-    0 6px 16px rgba(0, 0, 0, 0.24);
+    0 1px 2px rgba(0, 0, 0, 0.36),
+    0 2px 0 rgba(12, 13, 17, 0.8);
   --card-shadow: var(--surface-shadow);
   --interactive-shadow:
     inset 0 1px 0 var(--card-highlight),
     0 3.5px 0 var(--card-thickness),
-    0 10px 20px rgba(0, 0, 0, 0.34);
+    0 10px 20px rgba(0, 0, 0, 0.35);
   --card-shadow-sm:
     inset 0 1px 0 var(--card-highlight),
-    0 3px 0 var(--card-thickness),
-    0 6px 14px rgba(0, 0, 0, 0.26);
+    0 3px 0 var(--card-thickness);
 
   --ink: #F5F6FA;
-  --ink-soft: #B8BCC9;
-  --ink-muted: #848999;
+  --nt-svg-stroke: #11131A;
+  --ink-soft: #B6BAC7;
+  --ink-muted: #828799;
 
   --nt-red: #F02232;
-  --nt-red-top: #FF3D4C;
-  --nt-red-edge: #A60A18;
+  --nt-red-top: #F02232;
+  --nt-red-edge: #9B0A16;
   --nt-red-soft: rgba(240, 34, 50, 0.18);
 
-  --nt-blue: #5AA8F5;
-  --nt-blue-top: #73B8FA;
-  --nt-blue-edge: #2869AB;
-  --nt-blue-soft: rgba(90, 168, 245, 0.18);
+  --nt-blue: #58A4F5;
+  --nt-blue-top: #58A4F5;
+  --nt-blue-edge: #2463A8;
+  --nt-blue-soft: rgba(88, 164, 245, 0.18);
 
-  --nt-green: #24C979;
-  --nt-green-edge: #148A51;
-  --nt-green-soft: rgba(36, 201, 121, 0.16);
+  --nt-green: #22C776;
+  --nt-green-edge: #12854D;
+  --nt-green-soft: rgba(34, 199, 118, 0.16);
 
   --nt-gold: #F5BE3A;
-  --nt-gold-top: #FFD062;
+  --nt-gold-top: #F5BE3A;
   --nt-gold-edge: #B57F10;
   --nt-gold-soft: rgba(245, 190, 58, 0.17);
   --nt-gold-ink: #FFD97A;
@@ -175,7 +186,7 @@
   --nt-rose-edge: #9E304B;
   --nt-rose-soft: rgba(222, 90, 122, 0.17);
 
-  --diorama-thread: rgba(178, 184, 200, 0.26);
+  --diorama-thread: rgba(178, 184, 200, 0.14);
   --diorama-bunting-1: #5B2E36;
   --diorama-bunting-2: #594A2C;
   --diorama-bunting-3: #2D4639;
@@ -184,23 +195,23 @@
   --diorama-cloud-shadow: #121318;
   --diorama-castle: #25272F;
   --diorama-castle-shade: #1D1E25;
-  --diorama-flag: #8C3946;
+  --diorama-flag: #F02232;
   --diorama-tree: #2B3D34;
   --diorama-trunk: #3E414C;
   --diorama-hill-sage: #222F2A;
-  --diorama-stitch: rgba(242, 244, 250, 0.14);
-  --diorama-rim: rgba(255, 255, 255, 0.10);
+  --diorama-stitch: transparent;
+  --diorama-rim: rgba(255, 255, 255, 0.08);
 
-  --header-bg: rgba(22, 22, 25, 0.96);
-  --tabbar-bg: #1F2026;
-  --paper-cut-shadow: brightness(0.95) drop-shadow(0 7px 13px rgba(0, 0, 0, 0.50));
-  --standee-filter: brightness(0.88) contrast(1.04) saturate(0.95) drop-shadow(0 7px 14px rgba(0, 0, 0, 0.56));
-  --glare-color: rgba(255, 255, 255, 0.16);
+  --header-bg: rgba(21, 22, 26, 0.96);
+  --tabbar-bg: #1E2027;
+  --paper-cut-shadow: brightness(0.96) drop-shadow(0 8px 14px rgba(0, 0, 0, 0.48));
+  --standee-filter: brightness(0.95) drop-shadow(0 8px 14px rgba(0, 0, 0, 0.52));
+  --glare-color: rgba(255, 255, 255, 0.14);
 
-  --green-border: rgba(36, 201, 121, 0.36);
-  --emerald-border: rgba(36, 201, 121, 0.36);
+  --green-border: rgba(34, 199, 118, 0.36);
+  --emerald-border: rgba(34, 199, 118, 0.36);
   --red-border: rgba(222, 90, 122, 0.36);
   --gold-border: rgba(245, 190, 58, 0.38);
-  --blue-border: rgba(90, 168, 245, 0.40);
+  --blue-border: rgba(88, 164, 245, 0.40);
   --ring-track: #30323C;
 }

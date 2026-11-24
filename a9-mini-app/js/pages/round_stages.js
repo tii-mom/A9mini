@@ -1,3 +1,4 @@
+import { renderNintendoGateIcon } from '../paper-art.js';
 import { store } from '../store.js';
 import { config } from '../config.js';
 import { uiMemory } from '../app.js';
@@ -334,7 +335,7 @@ export function renderWarmupStage(round, user) {
 
     <div class="grid-4">
       <button class="cmd-tile" data-nav="/warmup/rank"><span class="icon-badge amber">${icon('trophy', 16)}</span><span>${L('先锋榜', 'Board')}</span></button>
-      <button class="cmd-tile" data-nav="/internal/market"><span class="icon-badge sky">${icon('swap', 16)}</span><span>${L('兑换屋', 'Exchange')}</span></button>
+      <button class="cmd-tile" data-nav="/internal/market"><span class="icon-badge sky">${icon('swap', 16)}</span><span>${L('宝箱商城', 'Chest Mall')}</span></button>
       <button class="cmd-tile" data-nav="/rules"><span class="icon-badge">${icon('book', 16)}</span><span>${L('指南', 'Guide')}</span></button>
       <button class="cmd-tile" data-nav="/team/invite"><span class="icon-badge orange">${icon('qr', 16)}</span><span>${L('海报', 'Poster')}</span></button>
     </div>
@@ -344,7 +345,7 @@ export function renderWarmupStage(round, user) {
 }
 
 export function renderParticipation(round) {
-  const qAmt = round.quickStakeTon || 100;
+  const qAmt = round.quickStakeA9 || 5000;
   const est = estimateRewardA9(qAmt);
   const history = Array.isArray(round.priceHistory) && round.priceHistory.length > 1
     ? round.priceHistory : [];
@@ -378,12 +379,12 @@ export function renderParticipation(round) {
       </div>
 
       <div class="hero-amt-pills">
-        ${[100, 500, 1000].map(v => `
-          <button class="hero-amt-pill ${qAmt === v ? 'active' : ''}" data-hero-amt="${v}" type="button">${formatNum(v)} GRAM</button>
+        ${[1000, 5000, 10000].map(v => `
+          <button class="hero-amt-pill ${qAmt === v ? 'active' : ''}" data-hero-amt="${v}" type="button">${formatNum(v)} A9</button>
         `).join('')}
       </div>
 
-      <button class="btn btn-primary" id="hero-stake-cta" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L(`立即参与 ${formatNum(qAmt)} GRAM`, `Participate ${formatNum(qAmt)} GRAM`)}</button>
+      <button class="btn btn-primary" id="hero-stake-cta" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L(`立即参与 ${formatNum(qAmt)} A9`, `Participate ${formatNum(qAmt)} A9`)}</button>
       <div class="num-xs text-muted" style="margin-top:8px;">
         ${est === null
           ? L('预计奖励：等待服务端参与数据', 'Estimate: awaiting participation data')
@@ -463,14 +464,14 @@ export function renderObservation(round) {
     ${renderPredictionCard(round, store.state.prediction, store.state.user)}
 
     <div class="grid-2 realm-actions">
-      <button class="btn btn-secondary" data-nav="/proof"><img src="./assets/paper-craft/ticket.png" alt=""> ${L('闯关凭证', 'Quest Pass')}</button>
-      <button class="btn btn-secondary" data-nav="/team/invite"><img src="./assets/paper-craft/guild.png" alt=""> ${L('邀请海报', 'Poster')}</button>
+      <button class="btn btn-secondary" data-nav="/proof">${renderNintendoGateIcon('ticket', 20)} ${L('闯关凭证', 'Quest Pass')}</button>
+      <button class="btn btn-secondary" data-nav="/team/invite">${renderNintendoGateIcon('guild', 20)} ${L('邀请海报', 'Poster')}</button>
     </div>
   `;
 }
 
 /**
- * 任天堂「24H 集章手账板」（#/observation/records）
+ * 任天堂「24H 印章簿」（#/observation/records）
  * 彻底移除旧圆形星盘，改为 4×6 大号手盖圆章速选板 + 固定高度判定依据纸卡 + 记忆选中时段
  */
 export function renderObservationRecords(root) {
@@ -571,7 +572,7 @@ export function renderObservationRecords(root) {
     const badgeCls = slot.state === 'pass' ? 'chip-green' : slot.state === 'miss' ? 'chip-red' : slot.state === 'active' ? 'chip-blue' : 'chip-muted';
     reading.innerHTML = `
       <header>
-        <img src="./assets/paper-craft/ticket.png" alt="">
+        <span style="display:inline-flex;flex-shrink:0;" aria-hidden="true">${renderNintendoGateIcon('ticket', 30)}</span>
         <div>
           <small>${L('单段判定依据', 'Slot Judgment Basis')}</small>
           <h2>${L('第', 'Slot ')} ${number}${L(' 时段', '')}</h2>
@@ -645,17 +646,17 @@ export function renderSettlementFailed(round) {
       </div>
       <div class="progress-track" style="margin-bottom:10px;"><div class="progress-fill red no-anim" style="width:${failPct}%"></div></div>
       <div>
-        <div class="list-row"><span class="text-sec">${L('本轮参与本金处理', 'Principal')}</span><span class="num-xs text-red">${L('按 v15 规则销毁 BURN', 'Burned per v15')}</span></div>
+        <div class="list-row"><span class="text-sec">${L('本轮参与本金处理', 'Principal')}</span><span class="num-xs text-red">${L('按 v16 规则销毁 BURN', 'Burned per v16')}</span></div>
         <div class="list-row"><span class="text-sec">${L('战队额度', 'Squad quota')}</span><span class="num-xs text-gold">${L('120,000,000 A9 销毁 / 结转', '120,000,000 A9 burned / carried')}</span></div>
       </div>
       <div class="sub-tile" style="margin-top:10px;">
-        <div class="num-xs text-sec" style="line-height:1.5;">${L('见证销毁 BURN 并分享，下轮兑换屋享优先通道与额度加成。', 'Share this BURN proof for next-round exchange priority and quota boost.')}</div>
+        <div class="num-xs text-sec" style="line-height:1.5;">${L('见证销毁 BURN 并分享，下轮宝箱商城享优先通道与额度加成。', 'Share this BURN proof for next-round Chest Mall priority and quota boost.')}</div>
       </div>
       <button class="btn btn-secondary" data-x-share="burn" type="button" style="margin-top:10px;">${icon('xBrand', 15)} ${L('分享销毁 BURN 证明', 'Share Burn Proof')}</button>
     </div>
     ${renderPredictionCard(round, store.state.prediction, store.state.user)}
     <div class="grid-2">
-      <button class="btn btn-primary" data-nav="/internal/market">${icon('swap', 15)} ${L('前往 A9 兑换屋', 'A9 Exchange')}</button>
+      <button class="btn btn-primary" data-nav="/internal/market">${icon('swap', 15)} ${L('前往宝箱商城', 'Chest Mall')}</button>
       <button class="btn btn-secondary" data-nav="/warmup">${icon('flame', 15)} ${L('下轮预热', 'Next Pre-Round')}</button>
     </div>
   `;

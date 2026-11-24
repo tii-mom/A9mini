@@ -1,3 +1,4 @@
+import { renderNintendoGateIcon } from '../paper-art.js';
 /**
  * 财富榜 (/leaderboard) — 轻战报摘要 + Top 3 立牌领奖台 + 紧凑完整列表 + 状态记忆
  */
@@ -17,7 +18,7 @@ export function renderLeaderboard(root) {
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         <section class="card empty-state">
-          <img src="./assets/paper-craft/trophy.png" alt="" style="width:58px;height:58px;filter:var(--paper-cut-shadow);">
+          <span class="nt-art-badge tone-gold" aria-hidden="true">${renderNintendoGateIcon('trophy', 36)}</span>
           <div style="font-size:16px;font-weight:900;">${L('榜单数据待核验', 'Rankings awaiting verification')}</div>
           <div class="num-xs text-sec" style="max-width:260px;">${L('个人榜、战队榜与邀请榜将在服务端同步后展示。', 'Personal, squad and invite rankings appear once synced from the server.')}</div>
           <a class="btn btn-secondary btn-sm" style="margin-top:8px;" href="#/challenge">${L('返回广场', 'Back to Plaza')}</a>
@@ -55,7 +56,7 @@ export function renderLeaderboard(root) {
           <button class="seg-tab ${activeTab === 'invite' ? 'active' : ''}" data-ltab="invite">${L('邀请榜', 'Invites')}</button>
         </div>
 
-        <div class="wv-podium">${[1, 0, 2].map(i => `<div class="rank-${i + 1}"><img class="wv-person" src="${characterArt(9 - i, 'wealth')}" alt=""><b>#${i + 1}</b><small>${rows[i].name}</small></div>`).join('')}</div>
+        <div class="wv-podium">${[1, 0, 2].map(i => `<div class="rank-${i + 1}"><img class="wv-person" src="${characterArt(9 - i, 'activity')}" alt=""><b>#${i + 1}</b><small>${rows[i].name}</small></div>`).join('')}</div>
 
         <div class="card">
           <div class="card-header" style="margin-bottom:4px;">

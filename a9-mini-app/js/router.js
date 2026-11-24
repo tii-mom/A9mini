@@ -17,7 +17,7 @@ import { renderCity, gallery, rewards } from './pages/wealthverse.js';
 export const ROUTES = [
   { path: '/challenge',           title: () => L('A9 广场', 'A9 Plaza'),           shell: 'tab',   tab: 'challenge',   ticker: false, render: renderCity },
   { path: '/round',               title: () => L('轮次闯关', 'Round Quest'),       shell: 'tab',   tab: 'round',       ticker: true,  render: renderChallengeHome },
-  { path: '/gallery',             title: () => L('A9 进化图鉴', 'A9 Evolution Deck'), shell: 'stack', tab: 'challenge', render: gallery },
+  { path: '/gallery',             title: () => L('A9 进化图鉴', 'A9 Evolution Deck'), shell: 'stack', tab: 'profile', render: gallery },
   { path: '/rewards',             title: () => L('奖金金库', 'Prize Vault'),       shell: 'stack', tab: 'profile',     render: rewards },
   { path: '/challenge/confirm',   title: () => t('rt_confirm'),                    shell: 'stack', tab: 'round',       ticker: false, render: renderParticipateConfirm },
   { path: '/challenge/success',   title: () => t('rt_success'),                    shell: 'stack', tab: 'round',       ticker: false, render: renderParticipateSuccess },

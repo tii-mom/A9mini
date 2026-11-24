@@ -20,7 +20,11 @@ import {
   demoClaimStarterChests,
   demoGetChest,
   demoAssistChest,
-  demoOpenChest
+  demoOpenChest,
+  demoWarmupCurrent,
+  demoWarmupRegister,
+  demoWarmupCancel,
+  demoOpenWarmupChest
 } from './demo-data.js';
 import { A9TMA } from './tma.js';
 
@@ -49,6 +53,7 @@ export const ENDPOINTS = Object.freeze({
   presaleIntent: '/api/presale/intent',
   presaleQuota: (addr) => `/api/presale/quota/${encodeURIComponent(addr)}`,
   presaleOrders: (addr) => `/api/presale/orders/${encodeURIComponent(addr)}`,
+  warmupCurrent: (roundId = null) => `/api/warmup/current${roundId ? `?roundId=${encodeURIComponent(roundId)}` : ''}`,
   warmupRegister: '/api/warmup/register',
   warmupCancel: '/api/warmup/cancel',
   warmupLeaderboard: '/api/warmup/leaderboard',
@@ -424,14 +429,14 @@ export async function activatePredictionReward(userId, walletAddress, activation
   });
 }
 
-/** 阶段三：手账集章成长进度读取（非金融成长数据） */
+/** 阶段三：每日集章成长进度读取（非金融成长数据） */
 export async function fetchProgressionUser(userId, roundId = null) {
   if (config.isDemo) return demoProgressionUser(userId || 'demo_user_01', roundId);
   if (!A9TMA.getRawInitData()) return null;
   return request(ENDPOINTS.progressionMe(roundId));
 }
 
-/** 阶段三：手账集章任务与成就领取（服务端幂等防重领） */
+/** 阶段三：每日集章任务与成就领取（服务端幂等防重领） */
 export async function claimProgressionTask({ userId, taskKey, roundId = null }) {
   if (config.isDemo) {
     try {
@@ -441,7 +446,7 @@ export async function claimProgressionTask({ userId, taskKey, roundId = null }) 
     }
   }
   if (!A9TMA.getRawInitData()) {
-    throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开以完成手账盖章');
+    throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开以完成每日打卡盖章');
   }
   return request(ENDPOINTS.progressionClaim, {
     method: 'POST',
@@ -455,16 +460,83 @@ function withReferrer(body, referrerId) {
   return clean ? { ...body, referrerId: clean } : body;
 }
 
-/** 预热报名（透传 roundId 与 referrerId） */
-export async function registerWarmup({ roundId = null, walletAddress, userId, referrerId }) {
+/** 统一规范化 /api/warmup/current 返回结构（对齐后端 roundId / stats.totalRegistered / config.targetUsers / config.plannedOpenAt / boostA9Raw） */
+export function normalizeWarmupCurrent(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const cfg = raw.config || {};
+  const st = raw.stats || {};
+  const roundId = Number(raw.roundId ?? cfg.roundId ?? st.roundId) || 0;
+  const totalRegistered = Number(st.totalRegistered ?? 0);
+  const targetUsers = Number(cfg.targetUsers ?? 0);
+  const progressPct = targetUsers > 0
+    ? Math.max(0, Math.min(100, Math.round((totalRegistered / targetUsers) * 100)))
+    : 0;
+  const chest = raw.myWarmupChest || null;
+  let chestTotalA9Raw = '0';
+  if (chest) {
+    try {
+      chestTotalA9Raw = (BigInt(String(chest.baseA9Raw || '0')) + BigInt(String(chest.boostA9Raw || '0'))).toString();
+    } catch (_) {
+      chestTotalA9Raw = String(chest.baseA9Raw || '0');
+    }
+  }
+  const openAtRaw = Number(cfg.plannedOpenAt || 0);
+  const plannedOpenAtMs = openAtRaw > 0 && openAtRaw < 1e12 ? openAtRaw * 1000 : (openAtRaw > 0 ? openAtRaw : null);
+  return {
+    roundId,
+    currentOnchainRoundId: Number(raw.currentOnchainRoundId || 0),
+    open: Boolean(raw.open ?? true) && String(cfg.status || 'OPEN') === 'OPEN',
+    config: {
+      ...cfg,
+      roundId,
+      status: String(cfg.status || 'OPEN'),
+      targetUsers,
+      plannedOpenAt: openAtRaw > 0 ? openAtRaw : null,
+      plannedOpenAtMs,
+      chestMinInvites: Number(cfg.chestMinInvites || 2),
+      chestMaxInvites: Number(cfg.chestMaxInvites || 5),
+    },
+    stats: {
+      roundId,
+      totalRegistered,
+      walletBoundCount: Number(st.walletBoundCount || 0),
+      activeWalletCount: Number(st.activeWalletCount || 0),
+      remindEnabledCount: Number(st.remindEnabledCount || 0),
+      targetUsers,
+      progressPct,
+    },
+    myReservation: raw.myReservation || null,
+    isReserved: Boolean(raw.myReservation && raw.myReservation.status === 'ACTIVE'),
+    myWarmupChest: chest ? { ...chest, totalA9Raw: chestTotalA9Raw } : null,
+    inviteDeepLink: typeof raw.inviteDeepLink === 'string' ? raw.inviteDeepLink : '',
+  };
+}
+
+/** 读取当前/下一轮预热预约总人数、目标进度与个人预热宝箱状态 */
+export async function fetchWarmupCurrent(roundId = null) {
+  const raw = config.isDemo ? demoWarmupCurrent() : await request(ENDPOINTS.warmupCurrent(roundId));
+  return normalizeWarmupCurrent(raw);
+}
+
+/** 预热报名（零门槛 TG 预约，支持透传 roundId、referrerId、可选 intentTier 与 remindEnabled） */
+export async function registerWarmup({ roundId = null, walletAddress = null, userId = null, referrerId = null, intentTier = undefined, remindEnabled = undefined } = {}) {
+  if (config.isDemo) return demoWarmupRegister({ intentTier, remindEnabled });
+  const payload = {
+    roundId: roundId ? Number(roundId) : undefined,
+    walletAddress: walletAddress || null,
+    userId: userId || null
+  };
+  if (intentTier !== undefined) payload.intentTier = intentTier;
+  if (remindEnabled !== undefined) payload.remindEnabled = Boolean(remindEnabled);
   return request(ENDPOINTS.warmupRegister, {
     method: 'POST',
-    body: withReferrer({ roundId: roundId ? Number(roundId) : undefined, walletAddress: walletAddress || null, userId: userId || null }, referrerId)
+    body: withReferrer(payload, referrerId)
   });
 }
 
 /** 取消本轮开局预热报名 */
-export async function cancelWarmup({ roundId = null, walletAddress, userId }) {
+export async function cancelWarmup({ roundId = null, walletAddress = null, userId = null } = {}) {
+  if (config.isDemo) return demoWarmupCancel();
   return request(ENDPOINTS.warmupCancel, {
     method: 'POST',
     body: { roundId: roundId ? Number(roundId) : undefined, walletAddress: walletAddress || null, userId: userId || null }
@@ -540,6 +612,8 @@ export function estimateRewardA9(amountA9Input, view = currentView, { weightMult
   const totalWeight = rawToA9(view.totalWeightRaw, decimals) || 0;
   const totalStake = rawToA9(view.totalStakedRaw, decimals) || 0;
   const capMultiplier = Number(c.maxRewardCapMultiplier) || 15;
+  const mult = Number.isFinite(Number(weightMultiplier)) && Number(weightMultiplier) > 0 ? Number(weightMultiplier) : 1;
+  const effectiveWeight = amountA9 * mult;
   const distributable = Math.min(budget, (totalStake + amountA9) * capMultiplier);
   const denom = totalWeight + effectiveWeight;
   return denom > 0 ? (distributable * effectiveWeight) / denom : 0;
@@ -580,8 +654,17 @@ export async function assistChestById(chestId, walletAddress = null) {
 
 /** 宝箱开箱：领取免费宝箱奖励或商城膨胀增量 A9（live 只读阶段统一拦截，不发写请求） */
 export async function openChestById(chestId, stateForDemo = null, walletAddress = null) {
+  const cid = String(chestId || '').trim();
   if (config.isDemo) {
-    try { return demoOpenChest(stateForDemo, chestId); } catch (e) { throw new ApiError('DEMO_OPEN_ERR', e.message); }
+    try {
+      if (cid.startsWith('ch_demo_wu_') || cid.startsWith('demo_warmup_chest_')) {
+        return demoOpenWarmupChest(stateForDemo, cid);
+      }
+      return demoOpenChest(stateForDemo, cid);
+    } catch (e) { throw new ApiError('DEMO_OPEN_ERR', e.message); }
+  }
+  if (cid.startsWith('ch_demo_') || cid.startsWith('demo_')) {
+    throw new ApiError('MODE_MISMATCH', '演示宝箱不可在真实模式下开启');
   }
   assertFundsAllowedInMode();
   if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开后开箱');
@@ -596,5 +679,3 @@ export async function requestChestPurchaseIntent({ walletAddress, skuId, openMod
     body: withReferrer({ walletAddress, skuId, openMode }, referrerId)
   });
 }
-  const mult = Number.isFinite(Number(weightMultiplier)) && Number(weightMultiplier) > 0 ? Number(weightMultiplier) : 1;
-  const effectiveWeight = amountA9 * mult;

@@ -7,13 +7,7 @@ import { store } from './store.js';
 
 export const LANGUAGES = [
   { code: 'zh-CN', label: '简体中文', sub: 'Chinese (Simplified)' },
-  { code: 'en-US', label: 'English', sub: 'English (US)' },
-  { code: 'ru-RU', label: 'Русский', sub: 'Russian' },
-  { code: 'es-ES', label: 'Español', sub: 'Spanish' },
-  { code: 'pt-BR', label: 'Português', sub: 'Portuguese' },
-  { code: 'id-ID', label: 'Bahasa Indonesia', sub: 'Indonesian' },
-  { code: 'tr-TR', label: 'Türkçe', sub: 'Turkish' },
-  { code: 'vi-VN', label: 'Tiếng Việt', sub: 'Vietnamese' }
+  { code: 'en-US', label: 'English', sub: 'English (US)' }
 ];
 
 export function getLang() {
@@ -24,27 +18,45 @@ export function L(zh, en) {
   return getLang() === 'en-US' ? en : zh;
 }
 
+export function syncDocumentLang(routeTitle) {
+  const lang = getLang();
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = lang;
+    const brand = lang === 'en-US' ? 'A9 · Wealth Quest' : 'A9 · 财富大冒险';
+    document.title = routeTitle ? `${routeTitle} · A9` : brand;
+  }
+}
+
 export function initAutoLanguage() {
   try {
     const saved = localStorage.getItem('a9_ui_prefs_v1');
-    if (saved && JSON.parse(saved)?.settings?.language) return;
+    const savedLang = saved && JSON.parse(saved)?.settings?.language;
+    if (savedLang) {
+      if (savedLang !== 'zh-CN' && savedLang !== 'en-US') {
+        store.update(s => { s.settings.language = 'en-US'; });
+      }
+      syncDocumentLang();
+      return;
+    }
   } catch (_) {}
   const tgLang = window.Telegram?.WebApp?.initDataUnsafe?.user?.language_code || navigator.language || '';
   if (tgLang && !tgLang.toLowerCase().startsWith('zh')) {
     store.update(s => { s.settings.language = 'en-US'; });
   }
+  syncDocumentLang();
 }
 
 export function toggleLang() {
   const next = getLang() === 'zh-CN' ? 'en-US' : 'zh-CN';
   store.update(s => { s.settings.language = next; });
+  syncDocumentLang();
   return next;
 }
 
 const DICT = {
   'zh-CN': {
     tab_challenge: '广场',
-    tab_market: '兑换屋',
+    tab_market: '宝箱商城',
     tab_round: '闯关',
     tab_backpack: '我的',
     tab_team: '战队',
@@ -55,8 +67,8 @@ const DICT = {
     rt_success: '入场成功',
     rt_warmup: '开局预热',
     rt_warmup_rank: '早鸟先锋榜',
-    rt_market: 'A9 兑换屋',
-    rt_market_rec: '兑换小票',
+    rt_market: '宝箱商城',
+    rt_market_rec: '宝箱小票',
     rt_team_profile: '战队名片',
     rt_bind_tg: '绑定 TG 群',
     rt_invite: '邀友赢奖',
@@ -72,7 +84,7 @@ const DICT = {
   },
   'en-US': {
     tab_challenge: 'Plaza',
-    tab_market: 'Exchange',
+    tab_market: 'Chest Mall',
     tab_round: 'Quest',
     tab_backpack: 'Me',
     tab_team: 'Squad',
@@ -83,8 +95,8 @@ const DICT = {
     rt_success: "You're In",
     rt_warmup: 'Pre-Round',
     rt_warmup_rank: 'Early Bird Board',
-    rt_market: 'A9 Exchange',
-    rt_market_rec: 'Exchange Receipts',
+    rt_market: 'Chest Mall',
+    rt_market_rec: 'Chest Receipts',
     rt_team_profile: 'Squad Card',
     rt_bind_tg: 'Link TG Group',
     rt_invite: 'Invite & Earn',

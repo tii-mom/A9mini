@@ -1,6 +1,6 @@
 /* ==========================================================================
-   A9 · 纯任天堂暖棉纸立体书壳层与三层厚度组件系统
-   L1 可点击厚纸控件 / L2 轻边信息卡 / L3 卡片内虚线留白分组
+   A9 · 纯任天堂精工实体壳层与三层厚度组件系统
+   L1 实体硬边控件 / L2 轻边信息卡 / L3 卡片内清爽分组
    ========================================================================== */
 
 *, *::before, *::after {
@@ -20,10 +20,7 @@ body {
   padding: 0;
   min-height: 100%;
   background-color: var(--paper-bg);
-  background-image:
-    url('../assets/paper-craft/cotton-paper-tile.png'),
-    radial-gradient(rgba(27, 29, 36, 0.048) 1px, transparent 1px);
-  background-size: 128px 128px, 22px 22px;
+  /* 纯净任天堂中性底面 */
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: 14px;
@@ -85,7 +82,7 @@ img {
 
 .app-header.scrolled {
   border-bottom-color: var(--card-border);
-  box-shadow: 0 3px 10px rgba(43, 37, 35, 0.04);
+  box-shadow: 0 3px 10px rgba(20, 22, 30, 0.04);
 }
 
 .header-left, .header-right {
@@ -113,23 +110,21 @@ img {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  height: 29px;
-  padding: 0 10px 0 8px;
-  border-radius: 9px;
-  background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
-  color: #FFFFFF;
-  font-weight: 900;
-  font-size: 13.5px;
-  letter-spacing: -0.02em;
-  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.34), 0 2.5px 0 var(--nt-red-edge);
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--nt-red);
+  box-shadow: 0 2.5px 0 var(--nt-red-edge);
+  flex-shrink: 0;
 }
 
-.brand-spiral {
-  width: 15px;
-  height: 15px;
+.brand-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   display: block;
-  flex-shrink: 0;
 }
 
 .header-title {
@@ -339,7 +334,7 @@ img {
 .clickable { cursor: pointer; }
 
 /* --------------------------------------------------------------------------
-   三、三层纸张厚度体系：L2 轻边信息卡 / 主舞台折角卡 / L3 卡片内分组
+   三、三层任天堂触感体系：L2 轻边信息卡 / 主角硬边卡 / L3 卡片内分组
    -------------------------------------------------------------------------- */
 .card {
   position: relative;
@@ -362,34 +357,17 @@ img {
   box-shadow: 0 1px 0 var(--card-thickness);
 }
 
-/* 主角卡：细手工针脚内框 + 右上角精致双层折纸卷角 */
+/* 主角卡：纯正任天堂精工实体硬卡 */
 .card-hero {
-  border-radius: 22px 7px 22px 22px;
+  border-radius: 20px;
+  border: 1.5px solid var(--card-border);
+  border-top: 4px solid var(--nt-red);
   box-shadow: var(--interactive-shadow);
 }
 
-.card-hero::before {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: 17px 4px 17px 17px;
-  border: 1px dashed var(--card-stitch);
-  pointer-events: none;
-  z-index: 0;
-}
-
+.card-hero::before,
 .card-hero::after {
-  content: '';
-  position: absolute;
-  top: -1px;
-  right: -1px;
-  width: 17px;
-  height: 17px;
-  background: linear-gradient(225deg, var(--paper-bg) 47%, var(--card-thickness) 49.5%, var(--card-soft) 53%, var(--card-bg) 100%);
-  border-bottom-left-radius: 7px;
-  box-shadow: -1.5px 1.5px 4px rgba(43, 37, 35, 0.08);
-  pointer-events: none;
-  z-index: 3;
+  display: none;
 }
 
 .card-hero > * {
@@ -397,14 +375,12 @@ img {
   z-index: 1;
 }
 
-/* 顶部左右排布避开右上 17px 折纸卷角，彻底杜绝压字 */
-.card-hero > .row-between:first-child {
-  padding-right: 16px;
-}
+/* 顶部左右排布，防止内容挤压与裁切 */
+.card-hero > .row-between:first-child { padding-right: 0; }
 
 .card-glow-red {
   border-color: var(--red-border);
-  background: linear-gradient(180deg, var(--card-bg) 0%, var(--nt-rose-soft) 220%);
+  background: var(--card-bg);
 }
 
 .card-glow-green {
@@ -451,8 +427,8 @@ img {
   gap: 10px;
   margin: 12px 0;
   padding: 10px 0;
-  border-top: 1px dashed var(--card-border);
-  border-bottom: 1px dashed var(--card-border);
+  border-top: 1px solid var(--card-border);
+  border-bottom: 1px solid var(--card-border);
 }
 
 .metric-strip.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -466,7 +442,7 @@ img {
 }
 
 /* --------------------------------------------------------------------------
-   四、L1 任天堂实体厚纸键帽按钮、徽章与输入槽
+   四、L1 任天堂实体键帽按钮、徽章与输入槽
    -------------------------------------------------------------------------- */
 .btn {
   position: relative;
@@ -488,7 +464,7 @@ img {
 }
 
 .btn-primary {
-  background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
+  background: var(--nt-red);
   color: #FFFFFF;
   box-shadow:
     inset 0 2px 0 rgba(255, 255, 255, 0.32),
@@ -502,7 +478,7 @@ img {
 }
 
 .btn-secondary {
-  background: linear-gradient(180deg, var(--card-bg) 0%, var(--card-soft) 100%);
+  background: var(--card-bg);
   color: var(--ink);
   border: 1px solid var(--card-border);
   box-shadow: inset 0 1.5px 0 var(--card-highlight), 0 3px 0 var(--card-thickness);
@@ -621,7 +597,7 @@ img {
   border-radius: 14px;
   background: var(--paper-tray);
   border: 1.5px solid var(--card-border);
-  box-shadow: inset 0 1.5px 3px rgba(43, 37, 35, 0.05);
+  box-shadow: inset 0 1.5px 3px rgba(20, 22, 30, 0.05);
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
@@ -706,7 +682,7 @@ img {
   justify-content: space-between;
   gap: 10px;
   padding: 9px 4px;
-  border-bottom: 1px dashed var(--card-border);
+  border-bottom: 1px solid var(--card-border);
   font-size: 12.5px;
   min-width: 0;
 }
@@ -764,7 +740,7 @@ img {
   justify-content: space-between;
   gap: 8px;
   padding: 7px 0;
-  border-bottom: 1px dashed var(--card-border);
+  border-bottom: 1px solid var(--card-border);
   font-size: 12.5px;
 }
 
@@ -782,7 +758,7 @@ img {
 .progress-fill {
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #34B577 0%, var(--nt-green) 100%);
+  background: var(--nt-green);
   transition: width 360ms var(--ease-standard);
 }
 
@@ -974,7 +950,7 @@ img {
 .candle-cell {
   position: relative;
   aspect-ratio: 1;
-  border-radius: 50%;
+  border-radius: 10px;
   border: 1.5px solid transparent;
   display: flex;
   flex-direction: column;
@@ -1019,7 +995,7 @@ img {
 /* 进行中：晴空蓝立体厚章 + ◉ */
 .candle-cell.active {
   border-radius: 13px;
-  background: linear-gradient(180deg, var(--nt-blue-top) 0%, var(--nt-blue) 100%);
+  background: var(--nt-blue);
   color: #FFFFFF;
   border: 1.5px solid #FFFFFF;
   box-shadow: 0 3px 0 var(--nt-blue-edge), 0 6px 12px rgba(58, 136, 214, 0.28);
@@ -1048,7 +1024,7 @@ img {
   width: 15px;
   height: 15px;
   border-radius: 50%;
-  background: linear-gradient(180deg, var(--nt-gold-top) 0%, var(--nt-gold) 100%);
+  background: var(--nt-gold);
   color: #FFFFFF;
   font-size: 9px;
   line-height: 15px;
@@ -1059,7 +1035,7 @@ img {
 
 #a9-radar-card.is-matchpoint {
   border-color: var(--gold-border);
-  animation: matchpoint-glow 2.4s ease-in-out infinite;
+  /* flat border highlight, no glow */
 }
 
 /* 固定高度判定依据栏（切换时段零跳动） */
@@ -1201,7 +1177,7 @@ img {
   border-radius: 15px;
   background: var(--paper-tray);
   border: 1px solid var(--card-border);
-  box-shadow: inset 0 2px 4px rgba(43, 37, 35, 0.07);
+  box-shadow: inset 0 2px 4px rgba(20, 22, 30, 0.07);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1225,7 +1201,7 @@ img {
 
 .a9-slider.dragging .a9-slider-fill {
   opacity: 1;
-  border-right: 2px dashed rgba(230, 0, 18, 0.30);
+  border-right: 2px solid var(--nt-red);
 }
 
 .a9-slider.completed .a9-slider-fill {
@@ -1283,7 +1259,7 @@ img {
   bottom: 4px;
   width: 42px;
   border-radius: 11px;
-  background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
+  background: var(--nt-red);
   color: #FFFFFF;
   display: flex;
   align-items: center;
@@ -1294,7 +1270,7 @@ img {
 }
 
 .a9-slider.completed .a9-slider-handle {
-  background: linear-gradient(180deg, #34B577 0%, var(--nt-green) 100%);
+  background: var(--nt-green);
   box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.3), 0 2.5px 0 var(--nt-green-edge);
 }
 
@@ -1319,7 +1295,7 @@ img {
   height: 20px;
   border-radius: 50%;
   background: var(--card-bg);
-  box-shadow: 0 2px 4px rgba(43, 37, 35, 0.18);
+  box-shadow: 0 2px 4px rgba(20, 22, 30, 0.18);
   transition: transform 0.18s var(--ease-spring);
 }
 
@@ -1425,7 +1401,7 @@ img {
   padding: 11px 12px;
   border-radius: 13px;
   background: var(--paper-tray);
-  border: 1px dashed var(--card-thickness);
+  border: 1.5px solid var(--card-border);
   font-size: 12px;
   color: var(--ink-soft);
   word-break: break-word;
@@ -1449,21 +1425,14 @@ img {
   box-shadow:
     inset 0 1px 0 var(--card-highlight),
     0 4px 0 var(--card-thickness),
-    0 12px 24px rgba(43, 37, 35, 0.12);
+    0 12px 24px rgba(20, 22, 30, 0.12);
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   z-index: 45;
 }
 
-.app-tabbar::before {
-  content: '';
-  position: absolute;
-  inset: 3px;
-  border-radius: 18px;
-  border: 1px dashed var(--card-stitch);
-  pointer-events: none;
-}
+.app-tabbar::before { display: none; }
 
 /* 底栏下方视口级渐隐收口遮罩（避开 .app-tabbar 的 transform 包含块陷阱） */
 .tma-shell:not(:has(.app-main.no-tabbar))::after {
@@ -1503,10 +1472,10 @@ img {
 .tab-item svg { width: 22px; height: 22px; }
 
 .tab-item.active {
-  background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
+  background: var(--nt-red);
   color: #FFFFFF;
   box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.34), 0 3px 0 var(--nt-red-edge);
-  transform: translateY(-5px);
+  transform: translateY(-2px);
 }
 
 .tab-item.active svg { animation: tab-boing 320ms var(--ease-spring); }
@@ -1586,9 +1555,31 @@ img {
   color: var(--card-bg);
   font-size: 12px;
   font-weight: 800;
-  box-shadow: 0 8px 20px rgba(43, 37, 35, 0.24);
+  box-shadow: 0 8px 20px rgba(20, 22, 30, 0.24);
   animation: toast-pop 200ms var(--ease-spring);
 }
 
 .toast.error { background: var(--nt-rose); color: #FFFFFF; }
 .toast.amber { background: var(--nt-gold-soft); color: var(--nt-gold-ink); border: 1px solid var(--gold-border); }
+
+/* 统一任天堂多色矢量大图标托盘（奖金金库 / 闯关指南 / 荣誉榜 / 空态） */
+.nt-art-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--paper-tray);
+  border: 1.5px solid var(--card-border);
+  box-shadow: 0 3px 0 var(--card-thickness);
+  flex-shrink: 0;
+}
+.nt-art-badge.tone-red   { background: var(--nt-red-soft); border-color: rgba(230, 0, 18, 0.22); }
+.nt-art-badge.tone-gold  { background: var(--nt-gold-soft); border-color: rgba(240, 174, 20, 0.30); }
+.nt-art-badge.tone-blue  { background: var(--nt-blue-soft); border-color: rgba(37, 116, 232, 0.24); }
+.nt-art-badge.tone-green { background: var(--nt-green-soft); border-color: rgba(18, 168, 93, 0.24); }
+[data-theme="dark"] .nt-art-badge.tone-red   { background: rgba(240, 34, 50, 0.22); border-color: rgba(240, 34, 50, 0.40); }
+[data-theme="dark"] .nt-art-badge.tone-gold  { background: rgba(245, 190, 58, 0.20); border-color: rgba(245, 190, 58, 0.38); }
+[data-theme="dark"] .nt-art-badge.tone-blue  { background: rgba(88, 164, 245, 0.20); border-color: rgba(88, 164, 245, 0.38); }
+[data-theme="dark"] .nt-art-badge.tone-green { background: rgba(34, 199, 118, 0.20); border-color: rgba(34, 199, 118, 0.38); }

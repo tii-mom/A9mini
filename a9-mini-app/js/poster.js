@@ -1,4 +1,4 @@
-// A9 方案 A 暖棉纸立体书分享海报生成器（运行时动态合成文本与二维码）
+// A9 任天堂实体卡片分享海报生成器（运行时动态合成文本与二维码）
 import { store } from './store.js';
 import { L } from './i18n.js';
 import { stageLabel } from './pages/wealthverse.js';
@@ -50,11 +50,11 @@ function paintPoster(canvas, title, lines, param, tall = false) {
   canvas.height = height;
   const ctx = canvas.getContext('2d');
 
-  // 雪宣纸白基底
+  // 任天堂雪白基底
   ctx.fillStyle = '#F6F6F8';
   ctx.fillRect(0, 0, width, height);
 
-  // 纯白厚卡纸底托 + 冷灰纸板底厚度
+  // 纯白实体卡托 + 底部硬边厚度
   ctx.fillStyle = '#D1D4DF';
   ctx.beginPath();
   ctx.roundRect(36, 46, width - 72, height - 86, 36);
@@ -95,7 +95,7 @@ function paintPoster(canvas, title, lines, param, tall = false) {
   ctx.font = 'bold 52px sans-serif';
   ctx.fillText(title, 72, 198, width - 144);
 
-  // 中央柔和剪纸舞台
+  // 中央任天堂舞台面板
   const stageY = 230;
   const stageH = height - 600;
   ctx.fillStyle = '#F6F6F8';

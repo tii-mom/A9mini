@@ -12,7 +12,7 @@ import { A9Audio, bindKineticSurfaces, cleanupKineticSurfaces } from './audio.js
 import { matchRoute } from './router.js';
 import { escapeHtml, formatNum, formatTimer, showToast, cleanupActiveInteractions, buildSparklineSvgPath, syncRadarInPlace, syncSlidingSegTabs, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
-import { t, L, initAutoLanguage } from './i18n.js';
+import { t, L, initAutoLanguage, syncDocumentLang } from './i18n.js';
 import { tonConnect } from './tonconnect.js';
 
 const headerEl = document.getElementById('app-header');
@@ -43,6 +43,7 @@ let isSyncing = false;
 let lastDataKey = '';
 let activeViewTransition = null;
 const scrollMemory = new Map();
+const navStack = [];
 
 /** 纯内存页面交互状态记忆（绝不写入 localStorage） */
 export const uiMemory = {
@@ -103,36 +104,56 @@ export function toggleTheme(e) {
   return next;
 }
 
-export function navigate(path) {
-  if (window.location.hash !== `#${path}`) {
-    window.location.hash = `#${path}`;
+export function navigate(path, { replace = false } = {}) {
+  const targetHash = `#${path}`;
+  if (window.location.hash !== targetHash) {
+    if (replace && window.history?.replaceState) {
+      window.history.replaceState(null, '', targetHash);
+      renderCurrentRoute();
+    } else {
+      window.location.hash = targetHash;
+    }
   } else {
     renderCurrentRoute();
   }
 }
 
 function goBack() {
-  if (window.history.length > 1) {
-    window.history.back();
-  } else {
-    navigate('/challenge');
+  const currentHash = window.location.hash || '#/challenge';
+  const { route: curRoute } = matchRoute(currentHash);
+  A9Haptic.light();
+  // 弹出当前页面，回到栈内上一不同基础路径；若无历史栈（如深链/刷新直达）则直返归属主 Tab
+  while (navStack.length > 0) {
+    const top = navStack[navStack.length - 1];
+    if (top.basePath === curRoute.path) {
+      navStack.pop();
+    } else {
+      break;
+    }
   }
+  const prev = navStack.pop();
+  if (prev && prev.fullPath) {
+    navigate(prev.fullPath, { replace: true });
+    return;
+  }
+  const fallbackTab = curRoute.tab ? `/${curRoute.tab}` : '/challenge';
+  navigate(fallbackTab, { replace: true });
 }
 
 /** 极简降噪顶栏：左侧品牌/返回标题 + 右侧钱包状态（演示模式留 1 枚控制台图标）；主题与音效收进「设置」 */
 function renderHeader(route) {
   const { user } = store.state;
   const isStack = route.shell === 'stack';
-  const inTelegram = A9TMA.isTelegram();
   const titleText = typeof route.title === 'function' ? route.title() : route.title;
 
+  syncDocumentLang(isStack ? titleText : '');
   A9TMA.setBackButton(isStack, goBack);
 
   headerEl.innerHTML = `
     <div class="header-left">
-      ${isStack && !inTelegram ? `<button class="icon-btn" id="hdr-back" aria-label="Back">${icon('arrowLeft', 16)}</button>` : ''}
+      ${isStack ? `<button class="icon-btn" id="hdr-back" type="button" aria-label="${L('返回', 'Back')}">${icon('arrowLeft', 16)}</button>` : ''}
       ${!isStack
-        ? `<div class="header-brand"><span class="brand-mark"><svg class="brand-spiral" viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M16 24C13.5 34.5 18.5 47 31 50.5C44.5 54 55 44 55 31C55 18 44.5 10 33 11.5C22.5 13 18 22.5 20.5 31.5C22.8 39.5 31.5 43.5 38.5 39.5C44.5 36 45 27.5 39.5 23.5C35.2 20.5 29.8 22.8 29.5 27.5" stroke="#FFFFFF" stroke-width="8.5" stroke-linecap="round"/></svg><span>A9</span></span>${config.isDemo ? `<span class="header-demo-dot">DEMO</span>` : ''}</div>`
+        ? `<div class="header-brand"><span class="brand-mark" aria-label="A9"><img class="brand-logo" src="./assets/brand/apple-touch-icon.png" alt="A9" width="32" height="32" /></span>${config.isDemo ? `<span class="header-demo-dot">DEMO</span>` : ''}</div>`
         : `<div class="header-title"><span class="header-title-text">${titleText}</span></div>`
       }
     </div>
@@ -260,7 +281,20 @@ export function renderCurrentRoute() {
   cleanupActiveInteractions();
   cleanupKineticSurfaces();
   const currentHash = window.location.hash || '#/challenge';
+  const fullPath = currentHash.replace(/^#/, '') || '/challenge';
   const { route, param, query } = matchRoute(currentHash);
+  if (route.shell === 'tab') {
+    navStack.length = 0;
+    navStack.push({ basePath: route.path, fullPath });
+  } else {
+    const top = navStack[navStack.length - 1];
+    if (top && top.basePath === route.path) {
+      top.fullPath = fullPath;
+    } else {
+      navStack.push({ basePath: route.path, fullPath });
+      if (navStack.length > 24) navStack.shift();
+    }
+  }
   document.body.dataset.gameRoute = route.path;
   paintScene(document.getElementById('realm-banner'), dataReady ? route.path : null);
   renderHeader(route);
@@ -419,7 +453,7 @@ function openSimDrawer() {
       <div class="caps text-muted">${L('快捷直达', 'Jump To')}</div>
       <div class="grid-2">
         <button class="quick-btn" data-sim-nav="/warmup">${icon('flame', 13)} ${L('开局预热', 'Pre-Round')}</button>
-        <button class="quick-btn" data-sim-nav="/internal/market">${icon('swap', 13)} ${L('A9 兑换屋', 'A9 Exchange')}</button>
+        <button class="quick-btn" data-sim-nav="/internal/market">${icon('swap', 13)} ${L('宝箱商城', 'Chest Mall')}</button>
         <button class="quick-btn" data-sim-nav="/team/invite">${icon('qr', 13)} ${L('邀友赢奖', 'Invite & Earn')}</button>
         <button class="quick-btn" data-sim-nav="/claim">${icon('bolt', 13)} ${L('金库领奖', 'Claim Prizes')}</button>
         <button class="quick-btn" data-sim-nav="/settings">${icon('settings', 13)} ${L('偏好设置', 'Settings')}</button>
@@ -483,6 +517,10 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && simDrawerEl && !simDrawerEl.classList.contains('hidden')) {
+    simDrawerEl.classList.add('hidden');
+    return;
+  }
   if (e.key !== 'Enter' && e.key !== ' ') return;
   const target = e.target?.closest?.('[data-nav]:not(button):not(a)');
   if (target) {
@@ -568,7 +606,7 @@ window.addEventListener('scroll', () => {
   headerEl.classList.toggle('scrolled', window.scrollY > 6);
 }, { passive: true });
 
-// Bootstrap — 方案 A 默认白昼暖棉纸立体书（尊重用户已保存于 a9_ui_prefs_v1 的暗夜纸本偏好）
+// Bootstrap — 默认任天堂雪白亮色主题（尊重用户已保存于 a9_ui_prefs_v1 的 Switch 暗夜偏好）
 initAutoLanguage();
 applyTheme(store.state.settings?.themeMode || 'light');
 A9TMA.init();
@@ -690,11 +728,28 @@ if (startParsed?.route) {
   window.location.hash = '#/challenge';
 }
 
+let lastRuntimeErrAt = 0;
+function handleRuntimeError(msg) {
+  const now = Date.now();
+  if (now - lastRuntimeErrAt < 6000) return;
+  lastRuntimeErrAt = now;
+  showToast(msg || L('页面遇到临时异常，可稍后重试', 'Temporary error occurred, please retry'), 'amber');
+}
+window.addEventListener('error', () => handleRuntimeError());
+window.addEventListener('unhandledrejection', () => handleRuntimeError());
+
 window.addEventListener('hashchange', renderCurrentRoute);
 syncData({ forceRender: true }).then(() => {
   if (startParsed?.type === 'chest' && startParsed?.chestId) {
     openChestAssistModal(startParsed.chestId);
   }
 });
-if (!config.isDemo) setInterval(() => syncData(), config.pollMs);
+if (!config.isDemo) {
+  setInterval(() => {
+    if (!document.hidden) syncData();
+  }, config.pollMs);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) syncData();
+  });
+}
 startDisplayLoop();

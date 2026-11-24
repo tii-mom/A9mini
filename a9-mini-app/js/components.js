@@ -413,7 +413,7 @@ export function animateSlotCounter(el, target, { duration = 420, decimals = 0, p
   requestAnimationFrame(frame);
 }
 
-/** 领奖开箱抛物线纸片金币动画（由宝箱飞向目标金额胶囊，尊重 reduced-motion） */
+/** 领奖开箱抛物线金币动画（由宝箱飞向目标金额胶囊，尊重 reduced-motion） */
 export function launchCoinArc(fromEl, toEl, count = 6) {
   if (!fromEl || !toEl) return;
   if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;

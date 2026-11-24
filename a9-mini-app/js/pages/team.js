@@ -120,7 +120,7 @@ export function renderTeamHome(root, navigate) {
           ${(team.topMembers || []).length === 0
             ? `<div class="empty-state" style="padding:14px;grid-column:1/-1;"><div class="num-xs text-muted">${L('暂无成员闯关战绩', 'No active members yet')}</div></div>`
             : (team.topMembers || []).map((m,i) => `
-            <div class="guild-member"><img src="./assets/boxheads/wealth/avatars/wlt-0${[5,4,6][i%3]}.png" alt=""><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
+            <div class="guild-member"><img src="./assets/boxheads/activity/avatars/act-0${[5,4,6][i%3]}.png" alt=""><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
               <div class="num-xs text-green mono" style="font-weight:800;">${formatNum(m.ton)} GRAM</div>
             </div>
           `).join('')}
@@ -146,7 +146,7 @@ export function renderTeamHome(root, navigate) {
       <div class="card card-hero guild-board">
         <div class="row-between" style="margin-bottom:8px;">
           <div>
-            <div style="font-size:17px;font-weight:900;">${L('折纸星航战队', 'Origami Voyagers')}</div>
+            <div style="font-size:17px;font-weight:900;">${L('星航冲锋战队', 'Star Voyagers')}</div>
             <div class="row-start" style="margin-top:4px;gap:6px;">
               <span class="chip chip-cyan">${L('成员', 'Member')} · Lv.3</span>
               <span class="chip chip-gold">+10% ${L('加成', 'Boost')}</span>
@@ -176,8 +176,8 @@ export function renderTeamHome(root, navigate) {
     `;
   } else {
     const squads = [
-      { id: 'TM-0001', name: L('暖棉纸冒险团', 'Paper Craft Squad'), lv: 'Lv.4', boost: '+15%', members: '412/500' },
-      { id: 'TM-8829', name: L('折纸星航战队', 'Origami Voyagers'), lv: 'Lv.3', boost: '+10%', members: '84/100' },
+      { id: 'TM-0001', name: L('A9 冒险战队', 'A9 Quest Squad'), lv: 'Lv.4', boost: '+15%', members: '412/500' },
+      { id: 'TM-8829', name: L('星航冲锋战队', 'Star Voyagers'), lv: 'Lv.3', boost: '+10%', members: '84/100' },
       { id: 'TM-3042', name: L('金箔典藏战队', 'Gold Foil Collectors'), lv: 'Lv.3', boost: '+10%', members: '66/100' }
     ];
     html = `
@@ -187,7 +187,7 @@ export function renderTeamHome(root, navigate) {
           ${rolePill}
         </div>
         <div style="font-size:17px;font-weight:900;">${L('加入一个活跃战队', 'Join an Active Squad')}</div>
-        <div class="text-sec" style="font-size:12px;margin-top:4px;">${L('免费加入后，自动提升每轮收益分配与兑换屋可用额度。', 'Join free to boost round rewards and exchange quota.')}</div>
+        <div class="text-sec" style="font-size:12px;margin-top:4px;">${L('免费加入后，自动提升每轮收益分配与宝箱商城可用额度。', 'Join free to boost round rewards and Chest Mall quota.')}</div>
       </div>
 
       <div class="card">
@@ -304,7 +304,7 @@ export function renderTeamProfile(root, navigate, id) {
     <div class="col-gap anim-page-enter">
       <div class="card card-hero">
         <span class="chip chip-gold">#${safeId} · Lv.4</span>
-        <div class="row-start" style="font-size:20px;font-weight:700;margin-top:8px;">${L('暖棉纸冒险团', 'Paper Craft Squad')} ${icon('shieldCheck', 18, 'text-green')}</div>
+        <div class="row-start" style="font-size:20px;font-weight:700;margin-top:8px;">${L('A9 冒险战队', 'A9 Quest Squad')} ${icon('shieldCheck', 18, 'text-green')}</div>
         <div class="metric-strip cols-3">
           <div class="metric-cell"><span class="num-xs text-muted">${L('加成', 'Boost')}</span><span class="num-md text-green">+15%</span></div>
           <div class="metric-cell"><span class="num-xs text-muted">${L('成员', 'Members')}</span><span class="num-md">412</span></div>

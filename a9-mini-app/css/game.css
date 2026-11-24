@@ -1,5 +1,5 @@
 /* ==========================================================================
-   A9 · 纯任天堂专项场景纸艺装饰层（眉标 / 观察总览 / 商行屋檐小票 / 商会 / SBT 票券 / FAQ）
+   A9 · 纯任天堂专项场景组件层（眉标 / 观察总览 / 兑换屋小票 / 战队 / SBT 票券 / FAQ）
    ========================================================================== */
 
 /* 1. 一级场景轻眉标（仅挑战与商会显示，轻边 L2） */
@@ -16,19 +16,19 @@
 }
 
 .realm-sticker {
-  width: 40px;
-  height: 40px;
-  padding: 5px;
+  width: 42px;
+  height: 42px;
   border-radius: 12px;
-  background: radial-gradient(circle at 50% 30%, var(--card-bg) 0%, var(--paper-tray) 100%);
-  border: 1px solid var(--card-border);
-  object-fit: contain;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--nt-red-soft);
+  border: 1.5px solid rgba(230, 0, 18, 0.18);
   flex-shrink: 0;
-  filter: var(--paper-cut-shadow);
 }
 
 [data-theme="dark"] .realm-sticker {
-  background: radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.12) 0%, rgba(38, 40, 50, 0.95) 100%);
+  background: var(--paper-tray);
   border-color: rgba(255, 255, 255, 0.12);
 }
 
@@ -65,8 +65,8 @@
 
 .observatory-stage.is-matchpoint {
   border-color: var(--gold-border);
-  background: linear-gradient(180deg, var(--nt-gold-soft) 0%, var(--card-bg) 42%);
-  animation: matchpoint-glow 2.4s ease-in-out infinite;
+  background: var(--card-bg);
+  border-top: 4px solid var(--nt-gold);
 }
 
 .observatory-hud {
@@ -129,7 +129,7 @@
   object-fit: contain;
 }
 
-/* 3. 主城商行：立体扇贝红白纸檐 & 锯齿收据小票 */
+/* 3. 兑换屋柜台：任天堂 eShop 顶带与小票卡片 */
 .exchange-counter {
   padding: 0 !important;
   overflow: hidden;
@@ -192,16 +192,10 @@
 
 .exchange-receipt {
   position: relative;
-  background: var(--paper-bg);
-  border: 1px dashed var(--card-thickness);
-  border-radius: 14px 14px 6px 6px;
-  padding: 11px 13px 16px !important;
-  background-image:
-    linear-gradient(135deg, transparent 50%, var(--card-bg) 50%),
-    linear-gradient(225deg, transparent 50%, var(--card-bg) 50%);
-  background-position: bottom left, bottom left;
-  background-size: 12px 6px;
-  background-repeat: repeat-x;
+  background: var(--paper-tray);
+  border: 1.5px solid var(--card-border);
+  border-radius: 14px;
+  padding: 11px 13px !important;
 }
 
 .exchange-receipt img {
@@ -254,7 +248,7 @@
   filter: var(--paper-cut-shadow);
 }
 
-/* 5. 背包凭证收藏册 (.ticket-tabs & .collectible-ticket) */
+/* 5. 我的凭证收藏册 (.ticket-tabs & .collectible-ticket) */
 .ticket-tabs {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -263,6 +257,7 @@
   padding: 4px;
   border-radius: 13px;
   background: var(--paper-tray);
+  border: 1px solid var(--card-border);
 }
 
 .ticket-tabs button {
@@ -274,6 +269,7 @@
   font-size: 11.5px;
   font-weight: 800;
   cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
 }
 
 .ticket-tabs button[aria-pressed="true"] {
@@ -286,27 +282,34 @@
   position: relative;
   margin-top: 8px;
   background: var(--card-bg) !important;
-  border: 1px solid var(--card-border) !important;
-  border-radius: 14px !important;
+  border: 1.5px solid var(--card-border) !important;
+  border-left: 4px solid var(--nt-blue) !important;
+  border-radius: 15px !important;
   padding: 11px 12px !important;
-  box-shadow: var(--card-shadow-sm);
+  box-shadow: 0 2.5px 0 var(--card-thickness);
+  gap: 10px;
+  transition: transform 0.12s var(--ease-spring), box-shadow 0.12s ease;
 }
 
-.collectible-ticket::before {
-  content: '';
-  position: absolute;
-  left: 46px;
-  top: 7px;
-  bottom: 7px;
-  border-left: 1.5px dashed var(--card-thickness);
+.collectible-ticket[data-ticket-state="settled"] {
+  border-left-color: var(--nt-green) !important;
 }
 
-.collectible-ticket img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
+.collectible-ticket:active {
+  transform: translateY(1.5px);
+  box-shadow: 0 0.5px 0 var(--card-thickness);
+}
+
+.collectible-ticket-badge {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  margin-right: 8px;
 }
 
 .ticket-empty {
@@ -317,57 +320,207 @@
   color: var(--ink-muted);
 }
 
-/* 6. 3D 翻转实体集换纸片 SBT 凭证 (.cert-pass) — 正面暖奶白、背面可可深棕纸板 */
+/* 6. 3D 翻转任天堂 SBT 收藏凭证卡 (.cert-pass) */
 .cert-pass {
   position: relative;
-  min-height: 204px;
+  min-height: 232px;
   border-radius: 20px;
-  padding: 16px;
-  border: 1px solid var(--card-border);
-  background: linear-gradient(145deg, #FFFFFF 0%, #F4F5F8 100%);
-  color: #1B1D24;
-  box-shadow: var(--interactive-shadow);
-}
-
-[data-theme="dark"] .cert-pass.front,
-[data-theme="dark"] .cert-pass:not(.back) {
-  background: linear-gradient(145deg, #262830 0%, #1C1E24 100%);
-  color: #F5F6FA;
+  padding: 0;
+  border: 1.5px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--ink);
+  box-shadow: 0 4.5px 0 var(--card-thickness), 0 12px 24px rgba(20, 22, 30, 0.08);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .cert-pass.back {
-  background: #1B1D24;
-  border-color: #333540;
+  background: #1A1C24;
+  border-color: #353846;
   color: #F5F6FA;
+  box-shadow: 0 4.5px 0 #0B0C10, 0 12px 24px rgba(0, 0, 0, 0.34);
 }
 
-.cert-pass.back .text-muted { color: #B4A89F !important; }
+.cert-pass.back .text-muted { color: #9DA2B4 !important; }
+
+.cert-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--nt-red);
+  color: #FFFFFF;
+}
+
+.cert-pass.is-settled .cert-top-bar {
+  background: var(--nt-green);
+}
+
+.cert-pass.back .cert-top-bar {
+  background: #F0AE14;
+  color: #171920;
+}
 
 .cert-serial {
   font-family: var(--font-mono);
   font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: inherit;
+}
+
+.cert-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #FFFFFF;
+  font-size: 10.5px;
   font-weight: 800;
-  letter-spacing: 0.08em;
-  color: var(--nt-gold-ink);
 }
 
-.cert-corner {
+.cert-pass.back .cert-status-pill {
+  background: rgba(23, 25, 32, 0.14);
+  color: #171920;
+}
+
+.cert-body {
+  padding: 13px 15px 11px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cert-id-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cert-id-title {
+  font-family: var(--font-mono);
+  font-size: 21px;
+  font-weight: 900;
+  line-height: 1.15;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+
+.cert-flip-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.cert-perf {
+  position: relative;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  margin: 0 -15px;
+  padding: 0 15px;
+}
+
+.cert-perf::before,
+.cert-perf::after {
+  content: '';
   position: absolute;
-  width: 10px;
-  height: 10px;
-  border-color: var(--card-thickness);
-  border-style: solid;
-  border-width: 0;
-  pointer-events: none;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--paper-bg);
+  border: 1.5px solid var(--card-border);
+  transform: translateY(-50%);
 }
-.cert-corner.tl { top: 8px; left: 8px; border-top-width: 2px; border-left-width: 2px; border-top-left-radius: 4px; }
-.cert-corner.tr { top: 8px; right: 8px; border-top-width: 2px; border-right-width: 2px; border-top-right-radius: 4px; }
-.cert-corner.bl { bottom: 8px; left: 8px; border-bottom-width: 2px; border-left-width: 2px; border-bottom-left-radius: 4px; }
-.cert-corner.br { bottom: 8px; right: 8px; border-bottom-width: 2px; border-right-width: 2px; border-bottom-right-radius: 4px; }
 
-/* 7. 规则页可扫读 FAQ 问答折纸手账 */
+.cert-perf::before { left: -8px; clip-path: inset(0 0 0 50%); }
+.cert-perf::after { right: -8px; clip-path: inset(0 50% 0 0); }
+
+.cert-perf-line {
+  width: 100%;
+  height: 1.5px;
+  background: var(--card-border);
+}
+
+.cert-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cert-metric-tile {
+  padding: 8px 9px;
+  border-radius: 12px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cert-metric-tile small {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--ink-muted);
+}
+
+.cert-metric-tile strong {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  font-weight: 900;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.cert-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 15px 11px;
+  background: var(--card-soft);
+  border-top: 1px solid var(--card-border);
+}
+
+.cert-back-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.cert-back-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11.5px;
+}
+
+/* 7. 规则页可扫读 FAQ 问答卡片 */
 .faq-item {
-  border-bottom: 1px dashed var(--card-border);
+  border-bottom: 1px solid var(--card-border);
 }
 
 .faq-item:last-child { border-bottom: 0; }
@@ -404,18 +557,18 @@
   line-height: 1.6;
 }
 
-/* 全局厚卡纸角色立牌自适应暗夜柔光与接触影 */
+/* 全局角色立牌自适应接触影 */
 .wv-person {
   filter: var(--standee-filter);
 }
 
-/* 8. 领奖页中央「立体折纸宝箱」演出舞台 (.claim-chest-stage) */
+/* 8. 领奖页中央「任天堂奖池宝箱」演出舞台 (.claim-chest-stage) */
 .claim-chest-stage {
   --chest-open: 0;
   position: relative;
   border-radius: 22px;
   border: 1px solid var(--card-border);
-  background: linear-gradient(180deg, var(--card-soft) 0%, var(--paper-bg) 100%);
+  background: var(--card-bg);
   box-shadow: var(--surface-shadow);
   padding: 14px 16px 16px;
   display: flex;
@@ -426,14 +579,7 @@
   overflow: hidden;
 }
 
-.claim-chest-stage::before {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: 17px;
-  border: 1px dashed var(--card-stitch);
-  pointer-events: none;
-}
+.claim-chest-stage::before { display: none; }
 
 .claim-chest-wrap {
   position: relative;
@@ -444,26 +590,26 @@
   justify-content: center;
 }
 
-.origami-chest-svg {
+.nt-vault-chest-svg {
   width: 210px;
   height: 168px;
   overflow: visible;
   filter: var(--paper-cut-shadow);
 }
 
-.origami-chest-svg .chest-lid {
+.nt-vault-chest-svg .chest-lid {
   transform-box: fill-box;
   transform-origin: 50% 96%;
   transform: translateY(calc(var(--chest-open) * -14px)) rotate(calc(var(--chest-open) * -28deg));
   transition: transform 90ms linear;
 }
 
-.claim-chest-stage.is-opened .origami-chest-svg .chest-lid {
+.claim-chest-stage.is-opened .nt-vault-chest-svg .chest-lid {
   transform: translateY(-20px) rotate(-42deg);
   transition: transform 380ms var(--ease-spring);
 }
 
-.origami-chest-svg .chest-glow {
+.nt-vault-chest-svg .chest-glow {
   opacity: calc(var(--chest-open) * 0.95);
   transform-box: fill-box;
   transform-origin: 50% 100%;
@@ -471,13 +617,13 @@
   transition: opacity 100ms linear, transform 100ms linear;
 }
 
-.claim-chest-stage.is-opened .origami-chest-svg .chest-glow {
+.claim-chest-stage.is-opened .nt-vault-chest-svg .chest-glow {
   opacity: 1;
   transform: scaleY(1.18);
   transition: opacity 320ms ease, transform 360ms var(--ease-spring);
 }
 
-.origami-chest-svg .chest-coins-peek {
+.nt-vault-chest-svg .chest-coins-peek {
   transform: translateY(calc(var(--chest-open) * -7px));
   transition: transform 110ms linear;
 }
@@ -494,7 +640,7 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   padding-top: 10px;
-  border-top: 1px dashed var(--card-border);
+  border-top: 1px solid var(--card-border);
 }
 
 .claim-breakdown-strip div {
@@ -516,13 +662,13 @@
   color: var(--ink);
 }
 
-/* 抛物线纸片金币（松手领奖飞向顶部余额） */
+/* 抛物线金币动画（松手领奖飞向顶部余额） */
 .flying-coin {
   position: fixed;
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: linear-gradient(180deg, var(--nt-gold-top) 0%, var(--nt-gold) 100%);
+  background: var(--nt-gold);
   border: 2px solid #FFFDF8;
   color: #FFFFFF;
   font-family: var(--font-mono);
@@ -531,7 +677,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 0 var(--nt-gold-edge), 0 4px 10px rgba(43, 37, 35, 0.22);
+  box-shadow: 0 2px 0 var(--nt-gold-edge), 0 4px 10px rgba(20, 22, 30, 0.22);
   pointer-events: none;
   z-index: 180;
   animation: coin-arc-fly 640ms cubic-bezier(0.2, 0.85, 0.3, 1) forwards;
@@ -583,7 +729,7 @@
   padding: 13px 14px;
   border-radius: 20px;
   border: 1px solid var(--card-border);
-  background: linear-gradient(135deg, var(--card-bg) 0%, var(--card-soft) 100%);
+  background: var(--card-bg);
   box-shadow: var(--surface-shadow);
 }
 
@@ -592,7 +738,7 @@
   width: 78px;
   height: 82px;
   border-radius: 15px;
-  background: linear-gradient(180deg, var(--paper-bg) 0%, var(--diorama-hill-sage) 100%);
+  background: var(--paper-tray);
   border: 1px solid var(--card-border);
   display: flex;
   align-items: center;
@@ -628,7 +774,7 @@
   line-height: 1.45;
 }
 
-/* 10. 规则页交互折纸图解卡（早鸟权重试算 + 24H 生死线推演滑杆） */
+/* 10. 规则页交互演示卡（早鸟权重试算 + 24H 通关线推演滑杆） */
 .rule-sim-card {
   display: flex;
   flex-direction: column;
@@ -688,7 +834,7 @@
   padding: 10px 12px;
   border-radius: 13px;
   background: var(--paper-tray);
-  border: 1px dashed var(--card-thickness);
+  border: 1.5px solid var(--card-border);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -727,9 +873,9 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
+  background: var(--nt-red);
   border: 2.5px solid #FFFFFF;
-  box-shadow: 0 2.5px 0 var(--nt-red-edge), 0 4px 8px rgba(43, 37, 35, 0.2);
+  box-shadow: 0 2.5px 0 var(--nt-red-edge), 0 4px 8px rgba(20, 22, 30, 0.2);
   cursor: grab;
 }
 
@@ -737,8 +883,1174 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: linear-gradient(180deg, var(--nt-red-top) 0%, var(--nt-red) 100%);
+  background: var(--nt-red);
   border: 2.5px solid #FFFFFF;
-  box-shadow: 0 2.5px 0 var(--nt-red-edge), 0 4px 8px rgba(43, 37, 35, 0.2);
+  box-shadow: 0 2.5px 0 var(--nt-red-edge), 0 4px 8px rgba(20, 22, 30, 0.2);
   cursor: grab;
+}
+
+[data-theme="dark"] .realm-sticker.nt-icon-badge {
+  background: rgba(240, 34, 50, 0.22);
+  border-color: rgba(240, 34, 50, 0.42);
+}
+
+
+/* ==========================================================================
+   11. 任天堂 eShop 宝箱商城货架 & 免费宝箱闯关阶梯（零渐变、零发光、高效率一屏闭环）
+   ========================================================================== */
+.nt-chest-svg {
+  display: block;
+  flex-shrink: 0;
+  transition: transform 0.18s var(--ease-spring);
+}
+
+.nt-chest-svg.state-locked {
+  filter: grayscale(1) opacity(0.45);
+}
+
+.mall-info-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  box-shadow: var(--surface-shadow);
+}
+
+.mall-rate-tag {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.mall-quick-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mall-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 9px;
+  border: 1.5px solid var(--card-border);
+  background: var(--paper-tray);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 2px 0 var(--card-thickness);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.mall-quick-btn:active {
+  transform: translateY(1.5px);
+  box-shadow: none;
+}
+
+.mall-quick-btn.is-hot {
+  background: var(--nt-red-soft);
+  border-color: rgba(230, 0, 18, 0.35);
+  color: var(--nt-red);
+}
+
+/* 顶部当前选中宝箱聚焦检视卡 */
+.chest-stage-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 98px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 13px 14px;
+  border-radius: 20px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  border-top: 4px solid var(--nt-red);
+  box-shadow: var(--interactive-shadow);
+}
+
+.chest-stage-visual {
+  position: relative;
+  width: 98px;
+  height: 94px;
+  border-radius: 16px;
+  background: var(--paper-tray);
+  border: 1.5px solid var(--card-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chest-stage-visual.tier-bronze   { background: #FBF1E8; border-color: rgba(201, 122, 66, 0.30); }
+.chest-stage-visual.tier-silver   { background: #EEF3F9; border-color: rgba(143, 163, 188, 0.38); }
+.chest-stage-visual.tier-gold     { background: #FFF7DF; border-color: rgba(217, 130, 0, 0.34); }
+.chest-stage-visual.tier-platinum { background: #F1EFFD; border-color: rgba(109, 93, 246, 0.32); }
+.chest-stage-visual.tier-diamond  { background: #E8F7FF; border-color: rgba(41, 199, 255, 0.38); }
+
+[data-theme="dark"] .chest-stage-visual.tier-bronze   { background: rgba(201, 122, 66, 0.18); border-color: rgba(201, 122, 66, 0.36); }
+[data-theme="dark"] .chest-stage-visual.tier-silver   { background: rgba(143, 163, 188, 0.18); border-color: rgba(143, 163, 188, 0.36); }
+[data-theme="dark"] .chest-stage-visual.tier-gold     { background: rgba(247, 190, 44, 0.18); border-color: rgba(247, 190, 44, 0.38); }
+[data-theme="dark"] .chest-stage-visual.tier-platinum { background: rgba(109, 93, 246, 0.20); border-color: rgba(109, 93, 246, 0.40); }
+[data-theme="dark"] .chest-stage-visual.tier-diamond  { background: rgba(41, 199, 255, 0.18); border-color: rgba(41, 199, 255, 0.38); }
+
+.chest-stage-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.chest-stage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.chest-stage-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chest-stage-total {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1.1;
+  color: var(--nt-green);
+  letter-spacing: -0.02em;
+}
+
+.chest-stage-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+/* 5 档任天堂实体宝箱货架（3+2 精密方格陈列） */
+.chest-shelf-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.chest-shelf-item {
+  position: relative;
+  grid-column: span 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3px;
+  padding: 9px 6px 8px;
+  border-radius: 15px;
+  border: 1.5px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: center;
+  box-shadow: 0 3px 0 var(--card-thickness);
+  transition: transform 0.12s var(--ease-spring), border-color 0.14s ease, box-shadow 0.12s ease;
+}
+
+/* 第 4、5 格（白金、钻石）各占 3 列，形成稳固均衡的 3 + 2 货架 */
+.chest-shelf-item:nth-child(4),
+.chest-shelf-item:nth-child(5) {
+  grid-column: span 3;
+}
+
+.chest-shelf-item:active {
+  transform: translateY(2px);
+  box-shadow: 0 0.5px 0 var(--card-thickness);
+}
+
+.chest-shelf-item.is-selected {
+  border: 2.5px solid var(--nt-red);
+  background: var(--nt-red-soft);
+  box-shadow: 0 3.5px 0 var(--nt-red-edge);
+  transform: translateY(-2px);
+}
+
+.chest-shelf-item.is-selected .nt-chest-svg {
+  transform: scale(1.06);
+}
+
+.chest-hot-tag {
+  position: absolute;
+  top: -7px;
+  right: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--nt-red);
+  color: #FFFFFF;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  box-shadow: 0 1.5px 0 var(--nt-red-edge);
+}
+
+.chest-shelf-name {
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--ink);
+  line-height: 1.2;
+}
+
+.chest-shelf-price {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+
+.chest-shelf-boost {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--nt-green-soft);
+  color: var(--nt-green);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.chest-shelf-item.is-selected .chest-shelf-price {
+  color: var(--nt-red);
+}
+
+.mall-checkout-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 13px;
+  border-radius: 18px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  box-shadow: var(--surface-shadow);
+}
+
+.mall-footnote {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  text-align: center;
+  line-height: 1.35;
+}
+
+/* 免费宝箱：5 阶横向闯关进度轨 */
+.free-stage-card {
+  padding: 12px 13px;
+  border-radius: 18px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  box-shadow: var(--surface-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.free-stage-track {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.free-stage-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 3px 6px;
+  border-radius: 12px;
+  border: 1.5px solid var(--card-border);
+  background: var(--paper-tray);
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.free-stage-node.is-done {
+  border-color: var(--nt-green);
+  background: var(--nt-green-soft);
+  color: var(--nt-green);
+}
+
+.free-stage-node.is-current {
+  border: 2px solid var(--nt-red);
+  background: var(--nt-red-soft);
+  color: var(--nt-red);
+  box-shadow: 0 2.5px 0 var(--nt-red-edge);
+}
+
+/* 免费宝箱：当前唯一聚焦主卡 */
+.free-focus-card {
+  padding: 14px;
+  border-radius: 20px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  border-top: 4px solid var(--nt-red);
+  box-shadow: var(--interactive-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.free-focus-top {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 11px;
+  align-items: center;
+}
+
+.free-focus-icon {
+  width: 76px;
+  height: 76px;
+  border-radius: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--paper-tray);
+  border: 1.5px solid var(--card-border);
+}
+
+.free-seg-bar {
+  display: grid;
+  gap: 4px;
+}
+
+.free-seg-bar i {
+  display: block;
+  height: 9px;
+  border-radius: 4px;
+  background: var(--paper-tray-deep);
+}
+
+.free-seg-bar i.filled {
+  background: var(--nt-green);
+  box-shadow: 0 1.5px 0 var(--nt-green-edge);
+}
+
+.free-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 86px;
+  gap: 8px;
+}
+
+/* 免费宝箱：后续紧凑队列条 */
+.free-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.free-queue-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+}
+
+.free-queue-row.is-locked {
+  opacity: 0.72;
+  background: var(--paper-tray);
+}
+
+.free-queue-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.free-queue-copy {
+  min-width: 0;
+}
+
+.free-queue-copy strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.free-queue-copy small {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 374px) {
+  .chest-stage-card {
+    grid-template-columns: 82px minmax(0, 1fr);
+    gap: 10px;
+    padding: 11px 12px;
+  }
+  .chest-stage-visual {
+    width: 82px;
+    height: 82px;
+  }
+  .chest-stage-total {
+    font-size: 19px;
+  }
+}
+
+
+/* ==========================================================================
+   12. 任天堂 eShop 实体购箱小票 / 票根系统 (.nt-receipt-ticket)
+   - 零渐变、零发光、零锯齿纸边；采用精密半圆打孔票根 + 顶部状态色带 + 几何防伪条码
+   ========================================================================== */
+.receipt-summary-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  border-top: 4px solid var(--nt-red);
+  box-shadow: var(--surface-shadow);
+}
+
+.receipt-summary-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.receipt-summary-cell small {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--ink-muted);
+}
+
+.receipt-summary-cell strong {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--ink);
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.nt-receipt-ticket {
+  position: relative;
+  border-radius: 18px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  border-top: 4px solid var(--nt-green);
+  box-shadow: 0 3.5px 0 var(--card-thickness);
+  overflow: visible;
+}
+
+.nt-receipt-ticket.tone-gold { border-top-color: var(--nt-gold); }
+.nt-receipt-ticket.tone-rose { border-top-color: var(--nt-rose); }
+.nt-receipt-ticket.tone-muted { border-top-color: var(--ink-muted); }
+
+.receipt-upper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 14px 12px;
+}
+
+.receipt-upper-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.receipt-chest-badge {
+  width: 48px;
+  height: 48px;
+  border-radius: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--paper-tray);
+  border: 1.5px solid var(--card-border);
+  flex-shrink: 0;
+}
+
+.receipt-amounts {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.receipt-a9-val {
+  font-family: var(--font-mono);
+  font-size: 16.5px;
+  font-weight: 900;
+  color: var(--ink);
+  line-height: 1.15;
+  word-break: break-word;
+}
+
+.receipt-gram-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+/* 实体票根中缝：左右精密半圆打孔缺口 + 实线分隔 */
+.receipt-perf {
+  position: relative;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+}
+
+.receipt-perf::before,
+.receipt-perf::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--paper-bg);
+  border: 1.5px solid var(--card-border);
+  transform: translateY(-50%);
+  z-index: 2;
+}
+
+.receipt-perf::before {
+  left: -8px;
+  clip-path: inset(0 0 0 50%);
+}
+
+.receipt-perf::after {
+  right: -8px;
+  clip-path: inset(0 50% 0 0);
+}
+
+.receipt-perf-line {
+  width: 100%;
+  height: 1.5px;
+  background: var(--card-border);
+}
+
+/* 下半联：存根核验信息 + 几何防伪条码 */
+.receipt-stub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 14px 12px;
+}
+
+.receipt-stub-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.receipt-hash-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--card-border);
+  background: var(--paper-tray);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 800;
+  cursor: pointer;
+  max-width: 100%;
+  transition: transform 0.1s ease, border-color 0.14s ease;
+}
+
+.receipt-hash-btn:active {
+  transform: scale(0.97);
+}
+
+.receipt-hash-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.receipt-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+.receipt-barcode {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 24px;
+  padding: 3px 5px;
+  border-radius: 6px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  flex-shrink: 0;
+  opacity: 0.78;
+}
+
+.receipt-barcode i {
+  display: block;
+  background: var(--ink);
+  border-radius: 1px;
+}
+
+/* ==========================================================================
+   13. 我的主页 / 账本 / 自动连闯 / 系统设置 任天堂精工触感组件体系
+   ========================================================================== */
+
+/* 我的主页：三栏资产遥测托盘 */
+.profile-asset-telemetry {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--card-border);
+}
+
+.profile-telemetry-cell {
+  padding: 8px 8px;
+  border-radius: 12px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.profile-telemetry-cell small {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--ink-muted);
+}
+
+.profile-telemetry-cell strong {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 900;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+/* 我的主页：四宫格任天堂 Switch 快捷操作台（凭证 / 账本 / 连闯 / 设置） */
+.profile-dock-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.profile-dock-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 11px 5px 10px;
+  border-radius: 16px;
+  border: 1.5px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--ink);
+  cursor: pointer;
+  box-shadow: 0 3px 0 var(--card-thickness);
+  transition: transform 0.12s var(--ease-spring), box-shadow 0.12s ease, border-color 0.14s ease;
+}
+
+.profile-dock-tile:active {
+  transform: translateY(2px);
+  box-shadow: 0 0.5px 0 var(--card-thickness);
+}
+
+.profile-dock-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid transparent;
+}
+
+.profile-dock-icon.tone-red   { background: var(--nt-red-soft); color: var(--nt-red); border-color: rgba(230, 0, 18, 0.22); }
+.profile-dock-icon.tone-green { background: var(--nt-green-soft); color: var(--nt-green); border-color: rgba(18, 168, 93, 0.24); }
+.profile-dock-icon.tone-blue  { background: var(--nt-blue-soft); color: var(--nt-blue); border-color: rgba(37, 116, 232, 0.24); }
+.profile-dock-icon.tone-slate { background: var(--paper-tray); color: var(--ink-soft); border-color: var(--card-border); }
+
+.profile-dock-label {
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--ink);
+  line-height: 1.15;
+}
+
+.profile-dock-sub {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 800;
+  color: var(--ink-muted);
+  line-height: 1.1;
+}
+
+/* 收益账本 & 闯关战绩 */
+.ledger-hero-card {
+  border-radius: 20px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  border-top: 4px solid var(--nt-green);
+  box-shadow: var(--interactive-shadow);
+  padding: 14px 16px;
+}
+
+.ledger-hero-card.is-records {
+  border-top-color: var(--nt-red);
+}
+
+.ledger-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid var(--card-border);
+}
+
+.ledger-kpi-box {
+  padding: 7px 8px;
+  border-radius: 11px;
+  background: var(--paper-tray);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ledger-kpi-box small {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--ink-muted);
+}
+
+.ledger-kpi-box strong {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.ledger-entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ledger-entry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 15px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  box-shadow: 0 2.5px 0 var(--card-thickness);
+}
+
+.ledger-entry-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ledger-entry-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+  line-height: 1.25;
+}
+
+.ledger-entry-meta {
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+.ledger-entry-right {
+  text-align: right;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.record-pass-card {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  border-left: 4px solid var(--nt-blue);
+  box-shadow: 0 3px 0 var(--card-thickness);
+  cursor: pointer;
+  transition: transform 0.12s var(--ease-spring), box-shadow 0.12s ease;
+}
+
+.record-pass-card.is-settled {
+  border-left-color: var(--nt-green);
+}
+
+.record-pass-card:active {
+  transform: translateY(2px);
+  box-shadow: 0 0.5px 0 var(--card-thickness);
+}
+
+.record-pass-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid var(--card-border);
+}
+
+/* 自动连闯页 (.renew-hero-card / .renew-step-list) */
+.renew-hero-card {
+  border-radius: 20px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  border-top: 4px solid var(--ink-muted);
+  box-shadow: var(--interactive-shadow);
+  padding: 15px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.renew-hero-card.is-on {
+  border-top-color: var(--nt-green);
+}
+
+.renew-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.renew-preview-cell {
+  padding: 9px 8px;
+  border-radius: 12px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.renew-preview-cell small {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--ink-muted);
+}
+
+.renew-preview-cell strong {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.renew-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.renew-step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 11px;
+  border-radius: 13px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+}
+
+.renew-step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--nt-red);
+  color: #FFFFFF;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 0 var(--nt-red-edge);
+}
+
+.renew-step-copy strong {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.renew-step-copy p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+/* 偏好设置页：Switch 风格双主题可视化选择卡 + 图标行列表 */
+.settings-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-bottom: 10px;
+}
+
+.theme-preview-card {
+  position: relative;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1.5px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 3px 0 var(--card-thickness);
+  transition: transform 0.12s var(--ease-spring), border-color 0.14s ease, box-shadow 0.12s ease;
+}
+
+.theme-preview-card:active {
+  transform: translateY(2px);
+  box-shadow: 0 0.5px 0 var(--card-thickness);
+}
+
+.theme-preview-card.is-active {
+  border: 2px solid var(--nt-red);
+  box-shadow: 0 3.5px 0 var(--nt-red-edge);
+}
+
+.theme-swatch-screen {
+  height: 46px;
+  border-radius: 10px;
+  padding: 7px 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border: 1px solid rgba(20, 22, 30, 0.10);
+}
+
+.theme-swatch-screen.light-swatch {
+  background: #F4F5F8;
+}
+
+.theme-swatch-screen.dark-swatch {
+  background: #15161A;
+  border-color: #323542;
+}
+
+.swatch-bar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.swatch-dot-red {
+  width: 16px;
+  height: 6px;
+  border-radius: 3px;
+  background: #E60012;
+}
+
+.swatch-pill {
+  width: 24px;
+  height: 6px;
+  border-radius: 3px;
+  background: #D1D4DF;
+}
+
+.dark-swatch .swatch-pill {
+  background: #323542;
+}
+
+.swatch-card-mini {
+  height: 18px;
+  border-radius: 5px;
+  background: #FFFFFF;
+  border: 1px solid #E0E3EC;
+  border-top: 3px solid #E60012;
+}
+
+.dark-swatch .swatch-card-mini {
+  background: #1E2027;
+  border-color: #323542;
+  border-top-color: #F02232;
+}
+
+.theme-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.theme-card-foot strong {
+  font-size: 12.5px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.theme-check-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--card-border);
+  background: var(--paper-tray);
+  color: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.theme-preview-card.is-active .theme-check-dot {
+  border-color: var(--nt-red);
+  background: var(--nt-red);
+  color: #FFFFFF;
+}
+
+.settings-group-card {
+  padding: 6px 12px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.settings-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-row.clickable {
+  cursor: pointer;
+  border-radius: 12px;
+  padding: 10px 6px;
+  margin: 0 -4px;
+  transition: background 0.14s ease;
+}
+
+.settings-row.clickable:active {
+  background: var(--paper-tray);
+}
+
+.settings-row-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-row-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+  line-height: 1.25;
+}
+
+.settings-row-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  line-height: 1.35;
+}
+
+.settings-version-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 13px;
+  border-radius: 13px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+@media (max-width: 374px) {
+  .profile-dock-grid {
+    gap: 6px;
+  }
+  .profile-dock-tile {
+    padding: 9px 3px 8px;
+  }
+  .profile-dock-icon {
+    width: 34px;
+    height: 34px;
+  }
+  .cert-metrics-grid,
+  .profile-asset-telemetry,
+  .renew-preview-grid {
+    gap: 5px;
+  }
 }

@@ -25,7 +25,7 @@ export const A9TMA = {
   },
 
   syncTheme(theme) {
-    const bg = theme === 'dark' ? '#161619' : '#F6F6F8';
+    const bg = theme === 'dark' ? '#15161A' : '#F4F5F8';
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', bg);
     const tg = getTg();
@@ -112,6 +112,23 @@ export const A9TMA = {
 
     const parts = safeRaw.split('_');
     const type = sanitizeToken(parts[0], 16).toLowerCase();
+    if (type === 'warmup') {
+      const hasThreeParts = parts.length >= 3 && /^\d{1,6}$/.test(parts[1] || '');
+      const isRoundOnly = parts.length === 2 && /^\d{1,4}$/.test(parts[1] || '');
+      const targetRound = (hasThreeParts || isRoundOnly) ? parts[1] : '';
+      const ref = hasThreeParts
+        ? sanitizeToken(parts.slice(2).join('_'), 64)
+        : (isRoundOnly ? '' : sanitizeToken(parts.slice(1).join('_'), 64));
+      return {
+        raw: safeRaw,
+        type: 'warmup',
+        id: targetRound,
+        ref,
+        route: targetRound ? `/warmup?round=${encodeURIComponent(targetRound)}` : '/warmup',
+        scrollTarget: null,
+        isAttribution: Boolean(ref),
+      };
+    }
     if (type === 'chest') {
       let chestId = '';
       let ref = '';

@@ -104,8 +104,8 @@ function buildAngles(type, id, ctx = {}) {
         key: 'data',
         label: L('数据派', 'Data'),
         text: L(
-          `A9 第 ${roundNum} 轮 ${gapText}（定格 ${passed}/${required} 段）——合约已链上执行 100% 销毁 BURN，Tx 全网可查。见证销毁并分享，解锁下轮 A9 兑换屋优先通道。`,
-          `A9 Round #${roundNum} ${gapText} (${passed}/${required} slots)—100% on-chain BURN executed per v15 contract. Share to unlock next-round A9 Exchange priority.`
+          `A9 第 ${roundNum} 轮 ${gapText}（定格 ${passed}/${required} 段）——合约已链上执行 100% 销毁 BURN，Tx 全网可查。见证销毁并分享，解锁下轮宝箱商城优先通道。`,
+          `A9 Round #${roundNum} ${gapText} (${passed}/${required} slots)—100% on-chain BURN executed per v16 contract. Share to unlock next-round Chest Mall priority.`
         )
       },
       {
@@ -120,8 +120,8 @@ function buildAngles(type, id, ctx = {}) {
         key: 'casual',
         label: L('吃瓜自嘲派', 'Banter'),
         text: L(
-          `现场目击 A9 第 ${roundNum} 轮烟花秀：24 小时最终 ${passed}/${required} 段，${gapText}原地执行销毁 BURN。先领下轮 A9 兑换屋额度，下局再战。`,
-          `Witnessed A9 Round #${roundNum} fireworks: ended at ${passed}/${required} slots (${gapText}) and triggered on-chain BURN. Grabbing next-round A9 Exchange quota.`
+          `现场目击 A9 第 ${roundNum} 轮烟花秀：24 小时最终 ${passed}/${required} 段，${gapText}原地执行销毁 BURN。先领下轮宝箱商城额度，下局再战。`,
+          `Witnessed A9 Round #${roundNum} fireworks: ended at ${passed}/${required} slots (${gapText}) and triggered on-chain BURN. Grabbing next-round Chest Mall quota.`
         )
       }
     ];

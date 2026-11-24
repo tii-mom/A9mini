@@ -84,15 +84,15 @@ export function renderChallengeHome(root, navigate) {
     btn.onclick = () => {
       A9Haptic.light();
       const amt = Number(btn.dataset.heroAmt);
-      store.update(s => { s.round.quickStakeTon = amt; });
+      store.update(s => { s.round.quickStakeA9 = amt; s.round.quickStakeTon = amt; });
       root.querySelectorAll('[data-hero-amt]').forEach(b => b.classList.toggle('active', Number(b.dataset.heroAmt) === amt));
       const est = estimateRewardA9(amt);
       const selEl = root.querySelector('#hero-sel-stake');
       const estEl = root.querySelector('#hero-est-a9');
       const ctaEl = root.querySelector('#hero-stake-cta');
-      if (selEl) selEl.textContent = `${formatNum(amt)} GRAM`;
+      if (selEl) selEl.textContent = `${formatNum(amt)} A9`;
       if (estEl) estEl.textContent = est === null ? L('—', '—') : `~${formatNum(Math.round(est))} A9`;
-      if (ctaEl) ctaEl.innerHTML = `${icon('bolt', 16)} ${L(`立即参与 ${formatNum(amt)} GRAM`, `Participate ${formatNum(amt)} GRAM`)}`;
+      if (ctaEl) ctaEl.innerHTML = `${icon('bolt', 16)} ${L(`立即参与 ${formatNum(amt)} A9`, `Participate ${formatNum(amt)} A9`)}`;
     };
   });
 
@@ -698,7 +698,7 @@ function renderLiveStakeConfirm(root, navigate) {
         ${!store.fundsEnabled ? `
           <div class="card" id="live-readonly-stake-notice" style="border-color:var(--gold-border);">
             <div class="row-start" style="font-weight:600;margin-bottom:4px;">${icon('shieldAlert', 15, 'text-gold')} ${L('真实只读模式 · 暂未开放质押签名', 'Live Read-Only · Staking Disabled')}</div>
-            <div class="num-xs text-sec" style="line-height:1.5;">${L('当前真实模式仅用于只读核验与钱包连接测试，主网资金入口尚未开放，点击不会发起钱包签名或扣款。', 'Live mode is currently read-only for verification and wallet connection only. No signature or transfer will be triggered.')}</div>
+            <div class="num-xs text-sec" style="line-height:1.5;">${L('真实只读模式 · 暂不发起签名或扣款。', 'Live read-only · no signature or transfer.')}</div>
           </div>
         ` : ''}
 
@@ -843,16 +843,6 @@ export function renderParticipateSuccess(root, navigate, certId) {
           <p>“${L(boxhead.voiceZh, boxhead.voiceEn)}”</p>
         </div>
       </section>
-
-      <div class="card">
-        <div class="row-between num-xs">
-          <span class="text-muted">${L('下一步建议', 'Next step')}</span>
-          <span class="text-cyan" style="font-weight:800;">${L('达标 ≥16/24 即可瓜分奖池', '16/24 slots unlock pool')}</span>
-        </div>
-        <div class="num-xs text-sec" style="margin-top:5px;line-height:1.5;">
-          ${L('你的本轮凭证已存入「我的档案」，可随时进入「24H 观测盘」查看每一小时达标进度与盖章记录。', 'Your pass is saved in My Profile. Track every hourly stamp on the 24H Observation Board.')}
-        </div>
-      </div>
 
       <button class="btn btn-primary" id="share-cert-btn">${icon('send', 15)} ${L('分享战绩 · 邀友奖励 12%', 'Share · 12% Invite')}</button>
       <div class="grid-2">

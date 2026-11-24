@@ -1,222 +1,160 @@
 /**
- * A9 任天堂暖棉纸立体书内联矢量布景与互动道具库
- * - DIORAMA_BACKDROP：角色立体展示舞台布景（身份图鉴），顶边挂旗已严格避让文字安全区
- * - renderCitySandtable(mood) & CITY_SANDTABLE_BACKDROP：主城动态态势沙盘，随阶段与赛点变换天色与小道具
- * - SHOP_SCALLOP_AWNING：主城商行立体扇贝红白波浪纸檐
- * - renderOrigamiChestSvg()：领奖页中央分层立体折纸宝箱（支持随滑块实时掀盖与金光溢出）
+ * A9 纯正任天堂第一方几何舞台装饰与多色矢量功能图标库
+ * - 纯正任天堂 Switch 级几何网格与清晰平涂矢量图标
+ * - 保留原有导出签名以兼容全站引用
  */
 
 export const DIORAMA_BACKDROP = `
-<svg class="diorama-svg" viewBox="0 0 360 230" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <!-- 极高顶弧手工小挂旗（位于顶边 2~18px 安全带，避让所有文字） -->
-  <path d="M110 -2Q180 18 250 -2" stroke="var(--diorama-thread)" stroke-width="1.15" stroke-dasharray="3 3" fill="none"/>
-  <polygon points="134,5 145,7 139,17" fill="var(--diorama-bunting-1)" stroke="var(--diorama-rim)" stroke-width="1.3" stroke-linejoin="round"/>
-  <polygon points="174,9 186,9 180,20" fill="var(--diorama-bunting-2)" stroke="var(--diorama-rim)" stroke-width="1.3" stroke-linejoin="round"/>
-  <polygon points="215,7 226,5 221,17" fill="var(--diorama-bunting-3)" stroke="var(--diorama-rim)" stroke-width="1.3" stroke-linejoin="round"/>
-
-  <!-- 两侧细虚线悬垂剪纸星星 -->
-  <line x1="42" y1="42" x2="42" y2="74" stroke="var(--diorama-thread)" stroke-width="1.15" stroke-dasharray="2.5 2.5"/>
-  <g class="hanging-star s-left">
-    <path d="M42 67L44.6 72.8L51 73.5L46.1 77.8L47.4 84L42 80.8L36.6 84L37.9 77.8L33 73.5L39.4 72.8L42 67Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="4.2" stroke-linejoin="round"/>
-    <path d="M42 67L44.6 72.8L51 73.5L46.1 77.8L47.4 84L42 80.8L36.6 84L37.9 77.8L33 73.5L39.4 72.8L42 67Z" fill="var(--diorama-star)"/>
-  </g>
-  <line x1="318" y1="40" x2="318" y2="68" stroke="var(--diorama-thread)" stroke-width="1.15" stroke-dasharray="2.5 2.5"/>
-  <g class="hanging-star s-right">
-    <path d="M318 61L320.2 66L325.6 66.6L321.5 70.2L322.6 75.5L318 72.8L313.4 75.5L314.5 70.2L310.4 66.6L315.8 66L318 61Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round"/>
-    <path d="M318 61L320.2 66L325.6 66.6L321.5 70.2L322.6 75.5L318 72.8L313.4 75.5L314.5 70.2L310.4 66.6L315.8 66L318 61Z" fill="var(--diorama-star)"/>
-  </g>
-
-  <!-- 手工厚纸剪纸浮云 -->
-  <g class="paper-cloud c-left">
-    <path d="M16 126C16 120 21 115.8 27 115.8C28.6 110 34 106 40.5 106C48 106 54 111.5 55 118.8C59.2 119.6 62.5 123 62.5 127C62.5 131.5 58.8 134.8 54 134.8H24C19.5 134.8 16 131 16 126Z" fill="var(--diorama-cloud-shadow)" transform="translate(0 3)"/>
-    <path d="M16 126C16 120 21 115.8 27 115.8C28.6 110 34 106 40.5 106C48 106 54 111.5 55 118.8C59.2 119.6 62.5 123 62.5 127C62.5 131.5 58.8 134.8 54 134.8H24C19.5 134.8 16 131 16 126Z" fill="var(--diorama-cloud)"/>
-  </g>
-  <g class="paper-cloud c-right">
-    <path d="M290 118C290 113 294 109.5 299 109.5C300.5 104.8 304.8 101.5 310 101.5C316.2 101.5 321.4 106 322.2 112C325.8 112.6 328.5 115.5 328.5 119C328.5 122.8 325.2 125.5 321.2 125.5H296.8C293 125.5 290 122.3 290 118Z" fill="var(--diorama-cloud-shadow)" transform="translate(0 3)"/>
-    <path d="M290 118C290 113 294 109.5 299 109.5C300.5 104.8 304.8 101.5 310 101.5C316.2 101.5 321.4 106 322.2 112C325.8 112.6 328.5 115.5 328.5 119C328.5 122.8 325.2 125.5 321.2 125.5H296.8C293 125.5 290 122.3 290 118Z" fill="var(--diorama-cloud)"/>
-  </g>
-
-  <!-- 远景淡沙纸雕微缩城堡 -->
-  <g opacity="0.88">
-    <path d="M96 176V138L106 122L116 138V176H96Z" fill="var(--diorama-castle)"/>
-    <path d="M106 122L116 138V176H106V122Z" fill="var(--diorama-castle-shade)"/>
-    <path d="M244 176V140L254 126L264 140V176H244Z" fill="var(--diorama-castle)"/>
-    <path d="M254 126L264 140V176H254V126Z" fill="var(--diorama-castle-shade)"/>
-    <path d="M120 176V146H134V136H148V146H212V136H226V146H240V176H120Z" fill="var(--diorama-castle)"/>
-    <path d="M106 122V112L116 116L106 119.5Z" fill="var(--diorama-flag)"/>
-    <path d="M254 126V117L263 120.5L254 123.8Z" fill="var(--diorama-flag)"/>
-  </g>
-
-  <!-- 手工剪纸小圆树 -->
-  <g>
-    <rect x="65" y="160" width="5" height="16" rx="2" fill="var(--diorama-trunk)"/>
-    <circle cx="67.5" cy="151" r="12.5" fill="var(--diorama-tree)" stroke="var(--diorama-rim)" stroke-width="2.4"/>
-    <rect x="292" y="163" width="5" height="15" rx="2" fill="var(--diorama-trunk)"/>
-    <circle cx="294.5" cy="155" r="10.5" fill="var(--diorama-tree)" stroke="var(--diorama-rim)" stroke-width="2.4"/>
-  </g>
-
-  <!-- 后层鼠尾草淡灰绿剪纸山丘 + 前层暖米手工针脚草坡 -->
-  <path d="M-20 185C46 149 126 149 198 176C268 201 322 162 380 172V240H-20V185Z" fill="var(--diorama-hill-sage)" stroke="var(--diorama-rim)" stroke-width="3"/>
-  <path d="M-20 204C56 177 134 196 214 177C282 160 334 177 380 192V240H-20V204Z" fill="var(--paper-hill-2)" stroke="var(--diorama-rim)" stroke-width="3"/>
-  <path d="M-10 209C60 184 136 202 214 183C280 167 332 183 374 197" stroke="var(--diorama-stitch)" stroke-width="1.2" stroke-dasharray="4 4" fill="none"/>
+<svg class="diorama-svg" viewBox="0 0 360 220" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <pattern id="nt-stage-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.2" fill="var(--diorama-thread)"/>
+    </pattern>
+  </defs>
+  <rect width="360" height="220" fill="url(#nt-stage-grid)"/>
+  <rect x="0" y="0" width="360" height="4" fill="var(--nt-red)"/>
 </svg>`;
 
 /**
- * 动态情绪沙盘布景：随真实轮次状态切换天色、云塔氛围与小道具
+ * 任天堂主城阶段氛围底板：克制干净的顶部色带 + 极淡圆点矩阵，绝不干扰核心数字阅读
  * @param {'warmup'|'participation'|'observation'|'matchpoint'|'pass'|'burn'} mood
  */
 export function renderCitySandtable(mood = 'observation') {
-  const skyProp = (() => {
-    if (mood === 'warmup' || mood === 'participation') {
-      return `
-        <!-- 晨光纸艺朝阳 -->
-        <g class="sandtable-sun" opacity="0.58">
-          <circle cx="316" cy="58" r="22" fill="var(--nt-gold-soft)"/>
-          <circle cx="316" cy="58" r="13" fill="var(--diorama-star)"/>
-          <path d="M316 32V38M316 78V84M290 58H296M336 58H342M298 40L302 44M330 72L334 76M334 40L330 44M302 72L298 76" stroke="var(--diorama-star)" stroke-width="2" stroke-linecap="round"/>
-        </g>`;
-    }
-    if (mood === 'matchpoint') {
-      return `
-        <!-- 赛点黄昏灯塔脉冲光晕 -->
-        <g class="sandtable-beacon">
-          <circle cx="32" cy="150" r="18" fill="var(--nt-gold-soft)" class="beacon-pulse"/>
-          <circle cx="32" cy="150" r="7" fill="var(--nt-gold)" opacity="0.55"/>
-          <circle cx="324" cy="153" r="16" fill="var(--nt-red-soft)" class="beacon-pulse"/>
-          <circle cx="324" cy="153" r="6" fill="var(--nt-red)" opacity="0.48"/>
-        </g>`;
-    }
-    if (mood === 'pass') {
-      return `
-        <!-- 达标庆典剪纸星芒烟花 -->
-        <g class="sandtable-firework" opacity="0.72">
-          <path d="M58 46L60.2 51L65.5 51.6L61.4 55.1L62.6 60.4L58 57.6L53.4 60.4L54.6 55.1L50.5 51.6L55.8 51L58 46Z" fill="var(--diorama-star)"/>
-          <path d="M308 42L310 46.5L315 47L311.3 50.2L312.3 55L308 52.5L303.7 55L304.7 50.2L301 47L306 46.5L308 42Z" fill="var(--nt-green)" opacity="0.7"/>
-          <circle cx="282" cy="60" r="3" fill="var(--nt-red)" opacity="0.6"/>
-          <circle cx="86" cy="66" r="2.6" fill="var(--nt-blue)" opacity="0.6"/>
-        </g>`;
-    }
-    if (mood === 'burn') {
-      return `
-        <!-- 未达标沉静低饱和雨云 -->
-        <g opacity="0.55">
-          <path d="M276 62C276 57.2 280 53.5 285 53.5C286.6 48.8 291 45.5 296.5 45.5C303 45.5 308 50.2 308.8 56.2C312.5 56.9 315.2 59.8 315.2 63.2C315.2 67 312 69.8 307.8 69.8H282.8C279 69.8 276 66.4 276 62Z" fill="var(--diorama-cloud-shadow)"/>
-          <path d="M286 74L284 80M296 74L294 80M306 74L304 80" stroke="var(--diorama-thread)" stroke-width="1.6" stroke-linecap="round"/>
-        </g>`;
-    }
-    return '';
-  })();
+  const accent = mood === 'pass'
+    ? 'var(--nt-green)'
+    : mood === 'burn'
+      ? 'var(--nt-rose)'
+      : (mood === 'warmup' || mood === 'participation' || mood === 'matchpoint')
+        ? 'var(--nt-gold)'
+        : 'var(--nt-red)';
 
   return `
-<svg class="diorama-svg sandtable-${mood}" viewBox="0 0 360 260" preserveAspectRatio="xMidYMax slice" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  ${skyProp}
-  <!-- 柔和远景浮云（极浅低对比，不抢文字焦点） -->
-  <g class="paper-cloud c-left" opacity="0.72">
-    <path d="M18 78C18 73 22.5 69.5 27.6 69.5C29.1 64.8 33.8 61.5 39.2 61.5C45.6 61.5 50.8 66.2 51.6 72.2C55.2 72.9 58 75.8 58 79.2C58 83 54.8 85.8 50.6 85.8H24.8C21 85.8 18 82.4 18 78Z" fill="var(--diorama-cloud)"/>
-  </g>
-  <g class="paper-cloud c-right" opacity="0.68">
-    <path d="M292 70C292 65.8 295.6 62.6 300 62.6C301.2 58.6 305 55.8 309.6 55.8C314.8 55.8 319.2 59.8 319.8 65C322.8 65.6 325.2 68 325.2 71C325.2 74.2 322.4 76.6 318.8 76.6H297.8C294.6 76.6 292 73.8 292 70Z" fill="var(--diorama-cloud)"/>
-  </g>
-
-  <!-- 远景淡沙纸雕广场双塔剪影 -->
-  <g opacity="0.62">
-    <path d="M22 215V176L32 160L42 176V215H22Z" fill="var(--diorama-castle)"/>
-    <path d="M32 160L42 176V215H32V160Z" fill="var(--diorama-castle-shade)"/>
-    <path d="M314 215V178L324 163L334 178V215H314Z" fill="var(--diorama-castle)"/>
-    <path d="M324 163L334 178V215H324V163Z" fill="var(--diorama-castle-shade)"/>
-    <path d="M32 160V150L42 154L32 157.5Z" fill="var(--diorama-flag)"/>
-    <path d="M324 163V153L333 157L324 160.2Z" fill="var(--diorama-flag)"/>
-  </g>
-
-  <!-- 底部三层温柔剪纸山坡与手工缝线 -->
-  <path d="M-20 214C56 184 134 190 212 212C278 230 330 198 380 206V270H-20V214Z" fill="var(--diorama-hill-sage)" stroke="var(--diorama-rim)" stroke-width="2.6" opacity="0.82"/>
-  <path d="M-20 232C68 208 152 226 232 210C296 198 342 210 380 222V270H-20V232Z" fill="var(--paper-hill-2)" stroke="var(--diorama-rim)" stroke-width="2.6" opacity="0.86"/>
-  <path d="M-10 237C70 214 152 232 232 216C294 204 340 216 374 227" stroke="var(--diorama-stitch)" stroke-width="1.2" stroke-dasharray="4 4" fill="none"/>
+<svg class="diorama-svg sandtable-${mood}" viewBox="0 0 360 260" preserveAspectRatio="xMidYMin slice" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <pattern id="nt-hub-dots-${mood}" width="20" height="20" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="var(--diorama-thread)"/>
+    </pattern>
+  </defs>
+  <rect width="360" height="260" fill="url(#nt-hub-dots-${mood})" opacity="0.65"/>
+  <rect x="0" y="0" width="360" height="4" fill="${accent}"/>
 </svg>`;
 }
 
 export const CITY_SANDTABLE_BACKDROP = renderCitySandtable('observation');
 
 /**
- * 领奖页中央分层立体折纸宝箱 SVG
- * - .chest-glow：随右滑进度渐亮的箱内金光
- * - .chest-lid：独立折纸箱盖，受 CSS 变量 --chest-open (0..1) 实时驱动旋转上掀
+ * 领奖页中央任天堂实体玩具宝箱 SVG（纯平几何倒角 + 亮面高光，支持 --chest-open 实时掀盖）
  */
-export function renderOrigamiChestSvg() {
+export function renderVaultChestSvg() {
   return `
-<svg class="origami-chest-svg" viewBox="0 0 220 176" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <!-- 暖纸台面柔和接触影 -->
-  <ellipse cx="110" cy="156" rx="74" ry="11" fill="rgba(43, 37, 35, 0.14)" class="chest-ground-shadow"/>
+<svg class="nt-vault-chest-svg" viewBox="0 0 220 176" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <ellipse cx="110" cy="156" rx="70" ry="10" fill="rgba(23, 25, 32, 0.14)" class="chest-ground-shadow"/>
 
-  <!-- 箱内溢出暖金光束（随 --chest-open 展开） -->
+  <!-- 箱内溢出暖金光束 -->
   <g class="chest-glow">
-    <path d="M52 84L26 20H194L168 84H52Z" fill="url(#a9-chest-beam)"/>
-    <circle cx="110" cy="76" r="34" fill="#FFE082" opacity="0.65"/>
+    <path d="M52 84L28 18H192L168 84H52Z" fill="url(#a9-chest-beam)"/>
+    <circle cx="110" cy="76" r="34" fill="#FFE082" opacity="0.72"/>
   </g>
 
   <!-- 宝箱后壁暗腔 -->
-  <rect x="44" y="74" width="132" height="22" rx="6" fill="#9E690C"/>
-  <!-- 箱内若隐若现的 A9 纸片金币堆 -->
+  <rect x="44" y="74" width="132" height="22" rx="6" fill="#8C5900"/>
   <g class="chest-coins-peek">
-    <circle cx="82" cy="83" r="11" fill="#F9C33F" stroke="#FFF4C2" stroke-width="2"/>
+    <circle cx="82" cy="83" r="11" fill="#F7BE2C" stroke="#FFF4C2" stroke-width="2.2"/>
     <circle cx="104" cy="79" r="13" fill="#FFD152" stroke="#FFF9E0" stroke-width="2.2"/>
-    <circle cx="128" cy="82" r="12" fill="#F3B82C" stroke="#FFF4C2" stroke-width="2"/>
-    <circle cx="144" cy="86" r="9.5" fill="#E39D14" stroke="#FFE599" stroke-width="1.8"/>
+    <circle cx="128" cy="82" r="12" fill="#F0AE14" stroke="#FFF4C2" stroke-width="2.2"/>
+    <circle cx="144" cy="86" r="9.5" fill="#D9960B" stroke="#FFE599" stroke-width="2"/>
   </g>
 
-  <!-- 折纸宝箱下箱体 -->
+  <!-- 实体下箱体（无虚线缝线，精工圆润塑料高光） -->
   <g class="chest-body">
-    <rect x="38" y="84" width="144" height="68" rx="14" fill="#FFFFFF" stroke="#E4E6EE" stroke-width="3"/>
-    <rect x="42" y="86" width="136" height="62" rx="11" fill="#F5B82E"/>
-    <path d="M110 86H167C173.1 86 178 90.9 178 97V137C178 143.1 173.1 148 167 148H110V86Z" fill="#DE9A14"/>
-    <!-- 手工缝线装饰框 -->
-    <rect x="49" y="94" width="122" height="46" rx="7" stroke="#FFF3C8" stroke-opacity="0.62" stroke-width="1.6" stroke-dasharray="4 3.5"/>
-    <!-- 任天堂正红礼带与中折暗面 -->
-    <rect x="98" y="86" width="24" height="62" fill="#E60012"/>
-    <rect x="110" y="86" width="12" height="62" fill="#B8000F"/>
-    <!-- 立体锁扣盾章 -->
-    <rect x="95" y="96" width="30" height="26" rx="9" fill="#1B1D24" fill-opacity="0.16" transform="translate(0 2)"/>
-    <rect x="95" y="95" width="30" height="26" rx="9" fill="#FFFFFF" stroke="#E4E6EE" stroke-width="1.5"/>
-    <path d="M110 101L112.4 106L118 106.8L113.9 110.6L114.9 116L110 113.3L105.1 116L106.1 110.6L102 106.8L107.6 106L110 101Z" fill="#F2B21B"/>
+    <rect x="38" y="84" width="144" height="68" rx="16" fill="#BA8006"/>
+    <rect x="38" y="82" width="144" height="64" rx="15" fill="#F0AE14" stroke="var(--nt-svg-stroke, #171920)" stroke-opacity="0.14" stroke-width="2"/>
+    <rect x="46" y="88" width="128" height="10" rx="5" fill="#FFD768" opacity="0.55"/>
+    <!-- 任天堂正红双扣带 -->
+    <rect x="64" y="82" width="18" height="64" fill="#E60012"/>
+    <rect x="138" y="82" width="18" height="64" fill="#E60012"/>
+    <!-- 中央星徽卡扣 -->
+    <rect x="92" y="92" width="36" height="32" rx="11" fill="#A3000D" transform="translate(0 3)"/>
+    <rect x="92" y="90" width="36" height="32" rx="11" fill="#FFFFFF" stroke="#E0E3EC" stroke-width="2"/>
+    <path d="M110 97L112.9 103L119.5 103.9L114.7 108.4L115.9 115L110 111.8L104.1 115L105.3 108.4L100.5 103.9L107.1 103L110 97Z" fill="#F0AE14"/>
   </g>
 
-  <!-- 独立铰链折纸箱盖（围绕底部铰链旋转掀开） -->
+  <!-- 独立铰链箱盖 -->
   <g class="chest-lid">
-    <path d="M36 66C36 53 46 44 60 44H160C174 44 184 53 184 66V86H36V66Z" fill="#FFFFFF" stroke="#E4E6EE" stroke-width="3"/>
-    <path d="M40 66C40 55.5 48.5 48 59 48H161C171.5 48 180 55.5 180 66V83H40V66Z" fill="#FFCB45"/>
-    <path d="M110 48H161C171.5 48 180 55.5 180 66V83H110V48Z" fill="#ECAC1F"/>
-    <path d="M52 53H168" stroke="#FFF9DF" stroke-opacity="0.78" stroke-width="2" stroke-linecap="round"/>
-    <!-- 盒盖正红丝带 + 立体折纸蝴蝶结 -->
-    <rect x="98" y="48" width="24" height="35" fill="#E60012"/>
-    <rect x="110" y="48" width="12" height="35" fill="#B8000F"/>
-    <path d="M110 48C98 30 76 28 73 39C70.5 48 84 50 110 48Z" fill="#E60012"/>
-    <path d="M110 48C122 30 144 28 147 39C149.5 48 136 50 110 48Z" fill="#B8000F"/>
-    <circle cx="110" cy="47" r="6" fill="#F72434"/>
+    <path d="M36 66C36 52 47 42 62 42H158C173 42 184 52 184 66V84H36V66Z" fill="#F7BE2C" stroke="var(--nt-svg-stroke, #171920)" stroke-opacity="0.14" stroke-width="2"/>
+    <path d="M52 50H168" stroke="#FFF9DF" stroke-opacity="0.85" stroke-width="3.5" stroke-linecap="round"/>
+    <rect x="64" y="42" width="18" height="42" fill="#E60012"/>
+    <rect x="138" y="42" width="18" height="42" fill="#E60012"/>
+    <rect x="64" y="42" width="18" height="6" fill="#FF4757" opacity="0.55"/>
+    <rect x="138" y="42" width="18" height="6" fill="#FF4757" opacity="0.55"/>
   </g>
 
   <defs>
-    <linearGradient id="a9-chest-beam" x1="110" y1="20" x2="110" y2="86" gradientUnits="userSpaceOnUse">
+    <linearGradient id="a9-chest-beam" x1="110" y1="18" x2="110" y2="86" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#FFE699" stop-opacity="0"/>
-      <stop offset="55%" stop-color="#FFD24C" stop-opacity="0.45"/>
-      <stop offset="100%" stop-color="#FFF5CC" stop-opacity="0.92"/>
+      <stop offset="55%" stop-color="#FFD24C" stop-opacity="0.48"/>
+      <stop offset="100%" stop-color="#FFF5CC" stop-opacity="0.95"/>
     </linearGradient>
   </defs>
 </svg>`;
 }
 
+/**
+ * 任天堂 eShop 商店顶带
+ */
 export const SHOP_SCALLOP_AWNING = `
-<svg class="awning-scallop-svg" viewBox="0 0 360 28" preserveAspectRatio="none" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <g transform="translate(0 3)" opacity="0.14">
-    <path d="M0 0H360V12C360 19 351 23 342 23C333 23 324 19 324 12C324 19 315 23 306 23C297 23 288 19 288 12C288 19 279 23 270 23C261 23 252 19 252 12C252 19 243 23 234 23C225 23 216 19 216 12C216 19 207 23 198 23C189 23 180 19 180 12C180 19 171 23 162 23C153 23 144 19 144 12C144 19 135 23 126 23C117 23 108 19 108 12C108 19 99 23 90 23C81 23 72 19 72 12C72 19 63 23 54 23C45 23 36 19 36 12C36 19 27 23 18 23C9 23 0 19 0 12V0Z" fill="#1B1D24"/>
-  </g>
-  <path d="M0 0H36V12C36 19 27 23 18 23C9 23 0 19 0 12V0Z" fill="#E60012"/>
-  <path d="M36 0H72V12C72 19 63 23 54 23C45 23 36 19 36 12V0Z" fill="#FFFFFF"/>
-  <path d="M72 0H108V12C108 19 99 23 90 23C81 23 72 19 72 12V0Z" fill="#E60012"/>
-  <path d="M108 0H144V12C144 19 135 23 126 23C117 23 108 19 108 12V0Z" fill="#FFFFFF"/>
-  <path d="M144 0H180V12C180 19 171 23 162 23C153 23 144 19 144 12V0Z" fill="#E60012"/>
-  <path d="M180 0H216V12C216 19 207 23 198 23C189 23 180 19 180 12V0Z" fill="#FFFFFF"/>
-  <path d="M216 0H252V12C252 19 243 23 234 23C225 23 216 19 216 12V0Z" fill="#E60012"/>
-  <path d="M252 0H288V12C288 19 279 23 270 23C261 23 252 19 252 12V0Z" fill="#FFFFFF"/>
-  <path d="M288 0H324V12C324 19 315 23 306 23C297 23 288 19 288 12V0Z" fill="#E60012"/>
-  <path d="M324 0H360V12C360 19 351 23 342 23C333 23 324 19 324 12V0Z" fill="#FFFFFF"/>
+<svg class="awning-scallop-svg" viewBox="0 0 360 14" preserveAspectRatio="none" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <rect width="360" height="10" fill="#E60012"/>
+  <rect y="10" width="360" height="4" fill="#A3000D"/>
+  <rect x="16" y="3" width="28" height="4" rx="2" fill="#FFFFFF" opacity="0.92"/>
+  <rect x="52" y="3" width="10" height="4" rx="2" fill="#FFFFFF" opacity="0.55"/>
+  <rect x="316" y="3" width="28" height="4" rx="2" fill="#FFCB45"/>
 </svg>`;
+
+/**
+ * 方案 A：定制任天堂第一方多色粗描边矢量功能图标（2.5px 描边 + 纯色平涂，零锯齿、自适应亮暗主题）
+ * @param {'market'|'trophy'|'vault'|'rules'|'tower'|'guild'|'ticket'} name
+ * @param {number} size
+ */
+export function renderNintendoGateIcon(name, size = 34) {
+  const icons = {
+    market: `
+      <rect x="6" y="13" width="28" height="20" rx="5" fill="#F0AE14" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.4"/>
+      <path d="M5 13C5 9.5 7.5 7 11 7H29C32.5 7 35 9.5 35 13V16H5V13Z" fill="#E60012" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.4"/>
+      <rect x="17" y="7" width="6" height="26" fill="#FFFFFF" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.2"/>
+      <circle cx="20" cy="19" r="3.5" fill="#E60012" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2"/>`,
+    trophy: `
+      <path d="M11 8H29V16C29 21 25 24.5 20 24.5C15 24.5 11 21 11 16V8Z" fill="#F0AE14" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M11 11H7C6.5 15.5 8.5 18 11.5 18.5" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M29 11H33C33.5 15.5 31.5 18 28.5 18.5" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M17 24.5H23V29H17V24.5Z" fill="#E60012" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.2"/>
+      <rect x="12" y="29" width="16" height="4.5" rx="2" fill="#FFFFFF" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.4"/>
+      <path d="M20 11.5L21.3 14.3L24.3 14.7L22.1 16.8L22.7 19.7L20 18.3L17.3 19.7L17.9 16.8L15.7 14.7L18.7 14.3L20 11.5Z" fill="#FFFFFF"/>`,
+    vault: `
+      <rect x="6" y="8" width="28" height="25" rx="6" fill="#2574E8" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.4"/>
+      <rect x="10" y="12" width="20" height="17" rx="3.5" fill="#FFFFFF" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2"/>
+      <circle cx="20" cy="20.5" r="5" fill="#F0AE14" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.2"/>
+      <circle cx="20" cy="20.5" r="1.8" fill="#171920"/>
+      <path d="M20 15.5V17M20 24V25.5M15 20.5H16.5M23.5 20.5H25" stroke="var(--nt-svg-stroke, #171920)" stroke-width="1.8" stroke-linecap="round"/>`,
+    rules: `
+      <rect x="8" y="6" width="24" height="28" rx="5" fill="#12A85D" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.4"/>
+      <rect x="12" y="10" width="16" height="10" rx="2.5" fill="#FFFFFF" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2"/>
+      <path d="M15.5 15L18.5 17.5L24.5 12.5" stroke="#12A85D" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M13 24.5H27M13 28.5H22" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round"/>`,
+    tower: `
+      <path d="M11 16L20 6L29 16H11Z" fill="#E60012" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.4" stroke-linejoin="round"/>
+      <rect x="12" y="16" width="16" height="17" rx="3" fill="#FFFFFF" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.4"/>
+      <circle cx="20" cy="23.5" r="4.8" fill="#F0AE14" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.2"/>
+      <path d="M20 21V23.8L22 25" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2" stroke-linecap="round"/>`,
+    guild: `
+      <path d="M20 6L32 10.5V20.5C32 27.5 26.8 32 20 34.5C13.2 32 8 27.5 8 20.5V10.5L20 6Z" fill="#2574E8" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M20 12L22.2 16.8L27.5 17.4L23.5 20.9L24.6 26L20 23.4L15.4 26L16.5 20.9L12.5 17.4L17.8 16.8L20 12Z" fill="#F0AE14" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2" stroke-linejoin="round"/>`,
+    ticket: `
+      <rect x="6" y="10" width="28" height="20" rx="5" fill="#E60012" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2.4"/>
+      <circle cx="6" cy="20" r="3" fill="#F4F5F8" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2"/>
+      <circle cx="34" cy="20" r="3" fill="#F4F5F8" stroke="var(--nt-svg-stroke, #171920)" stroke-width="2"/>
+      <path d="M20 14.5L21.5 17.8L25 18.2L22.3 20.6L23 24L20 22.2L17 24L17.7 20.6L15 18.2L18.5 17.8L20 14.5Z" fill="#F0AE14" stroke="var(--nt-svg-stroke, #171920)" stroke-width="1.6" stroke-linejoin="round"/>`,
+  };
+  const body = icons[name] || icons.tower;
+  return `<svg class="nt-gate-svg" width="${size}" height="${size}" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${body}</svg>`;
+}

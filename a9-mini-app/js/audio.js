@@ -1,6 +1,6 @@
 /**
- * A9 任天堂手工纸艺轻音效、材质拟音（Foley）与微触感引擎
- * - 零外部音频资源，纯 Web Audio API 合成：纸张翻页、木质棘轮、升调五声音阶、折纸宝箱弹开、橡皮钢印砸落
+ * A9 任天堂交互轻音效与微触感引擎
+ * - 零外部音频资源，纯 Web Audio API 合成：清脆按键、棘轮刻度、升调五声音阶、宝箱弹开、通关盖章
  * - 默认静音，仅在用户主动开启后（localStorage: a9_sound_enabled === '1'）发声
  * - AudioContext 仅在明确用户手势下懒初始化
  * - 精细指针设备的 3D 凭证反光采用 rAF 节流并在切页时干净释放
@@ -62,7 +62,7 @@ function playTone(freq, startOffset, duration, type = 'triangle', peakGain = 0.0
   osc.stop(now + duration + 0.02);
 }
 
-/** 带通扫频白噪声：模拟暖棉纸翻页沙沙声 / 木质棘轮短擦声 */
+/** 带通扫频白噪声：模拟 Switch 清脆切页 / 棘轮短擦声 */
 function playFilteredNoise(startOffset, duration, startFreq, endFreq, q = 2.2, peakGain = 0.05) {
   const ctx = ensureCtx();
   if (!ctx) return;
@@ -102,14 +102,14 @@ export const A9Audio = {
     playTone(520, 0, 0.07, 'triangle', 0.055, 680);
   },
 
-  /** 底栏切换圆润啵声 + 极轻纸张拂过 */
+  /** 底栏切换清脆触感音 */
   tab() {
     playFilteredNoise(0, 0.055, 1100, 2200, 1.8, 0.022);
     playTone(440, 0, 0.06, 'sine', 0.05, 590);
     playTone(660, 0.032, 0.075, 'triangle', 0.045);
   },
 
-  /** 棉纸翻页沙沙声（切页 / 纸牌翻面） */
+  /** 清脆切页声（切页 / 卡片翻面） */
   pageTurn() {
     playFilteredNoise(0, 0.095, 780, 2600, 1.5, 0.042);
     playTone(390, 0.01, 0.055, 'sine', 0.02, 520);
@@ -123,7 +123,7 @@ export const A9Audio = {
     playTone(baseFreq, 0, 0.036, 'triangle', 0.052, baseFreq * 1.18);
   },
 
-  /** 纸片 360° 翻身跳起音 */
+  /** 卡片 360° 翻转跳起音 */
   flip() {
     playFilteredNoise(0, 0.08, 900, 2400, 1.6, 0.032);
     playTone(340, 0, 0.09, 'triangle', 0.052, 620);
@@ -150,7 +150,7 @@ export const A9Audio = {
     playTone(880.0, 0.095, 0.16, 'triangle', 0.055);
   },
 
-  /** 厚重橡皮钢印砸纸（参与成功页出征盖章） */
+  /** 印章盖落音效（参与成功页出征盖章） */
   sealSlam() {
     playFilteredNoise(0, 0.065, 320, 860, 1.4, 0.058);
     playTone(165, 0, 0.11, 'sine', 0.095, 52);
@@ -158,7 +158,7 @@ export const A9Audio = {
     playTone(783.99, 0.14, 0.18, 'triangle', 0.058);
   },
 
-  /** 折纸宝箱弹开 + 金币三连叮铃 */
+  /** 任天堂宝箱弹开 + 金币三连叮铃 */
   chestOpen() {
     playFilteredNoise(0, 0.075, 900, 2800, 1.6, 0.046);
     playTone(260, 0, 0.07, 'triangle', 0.06, 480);

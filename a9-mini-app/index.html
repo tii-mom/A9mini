@@ -3,27 +3,23 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#F6F6F8" />
+  <meta name="theme-color" content="#F4F5F8" />
   <meta name="description" content="A9 (Asset 9-Figure) — Redefining token distribution &amp; unlocking on TON. A bold on-chain crypto experiment." />
   <meta property="og:title" content="A9 · 财富大冒险 (A9 Wealth Quest)" />
   <meta property="og:description" content="A9 (Asset 9-Figure) — Redefining token distribution &amp; unlocking on TON. A bold on-chain crypto experiment." />
   <meta property="og:image" content="https://app.a9.lat/assets/token/a9-token-2048.png" />
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:site" content="@A9_Ton" />
-  <link rel="icon" type="image/svg+xml" href="./assets/token/a9-token.svg" />
-  <link rel="apple-touch-icon" href="./assets/token/a9-token-2048.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="./assets/brand/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="./assets/brand/favicon-16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./assets/brand/apple-touch-icon.png" />
   <title>A9 · 财富大冒险</title>
-  <script>
-    (function(){try{var raw=localStorage.getItem('a9_ui_prefs_v1');var p=raw?JSON.parse(raw):null;var t=(p&&p.settings&&p.settings.themeMode)||localStorage.getItem('a9_theme_mode');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',t==='dark'?'#161619':'#F6F6F8');}}catch(e){}})();
-  </script>
+  <script src="./js/theme-init.js"></script>
   <!-- Telegram WebApp SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <!-- TON Connect 2.0 UI SDK (self-hosted + SRI) -->
   <script src="./js/vendor/tonconnect-ui.min.js" integrity="sha384-ej0rYqvkb978ljOWDi1iAt5spb5B7sRdf1g8Hii30vS72XLjxoCPCmx5seE7s05g" crossorigin="anonymous" defer></script>
-  <!-- 任天堂圆润几何字体 + 中文圆体 + 等宽数字字体 -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700;800&family=Nunito:wght@700;800;900&family=Noto+Sans+SC:wght@500;700;900&display=swap" rel="stylesheet" />
+  <!-- 本地自托管 Rubik 字体 + 系统原生中文无衬线与等宽数字字体 -->
   <link rel="stylesheet" href="./css/tokens.css" />
   <link rel="stylesheet" href="./css/animations.css" />
   <link rel="stylesheet" href="./css/components.css" />
@@ -44,16 +40,7 @@
     <div id="sim-drawer" class="sim-drawer hidden"></div>
   </div>
 
-  <script>
-    if (window.location.origin === 'https://app.a9.lat') {
-      window.__A9_CONFIG__ = {
-        ...window.__A9_CONFIG__,
-        mode: 'live',
-        apiBase: 'https://api.a9.lat',
-        liveFundsEnabled: false,
-      };
-    }
-  </script>
+  <script src="./js/runtime-config.js"></script>
   <script type="module" src="./js/app.js"></script>
 </body>
 </html>

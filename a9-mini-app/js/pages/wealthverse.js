@@ -1,4 +1,4 @@
-import { fetchUserPortfolio, fetchProgressionUser, claimProgressionTask, getEffectiveUserId } from '../data.js';
+import { fetchUserPortfolio, fetchProgressionUser, claimProgressionTask, fetchWarmupCurrent, fetchMyChests, getEffectiveUserId } from '../data.js';
 import { renderPendingVaultBanner, renderEarlyBirdBanner } from './round_stages.js';
 import { L } from '../i18n.js';
 import { config } from '../config.js';
@@ -6,21 +6,42 @@ import { store } from '../store.js';
 import { icon } from '../icons.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
-import { burstParticles, formatNum, formatTimer, renderLiveSparkline, showToast } from '../components.js';
-import { DIORAMA_BACKDROP, renderCitySandtable } from '../paper-art.js';
-import { BOXHEADS_SERIES, getBoxheadItem, characterArt, characterCardArt } from '../wealth-art.js';
+import { burstParticles, escapeHtml, formatNum, formatTimer, renderLiveSparkline, showToast } from '../components.js';
+import { DIORAMA_BACKDROP, renderCitySandtable, renderNintendoGateIcon } from '../paper-art.js';
+import {
+  BOXHEADS_SERIES,
+  CHEST_TIER_ORDER,
+  CHEST_TIER_META,
+  WEALTH_TIER_USD,
+  getBoxheadItem,
+  characterArt,
+  characterCardArt,
+  summarizeChestCounts,
+  evaluateActivityUnlock,
+  evaluateWealthUnlock,
+} from '../wealth-art.js';
 import { buildStartAppLink } from '../share.js';
 
 const link = (path, label, glyph) =>
   `<a href="#${path}">${icon(glyph, 16)}${label}</a>`;
 const waiting = () => L('待核验', 'Awaiting verification');
 
-const WEALTH_TIER_USD = [100, 500, 1500, 5000, 15000, 50000, 150000, 500000, 1000000];
 let activeGallerySeries = 'activity';
+let galleryChestCache = {
+  loaded: false,
+  counts: summarizeChestCounts(null),
+};
+let galleryWealthCache = {
+  wallet: null,
+  loaded: false,
+  available: false,
+  holdingUsd: 0,
+};
 
-function portrait(n, series = 'activity') {
+function portrait(n, series = 'activity', { lazy = false } = {}) {
   const code = series === 'wealth' ? 'WLT' : 'ACT';
-  return `<img class="wv-person" src="${characterArt(n, series)}" alt="${code} 0${n}">`;
+  const attrs = lazy ? ' loading="lazy" decoding="async" width="68" height="68"' : ' decoding="async"';
+  return `<img class="wv-person" src="${characterArt(n, series)}" alt="${code} 0${n}"${attrs}>`;
 }
 
 export function stageLabel(stage) {
@@ -51,9 +72,9 @@ function unlockPctByWins(n) {
 function handbookLevelTitle(lv) {
   const n = Math.max(1, Number(lv) || 1);
   const titles = [
-    ['折纸旅人', 'Paper Traveler'],
+    ['新手玩家', 'Quest Rookie'],
     ['集章学徒', 'Stamp Apprentice'],
-    ['手账记录员', 'Logbook Keeper'],
+    ['印章记录员', 'Stamp Keeper'],
     ['沙盘绘制师', 'Sandtable Crafter'],
     ['金箔典藏家', 'Foil Collector'],
   ];
@@ -61,8 +82,8 @@ function handbookLevelTitle(lv) {
 }
 
 /**
- * 阶段三：广场手账集章卡（Handbook Stamp Card）
- * - 每日 4 枚手盖橡皮圆章（打卡 / 0 GRAM 预言 / 24H 巡视 / 纸艺分享）+ 满章加赠 + 成长等级与成就徽章
+ * 阶段三：广场每日集章卡（Daily Stamp Card）
+ * - 每日 4 枚通关印章（打卡 / 0 GRAM 预言 / 24H 巡视 / 战报分享）+ 满章加赠 + 成长等级与成就徽章
  * - 显式标明：非链上代币资产，不可交易或直接兑换 A9 / GRAM
  */
 export function renderHandbookStampCard() {
@@ -75,10 +96,10 @@ export function renderHandbookStampCard() {
     return `
       <section class="card handbook-stamp-card" id="a9-handbook-card">
         <div class="row-between">
-          <div class="card-title">${icon('checkCircle', 15, 'text-green')} ${L('广场集章手账', 'Plaza Stamp Logbook')}</div>
+          <div class="card-title">${icon('checkCircle', 15, 'text-green')} ${L('广场每日印章', 'Plaza Daily Stamps')}</div>
           <span class="chip chip-muted">${L('游戏成长数据', 'In-Game EXP')}</span>
         </div>
-        <p class="num-xs text-sec" style="margin:8px 0 0;line-height:1.5;">${L('请在 Telegram 小程序内打开以同步你的每日集章进度、连续打卡天数与手账等级（非代币资产，不可兑换 A9/GRAM）。', 'Open inside Telegram Mini App to sync your daily stamps, streak and handbook level (non-financial growth data).')}</p>
+        <p class="num-xs text-sec" style="margin:8px 0 0;line-height:1.5;">${L('请在 Telegram 小程序内打开以同步你的每日集章进度、连续打卡天数与成长等级（非代币资产，不可兑换 A9/GRAM）。', 'Open inside Telegram Mini App to sync your daily stamps, streak and handbook level (non-financial growth data).')}</p>
       </section>
     `;
   }
@@ -87,10 +108,10 @@ export function renderHandbookStampCard() {
     return `
       <section class="card handbook-stamp-card" id="a9-handbook-card">
         <div class="row-between">
-          <div class="card-title">${icon('shieldAlert', 15, 'text-red')} ${L('广场集章手账', 'Plaza Stamp Logbook')}</div>
+          <div class="card-title">${icon('shieldAlert', 15, 'text-red')} ${L('广场每日印章', 'Plaza Daily Stamps')}</div>
           <button class="btn btn-secondary btn-sm" id="btn-prog-retry" type="button">${L('重试读取', 'Retry')}</button>
         </div>
-        <p class="num-xs text-muted" style="margin:6px 0 0;">${L('手账集章数据暂不可读取，请点击重试。', 'Handbook progression unavailable. Tap to retry.')}</p>
+        <p class="num-xs text-muted" style="margin:6px 0 0;">${L('每日集章数据暂不可读取，请点击重试。', 'Handbook progression unavailable. Tap to retry.')}</p>
       </section>
     `;
   }
@@ -130,7 +151,7 @@ export function renderHandbookStampCard() {
     },
     {
       key: 'daily_share',
-      zh: '纸艺分享',
+      zh: '卡片分享',
       en: 'Share Card',
       exp: 40,
       done: todaySet.has('daily_share'),
@@ -140,7 +161,7 @@ export function renderHandbookStampCard() {
   ];
 
   const achLabels = {
-    ach_first_stamp: [L('初入手账', 'First Stamp'), 50],
+    ach_first_stamp: [L('初枚印章', 'First Stamp'), 50],
     ach_streak_3:    [L('三日连签', '3d Streak'), 120],
     ach_pred_pioneer:[L('竞猜观星', 'Predictor'), 100],
     ach_stamp_10:    [L('十章典藏', '10 Stamps'), 200],
@@ -153,14 +174,14 @@ export function renderHandbookStampCard() {
     <section class="card handbook-stamp-card" id="a9-handbook-card" data-round="${r.currentRound ?? 1}">
       <div class="row-between" style="margin-bottom:6px;">
         <div class="row-start" style="gap:6px;flex-wrap:wrap;">
-          <strong class="card-title">${L('广场集章手账', 'Plaza Stamp Logbook')}</strong>
+          <strong class="card-title">${L('广场每日印章', 'Plaza Daily Stamps')}</strong>
           <span class="chip chip-gold">Lv.${prog.level || 1} · ${handbookLevelTitle(prog.level)}</span>
         </div>
         <span class="chip chip-muted mono">${L('连签', 'Streak')} ${prog.checkinStreak || 0}${L('天', 'd')} · ${prog.dailyDoneCount || 0}/4</span>
       </div>
 
       <div class="row-between num-xs text-muted" style="margin-bottom:4px;">
-        <span>${L('手账经验', 'Handbook EXP')} <b class="mono" style="color:var(--ink);">${prog.exp || 0} EXP</b>（${prog.currentLevelExp || 0}/${prog.expPerLevel || 200}）</span>
+        <span>${L('集章经验', 'Stamp EXP')} <b class="mono" style="color:var(--ink);">${prog.exp || 0} EXP</b>（${prog.currentLevelExp || 0}/${prog.expPerLevel || 200}）</span>
         <span>${L('游戏内成长 · 非代币资产', 'In-game growth · non-token')}</span>
       </div>
       <div class="progress-track" style="height:6px;margin-bottom:10px;">
@@ -200,19 +221,15 @@ export function renderHandbookStampCard() {
 }
 
 /**
- * 背包顶部紧凑横向「个人身份纸艺铭牌栏」(~112px)
- * - 不与下方待处理领取、资产与凭证抢夺首屏，同时完整保留角色立牌 + 360° 翻身试穿 + 图鉴入口
+ * 我的顶部极简头像栏：仅展示头像、钱包地址、GRAM 余额与图鉴入口
  */
-export function identityStage({ modePill = '', walletTag = '' } = {}) {
+export function identityStage({ modePill = '', walletAddr = '', gramText = '', walletTag = '' } = {}) {
   const tier = store.state.user.previewTier || 1;
-  const series = config.isDemo ? (store.state.user.previewSeries || 'activity') : 'activity';
-  const shownTier = config.isDemo ? tier : 1;
+  const series = store.state.user.previewSeries || 'activity';
+  const shownTier = tier;
   const item = getBoxheadItem(shownTier, series);
-  const code = series === 'wealth' ? 'WLT' : 'ACT';
-  const heading = config.isDemo ? `${code} 0${shownTier} · ${L(item.nameZh, item.nameEn)}` : L('身份待核验', 'Identity pending');
-  const subtitle = config.isDemo
-    ? `${L(item.traitZh, item.traitEn)} · ${L('轻点头像切换预览', 'Tap to flip')}`
-    : L('连接钱包后核验 A9 持仓阶位', 'Connect wallet to verify A9 tier');
+  const addrDisplay = walletAddr || walletTag || L('未连接钱包', 'Not connected');
+  const gramDisplay = gramText || '— GRAM';
 
   return `<section class="wv-hero profile-identity-bar">
     <div class="identity-thumb series-${series}" id="identity-standee-stage">
@@ -220,13 +237,14 @@ export function identityStage({ modePill = '', walletTag = '' } = {}) {
       ${portrait(shownTier, series)}
     </div>
     <div class="identity-meta">
-      <div class="row-between" style="gap:6px;">
-        <span class="diorama-kicker">${config.isDemo ? `BOXHEADS · ${code} 0${shownTier}` : 'ON-CHAIN ID'}</span>
+      <div class="identity-name-row">
+        <span class="identity-name-pill series-${series}">${escapeHtml(L(item.nameZh, item.nameEn))}</span>
         ${modePill || ''}
       </div>
-      <h1>${heading}</h1>
-      <p>${walletTag || subtitle}</p>
-      ${walletTag ? `<small>${subtitle}</small>` : ''}
+      <div class="identity-addr-row">
+        <span class="identity-addr mono">${escapeHtml(addrDisplay)}</span>
+      </div>
+      <div class="identity-gram mono">${escapeHtml(gramDisplay)}</div>
     </div>
     <a class="peel-badge identity-gallery-link" href="#/gallery/${item.id}">${L('图鉴', 'Gallery')} ›</a>
   </section>`;
@@ -262,7 +280,7 @@ export function bindIdentityStage(root, onRerender) {
 /**
  * 主城首屏（#/challenge）：重心看「轮次进展」
  * 第一张主卡随阶段动态切换唯一视觉大数字焦点，奖池/权重/上限收为轻摘要；
- * 中层 4 枚折纸服务入口；第二层为 24H 预言、全局解锁与返佣。
+ * 中层 4 枚任天堂服务入口；第二层为 24H 预言、全局解锁与返佣。
  */
 export function city() {
   const r = store.state.round;
@@ -291,7 +309,7 @@ export function city() {
     ? `${L('奖池', 'Pool')} ${waiting()}`
     : `${L('奖池', 'Pool')} ${formatNum(r.rewardBudgetA9)} A9`;
 
-  // 24 颗微型纸艺进度点（观察与结算态展示）
+  // 24 颗微型实体进度点（观察与结算态展示）
   const slotDots = Array.from({ length: 24 }, (_, i) => {
     const c = Array.isArray(r.candles) ? r.candles.find((x) => x.index === i + 1) || r.candles[i] : null;
     const state = c?.confirmed
@@ -315,20 +333,20 @@ export function city() {
   if (r.stage === 'participation') {
     focusKicker = L('参与窗口开放中 · 早鸟权重', 'ENTRY OPEN · EARLY WEIGHT');
     focusHtml = `<span class="focus-accent-gold">2.0×</span> <span class="focus-unit">${L('首段早鸟', 'Early Tier')}</span>`;
-    focusSub = L('最低 1,000 A9 参与 · 权重档位 2.0× / 1.4× / 1.0×', 'From 1,000 A9 · Weight tiers 2.0× / 1.4× / 1.0×');
+    focusSub = L('≥ 1,000 A9 · 早鸟 2.0× / 1.4× / 1.0×', '≥ 1,000 A9 · 2.0× / 1.4× / 1.0×');
     ctaText = L('查看参与条件', 'Check entry rules');
     dotTone = 'gold';
   } else if (r.stage === 'warmup') {
     focusKicker = L('预热报名中 · 本轮预热池', 'WARM-UP OPEN · POOL');
     focusHtml = `${config.isDemo ? '8,000,000' : waiting()} <span class="focus-unit">A9</span>`;
-    focusSub = L('免费报名冲榜 · 前 50 名享阶梯预热奖励', 'Free entry · Top 50 tiered rewards');
+    focusSub = L('免费报名 · 前 50 阶梯奖励', 'Free entry · Top 50 rewards');
     ctaText = L('查看预热进度', 'View warm-up');
     dotTone = 'gold';
   } else if (awaitingSettle) {
     focusKicker = L('已达标门槛 · 等待结算', 'THRESHOLD MET · AWAITING SETTLE');
     focusHtml = `<span class="focus-accent-green">${passed ?? required}</span><span class="focus-slash">/</span><span class="focus-denom">${required}</span> <span class="focus-unit">${L('个达标时段', 'met')}</span>`;
     focusSub = confirmed !== null
-      ? L(`已确认 ${confirmed} / 24 段 · 等待链上最终结算`, `${confirmed}/24 confirmed · awaiting settlement`)
+      ? L(`已确认 ${confirmed}/24 · 待结算`, `${confirmed}/24 confirmed · settling`)
       : L('已满足达标条件 · 等待结算确认', 'Condition met · awaiting settlement');
     ctaText = L('查看本轮进度', 'View progress');
     showSlotTrack = true;
@@ -337,7 +355,7 @@ export function city() {
     focusHtml = `<span class="focus-accent-green">${passed ?? '—'}</span><span class="focus-slash">/</span><span class="focus-denom">${required}</span> <span class="focus-unit">${L('个达标时段', 'qualified')}</span>`;
     focusSub = need === null
       ? L('时段数据待核验 · 点击进入核对明细', 'Slot data pending verification')
-      : L(`已确认 ${confirmed ?? '—'}/24 段 · 还差 ${need} 个达标时段`, `${confirmed ?? '—'}/24 confirmed · ${need} more needed`);
+      : L(`已确认 ${confirmed ?? '—'}/24 · 差 ${need} 格达标`, `${confirmed ?? '—'}/24 · ${need} more to pass`);
     ctaText = L('查看时段记录', 'View slot records');
     dotTone = 'cyan';
     showSlotTrack = true;
@@ -352,14 +370,14 @@ export function city() {
   } else if (r.stage === 'settlement_burn') {
     focusKicker = L('本轮结算结果 · 未达标', 'SETTLED · MISSED');
     focusHtml = `<span class="focus-accent-rose">${L('未达标 ×', 'Missed ×')}</span> <span class="focus-unit">${passed ?? 0}/${required}</span>`;
-    focusSub = L('未满足 16/24 达标门槛 · 按规则处理本金与奖池', 'Below 16/24 threshold · processed per v15 rules');
+    focusSub = L('未达 16/24 · 本金与半数奖池销毁', 'Below 16/24 · principal burned');
     ctaText = L('查看结算明细', 'View settlement');
     dotTone = 'red';
     showSlotTrack = true;
   } else if (r.stage === 'halted') {
     focusKicker = L('安全保护 · 异常中止', 'SAFETY HALT');
     focusHtml = `<span class="focus-accent-gold">${L('异常中止 · 退回本金', 'Aborted · Refund')}</span>`;
-    focusSub = L('触发预言机安全保护 · 参与本金按规则原路退回', 'Oracle halt triggered · principal refunded');
+    focusSub = L('安全中止 · 本金原路退回', 'Safety halt · principal refunded');
     ctaText = L('查看保护说明', 'View halt status');
     dotTone = 'gold';
   } else {
@@ -401,7 +419,6 @@ export function city() {
     ${renderEarlyBirdBanner(r)}
 
     <div class="diorama-stage city-hub-stage${isRedAlert ? ' alert-red-mode' : ''}" data-mood="${sandtableMood}">
-      ${renderCitySandtable(sandtableMood)}
 
       <div class="city-hub-top">
         <div class="city-round-pill">
@@ -421,7 +438,6 @@ export function city() {
           <div class="city-focus-val">${focusHtml}</div>
           <p class="city-focus-sub">${focusSub}</p>
         </div>
-        <img class="city-hub-emblem" src="./assets/paper-craft/tower.png" alt="" aria-hidden="true">
       </div>
 
       ${showSlotTrack ? `
@@ -462,14 +478,27 @@ export function city() {
     <nav class="game-gates">
       ${gates.map(([path, asset, label, sub]) => `
         <a href="#${path}">
-          <img src="./assets/paper-craft/${asset}.png" alt="">
+          <span class="nt-gate-icon-wrap" aria-hidden="true">${renderNintendoGateIcon(asset, 30)}</span>
           <span>${label}</span>
           <small>${sub}</small>
         </a>
       `).join('')}
     </nav>
 
-    <div class="section-kicker">${L('24H 预言对抗与协议生态', '24H PREDICTION & PROTOCOL')}</div>
+    <a class="card clickable" id="city-warmup-card" href="#/warmup" style="display:block;text-decoration:none;color:inherit;">
+      <div class="row-between" style="margin-bottom:6px;">
+        <div class="row-start" style="gap:6px;">
+          <span class="chip chip-gold" id="city-warmup-round">${L(`第 ${(Number(r.currentRound) || 0) + 1} 轮预热`, `R${(Number(r.currentRound) || 0) + 1} Warm-Up`)}</span>
+          <strong style="font-size:14px;">${L('下一轮开局预约 · 领预热宝箱', 'Next Round Reserve · Free Chest')}</strong>
+        </div>
+        <span class="num-xs text-green" id="city-warmup-cta" style="font-weight:800;">${L('去预约', 'Reserve')} ›</span>
+      </div>
+      <div class="row-between num-xs text-sec" style="margin-bottom:5px;">
+        <span id="city-warmup-count">${L('正在同步全网预约人数…', 'Syncing reservation count…')}</span>
+        <span class="mono" id="city-warmup-pct">—</span>
+      </div>
+      <div class="progress-track" style="height:6px;"><div class="progress-fill" id="city-warmup-fill" style="width:0%;"></div></div>
+    </a>
 
     <div class="card clickable city-pred-card${isRedAlert ? ' alert-red-mode' : ''}" id="city-pred-jump" role="button" tabindex="0">
       <div class="row-between">
@@ -479,7 +508,7 @@ export function city() {
         </div>
         <span class="city-pred-go">${L('立即站队', 'Pick Side')} ›</span>
       </div>
-      <p class="city-pred-desc">${L('0 GRAM 站队通关 PASS 或销毁 BURN，新人首轮参与保底 500 A9 待解锁体验金。', 'Call PASS or BURN for 0 GRAM. First-round rookies get a 500 A9 vault floor.')}</p>
+      <p class="city-pred-desc">${L('0 GRAM 押 PASS / BURN · 首轮保底 500 A9', '0 GRAM PASS / BURN · 500 A9 rookie floor')}</p>
       ${showPredRatio ? `
         <div class="city-pred-bar-wrap">
           <div class="row-between num-xs">
@@ -511,7 +540,7 @@ export function city() {
       <summary class="handbook-collapse-summary">
         <span class="row-start" style="gap:6px;">
           ${icon('checkCircle', 14, 'text-green')}
-          <strong>${L('日常集章手账', 'Daily Stamp Logbook')}</strong>
+          <strong>${L('日常集章打卡', 'Daily Stamp Check-in')}</strong>
           <span class="chip chip-muted mono" style="height:19px;font-size:10px;padding:0 6px;">Lv.${prog.level || 1} · ${prog.dailyDoneCount || 0}/4</span>
         </span>
         <span class="num-xs text-muted">${L('展开盖章', 'Expand')} ▾</span>
@@ -601,7 +630,7 @@ function bindHandbookStampEvents(root, navigate) {
             Object.assign(s.progression, res.progression, { loaded: true, error: false });
           });
         }
-        showToast(L(`已盖章 · +${res?.expAwarded || 0} EXP（手账成长数据）`, `Stamped · +${res?.expAwarded || 0} EXP`));
+        showToast(L(`已盖章 · +${res?.expAwarded || 0} EXP（集章成长数据）`, `Stamped · +${res?.expAwarded || 0} EXP`));
         if (root.isConnected) {
           repaintHandbookCard(root, navigate);
           const stampedBtn = root.querySelector(`[data-stamp-task="${taskKey}"]`);
@@ -619,7 +648,7 @@ function bindHandbookStampEvents(root, navigate) {
   });
 }
 
-/** 渲染主城并绑定手账集章与 24H 竞猜直达交互 */
+/** 渲染广场并绑定每日集章与 24H 竞猜直达交互 */
 export function renderCity(root, navigate) {
   if (config.isDemo && !store.state.progression.loaded) {
     const uid = getEffectiveUserId(store.state.user);
@@ -629,6 +658,7 @@ export function renderCity(root, navigate) {
   root.innerHTML = city();
   bindHandbookStampEvents(root, navigate);
   syncProgressionState(root, navigate);
+  hydrateCityWarmupCard(root);
 
   const predCard = root.querySelector('#city-pred-jump');
   if (predCard) {
@@ -646,6 +676,38 @@ export function renderCity(root, navigate) {
         goPred();
       }
     };
+  }
+}
+
+async function hydrateCityWarmupCard(root) {
+  const card = root.querySelector('#city-warmup-card');
+  if (!card) return;
+  try {
+    const data = await fetchWarmupCurrent();
+    if (!card.isConnected || !data) return;
+    const rid = Number(data.roundId) || ((Number(data.currentOnchainRoundId ?? store.state.round?.currentRound) || 0) + 1);
+    const regCount = Number(data.stats?.totalRegistered ?? 0);
+    const target = Number(data.stats?.targetUsers ?? 0);
+    const pct = Math.max(0, Math.min(100, Number(data.stats?.progressPct ?? 0)));
+    const reserved = Boolean(data.isReserved);
+    const open = Boolean(data.open);
+    const roundEl = card.querySelector('#city-warmup-round');
+    const ctaEl = card.querySelector('#city-warmup-cta');
+    const countEl = card.querySelector('#city-warmup-count');
+    const pctEl = card.querySelector('#city-warmup-pct');
+    const fillEl = card.querySelector('#city-warmup-fill');
+    if (roundEl) roundEl.textContent = L(`第 ${rid} 轮预热`, `R${rid} Warm-Up`);
+    if (ctaEl) ctaEl.textContent = !open ? L('已截止 ›', 'Closed ›') : reserved ? L('已预约 · 查宝箱 ›', 'Reserved · Chest ›') : L('一键预约 ›', 'Reserve ›');
+    if (countEl) {
+      countEl.textContent = target > 0
+        ? L(`已预约 ${formatNum(regCount)} / 目标 ${formatNum(target)} 人`, `${formatNum(regCount)} / ${formatNum(target)} reserved`)
+        : L(`已预约 ${formatNum(regCount)} 人`, `${formatNum(regCount)} reserved`);
+    }
+    if (pctEl) pctEl.textContent = target > 0 ? `${pct}%` : '—';
+    if (fillEl) fillEl.style.width = `${pct}%`;
+  } catch (_) {
+    const countEl = card.querySelector('#city-warmup-count');
+    if (countEl && card.isConnected) countEl.textContent = L('点击进入下一轮预热预约与宝箱页', 'Tap to open Next Round Warm-Up & Chest');
   }
 }
 
@@ -678,26 +740,58 @@ function getDemoA9HoldingUsd() {
   return Math.round(totalA9 * price);
 }
 
-/** 计算演示模式当前图鉴已解锁阶位（区分互动解锁 vs A9 市值达标，绝不伪造链上数据） */
-function computeDemoUnlockedTiers(series = 'activity') {
-  const st = store.state;
+/** 从 /api/user/:wallet 返回的真实链上持仓与当前均价计算美元市值 */
+function computeLiveA9HoldingUsd(portfolio, round) {
+  let totalRaw = 0n;
+  let hasOnchainData = false;
+  if (
+    portfolio?.balanceAvailable !== false &&
+    typeof portfolio?.a9BalanceRaw === 'string' &&
+    /^\d+$/.test(portfolio.a9BalanceRaw)
+  ) {
+    totalRaw += BigInt(portfolio.a9BalanceRaw);
+    hasOnchainData = true;
+  }
+  if (Array.isArray(portfolio?.tickets)) {
+    for (const t of portfolio.tickets) {
+      if (!t?.principalDone && typeof t?.amountRaw === 'string' && /^\d+$/.test(t.amountRaw)) {
+        totalRaw += BigInt(t.amountRaw);
+        hasOnchainData = true;
+      }
+    }
+  }
+  const price = Number(round?.livePrice) || Number(round?.twap24h) || 0;
+  if (!hasOnchainData || price <= 0) {
+    return { available: false, holdingUsd: 0 };
+  }
+  const totalA9 = Number(totalRaw) / 1e9;
+  return { available: true, holdingUsd: Math.round(totalA9 * price * 100) / 100 };
+}
+
+/** 获取当前生效的 A9 持仓美元估值（演示模式取模拟持仓，真实模式取链上只读接口） */
+function getEffectiveA9HoldingUsd() {
+  if (config.isDemo) return { available: true, holdingUsd: getDemoA9HoldingUsd() };
+  const addr = store.state.user?.address || null;
+  if (!addr || galleryWealthCache.wallet !== addr || !galleryWealthCache.available) {
+    return { available: false, holdingUsd: 0 };
+  }
+  return { available: true, holdingUsd: galleryWealthCache.holdingUsd };
+}
+
+/** 计算图鉴各阶位解锁集合（宝箱持有系列按 5 种宝箱累计数量，市值系列按 A9 持仓市值） */
+function computeUnlockedTiers(series = 'activity', chestCounts = galleryChestCache.counts) {
+  const unlocked = new Set();
   if (series === 'wealth') {
-    const holdingUsd = getDemoA9HoldingUsd();
-    const unlocked = new Set();
-    WEALTH_TIER_USD.forEach((threshold, i) => {
-      if (holdingUsd >= threshold) unlocked.add(i + 1);
+    const w = getEffectiveA9HoldingUsd();
+    if (!w.available) return unlocked;
+    BOXHEADS_SERIES.wealth.items.forEach((it) => {
+      if (evaluateWealthUnlock(it, w.holdingUsd).unlocked) unlocked.add(it.tier);
     });
     return unlocked;
   }
-  const unlocked = new Set([1, 2, 3]);
-  const stamps = Number(st.progression?.totalStamps || 0);
-  const level = Number(st.progression?.level || 1);
-  if ((st.market?.records || []).length > 0) unlocked.add(4);
-  if ((st.certificates || []).length > 0) unlocked.add(5);
-  if (st.team?.role !== 'none' || stamps >= 6) unlocked.add(6);
-  if (Number(st.round?.successCount || 0) >= 3 || stamps >= 6) unlocked.add(7);
-  if (level >= 3) unlocked.add(8);
-  if (unlocked.size >= 8) unlocked.add(9);
+  BOXHEADS_SERIES.activity.items.forEach((it) => {
+    if (evaluateActivityUnlock(it, chestCounts).unlocked) unlocked.add(it.tier);
+  });
   return unlocked;
 }
 
@@ -722,257 +816,361 @@ function parseGalleryParam(param) {
   };
 }
 
-/** 身份图鉴（#/gallery）：双轨 18 阶 Boxheads 收集册 + 1 对 1 精装卡背 3D 翻转 + 卡背导出与社交分享 */
+/** 进化图鉴（#/gallery）：双轨形象展示台 + 宝箱进度追踪 + 稳定 3D 翻卡 + 3×3 收集册 */
 export function gallery(root, navigate, param) {
   const parsed = parseGalleryParam(param);
   activeGallerySeries = parsed.series === 'wealth' ? 'wealth' : 'activity';
   const selected = parsed.tier;
-  const seriesMeta = BOXHEADS_SERIES[activeGallerySeries];
-  const item = getBoxheadItem(selected, activeGallerySeries);
-  const demoUnlocked = config.isDemo ? computeDemoUnlockedTiers(activeGallerySeries) : new Set();
-  const isSelectedUnlocked = config.isDemo ? demoUnlocked.has(selected) : false;
-  const holdingUsd = config.isDemo ? getDemoA9HoldingUsd() : null;
-  const wealthReqUsd = WEALTH_TIER_USD[selected - 1];
-  const code = seriesMeta.code;
 
-  const unlockText = activeGallerySeries === 'wealth'
-    ? (config.isDemo
-        ? L(`A9 持仓市值门槛 $${formatNum(wealthReqUsd)}（演示持仓约 $${formatNum(holdingUsd)}）`, `A9 holding threshold $${formatNum(wealthReqUsd)} (Demo ~$${formatNum(holdingUsd)})`)
-        : L('仅当持有 A9 代币市值达到该阶梯后解锁 · 请连接钱包核验', 'Unlocked only when held A9 value reaches tier · Connect wallet to verify'))
-    : L(item.hintZh, item.hintEn);
+  const renderGalleryView = () => {
+    if (!root || !root.isConnected) return;
+    const seriesMeta = BOXHEADS_SERIES[activeGallerySeries];
+    const item = getBoxheadItem(selected, activeGallerySeries);
+    const chestCounts = galleryChestCache.counts;
+    const wealthInfo = getEffectiveA9HoldingUsd();
+    const actUnlocked = computeUnlockedTiers('activity', chestCounts);
+    const wltUnlocked = computeUnlockedTiers('wealth', chestCounts);
+    const curUnlockedSet = activeGallerySeries === 'wealth' ? wltUnlocked : actUnlocked;
+    const canEvaluate = activeGallerySeries === 'activity'
+      ? (config.isDemo || galleryChestCache.loaded)
+      : wealthInfo.available;
+    const isSelectedUnlocked = canEvaluate ? curUnlockedSet.has(selected) : false;
+    const code = seriesMeta.code;
 
-  root.innerHTML =
-    `<div class="seg-tabs" id="boxhead-series-tabs" style="margin-bottom:2px;">
-      <button class="seg-tab ${activeGallerySeries === 'activity' ? 'active' : ''}" data-boxhead-series="activity" type="button">${L('互动解锁 (9)', 'Activity (9)')}</button>
-      <button class="seg-tab ${activeGallerySeries === 'wealth' ? 'active' : ''}" data-boxhead-series="wealth" type="button">${L('A9 市值达标 (9)', 'A9 Wealth (9)')}</button>
-    </div>` +
-    `<section class="wv-hero wv-gallery-hero ${selected >= 7 ? 'diorama-stage prism' : 'diorama-stage'} series-${activeGallerySeries}">
-      ${DIORAMA_BACKDROP}
-      <div class="boxhead-stage-meta">
-        <span class="chip ${activeGallerySeries === 'wealth' ? 'chip-gold' : 'chip-cyan'}">${L(seriesMeta.badgeZh, seriesMeta.badgeEn)}</span>
-        <span class="chip chip-muted mono">${code} 0${selected} · ${item.rarity}</span>
-      </div>
-      <div class="boxhead-flip-scene" id="gallery-standee-stage">
-        <div class="speech-bubble hidden" id="gallery-speech-bubble" role="status">“${L(item.voiceZh, item.voiceEn)}”</div>
-        <div class="boxhead-flip-card" id="boxhead-flip-card">
-          <div class="boxhead-face front series-${activeGallerySeries}">
-            ${activeGallerySeries === 'wealth' ? '<div class="standee-slot" aria-hidden="true"></div>' : ''}
-            <img class="wv-person${config.isDemo && !isSelectedUnlocked ? ' is-locked-preview' : ''}" id="boxhead-avatar-img" src="${item.avatar}" alt="${code} 0${selected}">
-          </div>
-          <div class="boxhead-face back">
-            <img class="boxhead-card-img" id="boxhead-backing-img" src="${characterCardArt(selected, activeGallerySeries)}" alt="${code} 0${selected} Backing Card">
+    const actEval = activeGallerySeries === 'activity' ? evaluateActivityUnlock(item, chestCounts) : null;
+    const wltEval = activeGallerySeries === 'wealth' ? evaluateWealthUnlock(item, wealthInfo.holdingUsd) : null;
+
+    const unlockHint = L(item.hintZh, item.hintEn);
+    let progressText = '';
+    let progressPct = 0;
+    if (activeGallerySeries === 'activity' && actEval) {
+      const tierMeta = CHEST_TIER_META[actEval.chestTier] || CHEST_TIER_META.bronze;
+      progressPct = canEvaluate ? actEval.progressPct : 0;
+      if (!canEvaluate) {
+        progressText = L('同步宝箱数据中…', 'Syncing chests…');
+      } else if (actEval.requireAllTypes) {
+        progressText = L(
+          `已集 ${actEval.distinctTypes}/5 种 · 钻石 ${actEval.current}/${actEval.target}`,
+          `${actEval.distinctTypes}/5 types · Dia ${actEval.current}/${actEval.target}`,
+        );
+      } else {
+        progressText = `${L(tierMeta.shortZh, tierMeta.shortEn)} ${Math.min(actEval.current, actEval.target)}/${actEval.target}`;
+      }
+    } else if (wltEval) {
+      progressPct = canEvaluate ? wltEval.progressPct : 0;
+      if (canEvaluate) {
+        progressText = `$${formatNum(wltEval.current)} / $${formatNum(wltEval.target)}`;
+      } else if (!store.state.user?.address) {
+        progressText = L('连接钱包核验持仓', 'Connect wallet to verify');
+      } else {
+        progressText = L('同步链上持仓中…', 'Syncing on-chain balance…');
+      }
+    }
+
+    const statusBadgeText = !canEvaluate
+      ? L('待核验', 'TBD')
+      : isSelectedUnlocked
+        ? L('已解锁', 'Owned')
+        : L('未解锁', 'Locked');
+    const isEquipped = (store.state.user.previewSeries || 'activity') === activeGallerySeries
+      && Number(store.state.user.previewTier || 1) === selected;
+    const canEquip = config.isDemo || isSelectedUnlocked;
+    const targetChestTier = activeGallerySeries === 'activity' ? item.unlockRule?.chestTier : null;
+
+    root.innerHTML =
+      `<div class="seg-tabs gallery-series-tabs" id="boxhead-series-tabs">
+        <button class="seg-tab ${activeGallerySeries === 'activity' ? 'active' : ''}" data-boxhead-series="activity" type="button">
+          <span>${L('宝箱持有', 'Chests')}</span>
+          <em class="seg-tab-count mono">${(config.isDemo || galleryChestCache.loaded) ? `${actUnlocked.size}/9` : '9'}</em>
+        </button>
+        <button class="seg-tab ${activeGallerySeries === 'wealth' ? 'active' : ''}" data-boxhead-series="wealth" type="button">
+          <span>${L('A9 市值', 'Wealth')}</span>
+          <em class="seg-tab-count mono">${wealthInfo.available ? `${wltUnlocked.size}/9` : '9'}</em>
+        </button>
+      </div>` +
+      `<section class="wv-hero wv-gallery-hero series-${activeGallerySeries}">
+        <div class="boxhead-stage-meta">
+          <span class="chip ${activeGallerySeries === 'wealth' ? 'chip-gold' : 'chip-cyan'} mono">${code} 0${selected} · ${item.rarity}</span>
+          <button type="button" class="boxhead-flip-btn" id="btn-flip-boxhead" aria-pressed="false">
+            ${icon('refresh', 13)} <span id="btn-flip-label">${L('翻看卡背', 'Flip Back')}</span>
+          </button>
+        </div>
+
+        <div class="boxhead-flip-scene" id="gallery-standee-stage" role="button" tabindex="0" aria-label="${L('轻点翻转查看卡背', 'Tap to flip card')}">
+          <div class="boxhead-flip-card" id="boxhead-flip-card">
+            <div class="boxhead-face front series-${activeGallerySeries}">
+              <div class="boxhead-stage-aura" aria-hidden="true"></div>
+              ${activeGallerySeries === 'wealth' ? '<div class="standee-slot" aria-hidden="true"></div>' : ''}
+              <img class="wv-person${canEvaluate && !isSelectedUnlocked ? ' is-locked-preview' : ''}" id="boxhead-avatar-img" src="${item.avatar}" alt="${code} 0${selected}">
+            </div>
+            <div class="boxhead-face back">
+              <img class="boxhead-card-img" id="boxhead-backing-card" src="${item.card}" alt="${code} 0${selected} ${L('精装卡背', 'Backing Card')}">
+            </div>
           </div>
         </div>
-      </div>
-      <button type="button" class="boxhead-flip-btn" id="btn-flip-boxhead" aria-pressed="false">
-        ${icon('refresh', 13)} <span id="btn-flip-label">${L('翻转查看精装卡背', 'Flip to Backing Card')}</span>
-      </button>
-      <div class="wv-copy">
-        <small>${config.isDemo ? (isSelectedUnlocked ? L('已点亮收藏 · 轻点形象听台词', 'Collected · Tap avatar for quote') : L('未解锁槽位 · 预览卡背与形象', 'Locked slot · Preview only')) : L('链上核验待开启 · 形象与卡背预览', 'On-chain pending · Preview')}</small>
-        <h1>${L(item.nameZh, item.nameEn)}</h1>
-        <p>${L(item.traitZh, item.traitEn)}</p>
-        <div class="num-xs ${isSelectedUnlocked ? 'text-green' : 'text-gold'}" style="margin-top:4px;font-weight:800;">${unlockText}</div>
-      </div>
-    </section>` +
-    `<div class="row-between" style="padding:2px 2px 0;">
-      <span class="section-kicker" style="padding:0;">${activeGallerySeries === 'wealth' ? L('WLT 01–09 持仓大佬卡册', 'WLT 01–09 WEALTH ALBUM') : L('ACT 01–09 平台互动卡册', 'ACT 01–09 ACTIVITY ALBUM')}</span>
-      <span class="chip ${config.isDemo ? 'chip-gold' : 'chip-muted'}" style="min-height:20px;font-size:10px;">${config.isDemo ? L(`演示已集 ${demoUnlocked.size} / 9`, `Demo ${demoUnlocked.size} / 9`) : L('待链上核验', 'Awaiting verify')}</span>
-    </div>` +
-    `<nav class="wv-gallery series-${activeGallerySeries}">${seriesMeta.items.map((it) => {
-      const idx = it.tier;
-      const locked = config.isDemo ? !demoUnlocked.has(idx) : true;
-      return `<a href="#/gallery/${it.id}" class="${locked ? 'is-locked' : ''}" aria-current="${idx === selected ? 'true' : 'false'}">
-        <span class="gallery-slot-badge">${locked ? (config.isDemo ? L('未解锁', 'Lock') : L('待验', 'TBD')) : '✓'}</span>
-        ${portrait(idx, activeGallerySeries)}
-        <b>${code} 0${idx}</b>${L(it.nameZh, it.nameEn)}
-      </a>`;
-    }).join('')}</nav>` +
-    `<div class="card num-xs text-sec">${L(seriesMeta.descZh, seriesMeta.descEn)}</div>` +
-    `<div class="col-gap" style="gap:8px;">
-      <button class="btn btn-primary" id="wv-export" type="button">${icon('download', 15)} ${L('保存精装卡背 PNG', 'Save Backing Card PNG')}</button>
-      <div class="grid-2">
-        <button class="btn btn-secondary" id="wv-share-tg" type="button">${icon('send', 14)} ${L('分享至 TG', 'Share TG')}</button>
-        <button class="btn btn-secondary" id="wv-share-x" type="button">${icon('xBrand', 14)} ${L('分享至 X', 'Share X')}</button>
-      </div>
-    </div>`;
-  root.style.setProperty('--wv-hue', (selected - 1) * 19 + 'deg');
 
-  // 双系列切换（互动解锁 vs A9 市值达标）
-  root.querySelectorAll('[data-boxhead-series]').forEach((btn) => {
-    btn.onclick = () => {
-      const nextSeries = btn.dataset.boxheadSeries;
-      if (nextSeries === activeGallerySeries) return;
-      A9Haptic.light();
-      A9Audio.tick();
-      activeGallerySeries = nextSeries;
-      const nextPrefix = nextSeries === 'wealth' ? 'wlt' : 'act';
-      navigate(`/gallery/${nextPrefix}-0${selected}`);
-    };
-  });
+        <div class="wv-copy">
+          <div class="row-start" style="justify-content:center;gap:6px;flex-wrap:wrap;">
+            <h1>${L(item.nameZh, item.nameEn)}</h1>
+            <span class="chip ${isSelectedUnlocked ? 'chip-green' : 'chip-muted'}" style="min-height:20px;font-size:10px;">${statusBadgeText}</span>
+          </div>
+          <p class="gallery-trait-line">${L(item.traitZh, item.traitEn)}</p>
+          <p class="gallery-voice-pill">“${L(item.voiceZh, item.voiceEn)}”</p>
+        </div>
 
-  // 3D 翻卡（形象 <-> 1对1精装卡背）
-  const flipCard = root.querySelector('#boxhead-flip-card');
-  const flipBtn = root.querySelector('#btn-flip-boxhead');
-  const flipLabel = root.querySelector('#btn-flip-label');
-  let isFlipped = false;
-  const setFlipped = (next) => {
-    isFlipped = Boolean(next);
-    A9Haptic.light();
-    A9Audio.flip();
-    if (flipCard) flipCard.classList.toggle('is-flipped', isFlipped);
-    if (flipBtn) flipBtn.setAttribute('aria-pressed', String(isFlipped));
-    if (flipLabel) {
-      flipLabel.textContent = isFlipped
-        ? L('翻回纸箱人形象', 'Flip to Boxhead Avatar')
-        : L('翻转查看精装卡背', 'Flip to Backing Card');
-    }
-  };
-  if (flipBtn) flipBtn.onclick = () => setFlipped(!isFlipped);
-  const backFace = root.querySelector('.boxhead-face.back');
-  if (backFace) backFace.onclick = () => setFlipped(false);
+        <div class="gallery-unlock-panel ${isSelectedUnlocked ? 'is-done' : ''}">
+          <div class="row-between" style="gap:8px;">
+            <span class="gallery-unlock-label">${unlockHint}</span>
+            <strong class="gallery-unlock-stat mono">${progressText}</strong>
+          </div>
+          <div class="progress-track gallery-progress-track">
+            <div class="progress-fill ${activeGallerySeries === 'wealth' ? 'is-gold' : ''}" style="width:${progressPct}%;"></div>
+          </div>
+          ${activeGallerySeries === 'activity' && !isSelectedUnlocked ? `
+            <div class="row-between gallery-unlock-foot">
+              <span>${L('免费助力开箱与宝箱商城购箱均计入数量', 'Both free assist & Chest Mall chests count')}</span>
+              <a class="gallery-unlock-cta" href="#/internal/market">${L('去获取宝箱', 'Get Chests')} ›</a>
+            </div>
+          ` : ''}
+        </div>
 
-  // 正面形象轻点触发专属语音气泡与纸屑
-  const standee = root.querySelector('#boxhead-avatar-img');
-  const bubble = root.querySelector('#gallery-speech-bubble');
-  let bubbleTimer = 0;
-  if (standee) {
-    standee.onclick = () => {
-      if (isFlipped) return;
+        <div class="gallery-action-bar">
+          <button class="btn btn-primary btn-sm" id="wv-export" type="button">${icon('download', 14)} ${L('保存', 'Save')}</button>
+          ${canEquip ? `<button class="btn btn-secondary btn-sm" id="wv-set-avatar" type="button" ${isEquipped ? 'disabled' : ''}>${icon('checkCircle', 14)} ${isEquipped ? L('使用中', 'Equipped') : L('设为头像', 'Equip')}</button>` : ''}
+          <button class="btn btn-secondary btn-sm" id="wv-share-tg" type="button" aria-label="Telegram">${icon('send', 14)} TG</button>
+          <button class="btn btn-secondary btn-sm" id="wv-share-x" type="button" aria-label="X">${icon('xBrand', 13)} X</button>
+        </div>
+      </section>` +
+      (activeGallerySeries === 'activity' ? `
+        <div class="chest-tally-strip" aria-label="${L('我的 5 种宝箱统计', 'My 5 Chest Types')}">
+          ${CHEST_TIER_ORDER.map((tierKey) => {
+            const meta = CHEST_TIER_META[tierKey];
+            const cnt = chestCounts[tierKey] || 0;
+            const isTarget = targetChestTier === tierKey || Boolean(item.unlockRule?.requireAllTypes);
+            return `<div class="chest-tally-pill tone-${meta.tone}${isTarget ? ' is-target' : ''}${cnt > 0 ? ' has-any' : ''}">
+              <span class="chest-tally-dot" aria-hidden="true"></span>
+              <span class="chest-tally-name">${L(meta.shortZh, meta.shortEn)}</span>
+              <b class="mono">${cnt}</b>
+            </div>`;
+          }).join('')}
+        </div>
+      ` : '') +
+      `<div class="row-between" style="padding:2px 2px 0;">
+        <span class="section-kicker" style="padding:0;">${L(seriesMeta.labelZh, seriesMeta.labelEn)} · ${code} 01–09</span>
+        <span class="chip ${canEvaluate ? 'chip-gold' : 'chip-muted'} mono" style="min-height:20px;font-size:10px;">${canEvaluate ? `${curUnlockedSet.size} / 9` : L('待核验', 'Pending')}</span>
+      </div>` +
+      `<nav class="wv-gallery series-${activeGallerySeries}">${seriesMeta.items.map((it) => {
+        const idx = it.tier;
+        const locked = canEvaluate ? !curUnlockedSet.has(idx) : true;
+        return `<a href="#/gallery/${it.id}" data-gallery-pick="${it.id}" class="${locked ? 'is-locked' : ''}" aria-current="${idx === selected ? 'true' : 'false'}">
+          <span class="gallery-slot-num mono">0${idx}</span>
+          <span class="gallery-slot-badge" aria-hidden="true">${locked ? '·' : '✓'}</span>
+          ${portrait(idx, activeGallerySeries, { lazy: true })}
+          <b>${L(it.nameZh, it.nameEn)}</b>
+          <small class="gallery-slot-req mono">${L(it.shortReqZh, it.shortReqEn)}</small>
+        </a>`;
+      }).join('')}</nav>`;
+
+    // 预加载当前卡片精装卡背，确保 3D 翻转零延迟闪烁
+    const preloadBack = new Image();
+    preloadBack.decoding = 'async';
+    preloadBack.src = item.card;
+
+    // 3×3 卡册点选使用 replace 切换，不污染浏览器返回历史
+    root.querySelectorAll('[data-gallery-pick]').forEach((el) => {
+      el.onclick = (e) => {
+        e.preventDefault();
+        const id = el.dataset.galleryPick;
+        if (!id) return;
+        A9Haptic.light();
+        A9Audio.tick();
+        navigate(`/gallery/${id}`, { replace: true });
+      };
+    });
+
+    // 双系列切换（同样使用 replace，保证一键直接返回上级页面）
+    root.querySelectorAll('[data-boxhead-series]').forEach((btn) => {
+      btn.onclick = () => {
+        const nextSeries = btn.dataset.boxheadSeries;
+        if (nextSeries === activeGallerySeries) return;
+        A9Haptic.light();
+        A9Audio.tick();
+        activeGallerySeries = nextSeries;
+        const nextPrefix = nextSeries === 'wealth' ? 'wlt' : 'act';
+        navigate(`/gallery/${nextPrefix}-0${selected}`, { replace: true });
+      };
+    });
+
+    // 3D 翻卡（点击卡片或按钮均可翻转，严格兼容 Safari/WebKit）
+    const flipStage = root.querySelector('#gallery-standee-stage');
+    const flipCard = root.querySelector('#boxhead-flip-card');
+    const flipBtn = root.querySelector('#btn-flip-boxhead');
+    const flipLabel = root.querySelector('#btn-flip-label');
+    let isFlipped = false;
+    const setFlipped = (next) => {
+      isFlipped = Boolean(next);
       A9Haptic.light();
       A9Audio.flip();
-      burstParticles(standee);
-      standee.classList.remove('paper-flipping');
-      void standee.offsetWidth;
-      standee.classList.add('paper-flipping');
-      if (bubble) {
-        clearTimeout(bubbleTimer);
-        bubble.classList.remove('hidden');
-        bubble.style.animation = 'none';
-        void bubble.offsetWidth;
-        bubble.style.animation = '';
-        bubbleTimer = setTimeout(() => {
-          if (bubble.isConnected) bubble.classList.add('hidden');
-        }, 2800);
-      }
+      if (flipCard) flipCard.classList.toggle('is-flipped', isFlipped);
+      if (flipBtn) flipBtn.setAttribute('aria-pressed', String(isFlipped));
+      if (flipLabel) flipLabel.textContent = isFlipped ? L('翻回正面', 'Front') : L('翻看卡背', 'Flip Back');
     };
-  }
-
-  if (config.isDemo) {
-    const preview = document.createElement('button');
-    preview.className = 'btn btn-secondary';
-    preview.type = 'button';
-    preview.textContent = L('设为我的档案头像（演示预览）', 'Set as My Profile Avatar (Demo)');
-    preview.onclick = () => {
-      A9Haptic.success();
-      A9Audio.flip();
-      store.update((state) => {
-        state.user.previewTier = selected;
-        state.user.previewSeries = activeGallerySeries;
-      });
-      navigate('/profile');
-    };
-    root.append(preview);
-  }
-
-  // 社交分享（TG & X）
-  const shareLink = buildStartAppLink('gallery', item.id);
-  const shareCopy = L(
-    `我在 A9 BOXHEADS ARCHIVE 收藏了【${code} 0${selected} · ${item.nameZh}】(${item.rarity}) 精装卡背！来 A9 广场集章闯关解锁你的专属抽象纸箱人：`,
-    `Collected [${code} 0${selected} · ${item.nameEn}] (${item.rarity}) backing card in A9 BOXHEADS ARCHIVE! Unlock yours in A9 Plaza:`
-  );
-  const tgBtn = root.querySelector('#wv-share-tg');
-  if (tgBtn) {
-    tgBtn.onclick = () => {
-      A9Haptic.light();
-      A9TMA.shareInvite(shareLink, shareCopy);
-      showToast(L('已调起 Telegram 分享卡背', 'Opened Telegram share'));
-    };
-  }
-  const xBtn = root.querySelector('#wv-share-x');
-  if (xBtn) {
-    xBtn.onclick = () => {
-      A9Haptic.light();
-      const intentUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(shareCopy)}&url=${encodeURIComponent(shareLink)}`;
-      A9TMA.openExternalLink(intentUrl);
-      showToast(L('已打开 X 分享页面', 'Opened X share'));
-    };
-  }
-
-  // 保存精装卡背 PNG（720×960 典藏分享图，以 1 对 1 专属卡背为核心主体）
-  root.querySelector('#wv-export').onclick = async () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 720;
-    canvas.height = 960;
-    const ctx = canvas.getContext('2d');
-    const cardImg = new Image();
-    cardImg.src = characterCardArt(selected, activeGallerySeries);
-    await cardImg.decode().catch(() => {});
-
-    const isDarkCard = activeGallerySeries === 'wealth';
-    ctx.fillStyle = isDarkCard ? '#161619' : '#F6F6F8';
-    ctx.fillRect(0, 0, 720, 960);
-
-    ctx.fillStyle = isDarkCard ? '#262832' : '#D1D4DF';
-    ctx.beginPath();
-    ctx.roundRect(36, 44, 648, 876, 34);
-    ctx.fill();
-    ctx.fillStyle = isDarkCard ? '#1E2028' : '#FFFFFF';
-    ctx.beginPath();
-    ctx.roundRect(36, 36, 648, 876, 34);
-    ctx.fill();
-
-    ctx.fillStyle = '#A8000E';
-    ctx.beginPath();
-    ctx.roundRect(72, 74, 88, 48, 14);
-    ctx.fill();
-    ctx.fillStyle = '#E60012';
-    ctx.beginPath();
-    ctx.roundRect(72, 68, 88, 48, 14);
-    ctx.fill();
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 28px sans-serif';
-    ctx.fillText('A9', 96, 102);
-
-    ctx.fillStyle = isDarkCard ? '#D6D8E1' : '#565B6B';
-    ctx.font = 'bold 20px sans-serif';
-    ctx.fillText(`BOXHEADS ARCHIVE S01 · ${code} 0${selected} · ${item.rarity}`, 178, 100);
-
-    if (cardImg.complete && cardImg.naturalWidth) {
-      const maxW = 540;
-      const maxH = 610;
-      const scale = Math.min(maxW / cardImg.naturalWidth, maxH / cardImg.naturalHeight);
-      const dw = cardImg.naturalWidth * scale;
-      const dh = cardImg.naturalHeight * scale;
-      const dx = (720 - dw) / 2;
-      const dy = 148 + (maxH - dh) / 2;
-      ctx.save();
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.28)';
-      ctx.shadowBlur = 24;
-      ctx.shadowOffsetY = 12;
-      ctx.drawImage(cardImg, dx, dy, dw, dh);
-      ctx.restore();
+    if (flipBtn) flipBtn.onclick = () => setFlipped(!isFlipped);
+    if (flipStage) {
+      flipStage.onclick = () => setFlipped(!isFlipped);
+      flipStage.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFlipped(!isFlipped); } };
     }
 
-    ctx.fillStyle = isDarkCard ? '#F5F6FA' : '#1B1D24';
-    ctx.font = 'bold 42px sans-serif';
-    ctx.fillText(`${code} 0${selected} · ${L(item.nameZh, item.nameEn)}`, 72, 822);
-    ctx.fillStyle = isDarkCard ? '#9BA0B2' : '#565B6B';
-    ctx.font = '22px sans-serif';
-    ctx.fillText(
-      activeGallerySeries === 'wealth'
-        ? L('A9 市值达标专属精装卡背 · BOXHEADS ARCHIVE', 'A9 Wealth Tier Backing Card · BOXHEADS ARCHIVE')
-        : L('A9 平台互动专属精装卡背 · BOXHEADS ARCHIVE', 'A9 Activity Tier Backing Card · BOXHEADS ARCHIVE'),
-      72,
-      868,
+    const equipBtn = root.querySelector('#wv-set-avatar');
+    if (equipBtn) {
+      equipBtn.onclick = () => {
+        A9Haptic.success();
+        A9Audio.flip();
+        store.update((state) => {
+          state.user.previewTier = selected;
+          state.user.previewSeries = activeGallerySeries;
+        });
+        showToast(L(`已将「${item.nameZh}」设为头像`, `Equipped "${item.nameEn}"`));
+        navigate('/profile');
+      };
+    }
+
+    // 社交分享（TG & X）
+    const shareLink = buildStartAppLink('gallery', item.id);
+    const shareCopy = L(
+      `我在 A9 收藏了【${code} 0${selected} · ${item.nameZh}】(${item.rarity})：`,
+      `Collected [${code} 0${selected} · ${item.nameEn}] (${item.rarity}) on A9:`
     );
+    const tgBtn = root.querySelector('#wv-share-tg');
+    if (tgBtn) {
+      tgBtn.onclick = () => {
+        A9Haptic.light();
+        A9TMA.shareInvite(shareLink, shareCopy);
+        showToast(L('已调起 Telegram 分享', 'Opened Telegram share'));
+      };
+    }
+    const xBtn = root.querySelector('#wv-share-x');
+    if (xBtn) {
+      xBtn.onclick = () => {
+        A9Haptic.light();
+        const intentUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(shareCopy)}&url=${encodeURIComponent(shareLink)}`;
+        A9TMA.openExternalLink(intentUrl);
+        showToast(L('已打开 X 分享', 'Opened X share'));
+      };
+    }
 
-    const a = document.createElement('a');
-    a.href = canvas.toDataURL('image/png');
-    a.download = `A9-boxhead-${item.id}-card.png`;
-    a.click();
-    A9Haptic.success();
-    showToast(L('精装卡背 PNG 已保存，可直接分享至社交平台', 'Backing card PNG saved for sharing'));
+    // 保存收藏卡 PNG
+    root.querySelector('#wv-export').onclick = async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 720;
+      canvas.height = 960;
+      const ctx = canvas.getContext('2d');
+      const cardImg = new Image();
+      cardImg.src = item.card;
+      await cardImg.decode().catch(() => {});
+
+      const isDarkCard = activeGallerySeries === 'wealth';
+      ctx.fillStyle = isDarkCard ? '#15161A' : '#F4F5F8';
+      ctx.fillRect(0, 0, 720, 960);
+
+      ctx.fillStyle = isDarkCard ? '#262832' : '#C8CDD9';
+      ctx.beginPath();
+      ctx.roundRect(36, 44, 648, 876, 34);
+      ctx.fill();
+      ctx.fillStyle = isDarkCard ? '#1E2027' : '#FFFFFF';
+      ctx.beginPath();
+      ctx.roundRect(36, 36, 648, 876, 34);
+      ctx.fill();
+
+      ctx.fillStyle = '#A3000D';
+      ctx.beginPath();
+      ctx.roundRect(72, 74, 88, 48, 14);
+      ctx.fill();
+      ctx.fillStyle = '#E60012';
+      ctx.beginPath();
+      ctx.roundRect(72, 68, 88, 48, 14);
+      ctx.fill();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 28px sans-serif';
+      ctx.fillText('A9', 96, 102);
+
+      ctx.fillStyle = isDarkCard ? '#D6D8E1' : '#505565';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText(`BOXHEADS S01 · ${code} 0${selected} · ${item.rarity}`, 178, 100);
+
+      if (cardImg.complete && cardImg.naturalWidth) {
+        const maxW = 540;
+        const maxH = 610;
+        const scale = Math.min(maxW / cardImg.naturalWidth, maxH / cardImg.naturalHeight);
+        const dw = cardImg.naturalWidth * scale;
+        const dh = cardImg.naturalHeight * scale;
+        const dx = (720 - dw) / 2;
+        const dy = 148 + (maxH - dh) / 2;
+        ctx.save();
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.24)';
+        ctx.shadowBlur = 22;
+        ctx.shadowOffsetY = 10;
+        ctx.drawImage(cardImg, dx, dy, dw, dh);
+        ctx.restore();
+      }
+
+      ctx.fillStyle = isDarkCard ? '#F5F6FA' : '#171920';
+      ctx.font = 'bold 42px sans-serif';
+      ctx.fillText(L(item.nameZh, item.nameEn), 72, 822);
+      ctx.fillStyle = isDarkCard ? '#9BA0B2' : '#505565';
+      ctx.font = '22px sans-serif';
+      ctx.fillText(`${code} 0${selected} · ${unlockHint}`, 72, 868);
+
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = `A9-boxhead-${item.id}-card.png`;
+      a.click();
+      A9Haptic.success();
+      showToast(L('收藏卡 PNG 已保存', 'Card PNG saved'));
+    };
   };
+
+  renderGalleryView();
+
+  // 异步同步用户 5 种宝箱累计数量，同步完成后无缝刷新图鉴解锁态与进度条
+  fetchMyChests()
+    .then((res) => {
+      const nextCounts = summarizeChestCounts(res);
+      const prevKey = JSON.stringify(galleryChestCache.counts);
+      const nextKey = JSON.stringify(nextCounts);
+      const shouldRepaint = !galleryChestCache.loaded || prevKey !== nextKey;
+      galleryChestCache = { loaded: true, counts: nextCounts };
+      if (shouldRepaint && root && root.isConnected) {
+        renderGalleryView();
+      }
+    })
+    .catch(() => {});
+
+  // 真实模式下同步已连接钱包的链上 A9 持仓估值（可用 A9 + 质押凭证本金），用于 A1–A9 市值解锁
+  if (!config.isDemo) {
+    const addr = store.state.user?.address || null;
+    if (addr) {
+      fetchUserPortfolio(addr)
+        .then((portfolio) => {
+          if (store.state.user?.address !== addr) return;
+          const next = computeLiveA9HoldingUsd(portfolio, store.state.round);
+          const changed =
+            galleryWealthCache.wallet !== addr ||
+            galleryWealthCache.available !== next.available ||
+            galleryWealthCache.holdingUsd !== next.holdingUsd;
+          galleryWealthCache = {
+            wallet: addr,
+            loaded: true,
+            available: next.available,
+            holdingUsd: next.holdingUsd,
+          };
+          if (changed && root && root.isConnected) {
+            renderGalleryView();
+          }
+        })
+        .catch(() => {});
+    }
+  }
 }
 
 /**
@@ -1006,7 +1204,7 @@ export function rewards(root) {
             <h2 style="margin:3px 0 0;font-size:19px;font-weight:900;">${L('当前解锁档位', 'Current Vesting Tier')}</h2>
             <p class="num-xs text-sec" style="margin:4px 0 0;">${L('全网累计达标', 'Global wins')} · <b class="mono" style="color:var(--ink);">${n ?? waiting()}</b> · ${L('即时解锁', 'Instant')} <b class="mono text-gold">${curUnlockLabel}</b></p>
           </div>
-          <img src="./assets/paper-craft/vault.png" alt="" style="width:54px;height:54px;filter:var(--paper-cut-shadow);flex-shrink:0;">
+          <span class="nt-art-badge tone-blue" aria-hidden="true">${renderNintendoGateIcon('vault', 36)}</span>
         </div>
         <div class="wv-steps" style="margin-top:12px;">
           ${[
@@ -1030,7 +1228,7 @@ export function rewards(root) {
           <span class="chip ${config.isDemo ? 'chip-muted' : 'chip-gold'}">${config.isDemo ? L('演示数据', 'DEMO') : L('待核验', 'PENDING')}</span>
         </div>
         <div>${balances}</div>
-        <p class="num-xs text-muted" style="margin:10px 0 0;line-height:1.5;">${L('失败轮可能按规则销毁此前未解锁份额；轮次持续开放至奖池耗尽。', 'Failure can burn prior locked shares. Rounds continue until pool exhaustion.')}</p>
+        <p class="num-xs text-muted" style="margin:10px 0 0;line-height:1.5;">${L('失败将销毁对应待解锁份额 · 奖池分完为止', 'Loss burns scheduled slice · until pool exhaustion')}</p>
       </section>
 
       <nav class="wv-links">${link('/claim', L('金库领奖', 'Claim Prizes'), 'unlock')}${link('/profile', L('我的档案', 'My Profile'), 'wallet')}</nav>
@@ -1088,7 +1286,7 @@ function exactA9(raw) {
 export function portfolioPanel(root, guild = false) {
   const { user } = store.state;
   const panel = document.createElement('section');
-  panel.className = 'card col-gap';
+  panel.className = guild ? 'card col-gap' : 'card card-hero col-gap';
   if (guild) root.prepend(panel);
   else root.append(panel);
   const links = guild
@@ -1101,8 +1299,8 @@ export function portfolioPanel(root, guild = false) {
     : [
         ['/claim', '金库领奖', 'Claim Prizes'],
         ['/ledger', '收益账本', 'Reward Ledger'],
-        ['/records', '闯关战绩', 'Quest History'],
         ['/proof', '闯关凭证', 'Quest Pass'],
+        ['/renew', '自动连闯', 'Auto-Continue'],
         ['/settings', '偏好设置', 'Settings'],
       ];
   function show(data, state, isError = false) {

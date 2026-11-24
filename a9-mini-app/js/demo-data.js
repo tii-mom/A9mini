@@ -207,7 +207,7 @@ export function demoFundsBuy(state, tonAmount) {
 export const DEMO_SOCIAL_FEEDS = [
   'UQ...8892 刚参与 500 GRAM · 2.0x',
   'EQ...3312 刚领取 128,400 A9',
-  'UQ...77ea 加入 暖棉纸冒险团',
+  'UQ...77ea 加入 A9 冒险战队',
   'EQ...9F21 兑换 200,200 A9'
 ];
 
@@ -321,7 +321,7 @@ export function applyDemoInitialState(state) {
   state.team = {
     role: 'captain',
     id: 'TM-0001',
-    name: '暖棉纸冒险团',
+    name: 'A9 冒险战队',
     level: 4,
     boostPct: 15,
     membersActive: 412,
@@ -333,7 +333,7 @@ export function applyDemoInitialState(state) {
     captainHistoryTon: 618.4,
     captainHistoryA9: 184200,
     tgGroupBound: true,
-    tgGroupHandle: '@A9_Paper_Squad',
+    tgGroupHandle: '@A9_Star_Squad',
     tgGroupMembers: 468,
     recruitMinTon: 50,
     topMembers: [
@@ -413,7 +413,7 @@ export function resetDemoPrediction() {
   demoProgUsers.clear();
 }
 
-/* ---------------- 演示模式：手账集章成长循环内存状态（DEMO ONLY） ---------------- */
+/* ---------------- 演示模式：每日集章成长循环内存状态（DEMO ONLY） ---------------- */
 
 const demoProgUsers = new Map();
 const DEMO_DAILY_KEYS = ['daily_checkin', 'daily_prediction', 'daily_observe', 'daily_share'];
@@ -489,7 +489,7 @@ export function demoProgressionClaim({ userId, taskKey, roundId = 3 }) {
   const u = ensureDemoProgUser(userId);
   const tKey = String(taskKey || '').trim();
   const expDelta = DEMO_TASK_EXP[tKey];
-  if (!expDelta) throw new Error(`未知手账印章任务: ${tKey}`);
+  if (!expDelta) throw new Error(`未知打卡印章任务: ${tKey}`);
   const isAch = tKey.startsWith('ach_');
   if (isAch && u.achievementsClaimed.has(tKey)) {
     throw new Error('该成就印章已领取，不可重复领取');
@@ -630,8 +630,8 @@ export const DEMO_RANKS = {
     { rank: '08', name: 'UQ...489f (Me)', ton: '5,000 GRAM', a9: '1,260,000 A9', me: true }
   ],
   team: [
-    { rank: '01', name: '暖棉纸冒险团', ton: '580,000 GRAM', a9: '120,000,000 A9', me: true },
-    { rank: '02', name: '折纸星航战队', ton: '462,000 GRAM', a9: '94,200,000 A9' },
+    { rank: '01', name: 'A9 冒险战队', ton: '580,000 GRAM', a9: '120,000,000 A9', me: true },
+    { rank: '02', name: '星航冲锋战队', ton: '462,000 GRAM', a9: '94,200,000 A9' },
     { rank: '03', name: '金箔典藏战队', ton: '295,000 GRAM', a9: '61,500,000 A9' }
   ],
   invite: [
@@ -650,8 +650,8 @@ export const personalRanks = [
     { r: '50', addr: 'EQ...19d4', invites: 6, reward: '64,000 A9', cutoff: true }
   ];
 export const teamRanks = [
-    { r: '01', addr: '暖棉纸冒险团', invites: 186, reward: 'Lv.4 · +15%', me: true },
-    { r: '02', addr: '折纸星航战队', invites: 142, reward: 'Lv.4 · +15%' },
+    { r: '01', addr: 'A9 冒险战队', invites: 186, reward: 'Lv.4 · +15%', me: true },
+    { r: '02', addr: '星航冲锋战队', invites: 142, reward: 'Lv.4 · +15%' },
     { r: '03', addr: '金箔典藏战队', invites: 94, reward: 'Lv.3 · +10%' }
   ];
 
@@ -669,18 +669,43 @@ export function tickDemoPrice(r) {
 /* ---------------- 演示模式：宝箱商城与免费裂变宝箱（DEMO ONLY） ---------------- */
 
 export const DEMO_CHEST_SKUS = [
-  { skuId: 'chest_bronze',   tier: 'bronze',   zh: '青铜宝箱', en: 'Bronze Chest',   priceGram: '0.99',  baseA9: 1981.98,   maxBoostPct: 6,  maxBoostA9: 118.92,   requiredAssists: 2 },
-  { skuId: 'chest_silver',   tier: 'silver',   zh: '白银宝箱', en: 'Silver Chest',   priceGram: '4.99',  baseA9: 9989.98,   maxBoostPct: 8,  maxBoostA9: 799.20,   requiredAssists: 3 },
-  { skuId: 'chest_gold',     tier: 'gold',     zh: '黄金宝箱', en: 'Gold Chest',     priceGram: '9.99',  baseA9: 19999.98,  maxBoostPct: 10, maxBoostA9: 2000.00,  requiredAssists: 4 },
-  { skuId: 'chest_platinum', tier: 'platinum', zh: '白金宝箱', en: 'Platinum Chest', priceGram: '19.99', baseA9: 40019.98,  maxBoostPct: 11, maxBoostA9: 4402.20,  requiredAssists: 5 },
-  { skuId: 'chest_diamond',  tier: 'diamond',  zh: '钻石宝箱', en: 'Diamond Chest',  priceGram: '99.99', baseA9: 200179.98, maxBoostPct: 12, maxBoostA9: 24021.60, requiredAssists: 6 }
+  { skuId: 'chest_bronze',   tier: 'bronze',   zh: '青铜宝箱', en: 'Bronze Chest',   priceGram: '0.99',  deliveryFeeGram: '0.06', totalPayGram: '1.05',   baseA9: 1981.98,   maxBoostPct: 6,  maxBoostA9: 118.92,   requiredAssists: 2 },
+  { skuId: 'chest_silver',   tier: 'silver',   zh: '白银宝箱', en: 'Silver Chest',   priceGram: '4.99',  deliveryFeeGram: '0.06', totalPayGram: '5.05',   baseA9: 9989.98,   maxBoostPct: 8,  maxBoostA9: 799.20,   requiredAssists: 3 },
+  { skuId: 'chest_gold',     tier: 'gold',     zh: '黄金宝箱', en: 'Gold Chest',     priceGram: '9.99',  deliveryFeeGram: '0.06', totalPayGram: '10.05',  baseA9: 19999.98,  maxBoostPct: 10, maxBoostA9: 2000.00,  requiredAssists: 4 },
+  { skuId: 'chest_platinum', tier: 'platinum', zh: '白金宝箱', en: 'Platinum Chest', priceGram: '19.99', deliveryFeeGram: '0.06', totalPayGram: '20.05',  baseA9: 40019.98,  maxBoostPct: 11, maxBoostA9: 4402.20,  requiredAssists: 5 },
+  { skuId: 'chest_diamond',  tier: 'diamond',  zh: '钻石宝箱', en: 'Diamond Chest',  priceGram: '99.99', deliveryFeeGram: '0.06', totalPayGram: '100.05', baseA9: 200179.98, maxBoostPct: 12, maxBoostA9: 24021.60, requiredAssists: 6 }
 ];
 
 const demoChestStore = {
   initialized: false,
   freeChests: [],
-  shopChests: []
+  shopChests: [],
+  instantOrders: []
 };
+
+function computeDemoChestHoldings(s) {
+  const counts = { bronze: 0, silver: 0, gold: 0, platinum: 0, diamond: 0 };
+  const seenOrders = new Set();
+  for (const c of s.freeChests || []) {
+    if (c.status === 'OPENED' && Object.prototype.hasOwnProperty.call(counts, c.tier)) counts[c.tier] += 1;
+  }
+  for (const c of s.shopChests || []) {
+    if (c.status === 'CANCELLED') continue;
+    if (c.orderId) seenOrders.add(c.orderId);
+    if (Object.prototype.hasOwnProperty.call(counts, c.tier)) counts[c.tier] += 1;
+  }
+  for (const o of s.instantOrders || []) {
+    if (o.orderId && seenOrders.has(o.orderId)) continue;
+    if (Object.prototype.hasOwnProperty.call(counts, o.tier)) {
+      if (o.orderId) seenOrders.add(o.orderId);
+      counts[o.tier] += 1;
+    }
+  }
+  const tiers = ['bronze', 'silver', 'gold', 'platinum', 'diamond'];
+  const distinctTypes = tiers.filter((k) => counts[k] > 0).length;
+  const total = tiers.reduce((sum, k) => sum + counts[k], 0);
+  return { ...counts, distinctTypes, total };
+}
 
 function ensureDemoChests() {
   if (demoChestStore.initialized) return demoChestStore;
@@ -722,7 +747,8 @@ export function demoChestsMe() {
   return {
     catalog: DEMO_CHEST_SKUS,
     freeChests: s.freeChests.map((c) => ({ ...c })),
-    shopChests: s.shopChests.map((c) => ({ ...c }))
+    shopChests: s.shopChests.map((c) => ({ ...c })),
+    chestHoldings: computeDemoChestHoldings(s)
   };
 }
 
@@ -735,22 +761,24 @@ export function demoBuyChest(state, skuId, openMode = 'BOOST') {
   const pack = DEMO_CHEST_SKUS.find((p) => p.skuId === skuId);
   if (!pack) return { error: '未知宝箱档位' };
   const price = Number(pack.priceGram);
-  if (state.user.tonBalance < price) return { error: 'GRAM 余额不足' };
-  state.user.tonBalance = Number((state.user.tonBalance - price).toFixed(2));
+  const totalPay = Number(pack.totalPayGram || (price + 0.06).toFixed(2));
+  if (state.user.tonBalance < totalPay) return { error: 'GRAM 余额不足（需含 0.06 GRAM 发币 Gas）' };
+  state.user.tonBalance = Number((state.user.tonBalance - totalPay).toFixed(2));
   state.user.a9Available = Number((state.user.a9Available + pack.baseA9).toFixed(2));
   const orderId = `CM-${Date.now().toString().slice(-4)}`;
   const mode = openMode === 'INSTANT' ? 'INSTANT' : 'BOOST';
   state.market.records.unshift({
     id: orderId,
-    ton: price,
+    skuId: pack.skuId,
+    ton: totalPay,
     a9: pack.baseA9,
     status: mode === 'BOOST' ? '演示已发本金·膨胀中' : '演示直接开箱',
     hash: demoTxHash('EQC'),
     time: '刚刚'
   });
   let boostChest = null;
+  const s = ensureDemoChests();
   if (mode === 'BOOST') {
-    const s = ensureDemoChests();
     const nowSec = Math.floor(Date.now() / 1000);
     const baseRaw = BigInt(Math.round(pack.baseA9 * 1e9));
     const maxRaw = BigInt(Math.round(pack.maxBoostA9 * 1e9));
@@ -773,6 +801,8 @@ export function demoBuyChest(state, skuId, openMode = 'BOOST') {
       createdAt: nowSec
     };
     s.shopChests.unshift(boostChest);
+  } else {
+    s.instantOrders.unshift({ orderId, skuId: pack.skuId, tier: pack.tier, status: 'COMPLETED' });
   }
   return { orderId, pack, openMode: mode, receivedA9: pack.baseA9, boostChest };
 }
@@ -862,4 +892,126 @@ export function demoOpenChest(state, chestId) {
   const boostA9 = Number(BigInt(sc.boostA9Raw)) / 1e9;
   state.user.a9Available = Number((state.user.a9Available + boostA9).toFixed(2));
   return { chest: { ...sc }, rewardA9Raw: sc.boostA9Raw, destination: 'PROMO_BALANCE', nextUnlocked: null };
+}
+
+/* ---------------- 演示模式：每轮预热预约与预热宝箱（DEMO ONLY） ---------------- */
+
+const demoWarmupState = {
+  roundId: 4,
+  totalRegistered: 168,
+  walletBoundCount: 112,
+  activeWalletCount: 96,
+  remindEnabledCount: 154,
+  targetUsers: 300,
+  plannedOpenAt: Math.floor(Date.now() / 1000) + 14 * 3600,
+  reservation: null,
+  chest: null
+};
+
+export function demoWarmupCurrent() {
+  return {
+    roundId: demoWarmupState.roundId,
+    currentOnchainRoundId: 3,
+    open: true,
+    config: {
+      roundId: demoWarmupState.roundId,
+      status: 'OPEN',
+      plannedOpenAt: demoWarmupState.plannedOpenAt,
+      targetUsers: demoWarmupState.targetUsers,
+      chestBaseA9Raw: '300000000000',
+      chestStepA9Raw: '200000000000',
+      chestMinInvites: 2,
+      chestMaxInvites: 5
+    },
+    stats: {
+      roundId: demoWarmupState.roundId,
+      totalRegistered: demoWarmupState.totalRegistered,
+      walletBoundCount: demoWarmupState.walletBoundCount,
+      activeWalletCount: demoWarmupState.activeWalletCount,
+      remindEnabledCount: demoWarmupState.remindEnabledCount
+    },
+    myReservation: demoWarmupState.reservation ? { ...demoWarmupState.reservation } : null,
+    myWarmupChest: demoWarmupState.chest ? { ...demoWarmupState.chest } : null,
+    inviteDeepLink: `${window.location.origin}${window.location.pathname}?startapp=warmup_${demoWarmupState.roundId}_demo01`
+  };
+}
+
+export function demoWarmupRegister({ intentTier = undefined, remindEnabled = undefined } = {}) {
+  const isNew = !demoWarmupState.reservation || demoWarmupState.reservation.status !== 'ACTIVE';
+  if (isNew) {
+    demoWarmupState.totalRegistered += 1;
+    demoWarmupState.walletBoundCount += 1;
+    demoWarmupState.activeWalletCount += 1;
+    demoWarmupState.remindEnabledCount += 1;
+  }
+  const prev = demoWarmupState.reservation || {
+    roundId: demoWarmupState.roundId,
+    tgUserId: 'demo01',
+    walletAddress: 'UQ...489f',
+    walletActive: true,
+    intentTier: '5000',
+    remindEnabled: true,
+    rawInvites: 3,
+    validInvites: 2,
+    status: 'ACTIVE'
+  };
+  demoWarmupState.reservation = {
+    ...prev,
+    status: 'ACTIVE',
+    intentTier: intentTier !== undefined ? intentTier : prev.intentTier,
+    remindEnabled: remindEnabled !== undefined ? Boolean(remindEnabled) : prev.remindEnabled
+  };
+  if (!demoWarmupState.chest) {
+    demoWarmupState.chest = {
+      chestId: `ch_demo_wu_${demoWarmupState.roundId}`,
+      source: 'WARMUP_ROUND',
+      tier: 'warmup',
+      slotIndex: demoWarmupState.roundId,
+      labelZh: `第 ${demoWarmupState.roundId} 轮早鸟预热宝箱`,
+      labelEn: `R${demoWarmupState.roundId} Early Bird Warm-up Chest`,
+      baseA9Raw: '300000000000',
+      boostA9Raw: '0',
+      maxBoostA9Raw: '600000000000',
+      requiredAssists: 2,
+      currentAssists: 2,
+      status: 'READY'
+    };
+  }
+  return {
+    roundId: demoWarmupState.roundId,
+    reservation: { ...demoWarmupState.reservation },
+    stats: demoWarmupCurrent().stats,
+    warmupChest: { ...demoWarmupState.chest },
+    starterGranted: false,
+    inviteDeepLink: demoWarmupCurrent().inviteDeepLink
+  };
+}
+
+export function demoWarmupCancel() {
+  if (demoWarmupState.reservation && demoWarmupState.reservation.status === 'ACTIVE') {
+    demoWarmupState.reservation.status = 'CANCELLED';
+    demoWarmupState.totalRegistered = Math.max(0, demoWarmupState.totalRegistered - 1);
+  }
+  return {
+    roundId: demoWarmupState.roundId,
+    reservation: demoWarmupState.reservation ? { ...demoWarmupState.reservation } : null,
+    stats: demoWarmupCurrent().stats
+  };
+}
+
+export function demoOpenWarmupChest(state, chestId) {
+  if (!demoWarmupState.chest || demoWarmupState.chest.chestId !== chestId) {
+    return demoOpenChest(state, chestId);
+  }
+  if (demoWarmupState.chest.status === 'OPENED') throw new Error('该预热宝箱已开启');
+  if (demoWarmupState.chest.currentAssists < demoWarmupState.chest.requiredAssists) {
+    throw new Error(`还需 ${demoWarmupState.chest.requiredAssists - demoWarmupState.chest.currentAssists} 位已绑活跃钱包的预热好友`);
+  }
+  demoWarmupState.chest.status = 'OPENED';
+  const totalRaw = (BigInt(demoWarmupState.chest.baseA9Raw) + BigInt(demoWarmupState.chest.boostA9Raw)).toString();
+  if (state?.prediction) {
+    const cur = BigInt(state.prediction.pendingActivationRaw || '0');
+    state.prediction.pendingActivationRaw = (cur + BigInt(totalRaw)).toString();
+  }
+  return { chest: { ...demoWarmupState.chest }, rewardA9Raw: totalRaw, destination: 'PENDING_VAULT', nextUnlocked: null };
 }

@@ -610,9 +610,29 @@ test('P0-1 / P0-4 / P0-5: default v16 config, live Chest Mall never falls back t
   const wvSrc = readFileSync(join(JS_DIR, 'pages', 'wealthverse.js'), 'utf8');
   const rhSrc = readFileSync(join(JS_DIR, 'pages', 'round_hub.js'), 'utf8');
   const pfSrc = readFileSync(join(JS_DIR, 'pages', 'profile.js'), 'utf8');
-  assert.match(wvSrc, /最低 1,000 A9 参与/);
+  assert.match(wvSrc, /(?:最低|≥)\s*1,000 A9/);
   assert.doesNotMatch(wvSrc, /最低 10 GRAM/);
   assert.doesNotMatch(rhSrc, /最低参与 10 GRAM/);
   assert.doesNotMatch(pfSrc, /最低 10 GRAM/);
+});
+
+test('Strict CSP guardrail: index.html has zero inline <script> blocks and _headers removes script-src unsafe-inline', () => {
+  const miniAppDir = dirname(JS_DIR);
+  const indexHtml = readFileSync(join(miniAppDir, 'index.html'), 'utf8');
+  const scriptMatches = [...indexHtml.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+  assert.ok(scriptMatches.length >= 4, 'expected at least 4 external <script> tags');
+  for (const [, attrs, body] of scriptMatches) {
+    assert.match(attrs, /\bsrc\s*=\s*["'][^"']+["']/i, `<script> missing src attribute: ${attrs}`);
+    assert.equal(body.trim(), '', `inline <script> body must be empty, found: ${body.trim().slice(0, 40)}`);
+  }
+  assert.match(indexHtml, /<script\s+src="\.\/js\/theme-init\.js"><\/script>/);
+  assert.match(indexHtml, /<script\s+src="\.\/js\/runtime-config\.js"><\/script>/);
+
+  const headersTxt = readFileSync(join(miniAppDir, '_headers'), 'utf8');
+  const cspMatch = headersTxt.match(/Content-Security-Policy:\s*([^\r\n]+)/i);
+  assert.ok(cspMatch, 'Content-Security-Policy header missing');
+  const scriptSrcMatch = cspMatch[1].match(/script-src\s+([^;]+)/i);
+  assert.ok(scriptSrcMatch, 'script-src directive missing in CSP');
+  assert.doesNotMatch(scriptSrcMatch[1], /'unsafe-inline'/i, 'script-src must not allow unsafe-inline');
 });
 
