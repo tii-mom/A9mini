@@ -189,6 +189,9 @@ export function renderSettingsPage(root) {
       </div>
       ${config.isDemo ? `<button class="btn btn-danger" id="btn-reset-demo" type="button">${icon('refresh', 15)} ${L('重置本地演示数据', 'Reset Demo Data')}</button>` : ''}
 
+      <section class="card row-start"><img loading="lazy" src="./assets/boxheads/activity/avatars/act-01.png" width="48" height="48" alt="">
+        <div><strong>${L('关于 A9', 'About A9')}</strong><p>${L('A9 · 财富大冒险', 'A9 · Wealth Quest')}</p></div>
+      </section>
       <div class="settings-version-strip">
         <span>A9 Protocol · ${PROTOCOL_SPECS.version}</span>
         <span>${config.isDemo ? 'DEMO SANDBOX' : (store.fundsEnabled ? 'TON LIVE' : 'TON LIVE READ-ONLY')}</span>

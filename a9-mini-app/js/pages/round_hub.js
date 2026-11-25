@@ -38,7 +38,6 @@ import {
   renderSettlementFailed,
   renderTechnicalHalt,
   renderPredictionCard,
-  renderPendingVaultBanner,
   renderEarlyBirdBanner,
   renderSafetyCushionCard,
   renderMyRoundPositionCard,
@@ -111,7 +110,8 @@ async function syncMyRoundPositionCard(root) {
   }
 }
 
-export function renderChallengeHome(root, navigate) {
+export function renderChallengeHome(root, navigate, _param, query = {}) {
+  if (query.panel === 'prediction') store.state.referral.pendingScrollTarget = 'prediction';
   const { round, user } = store.state;
   const stage = round.stage;
   if (!stage) {
@@ -124,7 +124,7 @@ export function renderChallengeHome(root, navigate) {
   }
 
   if (!config.isDemo) {
-    root.innerHTML = `<div class="col-gap anim-page-enter">${renderPendingVaultBanner(store.state.prediction, round)}${renderEarlyBirdBanner(round)}${liveRound(round)}<div id="a9-my-round-position-mount"></div>${stage === 'participation' ? renderSafetyCushionCard(round) : ''}${renderRoundInteractDeck(round, store.state.prediction, user)}</div>`;
+    root.innerHTML = `<div class="col-gap anim-page-enter">${renderEarlyBirdBanner(round)}${liveRound(round)}<div id="a9-my-round-position-mount"></div>${stage === 'participation' ? renderSafetyCushionCard(round) : ''}${renderRoundInteractDeck(round, store.state.prediction, user)}</div>`;
     bindRoundDeckTabs(root);
     bindPredictionCardEvents(root, navigate);
     syncPredictionState(root, navigate);
@@ -462,7 +462,8 @@ function bindPredictionCardEvents(root, navigate) {
         const res = await activatePredictionReward(uid, user.address);
         A9Haptic.success();
         A9Audio.confirm();
-        const deltaA9 = rawToA9(res?.activatedRaw ?? res?.activatedDeltaRaw ?? prediction.pendingActivationRaw) || 0;
+        const deltaA9 = rawToA9(res?.activatedDeltaRaw ?? res?.activatedRaw ?? prediction.pendingActivationRaw) || 0;
+        if (config.isDemo) user.promoClaimableA9 += deltaA9;
         showToast(L(`已激活 ${formatNum(deltaA9)} A9 至邀友奖励账户，可走 0.06 GRAM 提现`, `Activated ${formatNum(deltaA9)} A9 to invite reward balance`));
         await syncPredictionState(root, navigate);
       } catch (e) {

@@ -47,7 +47,7 @@ export function demoFixture() {
       lockedSlices: 4,
       unlockedSlices: 1,
       burnedSlices: 0,
-      lockedTotalRaw: '102720000000000'
+      lockedTotalRaw: '12000000000000'
     },
     candles: FIXTURE_CANDLE_ROWS.map(([twap, qualified], i) => ({
       roundId: 3,
@@ -127,7 +127,10 @@ export function demoWalletSendResult(action = 'demo_tx') {
 
 /** 演示模式邀友奖励模拟领取（不发真实网络订单，不触发钱包签名）。 */
 export function demoFundsClaimPromo(state) {
-  const amountA9 = 96500;
+  const amountA9 = state.user.promoClaimableA9;
+  if (!(amountA9 > 0)) return { error: state.settings.language === 'en-US' ? 'No claimable rewards' : '暂无可领推广奖励' };
+  state.user.promoClaimableA9 = 0;
+  state.user.a9Available += amountA9;
   const txHash = demoTxHash('EQP');
   if (state?.ledger) {
     state.ledger.unshift({
@@ -259,11 +262,13 @@ export function applyDemoInitialState(state) {
   state.market.usedQuotaTon = 150;
   state.user.connected = true;
   state.user.tgBound = true;
+  state.user.address = 'UQ_9921_A9_TERMINAL_489f';
   state.user.shortAddress = 'UQ...489f';
   state.user.tonBalance = 1250.5;
   state.user.a9Available = 48200;
-  state.user.a9Claimable = 25680;
-  state.user.a9Locked = 102720;
+  state.user.promoClaimableA9 = 96500;
+  state.user.a9Claimable = 3000;
+  state.user.a9Locked = 12000;
   state.user.a9TotalEarned = 176600;
   state.user.warmupInvites = 18;
 
@@ -272,9 +277,9 @@ export function applyDemoInitialState(state) {
       id: 'A9-STAKE-R03-882419',
       round: 3,
       stakeTon: 5000,
-      multiplier: 2.0,
-      weight: 10000,
-      estRewardA9: 75000,
+      multiplier: 1,
+      weight: 5000,
+      estRewardA9: 25000,
       status: 'observation',
       autoRenew: true,
       txHash: 'EQB9A4C72F...81E4',
@@ -284,9 +289,9 @@ export function applyDemoInitialState(state) {
       id: 'A9-STAKE-R02-641205',
       round: 2,
       stakeTon: 3000,
-      multiplier: 1.4,
-      weight: 4200,
-      estRewardA9: 45000,
+      multiplier: 1,
+      weight: 3000,
+      estRewardA9: 15000,
       status: 'settled',
       autoRenew: false,
       txHash: 'EQD3F8B19A...4C02',
@@ -299,7 +304,7 @@ export function applyDemoInitialState(state) {
       id: 'LD-9021',
       type: '第 2 轮达标首笔释放 (20%)',
       source: '第 2 轮结算',
-      amount: '+25,680 A9',
+      amount: '+3,000 A9',
       status: '待领取',
       time: '昨日 20:00',
       cat: 'user'
@@ -356,7 +361,7 @@ export function applyDemoInitialState(state) {
     lockedSlices: 4,
     unlockedSlices: 1,
     burnedSlices: 0,
-    lockedTotalRaw: '102720000000000'
+    lockedTotalRaw: '12000000000000'
   };
   if (state.prediction) {
     state.prediction.pendingActivationRaw = '12500000000000';
@@ -779,7 +784,7 @@ export function demoClaimStarterChests() {
   return { created: false, chests: s.freeChests.map((c) => ({ ...c })) };
 }
 
-export function demoBuyChest(state, skuId, _openMode = 'INSTANT') {
+export function demoBuyChest(state, skuId, _openMode = 'INSTANT', userId = state.user.address) {
   const pack = DEMO_CHEST_SKUS.find((p) => p.skuId === skuId);
   if (!pack) return { error: '未知宝箱档位' };
   const price = Number(pack.priceGram);
@@ -792,6 +797,15 @@ export function demoBuyChest(state, skuId, _openMode = 'INSTANT') {
   const totalA9 = Number((pack.baseA9 + bonusA9).toFixed(2));
   state.user.tonBalance = Number((state.user.tonBalance - totalPay).toFixed(2));
   state.user.a9Available = Number((state.user.a9Available + totalA9).toFixed(2));
+  if (Number(state.prediction?.pendingActivationRaw) > 0 && state.user.address && userId) {
+    const reward = ensureDemoPredUser(userId);
+    reward.pendingActivationRaw = state.prediction.pendingActivationRaw;
+    if (reward.pendingExpiresAt > Date.now()) {
+      const activation = demoPredictionActivate(userId, state.user.address);
+      state.user.promoClaimableA9 += Number(activation.activatedDeltaRaw) / 1e9;
+      Object.assign(state.prediction, activation);
+    }
+  }
   const orderId = `CM-${Date.now().toString().slice(-4)}`;
   state.market.records.unshift({
     id: orderId,

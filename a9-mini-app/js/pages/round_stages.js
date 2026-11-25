@@ -222,11 +222,11 @@ export function renderPendingVaultBanner(pred, round) {
         <span class="vault-step next">2/2 ${L('首单加赠或 0 元激活', 'Activate with Order / 0-Cost')}</span>
       </div>
       <p class="num-xs text-sec" style="margin:6px 0 10px;line-height:1.45;">
-        ${L(`0.99 GRAM 购箱共得 ${formatNum(firstOrderTotalA9, 0)} A9（含 +${bonusPct}% 赠金），或锁仓 / 邀 1 友自动激活。`, `0.99 GRAM chest yields ${formatNum(firstOrderTotalA9, 0)} A9 (+${bonusPct}% bonus), or auto-activates via lock / 1 invite.`)}
+        ${L(`0.99 GRAM 购箱共得 ${formatNum(firstOrderTotalA9, 0)} A9（含 +${bonusPct}% 赠金），或锁仓 / 邀 1 友购箱自动激活。`, `0.99 GRAM chest yields ${formatNum(firstOrderTotalA9, 0)} A9 (+${bonusPct}% bonus), or auto-activates via lock / one invited buyer.`)}
       </p>
       <div class="grid-2" style="gap:8px;">
         <button class="btn btn-primary btn-sm" data-nav="/internal/market" type="button" style="width:100%;min-height:40px;white-space:nowrap;">${icon('swap', 14)} ${L('首单加赠领箱', 'Claim with Bonus')}</button>
-        <button class="btn btn-secondary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:40px;white-space:nowrap;">${icon('send', 14)} ${L('邀 1 友 0 元解锁', '0-Cost Invite')}</button>
+        <button class="btn btn-secondary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:40px;white-space:nowrap;">${icon('send', 14)} ${L('邀 1 友购箱激活', 'Invite a Buyer')}</button>
       </div>
     </section>
   `;
@@ -486,7 +486,7 @@ export function renderParticipation(round) {
     ? round.priceHistory : [];
 
   return `
-    ${renderPendingVaultBanner(store.state.prediction, round)}
+
     ${renderEarlyBirdBanner(round)}
     <div class="card card-hero">
       <div class="row-between" style="margin-bottom:12px;">
@@ -556,7 +556,7 @@ export function renderObservation(round) {
   const isMatchPoint = isSprint4h || (hasQualified && passed >= Math.max(1, required - 2) && passed < required);
 
   return `
-    ${renderPendingVaultBanner(store.state.prediction, round)}
+
     <section class="observatory-stage${isMatchPoint ? ' is-matchpoint' : ''}${isRedAlert ? ' alert-red-mode' : ''}">
       <div class="observatory-hud">
         ${stagePillTrigger('observation', round.currentRound)}
@@ -758,7 +758,7 @@ export function renderSettlementFailed(round) {
   const reqQ = toFiniteNum(round.minQualifiedCandles) || 8;
   const failPct = hasQ ? Math.round((qual / reqQ) * 100) : 0;
   return `
-    ${renderPendingVaultBanner(store.state.prediction, round)}
+
     <div class="card card-glow-red alert-red-mode" id="burn-monument-card">
       <div class="row-between" style="margin-bottom:10px;">
         ${stagePillTrigger('settlement_burn', round?.currentRound || 1)}

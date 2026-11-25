@@ -2604,3 +2604,33 @@
   border-color: var(--nt-green);
   color: #FFFFFF;
 }
+
+.plaza-overview h2 {
+  margin: 0;
+  font-size: clamp(1.25rem, 5.5vw, 1.6rem);
+  line-height: 1.2;
+}
+.plaza-overview .plaza-mini-strip {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 3px;
+  cursor: default;
+}
+.plaza-overview .plaza-mini-cell {
+  height: 24px;
+  display: grid;
+  place-items: center;
+  font-style: normal;
+  font-weight: 800;
+  color: var(--ink);
+  background: var(--paper-tray);
+}
+.plaza-overview .plaza-mini-cell.pass { border-bottom: 4px solid var(--nt-green); }
+.plaza-overview .plaza-mini-cell.miss { border-bottom: 4px solid var(--nt-rose); }
+.plaza-overview .plaza-mini-cell.active { border: 2px dashed var(--nt-blue); }
+.plaza-gates a { color: var(--ink); text-decoration: none; }
+.plaza-gates small { color: var(--text-secondary); }
+.guild-board > .row-between,
+.guild-board .row-start,
+#a9-radar-card > .card-header,
+.mall-info-strip { flex-wrap: wrap; }
+.mall-crit-ticker .mall-crit-text { white-space: normal; overflow-wrap: anywhere; }

@@ -1,6 +1,7 @@
 import { personalRanks, teamRanks, DEMO_CHEST_SKUS, demoBuyChest } from '../demo-data.js';
 import {
   fetchWarmupCurrent,
+  fetchPredictionUser,
   fetchWarmupRank,
   fetchMyChests,
   claimStarterChests,
@@ -546,6 +547,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
   let critTimer = null;
   let liveQuota = null;
   let liveOrdersCount = null;
+  let activationA9 = null;
   let buyBusy = false;
   let openAllBusy = false;
 
@@ -794,6 +796,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
         </div>
 
         ${activeTab === 'mall' ? `
+          ${query.from === 'activation' && (config.isDemo ? rawToA9(store.state.prediction.pendingActivationRaw) : activationA9) > 0 ? `<section class="card"><div class="card-title">${L('待激活奖励', 'Pending activation')} · ${formatNum(activationA9)} A9</div><p>${L('购箱后，符合条件的奖励将并入推广余额。宝箱内的 A9 单独直发钱包。', 'Eligible rewards move to your referral balance after purchase. Chest contents go directly to your wallet.')}</p></section>` : ''}
           ${critFeed.length > 0 ? `<button type="button" class="mall-crit-ticker" id="mall-crit-ticker" aria-live="polite">${formatCritTickerInner(critFeed[critIndex % critFeed.length], critIndex % critFeed.length, critFeed.length)}</button>` : ''}
           <div class="mall-info-strip">
             <span class="mall-rate-tag is-green">${icon('shieldCheck', 12, 'text-green')} ${L('100% 保底本金 · 买完合并直发钱包', '100% Base Safe · Direct Wallet Payout')}</span>
@@ -1058,7 +1061,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
           return;
         }
         if (config.isDemo) {
-          const res = demoBuyChest(store.state, selectedSkuId, 'INSTANT');
+          const res = demoBuyChest(store.state, selectedSkuId, 'INSTANT', getEffectiveUserId(store.state.user));
           if (res.error) {
             A9Haptic.error();
             showToast(res.error, 'error');
@@ -1356,6 +1359,16 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     });
   };
 
+  if (query.from === 'activation') {
+    const uid = getEffectiveUserId(store.state.user);
+    if (config.isDemo) activationA9 = rawToA9(store.state.prediction.pendingActivationRaw);
+    else if (uid) fetchPredictionUser(uid, store.state.round.currentRound).then(data => {
+      if (root.isConnected && uid === getEffectiveUserId(store.state.user)) {
+        activationA9 = rawToA9(data?.pendingActivationRaw);
+        render();
+      }
+    }).catch(() => {});
+  }
   render();
   loadChests();
 }

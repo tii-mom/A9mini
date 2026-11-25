@@ -510,7 +510,7 @@ test('W2: URL parameter cannot enable liveFundsEnabled; only explicit injected c
 
 test('P1-5: /market alias route exists, share.js uses protocolConfig.botHandle, and cancelWarmup posts /api/warmup/cancel', () => {
   const routerSrc = readFileSync(join(JS_DIR, 'router.js'), 'utf8');
-  assert.match(routerSrc, /path:\s*'\/market'[^}]*render:\s*renderInternalMarket/);
+  assert.match(routerSrc, /path:\s*'\/market'[^}]*load:[^}]*m\.renderInternalMarket/);
 
   const out = runScenario(
     {
@@ -1300,7 +1300,7 @@ test('Batch C: lockMode blocks ?mode=demo, TON Connect enforces mainnet chain & 
   const appSrc = readFileSync(join(JS_DIR, 'app.js'), 'utf8');
   assert.ok(appSrc.includes("viewHost.className = 'route-view-host'"), 'app.js must mount each route in a fresh viewHost');
   assert.ok(appSrc.includes('mainEl.replaceChildren(viewHost)'), 'app.js must replace mainEl children so old root.isConnected turns false');
-  assert.ok(appSrc.includes('route.render(renderTarget, navigate, param, query)'), 'app.js must pass isolated renderTarget to route.render');
+  assert.ok(appSrc.includes('const render = await route.load()') && appSrc.includes('if (seq !== routeRenderSeq) return;') && appSrc.includes('render(renderTarget, navigate, param, query)'), 'app.js must pass isolated renderTarget to route.render');
 
   const profileSrc = readFileSync(join(JS_DIR, 'pages/profile.js'), 'utf8');
   assert.ok(profileSrc.includes('${escapeHtml(txHash)}'), 'profile.js must escape txHash');
@@ -1350,6 +1350,7 @@ test('Global v17.1 terminology guardrail across Mini App, Bot, Official Web, and
     'a9-mini-app/js/pages/round_hub.js',
     'a9-mini-app/js/pages/round_stages.js',
     'a9-mini-app/js/pages/profile.js',
+    'a9-mini-app/js/pages/plaza.js',
     'a9-mini-app/js/pages/wealthverse.js',
     'a9-mini-app/js/pages/system.js',
     'a9-mini-app/js/pages/team.js',

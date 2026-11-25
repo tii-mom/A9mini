@@ -1,4 +1,4 @@
-import { portfolioPanel, identityStage, bindIdentityStage } from './wealthverse.js';
+import { portfolioPanel, identityStage } from './wealthverse.js';
 /**
  * 我的 / 资产 / 结算 / 凭证 / 账本 / 连闯页
  * 顺序：身份铭牌 → 可领取与资产遥测 → 四宫格功能台 → 凭证收藏册。
@@ -19,7 +19,7 @@ import { openXShareSheet, triggerStoryShare } from '../share.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
-import { fetchUserPortfolio, fetchPromoBalance, fetchPredictionUser, fetchNotificationPrefs, updateNotificationPrefs, fetchMyStakeReferrals, getEffectiveUserId, rawToA9 } from '../data.js';
+import { fetchUserPortfolio, fetchPromoBalance, fetchPredictionUser, fetchNotificationPrefs, updateNotificationPrefs, getEffectiveUserId, rawToA9 } from '../data.js';
 import { pendingTxManager } from '../tx-ux.js';
 
 function renderMiniBarcode() {
@@ -49,7 +49,6 @@ function renderUnifiedVaultHtml({
   hasWallet = false,
   loading = false,
   fundsEnabled = false,
-  showQuickSlider = false,
   loadError = false,
 } = {}) {
   const fmtA9 = (val, fallback = L('待核验', 'Pending')) =>
@@ -57,9 +56,6 @@ function renderUnifiedVaultHtml({
       ? fallback
       : `${formatNum(Number(val), Number(val) % 1 === 0 ? 0 : 2)} A9`;
 
-  const claimParts = [roundClaimableA9, promoClaimableA9].filter((v) => v !== null && v !== undefined && Number.isFinite(Number(v)));
-  const hasAnySum = claimParts.length > 0;
-  const totalReadyA9 = hasAnySum ? claimParts.reduce((s, n) => s + Number(n), 0) : null;
   const hasPendingVault = predPendingA9 !== null && predPendingA9 !== undefined && Number(predPendingA9) > 0;
 
   const roundValDisplay = roundClaimableA9 !== null && roundClaimableA9 !== undefined
@@ -68,27 +64,14 @@ function renderUnifiedVaultHtml({
       ? L(`${activeTicketsCount} 张凭证可查`, `${activeTicketsCount} ticket(s)`)
       : fmtA9(null));
 
-  const lockedValDisplay = roundLockedA9 !== null && roundLockedA9 !== undefined
-    ? fmtA9(roundLockedA9)
-    : (stakedPrincipalA9 !== null && stakedPrincipalA9 > 0
-      ? `${L('锁仓中', 'Locked')} ${fmtA9(stakedPrincipalA9)}`
-      : fmtA9(null));
+  const lockedValDisplay = fmtA9(roundLockedA9);
 
   return `
     <section class="card card-hero unified-vault-card" id="profile-unified-vault">
       <div class="row-between" style="margin-bottom:8px;">
-        <div class="card-title">${icon('wallet', 15, 'text-gold')} ${L('统一金库 / 领奖中心', 'Unified Vault & Claim Center')}</div>
+        <div class="card-title">${icon('wallet', 15, 'text-gold')} ${L('可领取与待解锁', 'Claims and Unlocks')}</div>
         <span class="chip ${isLive ? (fundsEnabled ? 'chip-green' : 'chip-muted') : 'chip-gold'}">${isLive ? (fundsEnabled ? L('链上可领', 'LIVE') : L('只读模式', 'READ-ONLY')) : 'DEMO'}</span>
       </div>
-
-      <div class="unified-vault-total">
-        <span class="num-xs text-muted">${L('可领总额（轮次 + 推广）', 'Total Claimable (Round + Promo)')}</span>
-        <div class="num-lg text-green mono" style="font-weight:900;margin-top:3px;">${loading && !hasAnySum ? L('同步中…', 'Syncing…') : (showQuickSlider && roundClaimableA9 > 0 ? `<span id="a9-claim-num">${formatNum(totalReadyA9 ?? 0)}</span> A9` : fmtA9(totalReadyA9))}</div>
-      </div>
-
-      <a class="btn btn-primary btn-sm" href="#/claim" style="width:100%;min-height:42px;margin:8px 0 6px;">${icon('bolt', 14)} ${L('前往领奖 / 3 折急提 / 提前解押', 'Claim / Instant Cashout / Early Exit')} ›</a>
-
-      ${showQuickSlider && fundsEnabled && roundClaimableA9 > 0 ? `<div id="profile-quick-slider" style="margin:8px 0;"></div>` : ''}
 
       <div class="profile-asset-telemetry" style="margin:8px 0 10px;">
         <div class="profile-telemetry-cell">
@@ -124,14 +107,14 @@ function renderUnifiedVaultHtml({
           </div>
           <div class="unified-vault-val">
             <b class="mono text-gold">${fmtA9(promoClaimableA9)}</b>
-            <span>${L('全提', 'Withdraw')} ›</span>
+            <span>${L('查看推广奖励', 'View rewards')} ›</span>
           </div>
         </a>
 
         <button type="button" class="unified-vault-row unified-vault-btn" id="btn-vault-go-pred">
           <div>
             <div class="num-sm" style="font-weight:800;">${L('12H 预言金库', '12H Prediction Vault')}</div>
-            <div class="num-xs text-muted">${hasPendingVault ? L('48H 内购箱 / 锁仓 / 邀 1 友自动激活并入赏金余额', 'Auto-activates in 48H via chest / lock / 1 invite') : L('0 GRAM 参战 · 激活后自动并入站内赏金余额', '0 GRAM arena · auto-merges to bounty balance')}</div>
+            <div class="num-xs text-muted">${hasPendingVault ? L('48H 内购箱 / 锁仓 / 邀 1 友购箱自动激活并入赏金余额', 'Auto-activates in 48H via purchase, lock or an invited friend’s purchase') : L('0 GRAM 参战 · 激活后自动并入站内赏金余额', '0 GRAM arena · auto-merges to bounty balance')}</div>
           </div>
           <div class="unified-vault-val">
             <b class="mono">${fmtA9(predActivatedA9)} / <span class="text-gold">${fmtA9(predPendingA9)}</span></b>
@@ -139,7 +122,7 @@ function renderUnifiedVaultHtml({
           </div>
         </button>
 
-        <a class="unified-vault-row" href="#/rewards">
+        <a class="unified-vault-row" href="${isLive ? '#/claim' : '#/rewards'}">
           <div>
             <div class="num-sm" style="font-weight:800;">${L('14 天逐秒待解锁', '14D Per-Second Unlock')}</div>
             <div class="num-xs text-muted">${L('20% 秒提 + 14 天逐秒解锁（支持 3 折急提，7 折销毁）', '20% Instant + 14D Per-Second Unlock (Instant Cashout 30% Now / 70% Burn)')}</div>
@@ -151,60 +134,7 @@ function renderUnifiedVaultHtml({
         </a>
       </div>
       ${isLive && !hasWallet ? `<div class="row-between" style="margin-top:8px;gap:8px;"><span class="num-xs text-muted">${L('连接钱包同步链上凭证与余额', 'Connect wallet to sync balances')}</span><button class="btn btn-secondary btn-sm" id="profile-live-connect" type="button">${L('连接钱包', 'Connect')}</button></div>` : ''}
-      ${isLive && hasWallet && loadError ? `<div class="row-between" style="margin-top:8px;gap:8px;"><span class="num-xs text-red">${L('部分链上数据同步超时', 'Some on-chain data failed to sync')}</span><button class="btn btn-secondary btn-sm" id="profile-live-retry" type="button">${L('重试', 'Retry')}</button></div>` : ''}
-    </section>
-  `;
-}
-
-function renderStakeReferralCardHtml({ loading = false, error = null, data = null } = {}) {
-  const totalA9 = data ? (rawToA9(data.totalCommissionRaw) ?? 0) : null;
-  const creditedA9 = data ? (rawToA9(data.creditedRaw) ?? 0) : null;
-  const pendingA9 = data ? (rawToA9(data.pendingRaw) ?? 0) : null;
-  const items = Array.isArray(data?.items) ? data.items : [];
-  const unbound = data && data.bound === false;
-
-  let body = '';
-  if (loading) {
-    body = `<div class="num-xs text-muted">${L('正在读取好友通关 8% 返佣明细…', 'Loading 8% pass referral credits…')}</div>`;
-  } else if (error) {
-    body = `<div class="row-between" style="gap:8px;"><span class="num-xs text-red">${escapeHtml(error)}</span><button class="btn btn-secondary btn-sm" id="btn-retry-profile-ref" type="button">${L('重试', 'Retry')}</button></div>`;
-  } else if (!data || unbound) {
-    body = `<div class="num-xs text-muted">${L('在 Telegram 内打开并绑定钱包后，好友通关的 8% 返佣将自动计入站内赏金，可合并 0.06 GRAM 一键提现。', 'Open in Telegram and bind your wallet to earn 8% pass referral credits, claimable together via 0.06 GRAM gas.')}</div>`;
-  } else {
-    body = `
-      <div class="metric-strip cols-3" style="margin:6px 0 8px;">
-        <div class="metric-cell"><span class="num-xs text-muted">${L('累计 8% 返佣', 'Total 8%')}</span><span class="num-sm text-green mono" style="font-weight:800;">${formatNum(totalA9, 2)} A9</span></div>
-        <div class="metric-cell"><span class="num-xs text-muted">${L('已入赏金池', 'Credited')}</span><span class="num-sm mono" style="font-weight:800;">${formatNum(creditedA9, 2)} A9</span></div>
-        <div class="metric-cell"><span class="num-xs text-muted">${L('待入账', 'Pending')}</span><span class="num-sm text-gold mono" style="font-weight:800;">${formatNum(pendingA9, 2)} A9</span></div>
-      </div>
-      ${items.length === 0
-        ? `<div class="num-xs text-muted">${L('暂无好友通关返佣记录，分享邀请链接即可享好友通关奖金 8% 返佣。', 'No 8% pass referral credits yet. Share your invite link to earn 8% when friends pass a round.')}</div>`
-        : `<div class="col-gap" style="gap:6px;">${items.slice(0, 5).map((it) => {
-            const commA9 = rawToA9(it.commissionRaw) ?? 0;
-            const isCred = String(it.status || '').toUpperCase() === 'CREDITED';
-            return `
-              <div class="list-row" style="padding:7px 10px;">
-                <div>
-                  <div class="num-sm" style="font-weight:800;">${L(`第 ${it.roundId} 轮`, `Round #${it.roundId}`)} · <span class="mono">${escapeHtml(it.refereeWallet || '—')}</span></div>
-                  <div class="num-xs text-muted">${L('好友通关 8% 返佣', '8% Pass Referral')}</div>
-                </div>
-                <div style="text-align:right;">
-                  <div class="num-sm text-green mono" style="font-weight:900;">+${formatNum(commA9, 2)} A9</div>
-                  <span class="chip ${isCred ? 'chip-green' : 'chip-gold'}" style="min-height:18px;font-size:9.5px;">${isCred ? L('已入赏金', 'Credited') : L('待入账', 'Pending')}</span>
-                </div>
-              </div>
-            `;
-          }).join('')}</div>`}
-    `;
-  }
-
-  return `
-    <section class="card" id="profile-stake-referral-card">
-      <div class="row-between" style="margin-bottom:6px;">
-        <div class="card-title">${icon('team', 15, 'text-gold')} ${L('好友通关 8% 返佣明细', '8% Pass Referral Credits')}</div>
-        <a class="text-link-btn" href="#/team/invite">${L('合并 0.06 GRAM 领', 'Claim (0.06 GRAM)')} ›</a>
-      </div>
-      ${body}
+      ${isLive && loadError ? `<div class="row-between" style="margin-top:8px;gap:8px;"><span class="num-xs text-red">${L('部分链上数据同步超时', 'Some on-chain data failed to sync')}</span><button class="btn btn-secondary btn-sm" id="profile-live-retry" type="button">${L('重试', 'Retry')}</button></div>` : ''}
     </section>
   `;
 }
@@ -221,7 +151,8 @@ export function renderProfileHome(root, navigate) {
       <div class="col-gap anim-page-enter">
         ${identityStage({ walletAddr, gramText })}
         <div id="profile-unified-vault-mount"></div>
-        <div id="profile-stake-referral-mount">${renderStakeReferralCardHtml({ loading: Boolean(A9TMA.getRawInitData()) })}</div>
+        <section class="card col-gap" id="profile-positions" hidden></section>
+        <a class="text-link-btn" href="#/internal/records">${L('商城订单', 'Chest Orders')} ›</a>
         <div class="profile-dock-grid" aria-label="${L('快捷功能', 'Quick Actions')}">
           <button class="profile-dock-tile" data-nav="/proof" type="button">
             <span class="profile-dock-icon tone-red">${icon('shieldCheck', 18)}</span>
@@ -285,7 +216,7 @@ export function renderProfileHome(root, navigate) {
         const portData = portRes.status === 'fulfilled' ? portRes.value : null;
         const promoData = promoRes.status === 'fulfilled' ? promoRes.value : null;
         const predData = predRes.status === 'fulfilled' ? predRes.value : null;
-        const anyErr = (addr && portRes.status === 'rejected') || (addr && promoRes.status === 'rejected');
+        const anyErr = (addr && (portRes.status === 'rejected' || promoRes.status === 'rejected' || portData?.ticketsAvailable === false)) || (uid && predRes.status === 'rejected');
 
         const availA9 = (portData && portData.balanceAvailable !== false && portData.a9BalanceRaw !== null && portData.a9BalanceRaw !== undefined)
           ? rawToA9(portData.a9BalanceRaw)
@@ -294,7 +225,7 @@ export function renderProfileHome(root, navigate) {
         const activeTickets = tickets.filter((t) => !t?.principalDone && /^\d+$/.test(String(t?.amountRaw || '')));
         const stakedPrincipalA9 = activeTickets.length
           ? activeTickets.reduce((sum, t) => sum + (rawToA9(t.amountRaw) || 0), 0)
-          : (portData ? 0 : null);
+          : (portData?.ticketsAvailable ? 0 : null);
         const roundClaimableA9 = (portData && portData.claimableRaw !== undefined && portData.claimableRaw !== null)
           ? rawToA9(portData.claimableRaw)
           : null;
@@ -305,8 +236,16 @@ export function renderProfileHome(root, navigate) {
         const predActivatedA9 = predData && predData.activatedRaw !== undefined ? rawToA9(predData.activatedRaw) : null;
         const predPendingA9 = predData && predData.pendingActivationRaw !== undefined ? rawToA9(predData.pendingActivationRaw) : null;
 
+        const positions = root.querySelector('#profile-positions');
+        if (positions && activeTickets.length) {
+          positions.hidden = false;
+          positions.innerHTML = `<h2 class="card-title">${L('正在进行', 'Active positions')}</h2>` +
+            activeTickets.map(ticket => `<a class="unified-vault-row" href="#/claim?ticket=${encodeURIComponent(ticket.ticketAddress)}">
+              <strong>${L('轮次', 'Round')} ${escapeHtml(String(ticket.roundId))}</strong>
+              <span>${L('头矿', 'First 6H')} ${formatNum(rawToA9(ticket.earlyAmountRaw))} A9 · ${L('普通', 'Standard')} ${formatNum(rawToA9(ticket.lateAmountRaw))} A9</span></a>`).join('');
+        }
         const dockPasses = root.querySelector('#live-dock-passes');
-        if (dockPasses) dockPasses.textContent = portData ? `${tickets.length} ${L('张', 'SBT')}` : '—';
+        if (dockPasses) dockPasses.textContent = portData?.ticketsAvailable ? `${tickets.length} ${L('张', 'SBT')}` : '—';
 
         paintLiveVault({
           availA9,
@@ -315,36 +254,15 @@ export function renderProfileHome(root, navigate) {
           promoClaimableA9,
           predActivatedA9,
           predPendingA9,
-          activeTicketsCount: portData ? tickets.length : null,
+          activeTicketsCount: portData?.ticketsAvailable ? tickets.length : null,
           stakedPrincipalA9,
-          certsCount: portData ? tickets.length : null,
+          certsCount: portData?.ticketsAvailable ? tickets.length : null,
           loading: false,
           loadError: anyErr,
         });
       });
     }
 
-    const loadProfileStakeRefs = () => {
-      const refMount = root.querySelector('#profile-stake-referral-mount');
-      if (!refMount) return;
-      if (!A9TMA.getRawInitData()) {
-        refMount.innerHTML = renderStakeReferralCardHtml({ loading: false, data: null });
-        return;
-      }
-      refMount.innerHTML = renderStakeReferralCardHtml({ loading: true });
-      fetchMyStakeReferrals(20)
-        .then((res) => {
-          if (seq !== profileRenderSeq || !refMount.isConnected) return;
-          refMount.innerHTML = renderStakeReferralCardHtml({ loading: false, data: res });
-        })
-        .catch((e) => {
-          if (seq !== profileRenderSeq || !refMount.isConnected) return;
-          refMount.innerHTML = renderStakeReferralCardHtml({ loading: false, error: e?.message || L('返佣明细读取失败', 'Failed to load referral credits') });
-          const retryBtn = refMount.querySelector('#btn-retry-profile-ref');
-          if (retryBtn) retryBtn.onclick = () => loadProfileStakeRefs();
-        });
-    };
-    loadProfileStakeRefs();
     return;
   }
 
@@ -368,7 +286,6 @@ export function renderProfileHome(root, navigate) {
       hasWallet: Boolean(user.connected),
       loading: false,
       fundsEnabled: store.fundsEnabled,
-      showQuickSlider: false,
     });
 
     root.innerHTML = `
@@ -377,7 +294,7 @@ export function renderProfileHome(root, navigate) {
         ${emptyVaultHtml}
         <div class="card">
           <div class="empty-state" style="padding:10px 8px 6px;">
-            <span class="nt-art-badge tone-blue" style="width:52px;height:52px;" aria-hidden="true">${renderNintendoGateIcon('vault', 32)}</span>
+            <img src="./assets/boxheads/activity/avatars/act-01.png" width="52" height="52" alt="">
             <div style="font-size:15px;font-weight:900;margin-top:4px;">${L('还没有锁仓持仓', 'No Active Lock Position Yet')}</div>
             <div class="text-sec" style="font-size:12px;max-width:260px;">${L('最低 100 A9 无门槛锁仓，头矿 6H · 5% 止损，永不爆仓。', 'Lock from 100 A9 — First 6H · 5% Stop-Loss, No Liquidation.')}</div>
             <div class="grid-2" style="width:100%;margin-top:10px;gap:8px;">
@@ -420,12 +337,11 @@ export function renderProfileHome(root, navigate) {
     }
   } else {
     const claimable = unknown ? null : (user.a9Claimable || 0);
-    const hasClaim = claimable !== null && claimable > 0;
     const availA9 = Number(user.a9Available || 0);
     const lockedA9 = Number(user.a9Locked || 0);
     const activeFilter = ['all', 'observation', 'settled'].includes(uiMemory.ticketFilter) ? uiMemory.ticketFilter : 'all';
 
-    const promoDemoA9 = Number(store.state.user.promoClaimableA9 ?? store.state.team?.captainHistoryA9 ?? 0) || 0;
+    const promoDemoA9 = Number(store.state.user.promoClaimableA9 ?? 0) || 0;
     const predActDemoA9 = rawToA9(store.state.prediction?.activatedRaw) || 0;
     const predPendDemoA9 = rawToA9(store.state.prediction?.pendingActivationRaw) || 0;
     const unifiedVaultDemoHtml = renderUnifiedVaultHtml({
@@ -440,7 +356,6 @@ export function renderProfileHome(root, navigate) {
       hasWallet: Boolean(user.connected),
       loading: false,
       fundsEnabled: store.fundsEnabled,
-      showQuickSlider: hasClaim,
     });
 
     root.innerHTML = `
@@ -448,7 +363,7 @@ export function renderProfileHome(root, navigate) {
         ${identityStage({ modePill, walletAddr, gramText })}
 
         ${unifiedVaultDemoHtml}
-        <div id="profile-stake-referral-mount">${renderStakeReferralCardHtml({ loading: true })}</div>
+        <a class="text-link-btn" href="#/internal/records">${L('商城订单', 'Chest Orders')} ›</a>
 
         <div class="profile-dock-grid" aria-label="${L('快捷功能', 'Quick Actions')}">
           <button class="profile-dock-tile" data-nav="/proof" type="button">
@@ -490,7 +405,7 @@ export function renderProfileHome(root, navigate) {
                   <div class="num-xs text-muted">${L('第', 'R')}${c.round}${L('轮', '')} · ${formatNum(c.stakeTon)} A9 · ${L('全员 1:1', '1:1 Equal')}</div>
                 </div>
                 <div style="text-align:right;">
-                  <div class="num-sm text-green" style="font-weight:900;">+${formatNum(c.estRewardA9)} A9</div>
+                  <div class="num-sm text-green" style="font-weight:900;">${c.status === 'settled' ? '+' + formatNum(c.estRewardA9) + ' A9' : L('待结算', 'Unsettled')}</div>
                   <span class="chip ${c.status === 'settled' ? 'chip-green' : 'chip-blue'}" style="min-height:18px;font-size:9.5px;margin-top:3px;">${c.status === 'settled' ? L('已结算', 'Settled') : L('12H 冲价中', '12H Push')}</span>
                 </div>
               </div>
@@ -519,20 +434,6 @@ export function renderProfileHome(root, navigate) {
       A9Audio.tick();
       applyTicketFilter(button.dataset.ticketFilter);
     });
-    if (hasClaim) {
-      animateSlotCounter(root.querySelector('#a9-claim-num'), (claimable || 0) + promoDemoA9, { duration: 420 });
-    }
-    const sliderEl = root.querySelector('#profile-quick-slider');
-    if (sliderEl) {
-      mountSlider(sliderEl, {
-        label: L(`右滑领取 ${formatNum(claimable)} A9`, `Slide to Claim ${formatNum(claimable)} A9`),
-        onConfirm: () => {
-          const amt = store.claimRewards();
-          showToast(L(`已提取 ${formatNum(amt)} A9`, `Claimed ${formatNum(amt)} A9`));
-          renderProfileHome(root, navigate);
-        }
-      });
-    }
     const vaultPredBtn = root.querySelector('#btn-vault-go-pred');
     if (vaultPredBtn) {
       vaultPredBtn.onclick = () => {
@@ -543,13 +444,6 @@ export function renderProfileHome(root, navigate) {
     }
   }
 
-  bindIdentityStage(root, () => renderProfileHome(root, navigate));
-  const demoRefMount = root.querySelector('#profile-stake-referral-mount');
-  if (demoRefMount) {
-    fetchMyStakeReferrals(20)
-      .then((res) => { if (demoRefMount.isConnected) demoRefMount.innerHTML = renderStakeReferralCardHtml({ loading: false, data: res }); })
-      .catch(() => {});
-  }
 
   const modeBtn = root.querySelector('#btn-profile-mode');
   if (modeBtn) {
@@ -568,12 +462,12 @@ export function renderProfileHome(root, navigate) {
   }
 }
 
-export function renderClaimPage(root) {
+export function renderClaimPage(root, _navigate, _param, query = {}) {
   const { user } = store.state;
   const claimable = config.isDemo ? user.a9Claimable : null;
 
   if (!config.isDemo && store.fundsEnabled) {
-    renderLiveTicketClaimPage(root);
+    renderLiveTicketClaimPage(root, query.ticket);
     return;
   }
 
@@ -585,16 +479,40 @@ export function renderClaimPage(root) {
             <span class="num-xs text-muted">${L('当前可领取', 'Claimable Now')}</span>
             <span class="chip chip-muted">${L('只读模式', 'READ-ONLY')}</span>
           </div>
-          <div class="num-hero" style="margin-top:4px;">${claimable === null ? L('未获取', 'Unavailable') : formatNum(claimable)} <span class="num-md text-green">A9</span></div>
+          <div id="readonly-claim-amount" class="num-hero" style="margin-top:4px;">${claimable === null ? L('未获取', 'Unavailable') : formatNum(claimable)} <span class="num-md text-green">A9</span></div>
         </div>
         <div class="card" id="live-readonly-claim-notice" style="border-color:var(--gold-border);">
           <div class="row-start" style="font-weight:600;margin-bottom:4px;">${icon('shieldAlert', 15, 'text-gold')} ${L('真实只读模式 · 暂未开放领取签名', 'Live Read-Only · Claiming Disabled')}</div>
           <div class="num-xs text-sec" style="line-height:1.5;">${L('真实只读模式 · 暂未开放链上领取签名。', 'Live read-only · claim signing disabled.')}</div>
         </div>
+        <section class="card col-gap" id="readonly-ticket-list" hidden></section>
         <button class="btn btn-secondary" id="btn-claim-readonly" type="button">${icon('lock', 15)} ${L('真实模式只读 · 暂未开放领取', 'Read-Only Mode · Claim Disabled')}</button>
         <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回我的', 'Back to Me')}</button>
       </div>
     `;
+    const addr = user.address;
+    const list = root.querySelector('#readonly-ticket-list');
+    if (addr && list) {
+      const loadTickets = async () => {
+        try {
+          const data = await fetchUserPortfolio(addr);
+          if (!list.isConnected || addr !== store.state.user.address) return;
+          root.querySelector('#readonly-claim-amount').textContent = formatNum(rawToA9(data.claimableRaw), 2) + ' A9';
+          const tickets = (data.tickets || []).filter(t => !query.ticket || t.ticketAddress === query.ticket);
+          list.hidden = false;
+          list.innerHTML = tickets.map(t => `<article><strong>${L('轮次', 'Round')} ${escapeHtml(String(t.roundId))}</strong>
+            <p>${L('可领本金', 'Claimable principal')} ${formatNum(rawToA9(t.claimablePrincipalRaw), 2)} A9 · ${L('可领奖金', 'Claimable reward')} ${formatNum(rawToA9(t.claimableRewardRaw), 2)} A9</p>
+            <small>${L('未来待解锁', 'Future unlocks')} ${formatNum(rawToA9(t.lockedRemainingRaw), 2)} A9</small></article>`).join('') ||
+            (data.ticketsAvailable ? L('暂无对应凭证', 'No matching tickets') : L('凭证数据待核验', 'Ticket data unavailable'));
+        } catch {
+          if (!list.isConnected || addr !== store.state.user.address) return;
+          list.hidden = false;
+          list.innerHTML = `<button class="btn btn-secondary">${L('凭证读取失败 · 重试', 'Ticket data unavailable · Retry')}</button>`;
+          list.firstElementChild.onclick = loadTickets;
+        }
+      };
+      void loadTickets();
+    }
     const roBtn = root.querySelector('#btn-claim-readonly');
     if (roBtn) {
       roBtn.onclick = () => {
@@ -726,14 +644,15 @@ export function renderClaimPage(root) {
 /**
  * Live 实盘 StakeTicket 链上领奖页（仅在 config.liveFundsEnabled === true 时激活）。
  */
-function renderLiveTicketClaimPage(root) {
+function renderLiveTicketClaimPage(root, selectedTicket) {
   let portfolio = null;
   let loadError = null;
   let claimingAddr = null;
 
   const paint = () => {
     const { user } = store.state;
-    const tickets = Array.isArray(portfolio?.tickets) ? portfolio.tickets : [];
+    const tickets = Array.isArray(portfolio?.tickets) ? [...portfolio.tickets] : [];
+    if (selectedTicket) tickets.sort((a, b) => Number(b.ticketAddress === selectedTicket) - Number(a.ticketAddress === selectedTicket));
     const range = portfolio?.ticketRange || null;
 
     root.innerHTML = `
@@ -1208,7 +1127,7 @@ export function renderProofDetail(root, navigate, certId) {
 
   const round = store.state.round;
   const isSettled = cert.status === 'settled';
-  const estLabel = isSettled ? L('实际奖励', 'Confirmed') : L('预计奖励', 'Est. Reward');
+  const estLabel = isSettled ? L('实际奖励', 'Confirmed reward') : L('奖励状态', 'Reward status');
 
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
@@ -1247,7 +1166,7 @@ export function renderProofDetail(root, navigate, certId) {
                 </div>
                 <div class="cert-metric-tile is-green">
                   <small>${estLabel}</small>
-                  <strong class="text-green">+${formatNum(cert.estRewardA9)}<span class="cert-unit">A9</span></strong>
+                  <strong class="text-green">${isSettled ? '+' + formatNum(cert.estRewardA9) + ' A9' : L('待结算', 'Unsettled')}</strong>
                 </div>
               </div>
             </div>

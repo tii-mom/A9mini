@@ -323,7 +323,9 @@ function staleBanner() {
 
 let lastRenderedPath;
 let lastFullHash = '';
-export function renderCurrentRoute() {
+let routeRenderSeq = 0;
+export async function renderCurrentRoute() {
+  const seq = ++routeRenderSeq;
   pendingDeferredRender = false;
   if (lastFullHash) scrollMemory.set(lastFullHash, window.scrollY || 0);
   // 切换路由时收拢残留弹层与模拟抽屉，防止跨页残留遮罩
@@ -374,7 +376,18 @@ export function renderCurrentRoute() {
     mainEl.appendChild(viewHost);
     renderTarget = viewHost;
   }
-  route.render(renderTarget, navigate, param, query);
+  try {
+    renderTarget.setAttribute?.('aria-busy', 'true');
+    renderTarget.textContent = L('正在打开页面…', 'Opening page…');
+    const render = await route.load();
+    if (seq !== routeRenderSeq) return;
+    renderTarget.removeAttribute?.('aria-busy');
+    renderTarget.textContent = '';
+    render(renderTarget, navigate, param, query);
+  } catch (error) {
+    if (seq === routeRenderSeq) renderDataError(error);
+    return;
+  }
   if (prevPath && route.path !== prevPath) {
     if (route.shell === 'stack') A9Audio.pageTurn();
     if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -716,7 +729,7 @@ window.addEventListener('scroll', () => {
 initAutoLanguage();
 applyTheme(store.state.settings?.themeMode || 'light');
 A9TMA.init();
-tonConnect.init();
+tonConnect.restoreOnStartup(renderCurrentRoute);
 
 if (config.apiOverrideRejected && config.apiOverrideError) {
   showToast(config.apiOverrideError, 'amber');

@@ -577,7 +577,7 @@ export function renderCorridorRadar(candles, targetPrice, activeCandleSec, liveP
           <b>${confirmedSlots} / ${candles.length || 12}</b>
         </div>
         <div class="radar-count-box pass">
-          <small>${L('已达标门槛', 'Qualified')}</small>
+          <small>${L('达标时段 / 通关所需', 'Qualified / Required')}</small>
           <b>${passed} / ${required}</b>
         </div>
       </div>
@@ -659,7 +659,7 @@ export function syncRadarInPlace(round, { batch = false } = {}) {
         <b>${confirmedSlots} / ${round.candles.length || 12}</b>
       </div>
       <div class="radar-count-box pass">
-        <small>${L('已达标门槛', 'Qualified')}</small>
+        <small>${L('达标时段 / 通关所需', 'Qualified / Required')}</small>
         <b>${passedDisplay} / ${required}</b>
       </div>
     `;

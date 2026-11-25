@@ -131,23 +131,24 @@ export function renderTeamHome(root, navigate) {
             </div>
           </div>
           <div class="grid-2" style="gap:8px;">
-            <button class="btn btn-primary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:42px;white-space:nowrap;">${icon('wallet', 13)} ${L('0.06 GRAM 领币', '0.06 GRAM Claim')}</button>
+            <button class="btn btn-primary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:42px;white-space:nowrap;">${icon('wallet', 13)} ${L('查看推广奖励', 'Referral rewards')}</button>
             <button class="btn btn-secondary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:42px;white-space:nowrap;">${icon('qr', 13)} ${L('生成招募海报', 'Invite Poster')}</button>
           </div>
         </section>
 
         <div id="team-stake-referral-mount">${renderTeamStakeReferralCardHtml({ loading: Boolean(A9TMA.getRawInitData()) })}</div>
 
-        <section class="card" style="border-color:var(--gold-border);">
+        <section id="team-captain-task" class="card" hidden style="border-color:var(--gold-border);">
           <div class="row-between" style="margin-bottom:6px;">
             <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('战队成长任务 · 群主创世金库', 'Squad Mission · Captain Vault')}</span>
             <span class="chip chip-gold mono">+5,000 A9</span>
           </div>
-          <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('绑定 ≥ 50 人真实 Telegram 群且战队满 3 名成员，即领 5,000 A9 创世金库（并入站内赏金一键领）。', 'Verify a 50+ member Telegram group with ≥ 3 squad members to claim 5,000 A9 into your bounty vault.')}</div>
-          <button class="btn btn-secondary btn-sm" data-nav="/team/bind-tg" type="button" style="width:100%;min-height:38px;">${icon('send', 13)} ${L('前往绑群核验领 5,000 A9', 'Verify TG Group for 5,000 A9')}</button>
+          <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('绑定 ≥ 50 人真实 Telegram 群且战队满 3 名成员，可核验 5,000 A9 创世金库（并入站内赏金一键领）。', 'Verify a 50+ member Telegram group with ≥ 3 squad members to claim 5,000 A9 into your bounty vault.')}</div>
+          <p class="num-sm mono" data-captain-progress></p>
+          <button class="btn btn-secondary btn-sm" data-nav="/team/bind-tg" type="button" style="width:100%;min-height:38px;">${icon('send', 13)} ${L('查看绑群与发放资格', 'Verify TG Group for 5,000 A9')}</button>
         </section>
 
-        <form class="card col-gap" id="live-join-team-form">
+        <form class="card col-gap" id="live-join-team-form" hidden>
           <div class="card-title">${icon('team', 15, 'text-cyan')} ${L('加入已有战队', 'Join an Existing Squad')}</div>
           <label class="num-xs text-sec">${L('战队编号', 'Squad ID')} <input name="guild" class="input-box" style="width:100%;margin-top:4px;padding:8px 10px;" required maxlength="64" placeholder="TM-0001"></label>
           <button class="btn btn-primary">${L('申请加入', 'Join Squad')}</button>
@@ -155,7 +156,16 @@ export function renderTeamHome(root, navigate) {
         </form>
       </div>
     `;
-    portfolioPanel(root.firstElementChild, true);
+    portfolioPanel(root.firstElementChild, true, data => {
+      const visible = data?.privateDataVisible === true;
+      const task = root.querySelector('#team-captain-task');
+      task.hidden = !(visible && data.team?.role === 'captain');
+      if (!task.hidden) task.querySelector('[data-captain-progress]').textContent =
+        L(`TG 群 ${data.team.tgMemberCount ?? '—'} / 50 人 · 战队 ${data.team.memberCount ?? '—'} / 3 人`,
+          `TG group ${data.team.tgMemberCount ?? '—'} / 50 · Squad ${data.team.memberCount ?? '—'} / 3`);
+      if (!task.hidden) root.firstElementChild.firstElementChild.after(task);
+      root.querySelector('#live-join-team-form').hidden = !(visible && !data.team);
+    });
     mountTeamStakeReferrals(root);
     if (addr) {
       fetchPromoBalance(addr)
@@ -226,7 +236,7 @@ export function renderTeamHome(root, navigate) {
           </div>
           <div class="metric-cell">
             <span class="num-xs text-muted">${L('可领赏金', 'Bounty A9')}</span>
-            <span class="num-md text-gold" id="captain-dividend-val">${formatNum(team.captainHistoryA9 || 5000)} A9</span>
+            <span class="num-md text-gold" id="captain-dividend-val">${formatNum(store.state.user.promoClaimableA9)} A9</span>
           </div>
         </div>
 
@@ -237,24 +247,8 @@ export function renderTeamHome(root, navigate) {
         <div class="progress-track" style="margin-bottom:12px;"><div class="progress-fill" style="width:${progressPct}%"></div></div>
 
         <div class="grid-2" style="gap:8px;">
-          <button class="btn btn-primary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:42px;">${icon('wallet', 14)} ${L('0.06 GRAM 领币', '0.06 GRAM Claim')}</button>
+          <button class="btn btn-primary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:42px;">${icon('wallet', 14)} ${L('查看推广奖励', 'Referral rewards')}</button>
           <button class="btn btn-secondary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:42px;">${icon('qr', 14)} ${L('招募海报', 'Poster')}</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">${icon('trophy', 15, 'text-gold')} ${L('本轮主力成员 Top 3', 'Top 3 Members')}</div>
-          <button class="text-link-btn" data-nav="/leaderboard" type="button">${L('完整榜单', 'Full Board')} ${icon('chevronRight', 13)}</button>
-        </div>
-        <div class="guild-roster">
-          ${(team.topMembers || []).length === 0
-            ? `<div class="empty-state" style="padding:14px;grid-column:1/-1;"><div class="num-xs text-muted">${L('暂无成员闯关战绩', 'No active members yet')}</div></div>`
-            : (team.topMembers || []).map((m,i) => `
-            <div class="guild-member"><img src="./assets/boxheads/activity/avatars/act-0${[5,4,6][i%3]}.png" alt="" width="56" height="56" loading="lazy" decoding="async"><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
-              <div class="num-xs text-green mono" style="font-weight:800;">${formatNum(m.ton)} A9</div>
-            </div>
-          `).join('')}
         </div>
       </div>
 
@@ -269,8 +263,24 @@ export function renderTeamHome(root, navigate) {
 
       <div class="grid-2">
         <button class="btn btn-secondary" data-nav="/team/bind-tg">${icon('send', 14)} ${L('管理 TG 群', 'TG Group')}</button>
-        <button class="btn btn-secondary" id="btn-broadcast-tg">${icon('bell', 14)} ${L('一键群广播', 'Broadcast')}</button>
+        <button class="btn btn-secondary" disabled>${icon('bell', 14)} ${L('群广播未开放', 'Broadcast unavailable')}</button>
       </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">${icon('trophy', 15, 'text-gold')} ${L('本轮主力成员 Top 3', 'Top 3 Members')}</div>
+          <button class="text-link-btn" data-nav="/leaderboard" type="button">${L('完整榜单', 'Full Board')} ${icon('chevronRight', 13)}</button>
+        </div>
+        <div class="guild-roster">
+          ${(team.topMembers || []).length === 0
+            ? `<div class="empty-state" style="padding:14px;grid-column:1/-1;"><div class="num-xs text-muted">${L('暂无成员闯关战绩', 'No active members yet')}</div></div>`
+            : (team.topMembers || []).map((m,i) => `
+            <div class="guild-member"><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
+              <div class="num-xs text-green mono" style="font-weight:800;">${formatNum(m.ton)} A9</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
     `;
   } else if (role === 'member') {
     html = `
@@ -290,7 +300,7 @@ export function renderTeamHome(root, navigate) {
 
         <div class="metric-strip">
           <div class="metric-cell"><span class="num-xs text-muted">${L('战队累计参与', 'Squad Volume')}</span><span class="num-md text-green">184,200 A9</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('我的 8%+6% 赏金', 'My 8%+6% Bounty')}</span><span class="num-md text-gold">+96,500 A9</span></div>
+          <div class="metric-cell"><span class="num-xs text-muted">${L('我的 8%+6% 赏金', 'My 8%+6% Bounty')}</span><span class="num-md text-gold">${formatNum(store.state.user.promoClaimableA9)} A9</span></div>
         </div>
         <button class="btn btn-primary" data-nav="/team/invite">${icon('qr', 16)} ${L('生成招募海报 · 赚 8% + 6% 返佣', 'Invite Poster · 8% + 6% Referral')}</button>
       </div>
@@ -348,7 +358,7 @@ export function renderTeamHome(root, navigate) {
   mountTeamStakeReferrals(root);
 
   const divEl = root.querySelector('#captain-dividend-val');
-  if (divEl) animateSlotCounter(divEl, Number(team.captainHistoryA9) || 5000, { duration: 600, decimals: 0, suffix: ' A9' });
+  if (divEl) animateSlotCounter(divEl, Number(store.state.user.promoClaimableA9) || 0, { duration: 600, decimals: 0, suffix: ' A9' });
 
   const roleBtn = root.querySelector('#btn-role-sheet');
   if (roleBtn) {
@@ -366,9 +376,6 @@ export function renderTeamHome(root, navigate) {
       }
     });
   }
-
-  const bcBtn = root.querySelector('#btn-broadcast-tg');
-  if (bcBtn) bcBtn.onclick = () => { A9Haptic.success(); showToast(L(`已广播至 ${team.tgGroupHandle}`, `Broadcasted to ${team.tgGroupHandle}`)); };
 
   const grpBtn = root.querySelector('#btn-open-group');
   if (grpBtn) grpBtn.onclick = () => showToast(L('正在打开 TG 团队群...', 'Opening TG group...'));
@@ -652,7 +659,7 @@ export function renderInviteShare(root) {
             <span class="chip ${config.isDemo ? 'chip-green' : canLiveClaim ? 'chip-green' : 'chip-gold'}">${config.isDemo ? 'DEMO' : canLiveClaim ? L('已开放', 'OPEN') : L('只读模式', 'READ-ONLY')}</span>
           </div>
           ${config.isDemo
-            ? `<div class="num-xs text-sec">${L('演示邀友奖励（不会发起真实钱包交易）', 'Demo invite rewards (no real wallet tx)')}</div>`
+            ? `<div class="num-xs text-sec">${L('推广可领', 'Claimable referral rewards')} · ${formatNum(store.state.user.promoClaimableA9)} A9 ${L('（演示）', '(Demo)')}</div>`
             : livePromo
               ? `<div class="metric-strip cols-2" style="margin:8px 0 4px;">
                   <div class="metric-cell"><span class="num-xs text-muted">${L('当前可领 A9', 'Claimable A9')}</span><span class="num-md text-green mono">${formatNum(claimableA9, 2)} A9</span></div>

@@ -123,6 +123,36 @@ class A9TonConnect {
     return true;
   }
 
+  async ensureSdk() {
+    if (config.isDemo || this.sdkReady) return;
+    if (!window.TON_CONNECT_UI?.TonConnectUI) {
+      this.sdkLoad ||= new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = './js/vendor/tonconnect-ui.min.js';
+        script.integrity = 'sha384-ej0rYqvkb978ljOWDi1iAt5spb5B7sRdf1g8Hii30vS72XLjxoCPCmx5seE7s05g';
+        script.crossOrigin = 'anonymous';
+        script.onload = resolve;
+        script.onerror = () => { script.remove(); reject(new Error('Wallet SDK unavailable')); };
+        document.head.appendChild(script);
+      });
+      try { await this.sdkLoad; }
+      catch (error) { this.sdkLoad = null; this.lastError = error.message; return; }
+    }
+    if (!this.sdkReady) this.init();
+  }
+
+  restoreOnStartup(onChanged) {
+    this._onChanged = onChanged || null;
+    if (config.isDemo) return;
+    if (window.TON_CONNECT_UI?.TonConnectUI) { this.init(); return; }
+    let session = false;
+    try { session = Boolean(localStorage.getItem('ton-connect-storage_bridge-connection')); } catch {}
+    const startParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param || new URLSearchParams(window.location.search).get('startapp');
+    if (session || /^(?:tonconnect|tc_ret)(?:_|$)/i.test(startParam || '') || /[?&#](?:tonconnect|tc|tc_ret|ret|tonConnectReturn)(?:=|&|$)/i.test(window.location.href)) {
+      void this.ensureSdk();
+    }
+  }
+
   init() {
     try {
       const globalSDK = window.TON_CONNECT_UI;
@@ -325,20 +355,20 @@ class A9TonConnect {
           ${user.connected ? `<button class="pill-trigger neutral" id="tc-copy-wallet" type="button" style="flex-shrink:0;">${icon('copy', 11)} ${L('复制', 'Copy')}</button>` : ''}
         </div>
         ${!canSandbox && user.pendingSwitch ? `<div class="num-xs text-gold" style="margin-top:6px;">${L(`待生效换绑：将于 ${new Date(Number(user.pendingSwitch.effectiveAt) * 1000).toLocaleString()} 生效；可使用原钱包重签取消。`, `Pending rebind effective at ${new Date(Number(user.pendingSwitch.effectiveAt) * 1000).toLocaleString()}; re-sign with original wallet to cancel.`)}</div>` : ''}
-        ${!this.sdkReady ? `<div class="num-xs text-muted" style="margin-top:6px;">${escapeHtml(this.lastError || L('SDK 未就绪', 'SDK not ready'))}</div>` : ''}
+        ${!this.sdkReady ? `<div class="num-xs text-muted" style="margin-top:6px;">${escapeHtml(this.lastError || L('连接时加载钱包', 'Wallet loads on connect'))}</div>` : ''}
         ${canSandbox
           ? `<div class="num-xs text-gold" style="margin-top:6px;">${L('当前为演示模式：沙盒连接与资金结果均由本地演示数据生成，不会触发真实钱包签名。', 'Demo mode: sandbox wallet and results are simulated locally with no real signatures.')}</div>`
           : liveFundsReady()
             ? `<div class="num-xs text-green" style="margin-top:6px;">${L('当前为真实交易模式：支持连接钱包与按授权发起非托管 TON Connect 2.0 链上交易签名。', 'Live mode: supports non-custodial TON Connect 2.0 wallet connection and authorized on-chain signing.')}</div>`
             : `<div class="num-xs text-muted" style="margin-top:6px;">${L('当前为真实只读模式：仅支持连接钱包与只读数据查看，不会发起任何资金交易签名。', 'Live read-only mode: wallet connection and read-only queries only; fund signing is disabled.')}</div>`}
       </div>
-      ${!this.sdkReady && !canSandbox ? `
+      ${!this.sdkReady && !canSandbox && this.lastError ? `
         <div class="card row-between" style="border-color:var(--gold-border);">
           <span class="num-xs text-sec">${icon('shieldAlert', 13, 'text-gold')} ${L('钱包组件未就绪，无法连接或签名。', 'Wallet SDK unavailable; cannot connect or sign.')}</span>
         </div>
       ` : ''}
       <div class="col-gap">
-        <button class="btn btn-primary" id="tc-real-connect">${icon('bolt', 16)} ${this.sdkReady ? L('唤起 TON Connect 2.0 官方钱包列表', 'Open TON Connect 2.0 Wallet List') : (canSandbox ? L('连接非托管 TON 钱包 (模拟)', 'Connect TON Wallet (Demo)') : L('重试加载钱包 SDK', 'Retry Loading Wallet SDK'))}</button>
+        <button class="btn btn-primary" id="tc-real-connect">${icon('bolt', 16)} ${this.sdkReady ? L('唤起 TON Connect 2.0 官方钱包列表', 'Open TON Connect 2.0 Wallet List') : (canSandbox ? L('连接非托管 TON 钱包 (模拟)', 'Connect TON Wallet (Demo)') : L('连接钱包', 'Connect wallet'))}</button>
         ${!canSandbox && this.sdkReady && user.pendingSwitch ? `<button class="btn btn-secondary" id="tc-cancel-rebind">${icon('shieldCheck', 15)} ${L('原钱包重签取消换绑', 'Cancel Rebind (Original Wallet)')}</button>` : ''}
         ${!canSandbox && this.sdkReady && user.connected ? `<button class="btn btn-secondary" id="tc-unbind-wallet">${icon('shieldAlert', 15)} ${L('签名解除服务端绑定', 'Sign to Unbind Wallet')}</button>` : ''}
         ${user.connected ? `<button class="btn btn-danger" id="tc-disconnect">${icon('x', 16)} ${L('断开当前钱包连接', 'Disconnect Wallet')}</button>` : ''}
@@ -354,6 +384,7 @@ class A9TonConnect {
 
     const launchWithProof = async (purpose = 'bind') => {
       closeModal();
+      if (!canSandbox) await this.ensureSdk();
       if (this.sdkReady && this.ui) {
         try {
           if (proofFlowEnabled()) {
