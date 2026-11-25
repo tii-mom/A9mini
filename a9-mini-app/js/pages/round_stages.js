@@ -664,7 +664,12 @@ export function renderObservationRecords(root) {
 
   const logbook = root.querySelector('.stamp-logbook');
   const reading = root.querySelector('.star-reading');
-  const fmtPrice = (v) => (v > 0 ? '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 12 }) : '—');
+  const fmtPrice = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return '—';
+    const digits = n >= 0.0001 ? 4 : 8;
+    return '$' + n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  };
 
   function explainSlot(slot) {
     if (slot.state === 'pass') return L('本段 1H 均价 ≥ 目标价，已盖章计入达标。', 'Slot 1H TWAP met or exceeded target; counted as qualified.');

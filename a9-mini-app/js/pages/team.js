@@ -1,4 +1,3 @@
-import { portfolioPanel } from './wealthverse.js';
 /**
  * 战队与推广页 — 任天堂 Switch 视觉与交互统一升级
  * - 统一战队队徽，彻底区分「未加入 / 队员 / 队长」三种首屏
@@ -661,20 +660,124 @@ export function renderTeamHome(root, navigate) {
   });
 }
 
+let teamProfileSeq = 0;
+
 export function renderTeamProfile(root, navigate, id) {
-  if(!config.isDemo){root.replaceChildren();portfolioPanel(root,true);return;}
+  if (!config.isDemo) {
+    const seq = ++teamProfileSeq;
+    const addr = store.state.user.address || null;
+    const safeId = id ? escapeHtml(id) : null;
+
+    const paintLive = ({ loading = false, error = false, teamData = null } = {}) => {
+      if (seq !== teamProfileSeq || !root.isConnected) return;
+      const isCaptain = Boolean(
+        teamData && (
+          teamData.role === 'captain' ||
+          (addr && teamData.captainWallet && canonicalWalletKey(teamData.captainWallet) === canonicalWalletKey(addr))
+        )
+      );
+      root.innerHTML = `
+        <div class="col-gap anim-page-enter">
+          <section class="card card-hero col-gap">
+            <div class="sw-squad-head">
+              <span class="sw-squad-emblem" aria-hidden="true">${icon('squadEmblem', 24)}</span>
+              <div class="sw-squad-meta">
+                <h2 class="sw-squad-name">${escapeHtml(teamData?.name || (safeId ? `#${safeId}` : L('战队名片', 'Squad Card')))}</h2>
+                <div class="num-xs text-muted">${teamData ? (isCaptain ? L('队长', 'Captain') : L('队员', 'Member')) : (addr ? (loading ? L('读取中…', 'Loading…') : L('尚未加入战队', 'Not in a squad')) : L('未连接钱包', 'Wallet not connected'))}</div>
+              </div>
+            </div>
+            <div class="sw-menu-group">
+              <div class="sw-menu-row is-static">
+                <div class="sw-menu-left"><span class="sw-menu-title">${L('战队成员数', 'Squad Members')}</span></div>
+                <div class="sw-menu-right"><span class="sw-menu-amount">${teamData?.memberCount != null ? formatNum(teamData.memberCount) : '—'}</span></div>
+              </div>
+              <div class="sw-menu-row is-static">
+                <div class="sw-menu-left"><span class="sw-menu-title">${L('商城直推返佣', 'Mall Direct Referral')}</span></div>
+                <div class="sw-menu-right"><span class="sw-menu-amount is-green">6%</span></div>
+              </div>
+              <div class="sw-menu-row is-static">
+                <div class="sw-menu-left"><span class="sw-menu-title">${L('好友通关返佣', 'Pass Referral Credit')}</span></div>
+                <div class="sw-menu-right"><span class="sw-menu-amount is-green">8%</span></div>
+              </div>
+              ${error ? `
+                <div class="sw-menu-error" role="alert">
+                  <span>${L('读取失败', 'Read failed')}</span>
+                  <button type="button" class="sw-retry-link" id="btn-tprof-retry">${L('重试', 'Retry')}</button>
+                </div>
+              ` : ''}
+            </div>
+            ${!addr
+              ? `<button class="btn btn-primary" id="btn-tprof-connect" type="button">${icon('wallet', 15)} ${L('连接钱包查看战队', 'Connect Wallet')}</button>`
+              : `<a class="btn btn-primary" href="#/team">${icon('team', 15)} ${teamData ? L('进入我的战队', 'Open My Squad') : L('前往加入战队', 'Join a Squad')} ›</a>`}
+          </section>
+
+          <div class="sw-menu-group">
+            <a class="sw-menu-row" href="#/team/invite">
+              <div class="sw-menu-left"><span class="sw-menu-title">${L('推广奖励与招募海报', 'Referral Rewards & Posters')}</span></div>
+              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+            </a>
+            <a class="sw-menu-row" href="#/team">
+              <div class="sw-menu-left"><span class="sw-menu-title">${L('返回战队', 'Back to Squad')}</span></div>
+              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+            </a>
+          </div>
+        </div>
+      `;
+      const connBtn = root.querySelector('#btn-tprof-connect');
+      if (connBtn) connBtn.onclick = () => tonConnect.openConnectModal(() => renderTeamProfile(root, navigate, id));
+      const retryBtn = root.querySelector('#btn-tprof-retry');
+      if (retryBtn) retryBtn.onclick = () => renderTeamProfile(root, navigate, id);
+    };
+
+    if (!addr) {
+      paintLive({ loading: false });
+      return;
+    }
+    paintLive({ loading: true });
+    fetchUserPortfolio(addr)
+      .then((res) => {
+        if (seq !== teamProfileSeq || !root.isConnected || store.state.user.address !== addr) return;
+        paintLive({ loading: false, teamData: res?.team || null });
+      })
+      .catch(() => {
+        if (seq !== teamProfileSeq || !root.isConnected || store.state.user.address !== addr) return;
+        paintLive({ loading: false, error: true });
+      });
+    return;
+  }
+
   const safeId = escapeHtml(id || 'TM-0001');
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
-      <div class="card card-hero">
-        <span class="chip chip-gold">#${safeId} · Lv.4 · DEMO</span>
-        <div class="row-start" style="font-size:20px;font-weight:700;margin-top:8px;">${L('A9 冒险战队', 'A9 Quest Squad')} ${icon('shieldCheck', 18, 'text-green')}</div>
-        <div class="metric-strip cols-3">
-          <div class="metric-cell"><span class="num-xs text-muted">${L('直推返佣', 'Referral')}</span><span class="num-md text-green">6%</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('成员', 'Members')}</span><span class="num-md">412</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('锁仓 A9', 'Locked A9')}</span><span class="num-md">580,000</span></div>
+      <section class="card card-hero col-gap">
+        <div class="sw-squad-head">
+          <span class="sw-squad-emblem" aria-hidden="true">${icon('squadEmblem', 24)}</span>
+          <div class="sw-squad-meta">
+            <h2 class="sw-squad-name">${L('A9 冒险战队', 'A9 Quest Squad')}</h2>
+            <div class="num-xs text-muted mono">#${safeId} · Lv.4</div>
+          </div>
         </div>
-        <button class="btn btn-primary" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L('加入并参与锁仓', 'Join & Lock')}</button>
+        <div class="sw-menu-group">
+          <div class="sw-menu-row is-static">
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('战队成员', 'Members')}</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-amount">412</span></div>
+          </div>
+          <div class="sw-menu-row is-static">
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('累计锁仓', 'Total Locked')}</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-amount">580,000 A9</span></div>
+          </div>
+          <div class="sw-menu-row is-static">
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('商城直推 / 通关返佣', 'Mall / Pass Referral')}</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-amount is-green">6% / 8%</span></div>
+          </div>
+        </div>
+        <button class="btn btn-primary" data-nav="/challenge/confirm" type="button">${icon('bolt', 16)} ${L('加入并参与锁仓', 'Join & Lock')}</button>
+      </section>
+      <div class="sw-menu-group">
+        <a class="sw-menu-row" href="#/team">
+          <div class="sw-menu-left"><span class="sw-menu-title">${L('返回战队', 'Back to Squad')}</span></div>
+          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+        </a>
       </div>
     </div>
   `;
@@ -693,14 +796,29 @@ export function renderBindTgGroup(root) {
     };
     const paintLive = () => {
       const [cls, txt] = statusChip[liveStatus] || statusChip.unbound;
+      const isVerified = liveStatus === 'bound';
       root.innerHTML = `
         <div class="col-gap anim-page-enter">
-          <div class="card card-hero">
-            <div class="row-between" style="margin-bottom:8px;">
-              <span class="card-title">${icon('send', 15, 'text-gold')} ${L('战队 Telegram 群真实核验', 'Squad Telegram Group Verification')}</span>
+          <section class="card card-hero col-gap">
+            <div class="row-between">
+              <span class="card-title">${icon('send', 15, 'text-gold')} ${L('战队 Telegram 群核验', 'Squad TG Group Verification')}</span>
               <span class="chip ${cls}" id="live-tg-bind-status">${txt}</span>
             </div>
-            <div class="num-xs text-sec" id="live-tg-bind-msg" style="margin-bottom:12px;line-height:1.5;">${escapeHtml(lastMsg)}</div>
+            <div class="sw-status-steps" aria-label="${L('队长奖励三步状态', 'Captain 3-step status')}">
+              <div class="sw-status-step ${isVerified ? 'is-done' : 'is-active'}">
+                <small>${L('达到条件', 'Eligible')}</small>
+                <strong>${L('≥50人·≥3成员', '≥50 TG · ≥3')}</strong>
+              </div>
+              <div class="sw-status-step ${isVerified ? 'is-done' : (liveStatus === 'verifying' ? 'is-active' : '')}">
+                <small>${L('通过核验', 'Verified')}</small>
+                <strong>${isVerified ? L('已通过', 'Passed') : L('待核验', 'Pending')}</strong>
+              </div>
+              <div class="sw-status-step ${isVerified ? 'is-active' : ''}">
+                <small>${L('奖励到账', 'Credited')}</small>
+                <strong>5,000 A9</strong>
+              </div>
+            </div>
+            <div class="num-xs text-sec" id="live-tg-bind-msg" style="line-height:1.5;">${escapeHtml(lastMsg)}</div>
             <form id="live-tg-bind-form" class="col-gap">
               <label class="num-xs text-sec">${L('战队编号 (Squad ID)', 'Squad ID')}
                 <input name="teamId" class="input-box" style="width:100%;margin-top:4px;padding:8px 10px;" placeholder="TM-0001" required maxlength="64" value="${escapeHtml(team.id || '')}">
@@ -713,15 +831,30 @@ export function renderBindTgGroup(root) {
                 <button type="button" class="btn btn-primary" id="btn-live-verify-tg">${L('2. 发起服务端核验', '2. Verify Now')}</button>
               </div>
             </form>
-          </div>
-          <div class="card">
-            <div class="card-title" style="margin-bottom:6px;">${icon('shieldCheck', 15, 'text-green')} ${L('服务端四重防伪核验规则', '4-Step Server Verification Rules')}</div>
-            <div class="num-xs text-sec" style="line-height:1.6;">
-              1. ${L('仅队长本人（已验签绑定钱包）可发起提交与核验，普通成员将被拒绝（403）。', 'Captain-only (verified wallet required); members are rejected (403).')}<br>
-              2. ${L('仅提交 @群名 始终停留在「核验中」，绝不伪造已绑定状态。', 'Submitting @handle only sets verifying status; never faked as bound.')}<br>
-              3. ${L('拉官方 Bot 入群且队长为管理员；群 ≥50 人、满 3 成员即发 5,000 A9（限 1 次）。', 'Add official Bot as admin; verified 50+ member groups with ≥3 squad members earn 5,000 A9 once.')}<br>
-              4. ${L('同一真实群 ID（tgChatId）仅允许绑定 1 个战队；直推成员每次购箱返佣 6%，Bot 将私聊通知队长。', 'One tgChatId binds at most one squad; Bot DMs the captain on every 6% referral credit.')}
+          </section>
+          <div class="sw-menu-group">
+            <div class="sw-menu-row is-static">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('1. 仅队长本人可提交与核验', '1. Captain-Only Verification')}</span>
+                <span class="sw-menu-sub">${L('需已验签绑定队长钱包，普通成员将被拒绝（403）', 'Verified captain wallet required; members receive 403')}</span>
+              </div>
             </div>
+            <div class="sw-menu-row is-static">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('2. 官方 Bot 入群且队长为管理员', '2. Official Bot + Captain Admin')}</span>
+                <span class="sw-menu-sub">${L('群 ≥50 人且战队 ≥3 成员核验通过后发放 5,000 A9（限 1 次）', '50+ TG members & ≥3 squad members earn 5,000 A9 once')}</span>
+              </div>
+            </div>
+            <div class="sw-menu-row is-static">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('3. 群唯一性防伪校验', '3. Unique Group Binding')}</span>
+                <span class="sw-menu-sub">${L('同一真实群 ID 仅可绑定 1 个战队；仅提交 @群名停留在核验中', 'One tgChatId per squad; submitting handle only sets verifying')}</span>
+              </div>
+            </div>
+            <a class="sw-menu-row" href="#/team">
+              <div class="sw-menu-left"><span class="sw-menu-title">${L('返回战队', 'Back to Squad')}</span></div>
+              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+            </a>
           </div>
         </div>
       `;
@@ -778,6 +911,9 @@ export function renderBindTgGroup(root) {
 
   const paint = () => {
     const meta = stateMeta[bindState];
+    const condMet = Number(team.tgGroupMembers || 0) >= 50 && Number(team.membersTotal || 0) >= 3;
+    const isVerified = bindState === 'bound';
+    const isPaid = condMet && isVerified;
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         <div class="seg-tabs">
@@ -786,13 +922,33 @@ export function renderBindTgGroup(root) {
           <button class="seg-tab ${bindState === 'verifying' ? 'active' : ''}" data-bs="verifying">${L('验证中', 'Check')}</button>
           <button class="seg-tab ${bindState === 'expired' ? 'active' : ''}" data-bs="expired">${L('失效', 'Lost')}</button>
         </div>
-        <div class="card ${bindState === 'expired' ? 'card-glow-red' : ''}">
-          <div class="row-between" style="margin-bottom:8px;">
+        <section class="card card-hero col-gap ${bindState === 'expired' ? 'card-glow-red' : ''}">
+          <div class="row-between">
             <span class="card-title">${icon('send', 15, 'text-gold')} ${bindState === 'unbound' ? L('未关联群组', 'No Group') : escapeHtml(team.tgGroupHandle || '')}</span>
             <span class="chip ${meta.chip}">${meta.label}</span>
           </div>
-          <div class="text-sec" style="font-size:12px;margin-bottom:14px;">${meta.desc}</div>
+          <div class="sw-status-steps">
+            <div class="sw-status-step ${condMet ? 'is-done' : 'is-active'}">
+              <small>${L('达到条件', 'Eligible')}</small>
+              <strong>${condMet ? L('已达标', 'Met') : L('未达标', 'Pending')}</strong>
+            </div>
+            <div class="sw-status-step ${isVerified ? 'is-done' : (condMet ? 'is-active' : '')}">
+              <small>${L('通过核验', 'Verified')}</small>
+              <strong>${isVerified ? L('已通过', 'Passed') : L('待核验', 'Pending')}</strong>
+            </div>
+            <div class="sw-status-step ${isPaid ? 'is-done' : (isVerified ? 'is-active' : '')}">
+              <small>${L('奖励到账', 'Credited')}</small>
+              <strong>${isPaid ? L('已到账', 'Paid') : L('5,000 A9', '5,000 A9')}</strong>
+            </div>
+          </div>
+          <div class="text-sec" style="font-size:12px;">${meta.desc}</div>
           <button class="btn btn-primary" id="btn-toggle-bind">${icon('refresh', 15)} ${meta.btn}</button>
+        </section>
+        <div class="sw-menu-group">
+          <a class="sw-menu-row" href="#/team">
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回战队', 'Back to Squad')}</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          </a>
         </div>
       </div>
     `;
@@ -837,7 +993,7 @@ export function renderInviteShare(root) {
       : (targetStr ? `target ${targetStr}` : 'on-chain target syncing');
     const poolStr = (r.rewardBudgetA9 !== null && r.rewardBudgetA9 !== undefined && Number.isFinite(Number(r.rewardBudgetA9)))
       ? `${formatNum(r.rewardBudgetA9)} A9`
-      : L('700,000,000 A9 奖池（链上实时核验）', '700,000,000 A9 pool (on-chain verified)');
+      : L('700,000,000 A9', '700,000,000 A9');
     if (tpl === 'chest') {
       return L(
         `A9 宝箱商城升级「纯随机合并直发钱包」：0.99 GRAM 起保底 1,500 A9、最高开出 2,500 A9（传说箱最高 1,300,000 A9），只收一次 0.06 GRAM Gas，买完直接进头矿 6H（未通关仅 5% 止损）。直推好友购箱实时返佣 6%：${inviteLink}`,
@@ -876,33 +1032,64 @@ export function renderInviteShare(root) {
     const promoTxLocked = pendingTxManager.isLocked('promo');
     const promoDisabled = promoClaimBusy || promoTxLocked;
 
+    const displayClaimable = config.isDemo ? Number(store.state.user.promoClaimableA9 ?? 0) : claimableA9;
+    const displayClaimed = config.isDemo ? Number(store.state.user.promoClaimedA9 ?? 0) : totalClaimedA9;
+
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
-        <div class="card card-hero">
-          <div class="row-between" style="margin-bottom:6px;">
-            <span class="card-title">${icon('wallet', 15, 'text-gold')} ${L('邀友与宝箱推广余额', 'Invite & Promo Balance')}</span>
-            <span class="chip ${config.isDemo ? 'chip-green' : canLiveClaim ? 'chip-green' : 'chip-gold'}">${config.isDemo ? 'DEMO' : canLiveClaim ? L('已开放', 'OPEN') : L('只读模式', 'READ-ONLY')}</span>
+        <section class="card card-hero col-gap">
+          <div>
+            <div class="num-xs text-muted">${L('推广可领余额', 'Claimable Referral Balance')}</div>
+            <div class="sw-asset-main" style="margin-top:4px;">${displayClaimable === null || displayClaimable === undefined ? (store.state.user.address && !livePromoErr ? '…' : '—') : `${formatNum(displayClaimable, displayClaimable % 1 === 0 ? 0 : 2)} <span class="sw-asset-main-unit">A9</span>`}</div>
           </div>
-          ${config.isDemo
-            ? `<div class="num-xs text-sec">${L('推广可领', 'Claimable referral rewards')} · ${formatNum(store.state.user.promoClaimableA9)} A9 ${L('（演示）', '(Demo)')}</div>`
-            : livePromo
-              ? `<div class="metric-strip cols-2" style="margin:8px 0 4px;">
-                  <div class="metric-cell"><span class="num-xs text-muted">${L('当前可领 A9', 'Claimable A9')}</span><span class="num-md text-green mono">${formatNum(claimableA9, 2)} A9</span></div>
-                  <div class="metric-cell"><span class="num-xs text-muted">${L('累计已领 A9', 'Total Claimed')}</span><span class="num-md mono">${formatNum(totalClaimedA9, 2)} A9</span></div>
-                </div>`
-              : `<div class="num-xs text-sec">${escapeHtml(livePromoErr || (store.state.user.address ? L('正在读取真实推广余额…', 'Loading promo balance…') : L('连接并验证 TON 钱包后可查看可领余额', 'Connect and verify wallet to view claimable balance')))}</div>`}
-          ${lastClaimStatus ? `<div class="num-xs text-green mono" style="margin-top:6px;">${L('最近领奖单', 'Latest claim')}: ${escapeHtml(lastClaimStatus.claimId)} · ${escapeHtml(lastClaimStatus.status)}${lastClaimStatus.payoutTxHash ? ` · ${escapeHtml(lastClaimStatus.payoutTxHash.slice(0, 14))}…` : ''}</div>` : ''}
-          <button class="btn ${config.isDemo || (canLiveClaim && !promoTxLocked) ? 'btn-primary' : 'btn-secondary'} btn-sm" id="btn-claim-promo-hot" style="width:100%;margin-top:12px;" ${promoDisabled ? 'disabled' : ''}>${icon(store.fundsEnabled ? (promoTxLocked ? 'clock' : 'wallet') : 'lock', 14)} ${config.isDemo
-            ? L('领取邀友 A9（演示付 0.06 GRAM Gas）', 'Claim Invite A9 (Demo 0.06 GRAM Gas)')
+          <div class="sw-menu-group">
+            <div class="sw-menu-row is-static">
+              <div class="sw-menu-left"><span class="sw-menu-title">${L('累计已领', 'Total Claimed')}</span></div>
+              <div class="sw-menu-right"><span class="sw-menu-amount">${fmtA9OrDash(displayClaimed)}</span></div>
+            </div>
+            <div class="sw-menu-row is-static">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('链上发币 Gas', 'Delivery Gas')}</span>
+                <span class="sw-menu-sub">${L('热钱包自动核验并转入当前钱包', 'Auto-verified hot wallet payout')}</span>
+              </div>
+              <div class="sw-menu-right"><span class="sw-menu-amount">0.06 GRAM</span></div>
+            </div>
+          </div>
+          ${!config.isDemo && livePromoErr ? `<div class="sw-menu-error" role="alert"><span>${escapeHtml(livePromoErr)}</span><button type="button" class="sw-retry-link" id="btn-promo-retry">${L('重试', 'Retry')}</button></div>` : ''}
+          ${lastClaimStatus ? `<div class="num-xs text-green mono">${L('最近领奖单', 'Latest claim')}: ${escapeHtml(lastClaimStatus.claimId)} · ${escapeHtml(lastClaimStatus.status)}${lastClaimStatus.payoutTxHash ? ` · ${escapeHtml(lastClaimStatus.payoutTxHash.slice(0, 14))}…` : ''}</div>` : ''}
+          <button class="btn ${config.isDemo || (canLiveClaim && !promoTxLocked) ? 'btn-primary' : 'btn-secondary'}" id="btn-claim-promo-hot" ${promoDisabled ? 'disabled' : ''}>${icon(store.fundsEnabled ? (promoTxLocked ? 'clock' : 'wallet') : 'lock', 14)} ${config.isDemo
+            ? L('领取推广 A9（0.06 GRAM 说明）', 'Claim Referral A9 (0.06 GRAM Spec)')
             : canLiveClaim
               ? (promoTxLocked
                   ? L('推广发放确认中（防重锁）', 'Promo Payout Confirming…')
                   : promoClaimBusy
                     ? L('等待 0.06 GRAM 签名确认…', 'Waiting for 0.06 GRAM tx…')
-                    : L('领取推广 A9（付 0.06 GRAM 链上 Gas）', 'Claim Promo A9 (0.06 GRAM Gas)'))
-              : L('真实模式只读 · 邀友领奖暂未开放', 'Read-Only Mode · Invite Claim Disabled')}</button>
-          ${!config.isDemo && !canLiveClaim ? `<div class="num-xs text-muted" id="live-readonly-promo-notice" style="margin-top:6px;">${L('当前真实模式仅支持只读浏览与连接钱包，暂不创建 0.06 GRAM 付款单或发起签名。', 'Live mode is read-only; no 0.06 GRAM payment intent or signature will be created.')}</div>` : ''}
+                    : L('领取推广 A9（付 0.06 GRAM 链上 Gas）', 'Claim Referral A9 (0.06 GRAM Gas)'))
+              : L('当前只读 · 推广领奖暂未开放', 'Read-Only · Referral Claim Disabled')}</button>
+          ${!config.isDemo && !canLiveClaim ? `<div class="num-xs text-muted" id="live-readonly-promo-notice">${L('当前真实模式仅支持只读浏览与连接钱包，暂不创建 0.06 GRAM 付款单或发起签名。', 'Live mode is read-only; no 0.06 GRAM payment intent or signature will be created.')}</div>` : ''}
+        </section>
+
+        <div>
+          <div class="sw-section-label">${L('两项独立返佣来源', 'Two Independent Referral Sources')}</div>
+          <div class="sw-menu-group">
+            <div class="sw-menu-row is-static">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('商城直推 6%', '6% Chest Mall Direct')}</span>
+                <span class="sw-menu-sub">${L('好友在宝箱商城购箱后实时按 6% 计入推广余额', 'Credited at 6% when invited friends buy chests in Chest Mall')}</span>
+              </div>
+              <div class="sw-menu-right"><span class="sw-menu-amount is-green">6%</span></div>
+            </div>
+            <div class="sw-menu-row is-static">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('好友通关奖金 8%', '8% Friend Pass Reward')}</span>
+                <span class="sw-menu-sub">${L('好友参与闯关通关后，按其奖金 8% 独立计入', 'Credited separately at 8% of invited friends’ winning round rewards')}</span>
+              </div>
+              <div class="sw-menu-right"><span class="sw-menu-amount is-green">8%</span></div>
+            </div>
+          </div>
         </div>
+
+        <div id="team-stake-referral-mount">${renderTeamStakeReferralCardHtml({ loading: true })}</div>
 
         <div class="seg-tabs">
           <button class="seg-tab ${template === 'push' ? 'active' : ''}" data-tpl="push">${L('冲价喊单卡', 'Push Call')}</button>
@@ -943,6 +1130,10 @@ export function renderInviteShare(root) {
         </div>`}
       </div>
     `;
+
+    const promoRetryBtn = root.querySelector('#btn-promo-retry');
+    if (promoRetryBtn) promoRetryBtn.onclick = () => loadLivePromo();
+    mountTeamStakeReferrals(root);
 
     const canvas = root.querySelector('#a9-poster-canvas');
     if (template === 'story') renderStoryPoster(canvas, { roundId: store.state.round.currentRound });

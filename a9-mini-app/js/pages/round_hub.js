@@ -1,4 +1,3 @@
-import { liveRound } from './wealthverse.js';
 import { store } from '../store.js';
 import { config } from '../config.js';
 import {
@@ -739,7 +738,58 @@ export function renderParticipateConfirm(root, navigate) {
   const { user } = store.state;
   const round = store.state.round;
   if (!config.isDemo && !store.fundsEnabled) {
-    root.innerHTML = liveRound(round);
+    const inFirst6h = Boolean(round?.inFirst6h);
+    root.innerHTML = `
+      <div class="col-gap anim-page-enter">
+        <section class="card card-hero col-gap">
+          <div class="row-between">
+            <span class="card-title">${icon('bolt', 15, 'text-gold')} ${L(`第 ${round.currentRound ?? '—'} 轮锁仓条件`, `Round #${round.currentRound ?? '—'} Lock Terms`)}</span>
+            <span class="chip ${inFirst6h ? 'chip-green' : 'chip-gold'}">${inFirst6h ? L('头矿 6H · 5% 止损', 'First 6H · 5% SL') : L('普通 · 10% 止损', 'Std · 10% SL')}</span>
+          </div>
+          <div class="sw-menu-group">
+            <div class="sw-menu-row is-static">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('最低锁仓门槛', 'Minimum Lock')}</span>
+                <span class="sw-menu-sub">${L('全员 1 A9 = 1 份公平分奖 · 5× 单轮封顶', '1:1 fair split · 5× single-round cap')}</span>
+              </div>
+              <div class="sw-menu-right"><span class="sw-menu-amount">100 A9</span></div>
+            </div>
+            <div class="sw-menu-row is-static">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('未通关自动止损', 'Auto Stop-Loss')}</span>
+                <span class="sw-menu-sub">${L('头矿 6H 退 95%（烧 5%）· 普通退 90%（烧 10%）', 'First 6H refunds 95% (5% burn) · Std 90% (10% burn)')}</span>
+              </div>
+              <div class="sw-menu-right"><span class="sw-menu-amount is-green">5% / 10%</span></div>
+            </div>
+            <div class="sw-menu-row is-static">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('24H 锁仓期提前解押', '24H Early Exit')}</span>
+                <span class="sw-menu-sub">${L('退回 85% 本金 / 销毁 15% · 进入 12H 冲价封盘禁出', '85% refund / 15% burn · locked during 12H Push')}</span>
+              </div>
+              <div class="sw-menu-right"><span class="sw-menu-amount">85% / 15%</span></div>
+            </div>
+            <div class="sw-menu-row is-static">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('链上 Gas 附带', 'On-Chain Gas')}</span>
+                <span class="sw-menu-sub">${L('合约执行消耗后余量原路退回钱包', 'Unused gas refunded to wallet')}</span>
+              </div>
+              <div class="sw-menu-right"><span class="sw-menu-amount">0.30 GRAM</span></div>
+            </div>
+          </div>
+        </section>
+        <section class="card" id="live-readonly-stake-notice" style="border-color:var(--gold-border);">
+          <div class="row-start" style="font-weight:700;margin-bottom:4px;">${icon('shieldAlert', 15, 'text-gold')} ${L('真实只读模式 · 暂未开放锁仓签名', 'Live Read-Only · Locking Disabled')}</div>
+          <div class="num-xs text-sec" style="line-height:1.5;">${L('当前真实模式仅支持只读核验，不唤起钱包签名或扣款。你可以先返回闯关页参与 0 GRAM 12H 预言擂台。', 'Live mode is read-only; no wallet signature or transfer will be triggered. Join the 0 GRAM 12H Prediction Arena on the Quest page.')}</div>
+        </section>
+        <button class="btn btn-secondary" type="button" disabled>${icon('lock', 15)} ${L('当前只读 · 暂未开放锁仓签名', 'Read-Only · Lock Signing Disabled')}</button>
+        <div class="sw-menu-group">
+          <a class="sw-menu-row" href="#/round">
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回闯关', 'Back to Quest')}</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          </a>
+        </div>
+      </div>
+    `;
     return;
   }
   if (!config.isDemo) {
@@ -1217,7 +1267,7 @@ export function renderParticipateSuccess(root, navigate, certId) {
             <span class="cert-grip-bars" aria-hidden="true"><i></i><i></i><i></i></span>
             <span class="cert-serial">QUEST ENTRY · R${String(cert.round).padStart(2, '0')}</span>
           </span>
-          <span class="cert-status-pill">${icon('shieldCheck', 11)} ${config.isDemo ? 'DEMO' : L('已上链', 'ON-CHAIN')}</span>
+          <span class="cert-status-pill">${icon('shieldCheck', 11)} ${L('已盖章', 'SEALED')}</span>
         </div>
 
         <div class="cert-body" style="position:relative;">
@@ -1242,7 +1292,7 @@ export function renderParticipateSuccess(root, navigate, certId) {
           <div class="cert-metrics-grid">
             <div class="cert-metric-tile is-green">
               <small>${L('预计奖励', 'Est. Reward')}</small>
-              <strong class="text-green">+${formatNum(estReward)}<span class="cert-unit">A9</span></strong>
+              <strong class="text-green">+${formatNum(estReward)} <span class="cert-unit">A9</span></strong>
             </div>
             <div class="cert-metric-tile">
               <small>${L('达标门槛', 'Pass Goal')}</small>
@@ -1272,10 +1322,16 @@ export function renderParticipateSuccess(root, navigate, certId) {
         </div>
       </section>
 
-      <button class="btn btn-nt-green" id="share-cert-btn">${icon('send', 15)} ${L('分享战绩 · 通关 8% + 商城 6% 返佣', 'Share · 8% Pass + 6% Mall')}</button>
-      <div class="grid-2">
-        <button class="btn btn-secondary" data-nav="${cert?.id ? `/proof/${escapeHtml(cert.id)}` : '/proof'}">${icon('shieldCheck', 15)} ${L('闯关凭证', 'Quest Pass')}</button>
-        <button class="btn btn-secondary" data-nav="/round">${icon('radar', 15)} ${L('查看冲价盘', '12H Board')}</button>
+      <button class="btn btn-nt-green" id="share-cert-btn">${icon('send', 15)} ${L('分享战绩邀请好友', 'Share Pass & Invite')}</button>
+      <div class="sw-menu-group">
+        <a class="sw-menu-row" href="#${cert?.id ? `/proof/${escapeHtml(cert.id)}` : '/proof'}">
+          <div class="sw-menu-left"><span class="sw-menu-title">${L('查看闯关凭证', 'View Quest Pass')}</span></div>
+          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+        </a>
+        <a class="sw-menu-row" href="#/round">
+          <div class="sw-menu-left"><span class="sw-menu-title">${L('返回闯关', 'Back to Quest')}</span></div>
+          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+        </a>
       </div>
     </div>
   `;

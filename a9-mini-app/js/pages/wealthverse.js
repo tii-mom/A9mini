@@ -1,4 +1,4 @@
-import { fetchUserPortfolio, fetchProgressionUser, claimProgressionTask, fetchMyChests, getEffectiveUserId, PROTOCOL_SPECS } from '../data.js';
+import { fetchUserPortfolio, fetchProgressionUser, claimProgressionTask, fetchMyChests, getEffectiveUserId, rawToA9, PROTOCOL_SPECS } from '../data.js';
 
 import { L } from '../i18n.js';
 import { config } from '../config.js';
@@ -8,7 +8,7 @@ import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { burstParticles, escapeHtml, formatNum, showToast } from '../components.js';
 
-import { canonicalWalletKey } from '../tonconnect.js';
+import { tonConnect, canonicalWalletKey } from '../tonconnect.js';
 import { renderNintendoGateIcon } from '../paper-art.js';
 import {
   BOXHEADS_SERIES,
@@ -487,9 +487,10 @@ export function gallery(root, navigate, param) {
       : isSelectedUnlocked
         ? L('已解锁', 'Owned')
         : L('未解锁', 'Locked');
-    const isEquipped = (store.state.user.previewSeries || 'activity') === activeGallerySeries
+    const isEquipped = isSelectedUnlocked
+      && (store.state.user.previewSeries || 'activity') === activeGallerySeries
       && Number(store.state.user.previewTier || 1) === selected;
-    const canEquip = config.isDemo || isSelectedUnlocked;
+    const canEquip = isSelectedUnlocked;
     const targetChestTier = activeGallerySeries === 'activity' ? item.unlockRule?.chestTier : null;
 
     root.innerHTML =
@@ -551,7 +552,9 @@ export function gallery(root, navigate, param) {
 
         <div class="gallery-action-bar">
           <button class="btn btn-primary btn-sm" id="wv-export" type="button">${icon('download', 14)} ${L('保存', 'Save')}</button>
-          ${canEquip ? `<button class="btn btn-secondary btn-sm" id="wv-set-avatar" type="button" ${isEquipped ? 'disabled' : ''}>${icon('checkCircle', 14)} ${isEquipped ? L('使用中', 'Equipped') : L('设为头像', 'Equip')}</button>` : ''}
+          ${canEquip
+            ? `<button class="btn btn-secondary btn-sm" id="wv-set-avatar" type="button" ${isEquipped ? 'disabled' : ''}>${icon('checkCircle', 14)} ${isEquipped ? L('已收藏', 'Featured') : L('设为封面', 'Feature')}</button>`
+            : `<button class="btn btn-secondary btn-sm" type="button" disabled>${icon('shieldAlert', 14)} ${L('待解锁', 'Locked')}</button>`}
           <button class="btn btn-secondary btn-sm" id="wv-share-tg" type="button" aria-label="Telegram">${icon('send', 14)} TG</button>
           <button class="btn btn-secondary btn-sm" id="wv-share-x" type="button" aria-label="X">${icon('xBrand', 13)} X</button>
         </div>
@@ -645,8 +648,8 @@ export function gallery(root, navigate, param) {
           state.user.previewTier = selected;
           state.user.previewSeries = activeGallerySeries;
         });
-        showToast(L(`已将「${item.nameZh}」设为头像`, `Equipped "${item.nameEn}"`));
-        navigate('/profile');
+        showToast(L(`已将「${item.nameZh}」设为图鉴封面`, `Featured "${item.nameEn}" in gallery`));
+        renderGalleryView();
       };
     }
 
@@ -788,67 +791,189 @@ export function gallery(root, navigate, param) {
   }
 }
 
+let rewardsRenderSeq = 0;
+
+function fmtRewardsA9(val, loading = false) {
+  if (val === null || val === undefined || !Number.isFinite(Number(val))) return loading ? '…' : '—';
+  const n = Number(val);
+  return `${formatNum(n, n % 1 === 0 ? 0 : 2)} A9`;
+}
+
 /**
- * 奖金金库（#/rewards）：
+ * 奖金解锁详情页（#/rewards）：
  * v17.0 极简 14 天逐秒解锁机制（通关退 100% 本金 + 秒提 20% 奖金，余下 80% 分 14 天每日 +5.71% 逐秒解锁，支持随时 3 折急提，永久累计不倒扣）
  */
 export function rewards(root) {
   const n = store.state.round.successCount;
-  const u = store.state.user;
-  const lockedNum = config.isDemo && Number.isFinite(Number(u.a9Locked)) ? Number(u.a9Locked) : null;
-  const dailyRateNum = lockedNum !== null ? Math.round(lockedNum * (PROTOCOL_SPECS.dailyUnlockPct / 80)) : null;
 
-  const amounts = [
-    [L('已解锁待领取', 'Unlocked & Claimable'), config.isDemo ? u.a9Claimable : null],
-    [L('14 天逐秒待解锁', '14D Per-Second Unlock'), lockedNum],
-    [L('每日解锁速率（5.71%/天）', 'Daily Unlock Rate (5.71%/day)'), dailyRateNum],
-  ];
-  const balances = amounts
-    .map(
-      ([label, amount]) =>
-        `<div class="list-row"><span>${label}</span><b class="mono">${amount == null ? waiting() : amount.toLocaleString('en-US') + ' A9'}</b></div>`,
-    )
-    .join('');
+  const renderSwitchRewards = ({ claimableA9 = null, lockedA9 = null, tickets = [], loading = false, error = false, hasWallet = true, isLive = false } = {}) => {
+    const dailyRateA9 = lockedA9 !== null && lockedA9 !== undefined && Number.isFinite(Number(lockedA9))
+      ? Math.round(Number(lockedA9) * (PROTOCOL_SPECS.dailyUnlockPct / 80))
+      : null;
+    const lockedTickets = tickets.filter((t) => Number(rawToA9(t?.lockedRemainingRaw) || 0) > 0);
 
-  root.innerHTML = `
-    <div class="col-gap anim-page-enter">
-      <section class="card card-hero wv-vault-summary">
-        <div class="row-between">
-          <div>
-            <span class="diorama-kicker">A9 / TREASURY · v17.0</span>
-            <h2 style="margin:3px 0 0;font-size:19px;font-weight:900;">${L('14 天逐秒解锁 + 3 折急提', '14D Unlock + Instant Cashout')}</h2>
-            <p class="num-xs text-sec" style="margin:4px 0 0;">${L('通关秒提', 'Instant')} <b class="mono text-gold">${PROTOCOL_SPECS.immediateUnlockPct}%</b> · ${L('余下 80% 每日解锁', 'Remaining 80% unlocks')} <b class="mono" style="color:var(--ink);">${PROTOCOL_SPECS.dailyUnlockPct}%/${L('天', 'day')}</b> · ${L('全网通关', 'Wins')} <b class="mono" style="color:var(--ink);">${n ?? waiting()}</b></p>
+    root.innerHTML = `
+      <div class="col-gap anim-page-enter">
+        <section class="card card-hero col-gap">
+          <div class="row-between">
+            <div>
+              <div class="num-xs text-muted">${L('14 天逐秒待解锁总额', '14D Per-Second Unlock Remaining')}</div>
+              <div class="sw-asset-main" style="margin-top:4px;">${lockedA9 === null || lockedA9 === undefined ? (loading ? '…' : '—') : `${formatNum(Number(lockedA9), Number(lockedA9) % 1 === 0 ? 0 : 2)} <span class="sw-asset-main-unit">A9</span>`}</div>
+            </div>
+            <span class="nt-art-badge tone-blue" aria-hidden="true">${renderNintendoGateIcon('vault', 34)}</span>
           </div>
-          <span class="nt-art-badge tone-blue" aria-hidden="true">${renderNintendoGateIcon('vault', 36)}</span>
-        </div>
-        <div class="wv-steps" style="margin-top:12px;">
-          ${[
-            [L('第 0 天 · 通关', 'Day 0 · Pass'), '20%', L('即时秒提', 'Instant'), L('+ 100% 本金', '+ 100% Principal')],
-            [L('第 1–14 天', 'Days 1–14'), '+5.71%', L('逐秒解锁', 'Per Day'), L('永久累计不倒扣', 'Never Forfeited')],
-            [L('急提通道', 'Fast Cashout'), '30%', L('未解锁 3 折秒提', '30% Now'), L('7 折永久销毁', '70% Burned')],
-          ].map(([stage, pct, sub, foot], i) => `
-            <article class="${i === 0 ? 'current' : ''}">
-              <small>${stage}</small>
-              <strong>${pct}</strong>
-              ${sub}
-              <p>${foot}</p>
-            </article>
-          `).join('')}
-        </div>
-      </section>
+          <div class="sw-status-steps">
+            <div class="sw-status-step is-done">
+              <small>${L('通关即领', 'Day 0')}</small>
+              <strong>20%</strong>
+            </div>
+            <div class="sw-status-step is-active">
+              <small>${L('14 天逐秒解锁', '14D Unlock')}</small>
+              <strong>+5.71%/${L('天', 'd')}</strong>
+            </div>
+            <div class="sw-status-step">
+              <small>${L('3 折急提', 'Instant')}</small>
+              <strong>${L('30% 实拿', '30% Now')}</strong>
+            </div>
+          </div>
+          <div class="num-xs text-sec" style="line-height:1.5;">
+            ${L('通关秒提 20% + 100% 本金，余下 80% 按 14 天逐秒解锁（永久累计不倒扣）；如需提前变现，仅未解锁部分按 30% 实发、70% 永久销毁。', '20% instant + 100% principal on win; remaining 80% unlocks per second over 14 days (never forfeited). Instant Cashout pays 30% of unvested rewards now and burns 70%.')} · ${L('全网通关', 'Wins')}: <b class="mono">${n ?? waiting()}</b>
+          </div>
+        </section>
 
-      <section class="card">
-        <div class="card-header" style="margin-bottom:4px;">
-          <h3 class="card-title">${icon('wallet', 15, 'text-gold')} ${L('我的金库余额', 'My Vault Balances')}</h3>
-          <span class="chip ${config.isDemo ? 'chip-muted' : 'chip-gold'}">${config.isDemo ? L('演示数据', 'DEMO') : L('待核验', 'PENDING')}</span>
+        <div>
+          <div class="sw-section-label">${L('解锁明细', 'Unlock Breakdown')}</div>
+          <div class="sw-menu-group">
+            <a class="sw-menu-row" href="#/claim">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('已解锁待领取', 'Unlocked & Claimable')}</span>
+                <span class="sw-menu-sub">${L('前往领奖中心发起领取（0.22 GRAM Gas）', 'Go to Claims (0.22 GRAM gas)')}</span>
+              </div>
+              <div class="sw-menu-right">
+                <span class="sw-menu-amount ${Number(claimableA9) > 0 ? 'is-green' : (claimableA9 == null ? 'is-muted' : '')}">${fmtRewardsA9(claimableA9, loading)}</span>
+                <span class="sw-menu-arrow" aria-hidden="true">›</span>
+              </div>
+            </a>
+            <div class="sw-menu-row is-static">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('每日解锁节奏（5.71%/天）', 'Daily Unlock Pace (5.71%/day)')}</span>
+                <span class="sw-menu-sub">${L('按秒连续释放，随时可领', 'Continuous per-second release')}</span>
+              </div>
+              <div class="sw-menu-right">
+                <span class="sw-menu-amount ${dailyRateA9 == null ? 'is-muted' : ''}">${fmtRewardsA9(dailyRateA9, loading)}</span>
+              </div>
+            </div>
+            ${error ? `
+              <div class="sw-menu-error" role="alert">
+                <span>${L('读取失败', 'Read failed')}</span>
+                <button type="button" class="sw-retry-link" id="btn-rewards-retry">${L('重试', 'Retry')}</button>
+              </div>
+            ` : ''}
+          </div>
         </div>
-        <div>${balances}</div>
-        <p class="num-xs text-muted" style="margin:10px 0 0;line-height:1.5;">${L('通关奖励 20% 秒提 + 14 天逐秒解锁（支持 3 折急提，7 折销毁），永不倒扣；未通关永不爆仓 · 自动止损（头矿 6H 退 95% / 普通退 90%） · 奖池分完为止', 'Winning rewards unlock via 20% Instant + 14D Per-Second Unlock (Instant Cashout 30% Now / 70% Burn); failed rounds use No Liquidation · Auto Stop-Loss (95% First 6H / 90% Standard) · until pool exhaustion')}</p>
-      </section>
 
-      <nav class="wv-links">${link('/claim', L('金库领奖', 'Claim Prizes'), 'unlock')}${link('/profile', L('我的档案', 'My Profile'), 'wallet')}</nav>
-    </div>
-  `;
+        ${isLive && !hasWallet ? `
+          <div class="sw-menu-group">
+            <button type="button" class="sw-menu-row" id="btn-rewards-connect">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('连接钱包查看各凭证解锁进度', 'Connect Wallet for Per-Pass Unlock')}</span>
+                <span class="sw-menu-sub">${L('读取链上 StakeTicket 实时待解锁余额', 'Read on-chain StakeTicket locked balances')}</span>
+              </div>
+              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+            </button>
+          </div>
+        ` : ''}
+
+        ${isLive && hasWallet && !loading && !error ? `
+          <div>
+            <div class="sw-section-label">${L('各凭证待解锁余额', 'Per-Pass Locked Balances')}</div>
+            <div class="sw-menu-group">
+              ${lockedTickets.length === 0
+                ? `<div class="sw-menu-row is-static"><div class="sw-menu-left"><span class="sw-menu-title text-muted">${L('当前无待解锁凭证余额', 'No locked rewards on passes')}</span></div></div>`
+                : lockedTickets.map((t) => {
+                    const remA9 = rawToA9(t.lockedRemainingRaw);
+                    const cashA9 = rawToA9(t.instantCashoutTotalRaw);
+                    const burnA9 = rawToA9(t.instantCashoutBurnRaw);
+                    const pctText = (t.unlockedPctBps !== null && t.unlockedPctBps !== undefined && Number.isFinite(Number(t.unlockedPctBps)))
+                      ? `${(Number(t.unlockedPctBps) / 100).toFixed(1)}%`
+                      : null;
+                    const href = t.ticketAddress ? `#/claim?ticket=${encodeURIComponent(t.ticketAddress)}` : '#/claim';
+                    return `
+                      <a class="sw-menu-row" href="${href}">
+                        <div class="sw-menu-left">
+                          <span class="sw-menu-title">${L(`第 ${escapeHtml(String(t.roundId ?? '—'))} 轮凭证`, `Round #${escapeHtml(String(t.roundId ?? '—'))} Pass`)}${pctText ? ` · ${L('已解锁', 'Unlocked')} ${pctText}` : ''}</span>
+                          <span class="sw-menu-sub">${cashA9 != null && burnA9 != null ? L(`3 折急提实拿 ${formatNum(cashA9, 2)} A9 / 销毁 ${formatNum(burnA9, 2)} A9`, `Instant Cashout ${formatNum(cashA9, 2)} A9 / Burn ${formatNum(burnA9, 2)} A9`) : L('点击前往领奖或查看 3 折急提', 'Tap to claim or view Instant Cashout')}</span>
+                        </div>
+                        <div class="sw-menu-right">
+                          <span class="sw-menu-amount is-amber">${fmtRewardsA9(remA9)}</span>
+                          <span class="sw-menu-arrow" aria-hidden="true">›</span>
+                        </div>
+                      </a>
+                    `;
+                  }).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <div class="sw-menu-group">
+          <a class="sw-menu-row" href="#/claim">
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('前往领奖中心', 'Go to Claims')}</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          </a>
+          <a class="sw-menu-row" href="#/profile">
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回我的', 'Back to Me')}</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          </a>
+        </div>
+      </div>
+    `;
+
+    const connBtn = root.querySelector('#btn-rewards-connect');
+    if (connBtn) connBtn.onclick = () => tonConnect.openConnectModal(() => rewards(root));
+    const retryBtn = root.querySelector('#btn-rewards-retry');
+    if (retryBtn) retryBtn.onclick = () => rewards(root);
+  };
+
+  if (!config.isDemo) {
+    const seq = ++rewardsRenderSeq;
+    const addr = store.state.user.address || null;
+    if (!addr) {
+      renderSwitchRewards({ hasWallet: false, isLive: true });
+      return;
+    }
+    renderSwitchRewards({ loading: true, hasWallet: true, isLive: true });
+    fetchUserPortfolio(addr)
+      .then((data) => {
+        if (seq !== rewardsRenderSeq || !root.isConnected || store.state.user.address !== addr) return;
+        const claimableA9 = data?.claimableRaw !== null && data?.claimableRaw !== undefined ? rawToA9(data.claimableRaw) : null;
+        const lockedA9 = data?.lockedRaw !== null && data?.lockedRaw !== undefined ? rawToA9(data.lockedRaw) : null;
+        renderSwitchRewards({
+          claimableA9,
+          lockedA9,
+          tickets: Array.isArray(data?.tickets) ? data.tickets : [],
+          loading: false,
+          error: data?.ticketsAvailable === false,
+          hasWallet: true,
+          isLive: true,
+        });
+      })
+      .catch(() => {
+        if (seq !== rewardsRenderSeq || !root.isConnected || store.state.user.address !== addr) return;
+        renderSwitchRewards({ loading: false, error: true, hasWallet: true, isLive: true });
+      });
+    return;
+  }
+
+  const u = store.state.user;
+  const lockedNum = Number.isFinite(Number(u.a9Locked)) ? Number(u.a9Locked) : null;
+  renderSwitchRewards({
+    claimableA9: Number.isFinite(Number(u.a9Claimable)) ? Number(u.a9Claimable) : null,
+    lockedA9: lockedNum,
+    loading: false,
+    error: false,
+    hasWallet: true,
+    isLive: false,
+  });
 }
 
 export function tower(round) {

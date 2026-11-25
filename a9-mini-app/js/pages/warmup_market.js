@@ -256,20 +256,33 @@ export function renderWarmupHome(root, navigate, _param = null, query = {}) {
               return `<button type="button" class="btn btn-sm ${active ? 'btn-primary' : 'btn-secondary'}" data-intent-tier="${opt.key}" ${!isRoundOpen || state.busy ? 'disabled' : ''}>${L(opt.zh, opt.en)}</button>`;
             }).join('')}
           </div>
-          <div class="list-row" style="padding:8px 10px;">
-            <div>
-              <div class="num-sm" style="font-weight:700;">${L('开轮 Bot 私信通知', 'Bot DM Opening Alert')}</div>
-              <div class="num-xs text-muted">${L('第 ' + targetRoundId + ' 轮开盘时第一时间推送头矿 6H · 5% 轻止损入口', 'Get notified when Round ' + targetRoundId + ' opens (First 6H · 5% Stop-Loss)')}</div>
+          <div class="sw-menu-group">
+            <div class="sw-menu-row is-static">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('开轮 Bot 私信通知', 'Bot DM Opening Alert')}</span>
+                <span class="sw-menu-sub">${L('第 ' + targetRoundId + ' 轮开盘时推送头矿 6H · 5% 轻止损入口', 'Notifies on Round ' + targetRoundId + ' open (First 6H · 5% Stop-Loss)')}</span>
+              </div>
+              <div class="sw-menu-right">
+                <button type="button" class="chip ${state.remindEnabled ? 'chip-green' : 'chip-muted'}" id="btn-toggle-remind" style="cursor:pointer;border:none;" ${!isRoundOpen || state.busy ? 'disabled' : ''}>
+                  ${state.remindEnabled ? L('已开启', 'ON') : L('已关闭', 'OFF')}
+                </button>
+              </div>
             </div>
-            <button type="button" class="chip ${state.remindEnabled ? 'chip-green' : 'chip-muted'}" id="btn-toggle-remind" style="cursor:pointer;border:none;" ${!isRoundOpen || state.busy ? 'disabled' : ''}>
-              ${state.remindEnabled ? L('已开启', 'ON') : L('已关闭', 'OFF')}
-            </button>
           </div>
         </section>
 
-        <div class="grid-2">
-          <button class="btn btn-secondary" data-nav="/warmup/rank" type="button">${icon('trophy', 15)} ${L('预热裂变榜', 'Warm-Up Board')}</button>
-          <button class="btn btn-secondary" id="btn-copy-invite-bottom" type="button">${icon('copy', 15)} ${L('复制专属链接', 'Copy Link')}</button>
+        <div class="sw-menu-group">
+          <a class="sw-menu-row" href="#/warmup/rank">
+            <div class="sw-menu-left">
+              <span class="sw-menu-title">${L('预热裂变榜', 'Warm-Up Board')}</span>
+              <span class="sw-menu-sub">${L('查看本轮预热邀请排名', 'View round warm-up invite rankings')}</span>
+            </div>
+            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          </a>
+          <button type="button" class="sw-menu-row" id="btn-copy-invite-bottom">
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('复制专属预热链接', 'Copy Warm-Up Link')}</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          </button>
         </div>
 
         ${isReserved ? `<button class="btn btn-sm" id="btn-cancel-warmup" type="button" style="width:100%;background:transparent;color:var(--text-muted);font-weight:500;" ${state.busy ? 'disabled' : ''}>${L('取消本轮预热预约', 'Cancel Warm-Up Reservation')}</button>` : ''}
@@ -440,13 +453,16 @@ export function renderWarmupHome(root, navigate, _param = null, query = {}) {
 
 export function renderWarmupRank(root) {
   if (!config.isDemo) {
-    const panel = document.createElement('div');
-    panel.className = 'card col-gap';
-    root.replaceChildren(panel);
     let rankSeq = 0;
     const load = async () => {
       const seq = ++rankSeq;
-      panel.textContent = L('正在读取预热裂变榜…', 'Loading warm-up leaderboard…');
+      root.innerHTML = `
+        <div class="col-gap anim-page-enter">
+          <div class="sw-menu-group">
+            <div class="sw-menu-row is-static"><div class="sw-menu-left"><span class="sw-menu-title text-muted">${L('正在读取预热裂变榜…', 'Loading warm-up board…')}</span></div></div>
+          </div>
+        </div>
+      `;
       try {
         let targetRoundId = Number(store.state.round.currentRound) ? Number(store.state.round.currentRound) + 1 : 1;
         try {
@@ -454,38 +470,62 @@ export function renderWarmupRank(root) {
           if (cur?.roundId) targetRoundId = Number(cur.roundId);
         } catch (_) {}
         const rows = await fetchWarmupRank(targetRoundId);
-        if (seq !== rankSeq || !panel.isConnected) return;
-        panel.replaceChildren();
-        const header = document.createElement('div');
-        header.className = 'card-header';
-        header.innerHTML = `<div class="card-title">${icon('trophy', 15, 'text-gold')} ${L(`第 ${targetRoundId} 轮预热裂变榜`, `Round ${targetRoundId} Warm-Up Board`)}</div><span class="chip chip-muted">${Array.isArray(rows) ? rows.length : 0}</span>`;
-        panel.append(header);
-        if (!Array.isArray(rows) || !rows.length) {
-          const empty = document.createElement('div');
-          empty.className = 'num-xs text-muted';
-          empty.textContent = L('暂无预热邀请排名，快去预约并邀请好友冲榜！', 'No warm-up rankings yet.');
-          panel.append(empty);
-          return;
-        }
-        for (const entry of rows) {
-          const row = document.createElement('div');
-          row.className = 'list-row';
-          const uid = entry.tgUserId ?? entry.userId;
-          const who = entry.label || entry.walletAddress || (uid ? `TG#${String(uid).slice(-4)}` : L('玩家', 'Player'));
-          const rawPart = Number(entry.rawInvites) > Number(entry.validInvites)
-            ? ` (${L('共邀', 'total')} ${entry.rawInvites})`
-            : '';
-          row.textContent = `#${entry.rank} · ${who} · ${entry.validInvites} ${L('位有效邀请', 'valid invites')}${rawPart}`;
-          panel.append(row);
-        }
+        if (seq !== rankSeq || !root.isConnected) return;
+        const list = Array.isArray(rows) ? rows : [];
+        root.innerHTML = `
+          <div class="col-gap anim-page-enter">
+            <section class="card card-hero">
+              <div class="row-between">
+                <div class="card-title">${icon('trophy', 15, 'text-gold')} ${L(`第 ${targetRoundId} 轮预热裂变榜`, `Round ${targetRoundId} Warm-Up Board`)}</div>
+                <span class="chip chip-muted mono">${list.length}</span>
+              </div>
+            </section>
+            <div class="sw-menu-group">
+              ${list.length === 0
+                ? `<div class="sw-menu-row is-static"><div class="sw-menu-left"><span class="sw-menu-title text-muted">${L('暂无预热邀请排名，快去预约并邀请好友冲榜！', 'No warm-up rankings yet.')}</span></div></div>`
+                : list.map((entry) => {
+                    const uid = entry.tgUserId ?? entry.userId;
+                    const who = entry.label || entry.walletAddress || (uid ? `TG#${String(uid).slice(-4)}` : L('玩家', 'Player'));
+                    const rawPart = Number(entry.rawInvites) > Number(entry.validInvites)
+                      ? ` (${L('共邀', 'total')} ${entry.rawInvites})`
+                      : '';
+                    return `
+                      <div class="sw-rank-row">
+                        <span class="sw-rank-pos">#${escapeHtml(String(entry.rank))}</span>
+                        <span class="sw-rank-id">${escapeHtml(String(who))}</span>
+                        <span class="sw-rank-val">${escapeHtml(String(entry.validInvites))} ${L('有效', 'valid')}${escapeHtml(rawPart)}</span>
+                      </div>
+                    `;
+                  }).join('')}
+            </div>
+            <div class="sw-menu-group">
+              <a class="sw-menu-row" href="#/warmup">
+                <div class="sw-menu-left"><span class="sw-menu-title">${L('返回下轮预热', 'Back to Warm-Up')}</span></div>
+                <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+              </a>
+            </div>
+          </div>
+        `;
       } catch {
-        if (seq !== rankSeq || !panel.isConnected) return;
-        panel.textContent = L('榜单暂不可读取', 'Rankings unavailable');
-        const retry = document.createElement('button');
-        retry.className = 'btn btn-secondary';
-        retry.textContent = L('重试', 'Retry');
-        retry.onclick = load;
-        panel.append(retry);
+        if (seq !== rankSeq || !root.isConnected) return;
+        root.innerHTML = `
+          <div class="col-gap anim-page-enter">
+            <div class="sw-menu-group">
+              <div class="sw-menu-error" role="alert">
+                <span>${L('榜单读取失败', 'Rankings unavailable')}</span>
+                <button type="button" class="sw-retry-link" id="btn-warmup-rank-retry">${L('重试', 'Retry')}</button>
+              </div>
+            </div>
+            <div class="sw-menu-group">
+              <a class="sw-menu-row" href="#/warmup">
+                <div class="sw-menu-left"><span class="sw-menu-title">${L('返回下轮预热', 'Back to Warm-Up')}</span></div>
+                <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+              </a>
+            </div>
+          </div>
+        `;
+        const retry = root.querySelector('#btn-warmup-rank-retry');
+        if (retry) retry.onclick = load;
       }
     };
     load();
@@ -496,36 +536,34 @@ export function renderWarmupRank(root) {
     const rows = tab === 'personal' ? personalRanks : teamRanks;
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
-        <div class="card" style="border-color:var(--gold-border);">
-          <div class="row-between">
-            <div>
-              <div class="num-xs text-gold">${L('前 50 名守门员门槛 · 每 5 分钟刷新', 'Top 50 Cutoff · Refreshes 5m')}</div>
-              <div style="font-size:14px;font-weight:700;margin-top:3px;">≥ 6 ${L('名有效直邀 (冻结后 T+24H 公示)', 'Valid Invites (Final at T+24H)')}</div>
-            </div>
-            <span class="chip chip-green">DEMO</span>
-          </div>
-        </div>
+        <section class="card card-hero">
+          <div class="num-xs text-gold" style="font-weight:700;">${L('前 50 名守门员门槛 · 每 5 分钟刷新', 'Top 50 Cutoff · Refreshes 5m')}</div>
+          <div style="font-size:15px;font-weight:900;margin-top:4px;">≥ 6 ${L('名有效直邀（冻结后 T+24H 公示）', 'Valid Invites (Final at T+24H)')}</div>
+        </section>
 
         <div class="seg-tabs">
-          <button class="seg-tab ${tab === 'personal' ? 'active' : ''}" data-wt="personal">${L('个人先锋榜 (前50)', 'Top 50 Users')}</button>
-          <button class="seg-tab ${tab === 'team' ? 'active' : ''}" data-wt="team">${L('战队先锋榜', 'Top Squads')}</button>
+          <button class="seg-tab ${tab === 'personal' ? 'active' : ''}" data-wt="personal" type="button">${L('个人先锋榜 (前50)', 'Top 50 Users')}</button>
+          <button class="seg-tab ${tab === 'team' ? 'active' : ''}" data-wt="team" type="button">${L('战队先锋榜', 'Top Squads')}</button>
         </div>
 
-        <div class="card">
-          <div class="col-gap">
-            ${rows.map(item => `
-              <div class="list-row ${item.me ? 'is-me' : ''}">
-                <div class="row-start">
-                  <span class="chip ${item.me ? 'chip-green' : item.cutoff ? 'chip-gold' : 'chip-muted'}">#${item.r}</span>
-                  <span class="num-sm" style="font-weight:${item.me ? '700' : '500'};">${item.addr}</span>
-                </div>
-                <div style="text-align:right;">
-                  <div class="num-sm text-green" style="font-weight:600;">${item.reward}</div>
-                  <div class="num-xs text-muted">${item.invites} ${L('人', 'inv')}</div>
-                </div>
+        <div class="sw-menu-group">
+          ${rows.map(item => `
+            <div class="sw-rank-row" ${item.me ? 'style="background:var(--nt-gold-soft);"' : ''}>
+              <span class="sw-rank-pos ${item.me ? 'text-green' : item.cutoff ? 'text-gold' : ''}">#${escapeHtml(String(item.r))}</span>
+              <div class="sw-rank-id">
+                <div style="font-weight:${item.me ? '900' : '700'};color:var(--ink);">${escapeHtml(item.addr)}</div>
+                <div class="num-xs text-muted">${escapeHtml(String(item.invites))} ${L('位有效直邀', 'valid invites')}</div>
               </div>
-            `).join('')}
-          </div>
+              <span class="sw-rank-val text-green">${escapeHtml(item.reward)}</span>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="sw-menu-group">
+          <a class="sw-menu-row" href="#/warmup">
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回下轮预热', 'Back to Warm-Up')}</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          </a>
         </div>
       </div>
     `;
@@ -796,7 +834,19 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
         </div>
 
         ${activeTab === 'mall' ? `
-          ${query.from === 'activation' && (config.isDemo ? rawToA9(store.state.prediction.pendingActivationRaw) : activationA9) > 0 ? `<section class="card"><div class="card-title">${L('待激活奖励', 'Pending activation')} · ${formatNum(activationA9)} A9</div><p>${L('购箱后，符合条件的奖励将并入推广余额。宝箱内的 A9 单独直发钱包。', 'Eligible rewards move to your referral balance after purchase. Chest contents go directly to your wallet.')}</p></section>` : ''}
+          ${query.from === 'activation' && (config.isDemo ? rawToA9(store.state.prediction.pendingActivationRaw) : activationA9) > 0 ? `
+            <div class="sw-menu-group">
+              <div class="sw-menu-row is-static" style="background:var(--nt-gold-soft);">
+                <div class="sw-menu-left">
+                  <span class="sw-menu-title">${L('待激活奖励', 'Pending Activation')}</span>
+                  <span class="sw-menu-sub">${L('购箱后，符合条件的奖励将并入推广余额；宝箱内的 A9 单独直发钱包。', 'Eligible rewards move to your referral balance after purchase; chest A9 goes directly to your wallet.')}</span>
+                </div>
+                <div class="sw-menu-right">
+                  <span class="sw-menu-amount is-amber">${formatNum(activationA9)} A9</span>
+                </div>
+              </div>
+            </div>
+          ` : ''}
           ${critFeed.length > 0 ? `<button type="button" class="mall-crit-ticker" id="mall-crit-ticker" aria-live="polite">${formatCritTickerInner(critFeed[critIndex % critFeed.length], critIndex % critFeed.length, critFeed.length)}</button>` : ''}
           <div class="mall-info-strip">
             <span class="mall-rate-tag is-green">${icon('shieldCheck', 12, 'text-green')} ${L('100% 保底本金 · 买完合并直发钱包', '100% Base Safe · Direct Wallet Payout')}</span>
@@ -1519,7 +1569,7 @@ export function renderInternalRecords(root) {
             </div>
           `}
 
-          <button class="btn btn-secondary" data-nav="/internal/market" type="button">${icon('arrowLeft', 15)} ${L('返回宝箱商城', 'Back to Chest Mall')}</button>
+          ${filtered.length > 0 ? `<button class="btn btn-secondary" data-nav="/internal/market" type="button">${icon('arrowLeft', 15)} ${L('返回宝箱商城', 'Back to Chest Mall')}</button>` : ''}
         </div>
       `;
 
@@ -1621,7 +1671,7 @@ export function renderInternalRecords(root) {
           </div>
         `}
 
-        <button class="btn btn-secondary" data-nav="/internal/market" type="button">${icon('arrowLeft', 15)} ${L('返回宝箱商城', 'Back to Chest Mall')}</button>
+        ${filtered.length > 0 ? `<button class="btn btn-secondary" data-nav="/internal/market" type="button">${icon('arrowLeft', 15)} ${L('返回宝箱商城', 'Back to Chest Mall')}</button>` : ''}
       </div>
     `;
 

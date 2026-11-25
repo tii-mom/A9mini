@@ -77,7 +77,7 @@ const DICT = {
     rt_renew: '开盘提醒',
     rt_ledger: '收益账本',
     rt_records: '闯关战绩',
-    rt_settings: '偏好设置',
+    rt_settings: '提醒与设置',
     rt_risk_matrix: '安全护盾',
     rt_risk_audit: '链上验真',
     rt_rules: '闯关指南'
@@ -105,7 +105,7 @@ const DICT = {
     rt_renew: 'Opening Alerts',
     rt_ledger: 'Reward Ledger',
     rt_records: 'Quest History',
-    rt_settings: 'Settings',
+    rt_settings: 'Alerts & Settings',
     rt_risk_matrix: 'Safety Shield',
     rt_risk_audit: 'On-Chain Proof',
     rt_rules: 'How to Play'

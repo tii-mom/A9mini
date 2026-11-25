@@ -617,9 +617,9 @@ export function demoPredictionActivate(userId, walletAddress) {
 }
 
 export const ROUND_META = {
-  R3: { zh: '第 3 轮 · 12H 冲价中', en: 'Round #3 · 12H Push', target: '$0.1850', est: '$0.1895', bars: '6/12', pct: 75 },
-  R2: { zh: '第 2 轮 · 已清算', en: 'Round #2 · Paid', target: '$0.1420', est: '$0.1618', bars: '10/12', pct: 100 },
-  R1: { zh: '第 1 轮 · 创世轮', en: 'Round #1 · Genesis', target: '$0.1100', est: '$0.1325', bars: '11/12', pct: 100 }
+  R3: { zh: '第 3 轮 · 12H 冲价中', en: 'Round #3 · 12H Push', target: '$0.0046', est: '$0.0048', bars: '6/12', pct: 75 },
+  R2: { zh: '第 2 轮 · 已清算', en: 'Round #2 · Paid', target: '$0.0023', est: '$0.0026', bars: '10/12', pct: 100 },
+  R1: { zh: '第 1 轮 · 创世轮', en: 'Round #1 · Genesis', target: '$0.0012', est: '$0.0014', bars: '11/12', pct: 100 }
 };
 
 export const DEMO_RANKS = {

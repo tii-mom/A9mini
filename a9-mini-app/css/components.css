@@ -761,7 +761,7 @@ img {
 }
 
 .list-row > b,
-.list-row > :last-child {
+.list-row > :last-child:not(:first-child) {
   max-width: 65%;
   text-align: right;
   word-break: break-all;
@@ -1793,7 +1793,7 @@ img {
   font-size: 15px;
   font-weight: 800;
   color: var(--ink-soft);
-  margin-left: 4px;
+  margin-left: 2px;
   white-space: nowrap;
 }
 
