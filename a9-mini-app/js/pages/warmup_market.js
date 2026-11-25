@@ -16,6 +16,7 @@ import {
   rawToA9,
   loadSnapshot,
   mapRoundView,
+  PROTOCOL_SPECS,
 } from '../data.js';
 /**
  * Warm-up v2 & Chest Mall Pages
@@ -68,7 +69,7 @@ function openChestCelebrationModal({ tier = 'gold', title = '', totalA9 = 0, bas
        </div>`
     : '';
   const capNote = budgetCapped
-    ? `<div class="num-xs text-muted">${L('300M 活动暴击池已达上限，100% 固定本金不受影响', '300M bonus pool reached cap; 100% base principal unaffected')}</div>`
+    ? `<div class="num-xs text-muted">${L(`${formatNum(PROTOCOL_SPECS.promoCapA9)} A9 活动暴击池已达上限，100% 固定本金不受影响`, `${formatNum(PROTOCOL_SPECS.promoCapA9)} A9 bonus pool reached cap; 100% base principal unaffected`)}</div>`
     : '';
   const nextNote = nextUnlocked
     ? `<div class="num-xs text-green" style="font-weight:800;">${L(`已解锁下一档「${escapeHtml(nextUnlocked.labelZh || '')}」`, `Unlocked ${escapeHtml(nextUnlocked.labelEn || '')}`)}</div>`
@@ -1582,9 +1583,17 @@ export function renderInternalRecords(root) {
   // Demo 模式：精美任天堂实体购箱小票视图
   const { records } = store.state.market;
   const paintDemo = () => {
-    const isDemoCompleted = (st) => st === '已成交' || st === '演示成交' || st === '演示直接开箱' || String(st || '').startsWith('演示已发本金');
-    const classify = (st) => isDemoCompleted(st) ? 'completed' : (st === '已退款' || st === '退款中') ? 'refund' : 'pending';
-    const filtered = activeFilter === 'all' ? records : records.filter((r) => classify(r.status) === activeFilter);
+    const classify = (r) => {
+      const code = String(r?.statusCode || '').toUpperCase();
+      if (code === 'COMPLETED') return 'completed';
+      if (code === 'REFUNDED') return 'refund';
+      if (code === 'PENDING') return 'pending';
+      const st = String(r?.status || '');
+      if (st === '已成交' || st === '演示成交' || st === '演示直接开箱' || st.startsWith('演示已发本金')) return 'completed';
+      if (st === '已退款' || st === '退款中') return 'refund';
+      return 'pending';
+    };
+    const filtered = activeFilter === 'all' ? records : records.filter((r) => classify(r) === activeFilter);
     const totalA9 = records.reduce((sum, r) => sum + (Number(r.a9) || 0), 0);
 
     root.innerHTML = `
@@ -1617,14 +1626,19 @@ export function renderInternalRecords(root) {
         ` : `
           <div class="col-gap">
             ${filtered.map((r) => {
-              const isDone = isDemoCompleted(r.status);
-              const isRefund = r.status === '已退款';
+              const kind = classify(r);
+              const isDone = kind === 'completed';
+              const isRefund = kind === 'refund';
               const chipCls = isDone ? 'chip-green' : isRefund ? 'chip-muted' : 'chip-gold';
               const tone = isDone ? 'green' : isRefund ? 'muted' : 'gold';
+              const statusText = L(
+                r.status || (isDone ? '已成交' : isRefund ? '已退款' : '处理中'),
+                r.statusEn || (isDone ? 'Demo Filled' : isRefund ? 'Refunded' : 'Pending'),
+              );
               return renderReceiptTicket({
                 a9Val: Number(r.a9) || 0,
                 gramVal: Number(r.ton) || 0,
-                statusText: r.status || L('已成交', 'Done'),
+                statusText,
                 chipCls,
                 tone,
                 serial: r.hash || 'A9-DEMO',

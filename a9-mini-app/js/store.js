@@ -249,6 +249,14 @@ class A9Store {
     this.notify();
   }
 
+  /** 将 loadSnapshot() + mapRoundView() 产出的实时轮次视图合并入 store.state.round。 */
+  applyLiveRound(view) {
+    if (!view || typeof view !== 'object') return;
+    this.update((s) => {
+      Object.assign(s.round, view);
+    });
+  }
+
   setReferrerId(ref) {
     const clean = String(ref || '').trim();
     if (!clean) return;

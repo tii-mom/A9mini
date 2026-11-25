@@ -266,13 +266,13 @@ export function createApiRouter({
             {
               service: 'a9mini-v15-worker',
               status: healthy ? 'ok' : 'degraded',
-              version: '16.0.0',
+              version: '16.2.0',
               checks: safeChecks,
             },
             healthy ? 200 : 503,
           );
         }
-        return ok({ service: 'a9mini-v15-worker', status: 'ok', version: '16.0.0' });
+        return ok({ service: 'a9mini-v15-worker', status: 'ok', version: '16.2.0' });
       }
 
       if (method === 'GET' && pathname === '/api/config') {
@@ -409,10 +409,10 @@ export function createApiRouter({
             }
           }
           const lines = [
-            'A9 · 财富大冒险官方助手（TON v16.1）',
-            '1. 新人 0 GRAM 领取青铜免费宝箱并参与 24H 预言擂台',
-            '2. 宝箱商城支持固定报价 1 GRAM = 2,002 A9，随机暴击最高 +30%（期望 0.7%–4.2%）',
-            '3. 链上质押满 16/24 时段通关派奖，未达标执行 100% 销毁 BURN',
+            'A9 · 财富大冒险官方助手（TON v16.2）',
+            '1. 新人 0 GRAM 秒开 200 A9 青铜新手箱并参与 24H 预言擂台（5 阶免费箱最高 200,000 A9）',
+            '2. 宝箱商城 0.99–500 GRAM 共 6 档纯整数 A9 保底直发、不限个人购箱额度，免助力随机暴击最高 +300,000 A9',
+            '3. 链上质押满 16/24 时段通关退 100% 本金 + 20% 秒领 + 余下 80% 分 40 天按秒线性释放，未达标销毁当轮本金 BURN',
           ];
           if (chatType === 'private') {
             lines.push('默认已开启轮次结算私聊提醒，可在小程序「我的 -> 系统设置」随时开关。');
@@ -435,7 +435,7 @@ export function createApiRouter({
             const poolStr = formatWholeA9FromRaw(detail.rewardBudgetRaw) || '待核验';
             const qualified = Number(detail.qualifiedCandles ?? 0);
             replyText = [
-              `第 #${curId} 轮链上战况（v16.1）`,
+              `第 #${curId} 轮链上战况（v16.2）`,
               `轮次阶段：${detail.state}`,
               `目标底价：${targetUsdStr}`,
               `本轮奖励池：${poolStr} A9（单轮上限 15x）`,

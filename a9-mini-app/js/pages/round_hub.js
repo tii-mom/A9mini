@@ -1158,7 +1158,7 @@ export function renderParticipateSuccess(root, navigate, certId) {
 
       <button class="btn btn-nt-green" id="share-cert-btn">${icon('send', 15)} ${L('分享战绩 · 邀友奖励 6%', 'Share · 6% Invite')}</button>
       <div class="grid-2">
-        <button class="btn btn-secondary" data-nav="/proof/${escapeHtml(cert.id)}">${icon('shieldCheck', 15)} ${L('闯关凭证', 'Quest Pass')}</button>
+        <button class="btn btn-secondary" data-nav="${cert?.id ? `/proof/${escapeHtml(cert.id)}` : '/proof'}">${icon('shieldCheck', 15)} ${L('闯关凭证', 'Quest Pass')}</button>
         <button class="btn btn-secondary" data-nav="/round">${icon('radar', 15)} ${L('查看观测盘', '24H Board')}</button>
       </div>
     </div>

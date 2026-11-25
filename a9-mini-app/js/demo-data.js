@@ -197,7 +197,9 @@ export function demoFundsBuy(state, tonAmount) {
     id: orderId,
     ton: amt,
     a9: receivedA9,
+    statusCode: 'COMPLETED',
     status: '演示成交',
+    statusEn: 'Demo Filled',
     hash: demoTxHash('EQD'),
     time: '刚刚'
   });
@@ -796,7 +798,9 @@ export function demoBuyChest(state, skuId, _openMode = 'BOOST') {
     skuId: pack.skuId,
     ton: totalPay,
     a9: pack.baseA9,
+    statusCode: 'COMPLETED',
     status: '演示已发本金·待开暴击',
+    statusEn: 'Demo Base Credited · Crit Ready',
     hash: demoTxHash('EQC'),
     time: '刚刚'
   });

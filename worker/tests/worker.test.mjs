@@ -2565,7 +2565,7 @@ await test('Audit hardening: /api/user/:wallet max 10 rounds (default 8), /api/h
   });
   const h = await router({ method: 'GET', pathname: '/api/health', nowSec: 1000 });
   assert.equal(h.status, 200);
-  assert.equal(h.body.data.version, '16.0.0');
+  assert.equal(h.body.data.version, '16.2.0');
 
   const defRange = await router({
     method: 'GET',

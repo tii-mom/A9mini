@@ -404,7 +404,7 @@ export function renderProfileHome(root, navigate) {
           ${certificates.length === 0
             ? `<div class="empty-state" style="padding:14px;"><div class="num-xs text-muted">${L('暂无进行中的闯关凭证', 'No active quest passes')}</div><button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/round">${L('前往轮次闯关', 'Go to Quest')}</button></div>`
             : certificates.map(c => `
-              <div class="list-row clickable collectible-ticket" role="button" tabindex="0" data-ticket-state="${escapeHtml(c.status)}" data-nav="/proof/${escapeHtml(c.id)}" ${activeFilter !== 'all' && c.status !== activeFilter ? 'hidden' : ''}>
+              <div class="list-row clickable collectible-ticket" role="button" tabindex="0" data-ticket-state="${escapeHtml(c.status)}" data-nav="${c.id ? `/proof/${escapeHtml(c.id)}` : '/proof'}" ${activeFilter !== 'all' && c.status !== activeFilter ? 'hidden' : ''}>
                 <span class="collectible-ticket-badge" aria-hidden="true">${renderNintendoGateIcon('ticket', 24)}</span>
                 <div>
                   <div class="num-sm" style="font-weight:900;">#${escapeHtml(c.id)}</div>
@@ -1165,7 +1165,7 @@ export function renderRenewPage(root) {
           </div>
           <div class="col-gap" style="gap:8px;">
             ${certificates.map((c) => `
-              <div class="list-row clickable" role="button" tabindex="0" data-nav="/proof/${c.id}">
+              <div class="list-row clickable" role="button" tabindex="0" data-nav="${c.id ? `/proof/${escapeHtml(c.id)}` : '/proof'}">
                 <div>
                   <div class="num-sm" style="font-weight:800;">#${c.id} · ${L('第', 'R')}${c.round}${L('轮', '')}</div>
                   <div class="num-xs text-muted">${formatNum(c.stakeTon)} A9</div>
@@ -1273,7 +1273,7 @@ export function renderLedgerPage(root) {
             ${history.length === 0
               ? `<div class="card empty-state"><div class="num-xs text-muted">${L('暂无闯关战绩', 'No history')}</div></div>`
               : history.map(h => `
-                <article class="record-pass-card ${h.status === 'settled' ? 'is-settled' : ''}" data-nav="/proof/${h.id}">
+                <article class="record-pass-card ${h.status === 'settled' ? 'is-settled' : ''}" data-nav="${h.id ? `/proof/${escapeHtml(h.id)}` : '/proof'}">
                   <div class="row-between">
                     <div class="row-start" style="gap:7px;">
                       <span class="chip chip-muted mono">R${String(h.round).padStart(2, '0')}</span>
