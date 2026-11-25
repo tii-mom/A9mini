@@ -3,7 +3,7 @@
 A9 · 财富大冒险 Telegram Bot 配套服务（命令菜单 + 安全 Mini App 深链）。
 
 数据真实性约束（P0-3）：
-- 严禁打印任何硬编码轮次、价格、质押或收益数字；
+- 严禁打印任何硬编码轮次、价格、锁仓或收益数字；
 - 实时数据经异步线程从 Worker API（A9_API_BASE）拉取，不可达或缺失时一律显示“待核验”；
 - 个人余额与可领取数额仅在小程序内完成 Telegram initData + ton_proof 验签后展示。
 
@@ -42,15 +42,15 @@ ACTIVE_STATES = {
     "SETTLING_FAILURE",
 }
 STATE_LABELS = {
-    "STAKING_OPEN": "参与开放中",
-    "STAKING_CLOSED": "参与已截止",
-    "OBSERVING": "24H 观察中",
+    "STAKING_OPEN": "24H 锁仓开放中",
+    "STAKING_CLOSED": "锁仓已封盘",
+    "OBSERVING": "12H 冲价中",
     "ORACLE_PAUSED": "预言机保护暂停",
-    "SETTLING_SUCCESS": "达标结算中",
-    "SETTLING_FAILURE": "未达标清算中",
-    "SUCCEEDED": "已达标",
-    "FAILED": "未达标",
-    "FAILED_PERMANENT": "未达标 · 销毁 BURN",
+    "SETTLING_SUCCESS": "通关结算中",
+    "SETTLING_FAILURE": "未通关 · 自动止损结算中",
+    "SUCCEEDED": "已通关",
+    "FAILED": "未通关 · 自动止损",
+    "FAILED_PERMANENT": "未通关 · 自动止损",
     "TECHNICAL_ABORTED": "异常中止 · 退回本金",
     "UNOPENED": "未开启",
 }
@@ -184,7 +184,7 @@ async def current_round_summary():
         "state": STATE_LABELS.get(raw_state, raw_state),
         "target": usd_e8(r.get("targetPriceUsdE8")),
         "twap": usd_e8(raw_twap),
-        "qualified": f"{q}/24" if isinstance(q, int) and not isinstance(q, bool) else PENDING,
+        "qualified": f"{q}/12" if isinstance(q, int) and not isinstance(q, bool) else PENDING,
     }
 
 
@@ -197,10 +197,10 @@ async def render_start():
     if s["status"] == "unopened":
         return (
             "<b>A9 · 财富大冒险</b>\n"
-            "首轮链上闯关蓄水筹备中，免费青铜宝箱与宝箱商城入口已就绪。\n\n"
+            "首轮涨价解锁蓄水筹备中，免费青铜宝箱与宝箱商城入口已就绪。\n\n"
             "• 免费宝箱：0 成本秒开 200 A9 青铜新手箱，进阶 5 阶梯队最高可领 200,000 A9（好友购箱 1 抵 3 助力加速）\n"
-            "• 宝箱商城：0.99–500 GRAM 共 6 档纯整数 A9 保底直发、不限个人购箱额度，免助力随机暴击最高 +300,000 A9\n"
-            "• 战队群主：绑定 ≥50 人真实 TG 群且战队满 3 名已绑定成员可享 5,000 A9 创世金库与 6% 直推返佣\n\n"
+            "• 宝箱商城：0.99–500 GRAM 共 6 档纯区间随机开箱，保底 + 随机加赠合并直发钱包（最高 1,300,000 A9）\n"
+            "• 战队与返佣：好友锁仓通关享 8% 返佣 · 每轮空投，商城直推 6% 返佣，绑定 ≥50 人真实 TG 群且满 3 名已绑定成员享 5,000 A9 创世金库\n\n"
             "点击下方按钮打开小程序。参与有风险，一切规则与结果以链上及协议公示为准。"
         )
     if s["status"] == "unavailable":
@@ -211,10 +211,10 @@ async def render_start():
         )
     return (
         "<b>A9 · 财富大冒险</b>\n"
-        "基于 TON 区块链智能合约。以下数据来自协议接口，缺失时显示“待核验”。\n\n"
+        "基于 TON 区块链智能合约（v17.0 涨价解锁）。以下数据来自协议接口，缺失时显示“待核验”。\n\n"
         f"• 当前轮次：<code>{_esc(s['round'])}</code>（{_esc(s['state'])}）\n"
         f"• 目标价：<code>{_esc(s['target'])}</code>\n"
-        f"• 24H 判定均价：<code>{_esc(s['twap'])}</code>\n\n"
+        f"• 1H 均价：<code>{_esc(s['twap'])}</code>\n\n"
         "进入小程序查看实时详情。参与有风险，结果以链上结算为准。"
     )
 
@@ -226,14 +226,14 @@ async def render_round():
             f"<b>轮次 {_esc(s['round'])} 实时状态</b>\n"
             f"• 阶段：{_esc(s['state'])}\n"
             f"• 目标价：<code>{_esc(s['target'])}</code>\n"
-            f"• 达标时段：<code>{_esc(s['qualified'])}</code>（需 ≥ 16/24）\n"
+            f"• 达标时段：<code>{_esc(s['qualified'])}</code>（需 ≥ 8/12）\n"
             "协议状态接口暂不可达或返回数据异常，当前数据待核验，请稍后重试。"
         )
     return (
         f"<b>轮次 {_esc(s['round'])} 实时状态</b>\n"
         f"• 阶段：{_esc(s['state'])}\n"
         f"• 目标价：<code>{_esc(s['target'])}</code>\n"
-        f"• 达标时段：<code>{_esc(s['qualified'])}</code>（需 ≥ 16/24）\n"
+        f"• 达标时段：<code>{_esc(s['qualified'])}</code>（需 ≥ 8/12）\n"
         "数据来自协议接口；缺失项显示“待核验”。"
     )
 

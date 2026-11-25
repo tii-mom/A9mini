@@ -89,6 +89,7 @@ const presaleEngine = presaleHotAddr
       refundFeeNano: process.env.A9_PRESALE_REFUND_FEE_NANO || undefined,
       userFaultFeeNano: process.env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
       promoEngine,
+      predictionEngine,
       socialStore,
       identityStore,
       chestEngine,

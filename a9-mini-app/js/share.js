@@ -53,7 +53,7 @@ function buildAngles(type, id, ctx = {}) {
   const roundNum = rawRound ? rawRound : L('待核验', 'TBD');
   const rawPassed = ctx.qualified ?? r.qualifiedCandles;
   const passed = rawPassed !== null && rawPassed !== undefined ? rawPassed : '—';
-  const required = ctx.required ?? r.minQualifiedCandles ?? 16;
+  const required = ctx.required ?? r.minQualifiedCandles ?? 8;
   const target = r.targetPrice ? `$${Number(r.targetPrice).toFixed(4)}` : L('待定', 'TBD');
   const pool = r.rewardBudgetA9 === null || r.rewardBudgetA9 === undefined ? L('待核验', 'pending') : `${formatNum(r.rewardBudgetA9)} A9`;
   const streak = Number(ctx.streak ?? pred.streak) || 0;
@@ -71,24 +71,24 @@ function buildAngles(type, id, ctx = {}) {
         key: 'data',
         label: L('数据派', 'Data'),
         text: L(
-          `A9 第 ${roundNum} 轮链上闯关凭证 #${id} 已生成：质押 ${stakeTon} A9，早鸟权重 ${mult}x，当前 24H 达标时段 ${passed}/${required}，目标底价 ${target}。`,
-          `A9 Round #${roundNum} Proof #${id}: ${stakeTon} A9 staked at ${mult}x early weight. 24H slots ${passed}/${required}, target ${target}.`
+          `A9 第 ${roundNum} 轮涨价解锁凭证 #${id} 已生成：锁仓 ${stakeTon} A9（全员 1:1 分奖 · 永不爆仓），当前 12H 冲价达标 ${passed}/${required}，目标底价 ${target}。`,
+          `A9 Round #${roundNum} Price-Unlock Pass #${id}: ${stakeTon} A9 locked (1:1 fair split · no liquidation). 12H Push ${passed}/${required}, target ${target}.`
         )
       },
       {
         key: 'bull',
         label: L('看多派', 'Bullish'),
         text: L(
-          `已锁定 A9 第 ${roundNum} 轮 ${mult}x 早鸟权重，本轮奖池 ${pool}，24H 观察窗口正在推进中，凭链上闯关凭证看最终结算。`,
-          `Locked ${mult}x early weight in A9 Round #${roundNum} (${pool} pool). Watching the 24H slot matrix unfold on-chain.`
+          `已上车 A9 第 ${roundNum} 轮涨价解锁池，本轮奖池 ${pool}（封顶 5x · 永不爆仓，头矿 6H 仅 5% 止损），12H 冲价正在推进中！`,
+          `Locked into A9 Round #${roundNum} Price-Unlock (${pool} pool, 5x cap, no liquidation, First 6H 5% Stop-Loss). Watching the 12H Push live!`
         )
       },
       {
         key: 'casual',
         label: L('吃瓜自嘲派', 'Banter'),
         text: L(
-          `把 ${stakeTon} A9 押进了 A9 第 ${roundNum} 轮 24H 赛点，目前 ${passed}/${required} 段达标，是吃肉还是看烟花就看接下来几小时了。`,
-          `Put ${stakeTon} A9 into A9 Round #${roundNum}. Currently ${passed}/${required} slots qualified—either settlement or fireworks next.`
+          `把 ${stakeTon} A9 锁进了 A9 第 ${roundNum} 轮涨价解锁池，目前 12H 冲价 ${passed}/${required} 段达标，赢了最高 5 倍币，没过也退 95%/90% 本金，稳！`,
+          `Locked ${stakeTon} A9 into A9 Round #${roundNum}. 12H Push is ${passed}/${required}—up to 5x if we pass, 95%/90% refunded if not!`
         )
       }
     ];
@@ -97,31 +97,31 @@ function buildAngles(type, id, ctx = {}) {
   if (type === 'burn') {
     const missGap = Number.isFinite(Number(passed)) ? Math.max(1, Number(required) - Number(passed)) : null;
     const gapText = missGap !== null
-      ? L(`就差 ${missGap} 根小时线过关`, `missed by just ${missGap} hourly slot(s)`)
-      : L('未满 16/24 达标线', 'missed the 16/24 line');
+      ? L(`就差 ${missGap} 根小时线通关`, `missed by just ${missGap} hourly slot(s)`)
+      : L('未满 8/12 达标线', 'missed the 8/12 line');
     return [
       {
         key: 'data',
         label: L('数据派', 'Data'),
         text: L(
-          `A9 第 ${roundNum} 轮 ${gapText}（定格 ${passed}/${required} 段）——合约已链上执行 100% 销毁 BURN，Tx 全网可查。见证销毁并分享，解锁下轮宝箱商城优先通道。`,
-          `A9 Round #${roundNum} ${gapText} (${passed}/${required} slots)—100% on-chain BURN executed per v16.2 contract. Share to unlock next-round Chest Mall priority.`
+          `A9 第 ${roundNum} 轮 ${gapText}（定格 ${passed}/${required} 段）——永不爆仓 · 自动止损：合约已开放头矿 6H 退 95% / 普通退 90% 本金，止损份额与半数奖池已链上通缩销毁。`,
+          `A9 Round #${roundNum} ${gapText} (${passed}/${required} slots)—No Liquidation · Auto Stop-Loss: 95% (First 6H) / 90% refund open while stop-loss & half-pool burn on-chain.`
         )
       },
       {
         key: 'bull',
         label: L('看多派', 'Bullish'),
         text: L(
-          `真烧币不嘴炮：A9 第 ${roundNum} 轮未达标，合约直接链上永久销毁 BURN，半数奖池通缩减量！下轮 ${pool} 奖池即将重开，链上规则铁面无私。`,
-          `Zero talk, real on-chain BURN: A9 Round #${roundNum} executed permanent contract burn. Next ${pool} pool resets soon—100% on-chain rules.`
+          `真通缩不嘴炮：A9 第 ${roundNum} 轮未通关触发自动止损，头矿 6H 退 95% / 普通退 90%，半数奖池链上永久通缩！下轮 ${pool} 奖池即将重开，链上规则铁面无私。`,
+          `Real on-chain deflation: A9 Round #${roundNum} triggered Auto Stop-Loss (95% First 6H / 90% refund) + half-pool permanent burn. Next ${pool} pool opens soon.`
         )
       },
       {
         key: 'casual',
         label: L('吃瓜自嘲派', 'Banter'),
         text: L(
-          `现场目击 A9 第 ${roundNum} 轮烟花秀：24 小时最终 ${passed}/${required} 段，${gapText}原地执行销毁 BURN。先领下轮宝箱商城额度，下局再战。`,
-          `Witnessed A9 Round #${roundNum} fireworks: ended at ${passed}/${required} slots (${gapText}) and triggered on-chain BURN. Grabbing next-round Chest Mall quota.`
+          `现场目击 A9 第 ${roundNum} 轮结算：12H 冲价最终 ${passed}/${required} 段，${gapText}，永不爆仓自动止损退本（95%/90%）并通缩销毁半数奖池。下轮再战！`,
+          `Witnessed A9 Round #${roundNum} settlement: 12H Push ended at ${passed}/${required} slots (${gapText})—No Liquidation · Auto Stop-Loss refund (95%/90%) & half-pool burn. Ready for next round!`
         )
       }
     ];
@@ -135,11 +135,11 @@ function buildAngles(type, id, ctx = {}) {
     return [
       {
         key: 'gift',
-        label: isBoost ? L('随机暴击战报', 'Crit Report') : L('双向开箱礼', 'Co-Op Gift'),
+        label: isBoost ? L('手气爆棚战报', 'Top Roll Report') : L('双向开箱礼', 'Co-Op Gift'),
         text: isBoost
           ? L(
-              `刚在 A9 宝箱商城开启【${label}】触发随机暴击，额外爆出 ${rewardText}！6 档纯整数本金保底免助力，传说箱最高暴击 +300,000 A9，来试试手气或 0 GRAM 参加 24H 预言擂台！`,
-              `Just hit a random crit opening [${label}] in A9 Chest Mall (+${rewardText} bonus)! 6 integer-base tiers with zero assists needed and up to +300,000 A9 crit.`
+              `手气爆棚！刚在 A9 宝箱商城开【${label}】拿到 ${rewardText}（保底 + 随机加赠合并直发钱包），0.99 GRAM 起试试手气或免费领 200 A9 新手箱！`,
+              `Lucky roll! Opened [${label}] in A9 Chest Mall for ${rewardText} (base + random bonus paid directly to wallet). Try from 0.99 GRAM or claim free 200 A9 Starter Chest!`
             )
           : L(
               `A9 双向开箱礼：帮我助力开启【${label}】（${rewardText}，还差 ${need} 位同路人），确认同行立刻领可秒开的 200 A9 青铜新手箱！`,
@@ -151,12 +151,12 @@ function buildAngles(type, id, ctx = {}) {
         label: L('站队对赌战报', 'Battle Call'),
         text: isBoost
           ? L(
-              `A9 第 ${roundNum} 轮 24H 赛点正热（${passed}/${required} 段）！刚开【${label}】爆出 ${rewardText} 随机暴击，顺便来 24H 预言擂台 0 GRAM 站队对赌 PASS / BURN！`,
-              `A9 Round #${roundNum} 24H is heating up (${passed}/${required} slots)! Just popped [${label}] for ${rewardText} bonus—come pick PASS or BURN for 0 GRAM.`
+              `A9 第 ${roundNum} 轮 12H 冲价正热（${passed}/${required} 段）！刚开【${label}】合并直发 ${rewardText}，顺便来 12H 预言擂台 0 GRAM 站队 PASS / BURN！`,
+              `A9 Round #${roundNum} 12H Push is heating up (${passed}/${required} slots)! Unboxed [${label}] for ${rewardText} direct payout—pick PASS or BURN for 0 GRAM.`
             )
           : L(
-              `A9 第 ${roundNum} 轮 24H 生死线（${passed}/${required} 段）！差 ${need} 位活跃钱包同路人一起开【${label}】，同行秒领 200 A9 青铜新手箱，来 24H 擂台一决高下！`,
-              `A9 Round #${roundNum} (${passed}/${required} slots)! Need ${need} active-wallet partner(s) for [${label}]—get an instant 200 A9 Bronze Starter Chest and call PASS vs BURN.`
+              `A9 第 ${roundNum} 轮 12H 冲价线（${passed}/${required} 段）！差 ${need} 位活跃钱包同路人一起开【${label}】，同行秒领 200 A9 青铜新手箱！`,
+              `A9 Round #${roundNum} (${passed}/${required} slots)! Need ${need} active-wallet partner(s) for [${label}]—get an instant 200 A9 Bronze Starter Chest.`
             )
       },
       {
@@ -164,8 +164,8 @@ function buildAngles(type, id, ctx = {}) {
         label: L('链上规则透明', 'Transparent'),
         text: isBoost
           ? L(
-              `A9 宝箱商城透明规则：6 档纯整数 A9 保底直发、不限个人购箱额度，开箱触发服务端 CSPRNG 纯整数随机暴击（最高 +300,000 A9，四档概率全公开）。`,
-              `A9 Chest Mall rules: 6 fixed integer-A9 tiers with no personal cap, plus server-side CSPRNG integer crits up to +300,000 A9 across 4 transparent odds tiers.`
+              `A9 宝箱商城透明规则：6 档纯区间随机开箱，保底 + 随机加赠（最高 +275,000 A9）合并一笔直发钱包，只收一次 0.06 GRAM Gas，全网 2 亿 A9 硬顶公开可查。`,
+              `A9 Chest Mall rules: 6 random-range tiers sending base + random bonus (up to +275,000 A9) directly to your wallet in one tx (0.06 GRAM gas once), 200M A9 Phase 1 cap.`
             )
           : L(
               `A9 协议双向开箱礼：仅需连接链上活跃 TON 钱包校验（0 扣款、防女巫公开可查），同行推进【${label}】并立得可秒开的 200 A9 青铜新手箱。`,
@@ -176,25 +176,25 @@ function buildAngles(type, id, ctx = {}) {
   }
 
   if (type === 'bet') {
-    const sideLabel = ctx.side === 'BURN' ? L('销毁空军 BURN', 'BURN') : L('通关多军 PASS', 'PASS');
+    const sideLabel = ctx.side === 'BURN' ? L('未通关空军 FAIL', 'FAIL') : L('通关多军 PASS', 'PASS');
     const slotNote = (ctx.guessSlots !== null && ctx.guessSlots !== undefined)
-      ? L(`，精准卡位 ${ctx.guessSlots}/24 段`, `, exact call ${ctx.guessSlots}/24`)
+      ? L(`，精准卡位 ${ctx.guessSlots}/12 段`, `, exact call ${ctx.guessSlots}/12`)
       : '';
     return [
       {
         key: 'data',
         label: L('数据派', 'Data'),
         text: L(
-          `24 小时，达标派奖还是 100% 销毁 BURN？我在 A9 第 ${roundNum} 轮 24H 预言擂台押了【${sideLabel}】${slotNote}${rankTag}。当前 ${passed}/${required} 段，目标底价 ${target}。`,
-          `24H verdict—pass or 100% BURN? I locked [${sideLabel}]${slotNote}${rankTag} in A9 Round #${roundNum} 24H Prediction Arena (${passed}/${required} slots, target ${target}).`
+          `12H 冲价，达标 ≥ 8/12 派奖还是自动止损？我在 A9 第 ${roundNum} 轮 12H 预言擂台押了【${sideLabel}】${slotNote}${rankTag}。当前 ${passed}/${required} 段，目标底价 ${target}。`,
+          `12H price sprint—pass ≥ 8/12 or auto stop-loss? I locked [${sideLabel}]${slotNote}${rankTag} in A9 Round #${roundNum} 12H Prediction Arena (${passed}/${required} slots, target ${target}).`
         )
       },
       {
         key: 'bull',
         label: L('看多派', 'Bullish'),
         text: L(
-          `0 GRAM 免费上车 A9 第 ${roundNum} 轮 24H 预言擂台！我已锁定【${sideLabel}】${slotNote}，新人首轮参与即保底 500 A9 待解锁体验金，敢不敢来对赌判断？`,
-          `0 GRAM free entry in A9 Round #${roundNum} 24H Prediction Arena! Locked [${sideLabel}]${slotNote}. First-round rookies get a 500 A9 vault floor—come test your call.`
+          `0 GRAM 免费上车 A9 第 ${roundNum} 轮 12H 预言擂台！我已锁定【${sideLabel}】${slotNote}，新人首轮参与即保底 500 A9 待解锁体验金，敢不敢来对赌判断？`,
+          `0 GRAM free entry in A9 Round #${roundNum} 12H Prediction Arena! Locked [${sideLabel}]${slotNote}. First-round rookies get a 500 A9 vault floor—come test your call.`
         )
       },
       {
@@ -214,24 +214,24 @@ function buildAngles(type, id, ctx = {}) {
       key: 'data',
       label: L('数据派', 'Data'),
       text: L(
-        `24 小时生死线：A9 第 ${roundNum} 轮当前 ${passed}/${required} 段达标${rankTag}，目标底价 ${target}，奖池 ${pool}（上限 15x 或未达标 100% 销毁 BURN，链上规则公开可查）。`,
-        `24H line in the sand: A9 Round #${roundNum} at ${passed}/${required} slots${rankTag}, target ${target}, pool ${pool} (up to 15x cap or 100% on-chain BURN).`
+        `12H 冲价赛点：A9 第 ${roundNum} 轮当前 ${passed}/${required} 段达标${rankTag}，目标底价 ${target}，奖池 ${pool}（全员 1:1 封顶 5x · 永不爆仓，未达标退 95%/90% 本金）。`,
+        `12H Push Live: A9 Round #${roundNum} at ${passed}/${required} slots${rankTag}, target ${target}, pool ${pool} (1:1 up to 5x · no liquidation, 95%/90% refund on fail).`
       )
     },
     {
       key: 'bull',
       label: L('看多派', 'Bullish'),
       text: L(
-        `24 小时冲刺 16/24 达标线！A9 第 ${roundNum} 轮已拿下 ${passed}/${required} 段，早鸟权重最高 2.0x，奖池 ${pool} 链上透明结算，实时盯盘。`,
-        `Sprinting for 16/24 slots! A9 Round #${roundNum} holds ${passed}/${required} qualified slots with up to 2.0x early weight and ${pool} pool.`
+        `12H 冲刺 8/12 通关线！A9 第 ${roundNum} 轮已拿下 ${passed}/${required} 段，头矿 6H 享 5% 轻止损，奖池 ${pool} 链上透明结算，实时盯盘！`,
+        `Pushing for 8/12 slots! A9 Round #${roundNum} holds ${passed}/${required} slots with First 6H 5% Stop-Loss and ${pool} pool.`
       )
     },
     {
       key: 'casual',
       label: L('吃瓜自嘲派', 'Banter'),
       text: L(
-        `24 小时，是冲关吃肉还是原地销毁 BURN？A9 第 ${roundNum} 轮目前 ${passed}/${required} 段拉满悬念，0 GRAM 免费进 24H 预言擂台先站队！`,
-        `24 hours: pass for payout or trigger on-chain BURN? A9 Round #${roundNum} sits at ${passed}/${required} slots—pick a side for 0 GRAM in the Prediction Arena.`
+        `12H 冲价，是冲关 8/12 分 7 亿还是自动止损烧半池？A9 第 ${roundNum} 轮目前 ${passed}/${required} 段拉满悬念，0 GRAM 免费进 12H 预言擂台先站队！`,
+        `12H Push: pass 8/12 to split 700,000,000 A9 or trigger auto stop-loss? A9 Round #${roundNum} sits at ${passed}/${required} slots—pick a side for 0 GRAM in the 12H Prediction Arena.`
       )
     }
   ];

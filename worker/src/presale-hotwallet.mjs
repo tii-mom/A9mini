@@ -24,7 +24,7 @@
 import { addressKey, normalizeTonAddress } from './ton-address.mjs';
 import { parseDecimalUnits, MoneyError } from './money.mjs';
 import { randomHex } from './auth.mjs';
-import { CHEST_MALL_CATALOG, CHEST_MALL_NANO_TO_SKU } from './chest-engine.mjs';
+import { CHEST_MALL_CATALOG, CHEST_MALL_NANO_TO_SKU, rollPaidChestBonusRaw } from './chest-engine.mjs';
 
 export const PRESALE_STATUS = Object.freeze({
   PENDING_PAYMENT: 'PENDING_PAYMENT',
@@ -130,11 +130,13 @@ export class PresaleEngine {
     totalCapA9Raw = 200_000_000n * A9_RAW,
     open = false,
     promoEngine = null,
+    predictionEngine = null,
     socialStore = null,
     identityStore = null,
     chestEngine = null,
     broadcaster = null,
     budgetLedger = null,
+    randomFn = null,
     orderTtlSec = ORDER_TTL_SEC,
     deliveryFeeNano = DELIVERY_GAS_FEE_NANO,
     refundFeeNano = REFUND_GAS_FEE_NANO,
@@ -153,11 +155,13 @@ export class PresaleEngine {
     this.totalCapA9Raw = BigInt(totalCapA9Raw);
     this.open = Boolean(open);
     this.promoEngine = promoEngine;
+    this.predictionEngine = predictionEngine;
     this.socialStore = socialStore;
     this.identityStore = identityStore;
     this.chestEngine = chestEngine;
     this.broadcaster = broadcaster;
     this.budgetLedger = budgetLedger;
+    this.randomFn = randomFn;
     this.orderTtlSec = orderTtlSec;
     this.deliveryFeeNano = BigInt(deliveryFeeNano ?? DELIVERY_GAS_FEE_NANO);
     this.refundFeeNano = BigInt(refundFeeNano ?? REFUND_GAS_FEE_NANO);
@@ -273,6 +277,8 @@ export class PresaleEngine {
       openMode: normMode,
       tonNano,
       a9AmountRaw,
+      bonusA9Raw: 0n,
+      bonusRolled: false,
       memo: `buy:${orderId}`,
       status: PRESALE_STATUS.PENDING_PAYMENT,
       inboundTxHash: null,
@@ -365,7 +371,7 @@ export class PresaleEngine {
       : await this.repo.listOrdersByStatus(PRESALE_STATUS.COMPLETED);
     const createdOrExisting = [];
     for (const order of orders) {
-      if (order.openMode !== 'BOOST') continue;
+      if (order.openMode !== 'BOOST' || order.bonusRolled) continue;
       const matchedSku = order.skuId || CHEST_MALL_NANO_TO_SKU[String(order.tonNano ?? '')] || null;
       if (!matchedSku) continue;
       const ownerUid = order.tgUserId || order.walletKey || order.walletAddress;
@@ -646,13 +652,39 @@ export class PresaleEngine {
   async queueConfirmedPayouts(nowSec = Math.floor(Date.now() / 1000)) {
     let queued = 0;
     for (const o of await this.repo.listOrdersByStatus(PRESALE_STATUS.PAYMENT_CONFIRMED)) {
+      // 合并直发账目隔离：o.a9AmountRaw 恒只存保底 baseA9Raw（用于 2 亿第 1 期硬顶与 6% 直推返佣），
+      // 随机加赠 bonusA9Raw 按 orderId 幂等落库（发币重试绝不重掷），仅在 payout.amount 合并打款。
+      const baseA9Raw = BigInt(o.a9AmountRaw);
+      const matchedSku = o.skuId || CHEST_MALL_NANO_TO_SKU[String(o.tonNano ?? '')] || null;
+      const pack = matchedSku ? CHEST_MALL_CATALOG[matchedSku] : null;
+      let bonusA9Raw = BigInt(o.bonusA9Raw || 0n);
+      let bonusRolled = Boolean(o.bonusRolled);
+      let reservedBudgetRaw = 0n;
+      if (!bonusRolled && pack && BigInt(pack.maxBoostA9Raw || '0') > 0n) {
+        const rolled = rollPaidChestBonusRaw(pack.maxBoostA9Raw, this.randomFn);
+        bonusA9Raw = rolled.bonusRaw;
+        if (bonusA9Raw > 0n && this.budgetLedger && typeof this.budgetLedger.reserve === 'function') {
+          try {
+            const rsv = await this.budgetLedger.reserve('presale_promo', bonusA9Raw, nowSec);
+            if (!rsv?.legacySkipped) reservedBudgetRaw = bonusA9Raw;
+          } catch (e) {
+            if (e?.code === 'PROMO_BUDGET_EXHAUSTED') {
+              bonusA9Raw = 0n;
+            } else {
+              throw e;
+            }
+          }
+        }
+        bonusRolled = true;
+      }
+      const totalPayoutRaw = baseA9Raw + bonusA9Raw;
       const payout = {
         payoutId: `a9:${o.orderId}`,
         orderId: o.orderId,
         inboundTxHash: o.inboundTxHash,
         kind: 'A9',
         recipient: o.walletAddress,
-        amount: BigInt(o.a9AmountRaw).toString(),
+        amount: totalPayoutRaw.toString(),
         queryId: newQueryId(),
         status: PAYOUT_STATUS.PENDING,
         attempts: 0,
@@ -662,8 +694,25 @@ export class PresaleEngine {
         createdAt: nowSec,
         updatedAt: nowSec,
       };
-      if (await this.repo.queuePayout(o.orderId, PRESALE_STATUS.PAYMENT_CONFIRMED, { status: PRESALE_STATUS.PAYOUT_PENDING, updatedAt: nowSec }, payout)) {
+      const orderPatch = {
+        status: PRESALE_STATUS.PAYOUT_PENDING,
+        bonusA9Raw,
+        bonusRolled,
+        updatedAt: nowSec,
+      };
+      let queuedOk = false;
+      try {
+        queuedOk = await this.repo.queuePayout(o.orderId, PRESALE_STATUS.PAYMENT_CONFIRMED, orderPatch, payout);
+      } catch (e) {
+        if (reservedBudgetRaw > 0n && this.budgetLedger && typeof this.budgetLedger.release === 'function') {
+          await this.budgetLedger.release('presale_promo', reservedBudgetRaw, nowSec).catch(() => {});
+        }
+        throw e;
+      }
+      if (queuedOk) {
         queued += 1;
+      } else if (reservedBudgetRaw > 0n && this.budgetLedger && typeof this.budgetLedger.release === 'function') {
+        await this.budgetLedger.release('presale_promo', reservedBudgetRaw, nowSec).catch(() => {});
       }
     }
     return queued;
@@ -702,26 +751,27 @@ export class PresaleEngine {
         if (amountRaw > 0n) credit = { orderId: order.orderId, referrer: order.referrerId, amountRaw: amountRaw.toString(), status: 'PENDING', createdAt: nowSec, updatedAt: nowSec };
       }
       await this.repo.completeA9(p.payoutId, p.orderId, txHash, credit, nowSec);
-      // 宝箱商城助力膨胀模式：本金已链上确认，自动开启随机暴击宝箱（异常静默不阻塞主链路）
+      // 兼容旧版 BOOST 订单（未走合并直发的旧订单才补建 SHOP_BOOST 记录）
       const matchedSku = order?.skuId || CHEST_MALL_NANO_TO_SKU[String(order?.tonNano ?? '')] || null;
-      if (order && order.openMode === 'BOOST' && matchedSku && this.chestEngine && typeof this.chestEngine.createShopBoostChest === 'function') {
+      if (order && order.openMode === 'BOOST' && !order.bonusRolled && matchedSku && this.chestEngine && typeof this.chestEngine.createShopBoostChest === 'function') {
         try {
           const ownerUid = order.tgUserId || order.walletKey || order.walletAddress;
           await this.chestEngine.createShopBoostChest({ userId: ownerUid, walletAddress: order.walletAddress, skuId: matchedSku, orderId: order.orderId }, nowSec);
         } catch (_) {
-          // 膨胀宝箱创建异常绝不影响链上本金确认
+          // 宝箱记录补建异常绝不影响链上本金确认
         }
       }
       // 付费好友加速：直邀好友完成任意付费宝箱订单时，自动为邀请人当前免费宝箱 +3 点助力进度
-      if (order?.referrerId && addressKey(order.referrerId) !== order.walletKey && this.chestEngine && typeof this.chestEngine.creditPaidReferralAssist === 'function') {
+      let resolvedRefTgUid = null;
+      if (order?.referrerId && addressKey(order.referrerId) !== order.walletKey) {
         try {
-          let refTgUid = /^\d{1,20}$/.test(String(order.referrerId).trim()) ? String(order.referrerId).trim() : null;
-          if (!refTgUid && this.identityStore && typeof this.identityStore.getTelegramUserIdByWallet === 'function') {
-            refTgUid = await this.identityStore.getTelegramUserIdByWallet(order.referrerId);
+          resolvedRefTgUid = /^\d{1,20}$/.test(String(order.referrerId).trim()) ? String(order.referrerId).trim() : null;
+          if (!resolvedRefTgUid && this.identityStore && typeof this.identityStore.getTelegramUserIdByWallet === 'function') {
+            resolvedRefTgUid = await this.identityStore.getTelegramUserIdByWallet(order.referrerId);
           }
-          if (refTgUid) {
+          if (resolvedRefTgUid && this.chestEngine && typeof this.chestEngine.creditPaidReferralAssist === 'function') {
             const boostRes = await this.chestEngine.creditPaidReferralAssist(
-              { ownerUserId: refTgUid, orderId: order.orderId, helperUserId: order.tgUserId || order.walletKey },
+              { ownerUserId: resolvedRefTgUid, orderId: order.orderId, helperUserId: order.tgUserId || order.walletKey },
               nowSec,
             );
             if (boostRes?.credited && this.broadcaster && typeof this.broadcaster.notifyChestAssistProgress === 'function') {
@@ -730,6 +780,38 @@ export class PresaleEngine {
           }
         } catch (_) {
           // 免费箱付费加速异常绝不影响链上本金确认
+        }
+      }
+      // 静默自动激活待激活金库（买家本人 + 直邀好友购箱解锁邀请人）
+      if (order && this.predictionEngine && this.promoEngine && typeof this.predictionEngine.activateToPromo === 'function') {
+        if (order.tgUserId && order.walletAddress) {
+          try {
+            await this.predictionEngine.activateToPromo(order.tgUserId, order.walletAddress, this.promoEngine, {
+              qualified: true,
+              nowMs: nowSec * 1000,
+              activationId: `auto:order:${order.orderId}:buyer`,
+            });
+          } catch (_) {
+            // 无待激活余额或已过期时静默跳过
+          }
+        }
+        if (resolvedRefTgUid) {
+          try {
+            let refWallet = normalizeTonAddress(order.referrerId) ? order.referrerId : null;
+            if (!refWallet && this.identityStore && typeof this.identityStore.getBinding === 'function') {
+              const b = await this.identityStore.getBinding(resolvedRefTgUid, nowSec);
+              refWallet = b?.walletAddress || null;
+            }
+            if (refWallet) {
+              await this.predictionEngine.activateToPromo(resolvedRefTgUid, refWallet, this.promoEngine, {
+                qualified: true,
+                nowMs: nowSec * 1000,
+                activationId: `auto:order:${order.orderId}:ref`,
+              });
+            }
+          } catch (_) {
+            // 邀请人静默自动激活异常绝不影响订单确认
+          }
         }
       }
       // 极简 TG 战队群捷报：大额订单（含 99.99 GRAM 钻石宝箱）确认成交后异步触发
@@ -956,6 +1038,8 @@ export class PresaleEngine {
     const deliveryFeeNanoStr = this.deliveryFeeNano.toString();
     const payTonNanoStr = (tonNanoBig + this.deliveryFeeNano).toString();
     const skuId = o.skuId || CHEST_MALL_NANO_TO_SKU[tonNanoStr] || null;
+    const baseA9Big = BigInt(o.a9AmountRaw);
+    const bonusA9Big = BigInt(o.bonusA9Raw || 0n);
     const out = {
       orderId: o.orderId,
       walletAddress: o.walletAddress,
@@ -963,7 +1047,11 @@ export class PresaleEngine {
       tonNano: tonNanoStr,
       deliveryFeeNano: deliveryFeeNanoStr,
       payTonNano: payTonNanoStr,
-      a9AmountRaw: BigInt(o.a9AmountRaw).toString(),
+      a9AmountRaw: baseA9Big.toString(),
+      baseA9Raw: baseA9Big.toString(),
+      bonusA9Raw: bonusA9Big.toString(),
+      totalA9Raw: (baseA9Big + bonusA9Big).toString(),
+      bonusRolled: Boolean(o.bonusRolled),
       payTo: this.hotWalletAddress,
       memo: o.memo,
       status,

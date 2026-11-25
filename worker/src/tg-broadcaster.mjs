@@ -1,9 +1,9 @@
-// A9 Protocol v15 — 极简 Telegram 战队群实时战报播报器
+// A9 Protocol v17 — 极简 Telegram 战队群实时战报播报器
 // 仅面向已通过四重真实核验的战队群（bind_status = 'bound' 且具备真实 tg_chat_id）做单向高潮播报：
-//   1) ROUND_OPEN     : 新轮开启（前 1/3 时段 2.0x 早鸟权重窗口）
-//   2) WHALE_EXCHANGE : 纯内盘大额兑换确认成交捷报（默认 >= 50 GRAM，仅推送买家所属战队群）
-//   3) SPRINT_4H      : 24H 观察期最后 4 小时警报（兼容有无实时 1H K 线源）
-//   4) ROUND_SETTLE   : 结算战报（通关派奖 / 100% 销毁 BURN）
+//   1) ROUND_OPEN     : 新轮开启（头矿 6H · 5% 轻止损窗口）
+//   2) WHALE_EXCHANGE : 宝箱商城大额开箱成交捷报（默认 >= 50 GRAM，仅推送买家所属战队群）
+//   3) SPRINT_4H      : 12H 冲价期最后 4 小时警报（兼容有无实时 1H K 线源）
+//   4) ROUND_SETTLE   : 结算战报（通关派奖 / 未通关自动止损与半池通缩）
 //
 // 安全边界：
 //   - 默认关闭（需显式 A9_BROADCAST_ENABLED=1）。
@@ -283,13 +283,13 @@ export class TelegramBroadcaster {
     const stakeCloseAt = Number(round.stakeCloseAt || 0);
     const obsEnd = stakeCloseAt > 0 ? stakeCloseAt + Number(observationSeconds || 86400) : 0;
 
-    // 事件 ①：新轮开启（入场期 2.0x 早鸟黄金窗口）
+    // 事件 ①：新轮开启（头矿 6H · 5% 轻止损窗口）
     if (status === 1 && stakeCloseAt > nowSec) {
       results.push(await this.broadcastRoundOpen({ roundId: rId, round, nowSec }));
       results.push(await this.sendWarmupOpeningReminders({ roundId: rId, round, limit: dmLimit, nowSec }));
     }
 
-    // 事件 ③：24H 观察期最后 4 小时冲刺/焦灼警报
+    // 事件 ③：12H 冲价期最后 4 小时冲刺/焦灼警报
     if (status === 1 && stakeCloseAt > 0 && nowSec >= stakeCloseAt && obsEnd > nowSec && (obsEnd - nowSec) <= 14400) {
       const candlesSeen = Array.isArray(candles) ? candles.length : 0;
       const qualFromCandles = candlesSeen > 0 ? candles.filter((c) => Boolean(c.qualified)).length : null;
@@ -305,7 +305,7 @@ export class TelegramBroadcaster {
       }
     }
 
-    // 事件 ④：链上结算完成（通关派奖 / 未通关销毁 BURN）
+    // 事件 ④：链上结算完成（通关派奖 / 未通关自动止损）
     if (status === 2 || status === 3) {
       results.push(await this.broadcastRoundSettle({
         roundId: rId,
@@ -327,7 +327,7 @@ export class TelegramBroadcaster {
     return results;
   }
 
-  /** ① 新轮开启（2.0x 早鸟权重窗口） */
+  /** ① 新轮开启（头矿 6H · 5% 轻止损窗口） */
   async broadcastRoundOpen({ roundId, round, nowSec = Math.floor(Date.now() / 1000) }) {
     const targets = await this._collectGlobalTargets();
     const targetUsd = formatUsdFromE8(round?.targetPriceUsdE8);
@@ -350,12 +350,12 @@ export class TelegramBroadcaster {
         return {
           photoUrl,
           text: [
-            `第 #${roundId} 轮开启：前段 2.0x 早鸟权重窗口已开放`,
+            `第 #${roundId} 轮开启：头矿 6H · 5% 轻止损窗口已开放`,
             `目标底价：${targetUsd}`,
-            `本轮奖励池：${poolStr} A9（单轮上限 15x，早鸟权重 2.0x / 1.4x / 1.0x）`,
-            team ? `所属战队：${team.name}（点击下方入口自动绑定本队邀请归因）` : '规则透明可查，按链上实际结算为准。',
+            `本轮奖励池：${poolStr} A9（全员 1:1 平分，封顶 5x，100 A9 起投，永不爆仓）`,
+            team ? `所属战队：${team.name}（点击下方入口自动绑定本队 8% 返佣归因）` : '前 6H 锁仓未达标仅止损 5%（退 95%），6H 后止损 10%（退 90%）。',
           ].join('\n'),
-          buttonText: '进入 A9 财富大冒险 · 抢占 2.0x 早鸟',
+          buttonText: '抢头矿 6H · 5% 轻止损上车',
           buttonUrl: url,
         };
       },
@@ -411,15 +411,15 @@ export class TelegramBroadcaster {
     });
   }
 
-  /** ③ 观察期最后 4 小时警报 */
+  /** ③ 12H 冲价最后 4 小时警报 */
   async broadcastLast4hAlert({ roundId, round, qualifiedCandles = null, secondsLeft = 0, nowSec = Math.floor(Date.now() / 1000) }) {
     const targets = await this._collectGlobalTargets();
     const hoursLeft = Math.max(1, Math.ceil(Number(secondsLeft || 0) / 3600));
     const targetUsd = formatUsdFromE8(round?.targetPriceUsdE8);
     const photoUrl = this.apiOrigin ? `${this.apiOrigin}/c/img/round/${roundId}.png` : null;
     const progressLine = qualifiedCandles !== null
-      ? `当前已达标 ${qualifiedCandles}/24 时段，还差 ${Math.max(0, 16 - qualifiedCandles)} 根小时线过关，否则按合约执行 100% 销毁 BURN。`
-      : `距本轮 24H 观察期结束不足 ${hoursLeft} 小时（目标底价 ${targetUsd}），满 16/24 时段通关派奖，未达标将链上执行销毁 BURN。`;
+      ? `当前已达标 ${qualifiedCandles}/12 时段，还差 ${Math.max(0, 8 - qualifiedCandles)} 根小时线通关，未达标自动止损退本（头矿 95% / 普通 90%）并销毁半池。`
+      : `距本轮 12H 冲价结束不足 ${hoursLeft} 小时（目标底价 ${targetUsd}），满 8/12 时段通关派奖，未达标永不爆仓自动退本并销毁止损与半池。`;
 
     return this._broadcastToTargets({
       eventKey: `sprint:${roundId}`,
@@ -439,16 +439,16 @@ export class TelegramBroadcaster {
           text: [
             `第 #${roundId} 轮最后 ${hoursLeft} 小时赛点警报`,
             progressLine,
-            `0 GRAM 免费进入 24H 预言擂台站队（PASS / BURN）。`,
+            `0 GRAM 免费进入 12H 预言擂台站队（PASS / BURN）。`,
           ].join('\n'),
-          buttonText: '打开 24H 实时战况与预言擂台',
+          buttonText: '打开 12H 实时战况与预言擂台',
           buttonUrl: url,
         };
       },
     });
   }
 
-  /** ④ 链上结算战报（通关派奖 / 未通关销毁 BURN，附本群集体预言战绩） */
+  /** ④ 链上结算战报（通关派奖 / 未通关自动止损，附本群集体预言战绩） */
   async broadcastRoundSettle({ roundId, round, passed, qualifiedCandles = 0, groupStatsResolver = null, nowSec = Math.floor(Date.now() / 1000) }) {
     const targets = await this._collectGlobalTargets();
     const poolStr = formatWholeNumber(round?.rewardBudgetRaw || '0');
@@ -474,7 +474,7 @@ export class TelegramBroadcaster {
           try {
             const gs = await groupStatsResolver(team, roundId);
             if (gs && Number(gs.participants) > 0) {
-              squadLine = `本群本轮共 ${gs.participants} 人参战 24H 预言，命中率 ${gs.winRatePct}%。`;
+              squadLine = `本群本轮共 ${gs.participants} 人参战 12H 预言，命中率 ${gs.winRatePct}%。`;
             }
           } catch {
             squadLine = '';
@@ -482,18 +482,18 @@ export class TelegramBroadcaster {
         }
         const baseLines = passed
           ? [
-              `第 #${roundId} 轮结算战报：通关派奖（${qualifiedCandles}/24 时段达标）`,
-              `本轮奖励池 ${poolStr} A9 已按权重结算开放领取，24H 预言擂台奖励同步发放至待激活金库。`,
+              `第 #${roundId} 轮结算战报：通关派奖（${qualifiedCandles}/12 时段达标）`,
+              `本轮奖励池 ${poolStr} A9 已全员 1:1 开放领取（100% 本金 + 20% 秒提 + 14 天逐秒解锁，支持 3 折急提）。`,
             ]
           : [
-              `第 #${roundId} 轮结算战报：未达标 · 销毁 BURN（${qualifiedCandles}/24 时段）`,
-              `未满 16/24 达标线，合约已链上执行 100% 质押本金与半数奖池永久销毁 BURN；24H 预言擂台已同步结算。`,
+              `第 #${roundId} 轮结算战报：未通关 · 自动止损（${qualifiedCandles}/12 时段）`,
+              `未满 8/12 达标线，永不爆仓 · 自动止损：头矿 6H 退 95%、普通退 90%，止损份额与半数奖池已链上通缩销毁。`,
             ];
         if (squadLine) baseLines.push(squadLine);
         return {
           photoUrl,
           text: baseLines.join('\n'),
-          buttonText: passed ? '查看通关结算与领取明细' : '查看链上销毁 BURN 战报',
+          buttonText: passed ? '查看通关结算与领取明细' : '查看自动止损与退本明细',
           buttonUrl: url,
         };
       },
@@ -604,10 +604,10 @@ export class TelegramBroadcaster {
           chatId: String(rec.tgUserId),
           text: [
             `你预约的第 #${rId} 轮已正式开启！`,
-            `前段 2.0x 早鸟权重窗口开放中（2.0x / 1.4x / 1.0x）· 目标底价 ${targetUsd}${poolPart}`,
-            `本轮最低质押 1,000 A9；参与闯关或购箱即可激活你预热宝箱中的待解锁 A9 奖励。`,
+            `头矿 6H · 5% 轻止损窗口开放中（全员 1:1 平分奖池）· 目标底价 ${targetUsd}${poolPart}`,
+            `本轮最低锁仓 100 A9；参与闯关或购箱即可激活预热奖励，拉好友通关再赚 8% 返佣。`,
           ].join('\n'),
-          buttonText: `立即进入第 #${rId} 轮（抢 2.0x 早鸟）`,
+          buttonText: `立即进入第 #${rId} 轮（头矿 6H · 5% 止损）`,
           buttonUrl: url,
         });
         if (typeof this.socialStore.markWarmupReminded === 'function') {
@@ -692,7 +692,7 @@ export class TelegramBroadcaster {
           chatId: uid,
           text: [
             `待激活金库到期提醒：你还有 ${a9Text} A9 免费奖励将在约 ${hoursLeft} 小时后过期`,
-            `在宝箱商城购任意宝箱（0.99 GRAM 起）、参与链上质押，或直邀 1 位好友购箱，即可立即激活入账并永久保留。`,
+            `在宝箱商城购任意宝箱（0.99 GRAM 起）、参与链上锁仓，或直邀 1 位好友购箱，即可立即激活入账并永久保留。`,
           ].join('\n'),
           buttonText: '前往激活待领 A9 奖励',
           buttonUrl: url,
@@ -811,17 +811,17 @@ export class TelegramBroadcaster {
     });
     const text = (isPass
       ? [
-          `第 #${rId} 轮结算通知：通关派奖（${qualifiedCandles}/24 时段达标）`,
-          `本轮奖励池 ${poolStr} A9 已按权重结算开放领取，24H 预言擂台奖励已同步结算。`,
+          `第 #${rId} 轮结算通知：通关派奖（${qualifiedCandles}/12 时段达标）`,
+          `本轮奖励池 ${poolStr} A9 已开放领取（100% 本金 + 20% 秒提 + 14 天逐秒解锁，支持 3 折急提）。`,
           `可在小程序「我的 -> 系统设置」随时开关本提醒。`,
         ]
       : [
-          `第 #${rId} 轮结算通知：未达标 · 销毁 BURN（${qualifiedCandles}/24 时段）`,
-          `未满 16/24 达标线，合约已执行 100% 质押本金与半数奖池永久销毁 BURN，24H 预言擂台已同步结算。`,
+          `第 #${rId} 轮结算通知：未通关 · 自动止损（${qualifiedCandles}/12 时段）`,
+          `未满 8/12 达标线，永不爆仓 · 自动止损：请前往领回 95%（头矿 6H）/ 90%（普通）本金，止损份额与半池已链上通缩销毁。`,
           `可在小程序「我的 -> 系统设置」随时开关本提醒。`,
         ]
     ).join('\n');
-    const buttonText = isPass ? '查看通关结算与领取奖励' : '查看销毁战报与预言金库';
+    const buttonText = isPass ? '查看通关结算与领取奖励' : '查看自动止损退本与预言金库';
 
     let sentCount = 0;
     let skippedDuplicateCount = 0;

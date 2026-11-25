@@ -82,10 +82,10 @@ class TestA9BotRoundStates(unittest.TestCase):
                 summary, start_text, round_text = self._run_case(payload)
                 self.assertEqual(summary["status"], "active")
                 self.assertEqual(summary["round"], f"#{round_id}")
-                self.assertEqual(summary["qualified"], "8/24")
+                self.assertEqual(summary["qualified"], "8/12")
                 self.assertIn(f"#{round_id}", start_text)
                 self.assertIn("$0.2000", start_text)
-                self.assertIn("8/24", round_text)
+                self.assertIn("8/12", round_text)
 
 
 if __name__ == "__main__":

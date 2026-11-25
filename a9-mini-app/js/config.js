@@ -120,21 +120,21 @@ function resolveApiBase() {
 
 export const V15_SOURCE = Object.freeze({
   project: 'A9mini',
-  protocolVersion: 'v16',
-  contractsDir: 'A9mini/v16/',
+  protocolVersion: 'v17',
+  contractsDir: 'A9mini/v17/',
   workerDir: 'A9mini/worker/',
-  spec: '4 合约极简架构（标准零魔改 TEP-74 Jetton + O(1) 零待决字典 RoundController + StakeTicket）+ 0 合约推广热钱包（0.06 GRAM）',
-  note: 'v16 纯净版已锁定为唯一主网基准；live 资金入口默认关闭并限制非信任 API URL 覆盖。'
+  spec: '4 合约极简架构（标准零魔改 TEP-74 Jetton + O(1) 涨价解锁 RoundController + StakeTicket）+ 0 合约推广热钱包（0.06 GRAM）',
+  note: 'v17.0 涨价解锁已锁定为唯一主网基准；live 资金入口默认关闭并限制非信任 API URL 覆盖。'
 });
 
 // 保留别名兼容旧引用
 export const BAM_SOURCE = V15_SOURCE;
 
 function resolveStakeProtocolVersion(raw) {
-  if (raw === undefined || raw === null || raw === '') return 'v16';
+  if (raw === undefined || raw === null || raw === '') return 'v17';
   const v = String(raw).trim().toLowerCase();
-  if (v === 'v16') return 'v16';
-  throw new Error(`不支持的质押协议版本配置: ${raw}（仅允许 v16）`);
+  if (v === 'v17' || v === 'v16') return v;
+  throw new Error(`不支持的质押协议版本配置: ${raw}（仅允许 v17 或 v16）`);
 }
 
 const resolvedMode = readMode();

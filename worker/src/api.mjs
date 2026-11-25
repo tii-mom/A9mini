@@ -266,13 +266,13 @@ export function createApiRouter({
             {
               service: 'a9mini-v15-worker',
               status: healthy ? 'ok' : 'degraded',
-              version: '16.2.0',
+              version: '17.0.0',
               checks: safeChecks,
             },
             healthy ? 200 : 503,
           );
         }
-        return ok({ service: 'a9mini-v15-worker', status: 'ok', version: '16.2.0' });
+        return ok({ service: 'a9mini-v15-worker', status: 'ok', version: '17.0.0' });
       }
 
       if (method === 'GET' && pathname === '/api/config') {
@@ -409,10 +409,10 @@ export function createApiRouter({
             }
           }
           const lines = [
-            'A9 · 财富大冒险官方助手（TON v16.2）',
-            '1. 新人 0 GRAM 秒开 200 A9 青铜新手箱并参与 24H 预言擂台（5 阶免费箱最高 200,000 A9）',
-            '2. 宝箱商城 0.99–500 GRAM 共 6 档纯整数 A9 保底直发、不限个人购箱额度，免助力随机暴击最高 +300,000 A9',
-            '3. 链上质押满 16/24 时段通关退 100% 本金 + 20% 秒领 + 余下 80% 分 40 天按秒线性释放，未达标销毁当轮本金 BURN',
+            'A9 · 财富大冒险官方助手（TON v17.0 涨价解锁）',
+            '1. 新人 0 GRAM 秒开 200 A9 青铜新手箱，100 A9 无门槛入池，拉好友享通关奖金 8% 返佣 + 每轮空投抽奖',
+            '2. 24H 锁仓（头矿 6H 享 5% 轻止损 / 之后 10% 止损，锁仓期可提前解押退 85% 扣 15% 销毁）→ 封盘 12H 冲价（>= 8/12 通关）',
+            '3. 通关退 100% 本金 + 20% 秒提 + 80% 分 14 天逐秒解锁（支持未解锁部分 3 折急提、7 折销毁）；未通关永不爆仓自动退本 95%/90%',
           ];
           if (chatType === 'private') {
             lines.push('默认已开启轮次结算私聊提醒，可在小程序「我的 -> 系统设置」随时开关。');
@@ -435,22 +435,22 @@ export function createApiRouter({
             const poolStr = formatWholeA9FromRaw(detail.rewardBudgetRaw) || '待核验';
             const qualified = Number(detail.qualifiedCandles ?? 0);
             replyText = [
-              `第 #${curId} 轮链上战况（v16.2）`,
-              `轮次阶段：${detail.state}`,
+              `第 #${curId} 轮链上战况（v17.0 涨价解锁）`,
+              `轮次阶段：${detail.state}${detail.inFirst6h ? '（头矿 6H · 5% 轻止损窗口）' : ''}`,
               `目标底价：${targetUsdStr}`,
-              `本轮奖励池：${poolStr} A9（单轮上限 15x）`,
-              `24H 达标进度：${qualified}/24 时段（>= 16 通关派奖，< 16 销毁 BURN）`,
+              `本轮奖励池：${poolStr} A9（全员 1:1 平分 · 封顶 5x）`,
+              `12H 冲价进度：${qualified}/12 时段（>= 8 通关派奖，< 8 永不爆仓自动退本 95%/90%）`,
             ].join('\n');
             buttonText = `查看第 #${curId} 轮实时走势`;
             buttonUrl = `https://t.me/${botHandle}?startapp=${encodeURIComponent(`round_${curId}`)}`;
           }
         } else {
           replyText = [
-            'A9 · 财富大冒险 Bot 命令与安全指南',
-            '/start — 打开 Mini App 并绑定邀请归因',
-            '/status — 实时查询链上轮次与 24H 达标进度',
-            '/help — 查看玩法规则与资金安全红线',
-            '核心规则：24H TWAP 达标 >= 16/24 时段通关，未达标本金与半数奖池执行销毁 BURN；超 7 天未结算支持无许可 AbortRound 退回本金。',
+            'A9 · 财富大冒险 Bot 命令与安全指南（v17.0 涨价解锁）',
+            '/start — 打开 Mini App 并绑定邀请归因（好友通关 8% 返佣）',
+            '/status — 实时查询链上轮次、头矿 6H 与 12H 冲价进度',
+            '/help — 查看涨价解锁规则与资金安全红线',
+            '核心规则：24H 锁仓（头矿 6H 5% 止损 / 普通 10% 止损，锁仓期可提前解押扣 15% 销毁）→ 12H 冲价 >= 8/12 通关；通关 20% 秒提 + 14 天逐秒解锁（支持 3 折急提、7 折销毁）；超 7 天未结算无许可 AbortRound 100% 退本。',
             '安全提示：严禁未下单直接向热钱包转账；商城购箱含 +0.06 GRAM 配送 Gas，逾期/异常自动退款固定扣除 0.03 GRAM Gas。',
           ].join('\n');
           buttonText = '阅读完整闯关指南';
@@ -627,12 +627,26 @@ export function createApiRouter({
           : [];
         let owner = false;
         let viewerKey = null;
+        let viewerTgUid = null;
         try {
           const verifiedWallet = await auth.wallet(wallet);
           owner = true;
           viewerKey = verifiedWallet.binding.walletKey;
+          viewerTgUid = verifiedWallet.identity?.telegramUserId || null;
         } catch (_) {
           owner = false;
+        }
+        // 链上已有锁仓凭证时，静默自动激活待激活金库到站内可提余额（幂等防重）
+        if (owner && viewerTgUid && enrichedTickets.length > 0 && predictionEngine && promoEngine && typeof predictionEngine.activateToPromo === 'function') {
+          try {
+            await predictionEngine.activateToPromo(viewerTgUid, wallet, promoEngine, {
+              qualified: true,
+              nowMs: nowSec * 1000,
+              activationId: `auto:stake:${viewerTgUid}:${enrichedTickets[0].roundId || 0}`,
+            });
+          } catch (_) {
+            // 无待激活余额或已过期时静默跳过
+          }
         }
         const promo = owner && promoEngine ? await promoEngine.getBalance(wallet) : null;
         const presaleQuota = owner && presaleEngine ? await presaleEngine.getQuota(wallet, nowSec) : null;
@@ -1003,7 +1017,7 @@ export function createApiRouter({
           }
         }
 
-        // 严格依据服务端链上轮次与质押截止时间判断预测窗口（防止观察期明牌后下注）
+        // 严格依据服务端链上轮次与锁仓截止时间判断预测窗口（防止 12H 冲价明牌后下注）
         const requestedRoundId = Number(body?.roundId);
         const ps = stateStore?.getProtocolState?.() || null;
         if (ps && ps.dataAvailable === false) {
@@ -1380,8 +1394,8 @@ export function createApiRouter({
         if (!predictionEngine) return err('PREDICTION_DISABLED', 'prediction engine not configured', 503);
         const roundId = Number(body?.roundId);
         const actualQualified = Number(body?.actualQualified);
-        if (!Number.isInteger(roundId) || roundId < 1 || typeof body?.passed !== 'boolean' || !Number.isInteger(actualQualified) || actualQualified < 0 || actualQualified > 24) {
-          return err('BAD_REQUEST', 'roundId (>=1), passed (boolean), and actualQualified (0..24) are required', 400);
+        if (!Number.isInteger(roundId) || roundId < 1 || typeof body?.passed !== 'boolean' || !Number.isInteger(actualQualified) || actualQualified < 0 || actualQualified > 12) {
+          return err('BAD_REQUEST', 'roundId (>=1), passed (boolean), and actualQualified (0..12) are required', 400);
         }
         const poolArg = body?.poolA9Raw !== undefined && body?.poolA9Raw !== null
           ? body.poolA9Raw
@@ -1520,6 +1534,7 @@ export function createApiRouter({
           hasData: Boolean(detail),
           state: detail?.state || 'UNVERIFIED',
           qualified: detail ? detail.qualifiedCandles : null,
+          totalSlots: detail?.candleCount || 12,
           targetUsd: targetNum > 0 ? `$${(targetNum / 1e8).toFixed(4)}` : '--',
           budgetA9: formatWholeA9FromRaw(detail?.rewardBudgetRaw),
           ratio,
@@ -1558,6 +1573,7 @@ export function createApiRouter({
           hasData: Boolean(detail),
           state: detail?.state || 'UNVERIFIED',
           qualified: detail ? detail.qualifiedCandles : null,
+          totalSlots: detail?.candleCount || 12,
           targetUsd: targetNum > 0 ? `$${(targetNum / 1e8).toFixed(4)}` : '—',
           budgetA9: formatWholeA9FromRaw(detail?.rewardBudgetRaw),
         });
@@ -1597,7 +1613,7 @@ export function createApiRouter({
         const roundLabel = rId ? `Round #${rId}` : 'Live Status';
         // 无真实链上数据源时，绝不输出硬编码的固定奖池数字（P0-G）。
         const description = detail
-          ? `24H 16/24 Hourly Slots${budgetA9 ? ` · ${budgetA9} A9 Pool` : ''} · 100% On-Chain TON TEP-74`
+          ? `12H 8/12 Price-Unlock Slots${budgetA9 ? ` · ${budgetA9} A9 Pool` : ''} · 100% On-Chain TON TEP-74`
           : 'A9 Protocol on TON · On-chain round data pending verification';
         const html = renderOgLandingHtml({
           type,

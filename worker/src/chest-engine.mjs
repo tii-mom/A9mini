@@ -7,7 +7,7 @@
 //                   -> Diamond Captain (200,000 A9, 300 assists, >=2,000 GRAM, >=200 TG members).
 //                   Paid friend acceleration: 1 completed paid chest order by a direct invitee = +3 assists.
 //   2) SHOP_BOOST : 6 Paid Chest Mall SKUs (0.99 / 4.99 / 9.99 / 19.99 / 99.99 / 500 GRAM).
-//                   Whole-integer A9 base principal + whole-integer random crit bonus (zero decimals).
+//                   Whole-integer A9 base principal + whole-integer random range bonus merged into direct wallet payout.
 //
 // Anti-sybil guardrails on assistChest():
 //   - Authenticated Telegram user + bound TON wallet (ton_proof)
@@ -46,10 +46,9 @@ export class ChestError extends Error {
 }
 
 export const PAID_CHEST_CRIT_TIERS = Object.freeze([
-  { key: 'normal', labelZh: '常规奖励', labelEn: 'Normal Bonus', weight: 75, minRatio: 0.0, maxRatio: 0.15, isCrit: false },
-  { key: 'lucky', labelZh: '幸运暴击', labelEn: 'Lucky Bonus', weight: 18, minRatio: 0.15, maxRatio: 0.35, isCrit: false },
-  { key: 'epic', labelZh: '史诗暴击', labelEn: 'Epic Crit', weight: 6, minRatio: 0.35, maxRatio: 0.65, isCrit: true },
-  { key: 'legendary', labelZh: '传说暴击', labelEn: 'Legendary Crit', weight: 1, minRatio: 0.65, maxRatio: 1.0, isCrit: true },
+  { key: 'normal', labelZh: '基础区间', labelEn: 'Standard Range', weight: 75, minRatio: 0.0, maxRatio: 0.15, isCrit: false },
+  { key: 'lucky', labelZh: '高区加赠', labelEn: 'High Range Bonus', weight: 20, minRatio: 0.15, maxRatio: 0.45, isCrit: false },
+  { key: 'jackpot', labelZh: '手气爆棚', labelEn: 'Top Range Roll', weight: 5, minRatio: 0.45, maxRatio: 1.0, isCrit: true },
 ]);
 
 function secureRandomUnit() {
@@ -94,8 +93,7 @@ export function classifyPaidCritTier(boostA9Raw, maxBoostA9Raw) {
     return { critTier: 'normal', isCrit: false, ratioBps: 0 };
   }
   const ratioBps = Number((boost * 10000n) / maxBonus);
-  if (ratioBps >= 6500) return { critTier: 'legendary', isCrit: true, ratioBps };
-  if (ratioBps >= 3500) return { critTier: 'epic', isCrit: true, ratioBps };
+  if (ratioBps >= 4500) return { critTier: 'jackpot', isCrit: true, ratioBps };
   if (ratioBps >= 1500) return { critTier: 'lucky', isCrit: false, ratioBps };
   return { critTier: 'normal', isCrit: false, ratioBps };
 }
@@ -125,12 +123,12 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     totalPayNano: '1050000000',
     baseA9: '1500',
     baseA9Raw: '1500000000000',
-    maxA9: '2000',
+    maxA9: '2500',
     requiredAssists: 0,
     initBoostBps: 0,
-    maxBoostBps: 3333, // +500 A9 max random crit (1,500 - 2,000 A9)
-    maxBoostA9: '500',
-    maxBoostA9Raw: '500000000000',
+    maxBoostBps: 6667, // +1,000 A9 max random range bonus (1,500 - 2,500 A9)
+    maxBoostA9: '1000',
+    maxBoostA9Raw: '1000000000000',
     maxSupply: null,
   },
   chest_silver: {
@@ -146,12 +144,12 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     totalPayNano: '5050000000',
     baseA9: '8000',
     baseA9Raw: '8000000000000',
-    maxA9: '11000',
+    maxA9: '12000',
     requiredAssists: 0,
     initBoostBps: 0,
-    maxBoostBps: 3750, // +3,000 A9 max random crit (8,000 - 11,000 A9)
-    maxBoostA9: '3000',
-    maxBoostA9Raw: '3000000000000',
+    maxBoostBps: 5000, // +4,000 A9 max random range bonus (8,000 - 12,000 A9)
+    maxBoostA9: '4000',
+    maxBoostA9Raw: '4000000000000',
     maxSupply: null,
   },
   chest_gold: {
@@ -165,14 +163,14 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     deliveryFeeNano: '60000000',
     totalPayGram: '10.05',
     totalPayNano: '10050000000',
-    baseA9: '18000',
-    baseA9Raw: '18000000000000',
-    maxA9: '22000',
+    baseA9: '17500',
+    baseA9Raw: '17500000000000',
+    maxA9: '25000',
     requiredAssists: 0,
     initBoostBps: 0,
-    maxBoostBps: 2222, // +4,000 A9 max random crit (18,000 - 22,000 A9)
-    maxBoostA9: '4000',
-    maxBoostA9Raw: '4000000000000',
+    maxBoostBps: 4286, // +7,500 A9 max random range bonus (17,500 - 25,000 A9)
+    maxBoostA9: '7500',
+    maxBoostA9Raw: '7500000000000',
     maxSupply: null,
   },
   chest_platinum: {
@@ -186,14 +184,14 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     deliveryFeeNano: '60000000',
     totalPayGram: '20.05',
     totalPayNano: '20050000000',
-    baseA9: '38000',
-    baseA9Raw: '38000000000000',
-    maxA9: '45000',
+    baseA9: '37000',
+    baseA9Raw: '37000000000000',
+    maxA9: '50000',
     requiredAssists: 0,
     initBoostBps: 0,
-    maxBoostBps: 1842, // +7,000 A9 max random crit (38,000 - 45,000 A9)
-    maxBoostA9: '7000',
-    maxBoostA9Raw: '7000000000000',
+    maxBoostBps: 3514, // +13,000 A9 max random range bonus (37,000 - 50,000 A9)
+    maxBoostA9: '13000',
+    maxBoostA9Raw: '13000000000000',
     maxSupply: null,
   },
   chest_diamond: {
@@ -207,14 +205,14 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     deliveryFeeNano: '60000000',
     totalPayGram: '100.05',
     totalPayNano: '100050000000',
-    baseA9: '200000',
-    baseA9Raw: '200000000000000',
-    maxA9: '220000',
+    baseA9: '195000',
+    baseA9Raw: '195000000000000',
+    maxA9: '250000',
     requiredAssists: 0,
     initBoostBps: 0,
-    maxBoostBps: 1000, // +20,000 A9 max random crit (200,000 - 220,000 A9)
-    maxBoostA9: '20000',
-    maxBoostA9Raw: '20000000000000',
+    maxBoostBps: 2821, // +55,000 A9 max random range bonus (195,000 - 250,000 A9)
+    maxBoostA9: '55000',
+    maxBoostA9Raw: '55000000000000',
     maxSupply: null,
   },
   chest_legendary: {
@@ -228,14 +226,14 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     deliveryFeeNano: '60000000',
     totalPayGram: '500.06',
     totalPayNano: '500060000000',
-    baseA9: '900000',
-    baseA9Raw: '900000000000000',
-    maxA9: '1200000',
+    baseA9: '1025000',
+    baseA9Raw: '1025000000000000',
+    maxA9: '1300000',
     requiredAssists: 0,
     initBoostBps: 0,
-    maxBoostBps: 3333, // +300,000 A9 max random crit (900,000 - 1,200,000 A9)
-    maxBoostA9: '300000',
-    maxBoostA9Raw: '300000000000000',
+    maxBoostBps: 2683, // +275,000 A9 max random range bonus (1,025,000 - 1,300,000 A9)
+    maxBoostA9: '275000',
+    maxBoostA9Raw: '275000000000000',
     maxSupply: null,
   },
 });
@@ -408,8 +406,8 @@ export function formatChestRecord(c) {
     source: c.source,
     tier: c.tier,
     slotIndex: slot,
-    labelZh: isWarmup ? `第 ${slot} 轮早鸟预热宝箱` : (spec?.zh || c.tier),
-    labelEn: isWarmup ? `R${slot} Early Bird Warm-up Chest` : (spec?.en || c.tier),
+    labelZh: isWarmup ? `第 ${slot} 轮预约预热宝箱` : (spec?.zh || c.tier),
+    labelEn: isWarmup ? `R${slot} Warm-up Chest` : (spec?.en || c.tier),
     orderId: c.orderId || null,
     baseA9Raw: String(c.baseA9Raw || '0'),
     boostA9Raw: String(c.boostA9Raw || '0'),
@@ -618,7 +616,7 @@ export class ChestEngine {
       throw new ChestError('ASSIST_NOT_ALLOWED', '预热宝箱仅可通过邀请好友预约并绑定活跃钱包解锁');
     }
     if (chest.source === 'SHOP_BOOST') {
-      throw new ChestError('ASSIST_NOT_ALLOWED', '付费宝箱无需好友膨胀，购买后可直接开箱触发随机暴击奖励');
+      throw new ChestError('ASSIST_NOT_ALLOWED', '付费宝箱无需好友助力，购买后随机区间加赠将随保底本金合并直发钱包');
     }
     if (chest.status === 'LOCKED') throw new ChestError('CHEST_LOCKED', '该宝箱尚未解锁，请先开启上一个宝箱');
     if (chest.status === 'OPENED' || chest.status === 'EXPIRED') {
@@ -752,7 +750,7 @@ export class ChestEngine {
 
     if (chest.source === 'SHOP_BOOST') {
       if (!walletAddress) {
-        throw new ChestError('WALLET_REQUIRED', '开启付费宝箱领取随机暴击奖励需绑定钱包地址');
+        throw new ChestError('WALLET_REQUIRED', '开启付费宝箱领取随机区间加赠需绑定钱包地址');
       }
       const rolled = rollPaidChestBonusRaw(chest.maxBoostA9Raw, randomFn);
       rewardRaw = rolled.bonusRaw;
@@ -888,7 +886,7 @@ export class ChestEngine {
       totalRewardRaw += BigInt(res.rewardA9Raw || '0');
       totalBaseRaw += BigInt(res.chest?.baseA9Raw || '0');
       if (res.isCrit) critCount += 1;
-      if (res.critTier === 'legendary') legendaryCount += 1;
+      if (res.critTier === 'jackpot' || res.critTier === 'legendary') legendaryCount += 1;
       if (res.budgetCapped) budgetCappedCount += 1;
       results.push(res);
     }

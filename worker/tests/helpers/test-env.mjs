@@ -66,6 +66,8 @@ export const MIGRATIONS = [
   '../../migrations/0011_warmup_reservations_v2.sql',
   '../../migrations/0012_actuarial_hardening.sql',
   '../../migrations/0013_user_notification_prefs.sql',
+  '../../migrations/0014_v17_price_unlock.sql',
+  '../../migrations/0015_v17_1_chest_direct_payout.sql',
 ];
 
 /** Async dump of every user table; works for the SQLite adapter and for real (Miniflare) D1. */

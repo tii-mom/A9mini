@@ -99,7 +99,7 @@ await test('API router serves /api/health, /api/config, /api/rounds/:id, and aut
   assert.equal(h.body.ok, true);
 
   const cfg = await route({ method: 'GET', pathname: '/api/config' });
-  assert.equal(cfg.body.data.protocolVersion, 'v16');
+  assert.equal(cfg.body.data.protocolVersion, 'v17');
   assert.equal(cfg.body.data.openEnded, true);
   assert.equal(cfg.body.data.promoHotWallet.userFeeTon, '0.06');
 
@@ -327,15 +327,15 @@ await test('PredictionEngine settles PASS/BURN with 1.5x exact-slot boost and ac
   const pred = new PredictionEngine({ defaultPoolA9Raw: '25000000000000' });
   const promo = new PromoHotWalletEngine({ hotWalletAddress: 'EQ_HOT' });
 
-  pred.placeBet({ roundId: 1, userId: 'tg_alice', side: 'PASS', guessSlots: 18 }, 100);
-  pred.placeBet({ roundId: 1, userId: 'tg_bob', side: 'PASS', guessSlots: 16 }, 101);
+  pred.placeBet({ roundId: 1, userId: 'tg_alice', side: 'PASS', guessSlots: 10 }, 100);
+  pred.placeBet({ roundId: 1, userId: 'tg_bob', side: 'PASS', guessSlots: 8 }, 101);
   pred.placeBet({ roundId: 1, userId: 'tg_carol', side: 'BURN' }, 102);
 
   const stats = pred.getRoundStats(1);
   assert.equal(stats.passCount, 2);
   assert.equal(stats.burnCount, 1);
 
-  const settled = await pred.settleRoundBets(1, true, 18);
+  const settled = await pred.settleRoundBets(1, true, 10);
   assert.equal(settled.winnersCount, 2);
   // M-3 动态奖池：3 注 × 800 A9 = 2,400 A9；权重 15:10 -> 1,440 A9 / 960 A9
   assert.equal(pred.getUserSummary('tg_alice', 1).pendingActivationRaw, '1440000000000');
@@ -364,7 +364,8 @@ await test('Dynamic OG card routes /c/round/1 and /c/img/burn/2.svg render valid
   const svg = await route({ method: 'GET', pathname: '/c/img/burn/2.svg' });
   assert.equal(svg.status, 200);
   assert.ok(svg.rawBody.includes('<svg'));
-  assert.ok(svg.rawBody.includes('BURN MONUMENT'));
+  assert.ok(svg.rawBody.includes('AUTO STOP-LOSS · 95%/90% REFUND'));
+  assert.ok(svg.rawBody.includes('8 / 12 HOURLY SLOTS TO PASS'));
 });
 
 await test('TonCenterClient encodes/decodes TON address BOC and reads user JettonWallet + StakeTicket', async () => {
@@ -556,16 +557,16 @@ await test('PredictionEngine applies up to 2.0x invite+exact boost and returns s
   };
   const route = createApiRouter({ env: { A9_BOT_TOKEN: TEST_BOT_TOKEN }, stateStore, predictionEngine: pred });
 
-  // 1001: PASS + exact slot 18 (+0.5x) + 6 invited friends (capped at 5 => +0.5x) => 2.0x (weight 20)
-  pred.placeBet({ roundId: 1, userId: '1001', side: 'PASS', guessSlots: 18 }, 100);
+  // 1001: PASS + exact slot 10 (+0.5x) + 6 invited friends (capped at 5 => +0.5x) => 2.0x (weight 20)
+  pred.placeBet({ roundId: 1, userId: '1001', side: 'PASS', guessSlots: 10 }, 100);
   for (let i = 1; i <= 6; i += 1) {
     pred.placeBet({ roundId: 1, userId: `110${i}`, side: 'BURN', referrerId: '1001' }, 100 + i);
   }
   // 1002: PASS without exact guess or invites => 1.0x (weight 10)
-  pred.placeBet({ roundId: 1, userId: '1002', side: 'PASS', guessSlots: 16 }, 120);
+  pred.placeBet({ roundId: 1, userId: '1002', side: 'PASS', guessSlots: 8 }, 120);
 
   const settleMs = 1_700_000_000_000;
-  await pred.settleRoundBets(1, true, 18, '30000000000000', settleMs);
+  await pred.settleRoundBets(1, true, 10, '30000000000000', settleMs);
 
   // M-3: 8 bets => 6,400 A9 pool; weight 20/30 = 4,266.66 A9 capped at per-user max 2,500 A9
   const proSummary = await route({ method: 'GET', pathname: '/api/prediction/user/1001', query: { roundId: '1' }, headers: await tgHeaders(1001, { nowSec: 1000 }), nowSec: 1000 });
@@ -760,7 +761,7 @@ await test('D1PromoStore.creditReward preserves BigInt precision across multiple
 await test('POST /api/admin/prediction/settle rejects unauthorized calls (401) and settles with valid admin token', async () => {
   const { PredictionEngine } = await import('../src/growth-engine.mjs');
   const pred = new PredictionEngine({ defaultPoolA9Raw: '10000000000000' });
-  pred.placeBet({ roundId: 5, userId: 'u_adm', side: 'PASS', guessSlots: 18 }, 100);
+  pred.placeBet({ roundId: 5, userId: 'u_adm', side: 'PASS', guessSlots: 10 }, 100);
   const stateStore = {
     getTiming: () => ({ observationSeconds: 86400 }),
     getProtocolState: () => ({ currentRoundId: 5, successCount: 2 }),
@@ -769,21 +770,21 @@ await test('POST /api/admin/prediction/settle rejects unauthorized calls (401) a
   };
   const route = createApiRouter({ env: { A9_ADMIN_TOKEN: 'secret-token-v15' }, stateStore, predictionEngine: pred });
 
-  const noAuth = await route({ method: 'POST', pathname: '/api/admin/prediction/settle', body: { roundId: 5, passed: true, actualQualified: 18 } });
+  const noAuth = await route({ method: 'POST', pathname: '/api/admin/prediction/settle', body: { roundId: 5, passed: true, actualQualified: 10 } });
   assert.equal(noAuth.status, 401);
   assert.equal(noAuth.body.error.code, 'UNAUTHORIZED');
 
   const wrongAuth = await route({
     method: 'POST', pathname: '/api/admin/prediction/settle',
     headers: { 'x-a9-admin-token': 'wrong' },
-    body: { roundId: 5, passed: true, actualQualified: 18 },
+    body: { roundId: 5, passed: true, actualQualified: 10 },
   });
   assert.equal(wrongAuth.status, 401);
 
   const okAuth = await route({
     method: 'POST', pathname: '/api/admin/prediction/settle',
     headers: { Authorization: 'Bearer secret-token-v15' },
-    body: { roundId: 5, passed: true, actualQualified: 18 },
+    body: { roundId: 5, passed: true, actualQualified: 10 },
     nowSec: 500,
   });
   assert.equal(okAuth.status, 200);
@@ -820,13 +821,13 @@ await test('D1 full-stack persistence loop (real SQLite): bindReferral -> placeB
   const H = (t) => tgHeaders(2001, { nowSec: t });
 
   // 1) Place bet with referrerId (binds first-touch referral for the VERIFIED Telegram user)
-  const betRes = await route({ method: 'POST', pathname: '/api/prediction/bet', body: { roundId: 1, side: 'PASS', guessSlots: 18, referrerId: REF }, headers: await H(1000), nowSec: 1000 });
+  const betRes = await route({ method: 'POST', pathname: '/api/prediction/bet', body: { roundId: 1, side: 'PASS', guessSlots: 10, referrerId: REF }, headers: await H(1000), nowSec: 1000 });
   assert.equal(betRes.status, 200);
   assert.equal(betRes.body.data.userId, '2001');
   assert.equal(await social.getReferrer('2001'), REF);
 
   // 2) Settle via admin endpoint
-  const settleRes = await route({ method: 'POST', pathname: '/api/admin/prediction/settle', headers: { 'x-a9-admin-token': 'd1-adm' }, body: { roundId: 1, passed: true, actualQualified: 18 }, nowSec: 2000 });
+  const settleRes = await route({ method: 'POST', pathname: '/api/admin/prediction/settle', headers: { 'x-a9-admin-token': 'd1-adm' }, body: { roundId: 1, passed: true, actualQualified: 10 }, nowSec: 2000 });
   assert.equal(settleRes.status, 200);
   assert.equal(settleRes.body.data.winnersCount, 1);
 
@@ -2499,10 +2500,10 @@ await test('W2-9: Final audit fixes (v3 cold/asc cursor advancement without dead
   assert.ok(retryUrl.includes('start_utime=1795449700'), 'retry attempt > 1 should anchor start_utime to updatedAt - 300');
 });
 
-await test('v16 default protocol validation, D1PromoStore WRONG_PAYER check, and NEEDS_REVIEW chain-verified recovery', async () => {
+await test('v17 default protocol validation, D1PromoStore WRONG_PAYER check, and NEEDS_REVIEW chain-verified recovery', async () => {
   const { buildV15ConfigPayload } = await import('../src/v15-indexer.mjs');
   const { validateDaemonConfig } = await import('../src/payout-daemon.mjs');
-  assert.equal(buildV15ConfigPayload({}, null).protocolVersion, 'v16');
+  assert.equal(buildV15ConfigPayload({}, null).protocolVersion, 'v17');
   assert.throws(() => buildV15ConfigPayload({ A9_PROTOCOL_VERSION: 'v14' }, null), /Unsupported A9_PROTOCOL_VERSION/);
   const baseDaemonEnv = {
     A9_NETWORK: 'testnet',
@@ -2510,7 +2511,7 @@ await test('v16 default protocol validation, D1PromoStore WRONG_PAYER check, and
     TONCENTER_API_BASE: 'https://testnet.toncenter.com/api/v2',
     A9_PROMO_HOT_WALLET_ADDRESS: 'kQDNHik_ofaZns7ki5yuMYHMHODiRSs_lcTG9R5p2iyJwt4X',
   };
-  assert.equal(validateDaemonConfig(baseDaemonEnv).protocolVersion, 'v16');
+  assert.equal(validateDaemonConfig(baseDaemonEnv).protocolVersion, 'v17');
   assert.throws(() => validateDaemonConfig({ ...baseDaemonEnv, A9_PROTOCOL_VERSION: 'bad' }), /Unsupported A9_PROTOCOL_VERSION/);
 
   const db = createSqliteD1(MIGRATIONS);
@@ -2565,7 +2566,7 @@ await test('Audit hardening: /api/user/:wallet max 10 rounds (default 8), /api/h
   });
   const h = await router({ method: 'GET', pathname: '/api/health', nowSec: 1000 });
   assert.equal(h.status, 200);
-  assert.equal(h.body.data.version, '16.2.0');
+  assert.equal(h.body.data.version, '17.0.0');
 
   const defRange = await router({
     method: 'GET',
@@ -2698,55 +2699,55 @@ await test('Batch B: claim preview, payout-daemon budget/rebind, Masterchain & p
   const RC = '0:' + 'f6'.repeat(32);
   const TEST_ONLY_ADDR = formatTonAddress(0, new Uint8Array(32).fill(0x22), { bounceable: true, testOnly: true });
 
-  // 1) computeTicketClaimPreview mirrors RoundController.tolk v16.2 (20% immediate + 80% 40-day per-second linear vesting)
-  const rActive = { status: 1, stakeCloseAt: 2000, totalStakeRaw: '1000000000000', totalWeightRaw: '2000000000000', rewardBudgetRaw: '10000000000000', immediateBps: 0, vestingSeconds: 3456000 };
-  const tBase = { roundId: 1, amountRaw: '1000000000000', weightRaw: '2000000000000', rewardClaimedRaw: '0', principalDone: false, pending: false };
-  const pActive = computeTicketClaimPreview(tBase, rActive, { poolRemainingRaw: '100000000000000', endAt: 0 }, 1500);
-  assert.equal(pActive.canClaim, false);
-  assert.equal(pActive.claimableTotalRaw, '0');
+  // 1) computeTicketClaimPreview mirrors RoundController.tolk v17.0 (24H lock early-exit, failed 95%/90% stop-loss, 14D linear vesting + 30% instant cashout)
+  const rActive = { status: 1, stakeOpenAt: 1000, stakeCloseAt: 2000, totalStakeRaw: '1000000000000', earlyStakeRaw: '400000000000', rewardBudgetRaw: '5000000000000', immediateBps: 2000, vestingSeconds: 14 * 86400 };
+  const tBase = { roundId: 1, amountRaw: '1000000000000', earlyAmountRaw: '400000000000', lateAmountRaw: '600000000000', lockedClaimedRaw: '0', principalDone: false, immediateClaimed: false, exited: false, forfeited: false, pending: false };
+  // 24H 锁仓期内可提前解押（退 85% / 烧 15%）；进入 12H 冲价期封盘禁出
+  const pActiveLock = computeTicketClaimPreview(tBase, rActive, null, 1500);
+  assert.equal(pActiveLock.canClaim, false);
+  assert.equal(pActiveLock.canEarlyExit, true);
+  assert.equal(pActiveLock.earlyExitRefundRaw, '850000000000');
+  assert.equal(pActiveLock.earlyExitBurnRaw, '150000000000');
+  const pActivePush = computeTicketClaimPreview(tBase, rActive, null, 2000);
+  assert.equal(pActivePush.canEarlyExit, false);
 
+  // 未通关永不爆仓：头矿 400*95%=380 + 普通 600*90%=540 => 退 920 A9，烧 80 A9
   const rFailed = { ...rActive, status: 3, settledAt: 3000 };
-  const pFailed = computeTicketClaimPreview(tBase, rFailed, { poolRemainingRaw: '100000000000000', endAt: 0 }, 3100);
-  assert.equal(pFailed.canClaim, false);
+  const pFailed = computeTicketClaimPreview(tBase, rFailed, null, 3100);
+  assert.equal(pFailed.canClaim, true);
   assert.equal(pFailed.roundState, 'FAILED_PERMANENT');
+  assert.equal(pFailed.claimablePrincipalRaw, '920000000000');
+  assert.equal(pFailed.burnedPrincipalRaw, '80000000000');
 
-  const rSucc = { ...rActive, status: 2, settledAt: 3000, immediateBps: 2000, vestingSeconds: 40 * 86400 };
-  // Day 10 (10/40 of 8,000 A9 locked = 2,000 A9) + immediate 20% (2,000 A9) = 4,000 A9 reward + 1,000 A9 principal = 5,000 A9
-  const pSuccDay10 = computeTicketClaimPreview(tBase, rSucc, null, 3000 + 10 * 86400);
-  assert.equal(pSuccDay10.canClaim, true);
-  assert.equal(pSuccDay10.claimablePrincipalRaw, '1000000000000');
-  assert.equal(pSuccDay10.claimableRewardRaw, '4000000000000');
-  assert.equal(pSuccDay10.claimableTotalRaw, '5000000000000');
-  assert.equal(pSuccDay10.lockedRemainingRaw, '6000000000000');
-  assert.equal(pSuccDay10.burnedLockedRaw, '0');
-  assert.equal(pSuccDay10.unlockedPctBps, 4000);
+  // 通关 5x = 5,000 A9（1,000 秒提 + 4,000 分 14 天解锁）；第 7 天已解锁 2,000，未解锁 2,000 支持 3 折急提（实拿 600 / 烧 1,400）
+  const rSucc = { ...rActive, status: 2, settledAt: 3000, immediateBps: 2000, vestingSeconds: 14 * 86400 };
+  const pSuccDay7 = computeTicketClaimPreview(tBase, rSucc, null, 3000 + 7 * 86400);
+  assert.equal(pSuccDay7.canClaim, true);
+  assert.equal(pSuccDay7.claimablePrincipalRaw, '1000000000000');
+  assert.equal(pSuccDay7.claimableRewardRaw, '3000000000000');
+  assert.equal(pSuccDay7.claimableTotalRaw, '4000000000000');
+  assert.equal(pSuccDay7.lockedRemainingRaw, '2000000000000');
+  assert.equal(pSuccDay7.canInstantCashout, true);
+  assert.equal(pSuccDay7.instantCashoutBonusRaw, '600000000000');
+  assert.equal(pSuccDay7.instantCashoutBurnRaw, '1400000000000');
+  assert.equal(pSuccDay7.instantCashoutTotalRaw, '4600000000000');
+  assert.equal(pSuccDay7.unlockedPctBps, 6000);
 
-  // Day 25 after already claiming principal + immediate + Day 10 (2,000 A9 locked) -> +15 days = +3,000 A9 newly unlocked, 3,000 A9 remaining
-  const pSuccDay25 = computeTicketClaimPreview(
+  // Day 14+ 满期后：100% 解锁，canInstantCashout=false，0 销毁
+  const pSuccDay20 = computeTicketClaimPreview(
     { ...tBase, principalDone: true, immediateClaimed: true, lockedClaimedRaw: '2000000000000' },
     rSucc,
     null,
-    3000 + 25 * 86400,
+    3000 + 20 * 86400,
   );
-  assert.equal(pSuccDay25.canClaim, true);
-  assert.equal(pSuccDay25.claimablePrincipalRaw, '0');
-  assert.equal(pSuccDay25.claimableRewardRaw, '3000000000000');
-  assert.equal(pSuccDay25.lockedRemainingRaw, '3000000000000');
-  assert.equal(pSuccDay25.unlockedPctBps, 7000);
-
-  // Day 40+ -> 100% unlocked, 0 remaining, never expires
-  const pSuccDay60 = computeTicketClaimPreview(
-    { ...tBase, principalDone: true, immediateClaimed: true, lockedClaimedRaw: '2000000000000' },
-    rSucc,
-    null,
-    3000 + 60 * 86400,
-  );
-  assert.equal(pSuccDay60.claimableRewardRaw, '6000000000000');
-  assert.equal(pSuccDay60.lockedRemainingRaw, '0');
-  assert.equal(pSuccDay60.unlockedPctBps, 10000);
+  assert.equal(pSuccDay20.claimableRewardRaw, '2000000000000');
+  assert.equal(pSuccDay20.lockedRemainingRaw, '0');
+  assert.equal(pSuccDay20.canInstantCashout, false);
+  assert.equal(pSuccDay20.instantCashoutBurnRaw, '0');
+  assert.equal(pSuccDay20.unlockedPctBps, 10000);
 
   const rAborted = { ...rActive, status: 4, settledAt: 3000 };
-  const pAborted = computeTicketClaimPreview(tBase, rAborted, { poolRemainingRaw: '100000000000000', poolExhaustedAt: 0 }, 3100);
+  const pAborted = computeTicketClaimPreview(tBase, rAborted, null, 3100);
   assert.equal(pAborted.canClaim, true);
   assert.equal(pAborted.claimablePrincipalRaw, '1000000000000');
   assert.equal(pAborted.claimableRewardRaw, '0');
@@ -2796,11 +2797,11 @@ await test('Batch B: claim preview, payout-daemon budget/rebind, Masterchain & p
     }),
   });
 
-  // /api/user/:wallet returns enriched ticket preview & root claimableRaw/lockedRaw (at Day 10 after settlement)
-  const uRes = await router({ method: 'GET', pathname: `/api/user/${encodeURIComponent(W1)}`, nowSec: 3000 + 10 * 86400 });
+  // /api/user/:wallet returns enriched ticket preview & root claimableRaw/lockedRaw (at Day 7 of 14-day vesting)
+  const uRes = await router({ method: 'GET', pathname: `/api/user/${encodeURIComponent(W1)}`, nowSec: 3000 + 7 * 86400 });
   assert.equal(uRes.status, 200);
-  assert.equal(uRes.body.data.claimableRaw, '5000000000000');
-  assert.equal(uRes.body.data.lockedRaw, '6000000000000');
+  assert.equal(uRes.body.data.claimableRaw, '4000000000000');
+  assert.equal(uRes.body.data.lockedRaw, '2000000000000');
   assert.equal(uRes.body.data.tickets[0].canClaim, true);
 
   // /api/health redacts sensitive internal errors for public callers, reveals full checks for admin

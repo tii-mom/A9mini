@@ -1718,9 +1718,9 @@ await test('Phase 3: Handbook Stamp progression loop (new user, consecutive chec
     assert.equal(c1Dup.status, 400);
     assert.equal(c1Dup.body.error.code, 'ALREADY_CLAIMED');
 
-    // 5. 参与 0 GRAM 24H 达标竞猜后，可盖 daily_prediction (+50 EXP)，再盖 daily_observe (+30 EXP) & daily_share (+40 EXP)，集齐 4 章后领取 daily_full_bonus (+80 EXP)
+    // 5. 参与 0 GRAM 12H 达标竞猜后，可盖 daily_prediction (+50 EXP)，再盖 daily_observe (+30 EXP) & daily_share (+40 EXP)，集齐 4 章后领取 daily_full_bonus (+80 EXP)
     await identityStore.bindWallet('3301', 'EQ_ALICE_NO_CAP', day1Sec);
-    const betRes = await route({ method: 'POST', pathname: '/api/prediction/bet', headers: hAlice1, body: { roundId: 1, side: 'PASS', guessSlots: 18 }, nowSec: day1Sec });
+    const betRes = await route({ method: 'POST', pathname: '/api/prediction/bet', headers: hAlice1, body: { roundId: 1, side: 'PASS', guessSlots: 10 }, nowSec: day1Sec });
     assert.equal(betRes.status, 200);
 
     // 尚未集齐 4 章时不可领 daily_full_bonus
@@ -1769,8 +1769,8 @@ await test('Phase 3: Handbook Stamp progression loop (new user, consecutive chec
     const c5 = await route({ method: 'POST', pathname: '/api/progression/claim', headers: hAlice5, body: { taskKey: 'daily_checkin' }, nowSec: day5Sec });
     assert.equal(c5.body.data.progression.checkinStreak, 1);
 
-    // 9. 严格隔离成长数据与真实资产：即便拥有高 EXP / 等级 / 满成就，未完成真实商行购买或链上质押仍不可激活 A9 竞猜奖励券
-    await predictionEngine.settleRoundBets(1, true, 18, '10000000000000', day1Sec * 1000);
+    // 9. 严格隔离成长数据与真实资产：即便拥有高 EXP / 等级 / 满成就，未完成真实商行购买或链上锁仓仍不可激活 A9 竞猜奖励券
+    await predictionEngine.settleRoundBets(1, true, 10, '10000000000000', day1Sec * 1000);
     const actFail = await route({ method: 'POST', pathname: '/api/prediction/activate', headers: hAlice1, body: {}, nowSec: day1Sec + 10 });
     assert.equal(actFail.status, 400);
     assert.equal(actFail.body.error.code, 'ACTIVATION_REQUIREMENT_UNMET');
@@ -1839,7 +1839,7 @@ await test('Step 0 & Knife 2: Item shop/inventory fully removed (404), pure 1 GR
       method: 'POST',
       pathname: '/api/admin/prediction/settle',
       headers: { 'x-a9-admin-token': 'adm-p0' },
-      body: { roundId: 1, passed: true, actualQualified: 18 },
+      body: { roundId: 1, passed: true, actualQualified: 10 },
       nowSec: nowSec + 100,
     });
     assert.equal(settle1.status, 200);
@@ -1863,7 +1863,7 @@ await test('Step 0 & Knife 2: Item shop/inventory fully removed (404), pure 1 GR
       method: 'POST',
       pathname: '/api/admin/prediction/settle',
       headers: { 'x-a9-admin-token': 'adm-p0' },
-      body: { roundId: 2, passed: true, actualQualified: 19 },
+      body: { roundId: 2, passed: true, actualQualified: 11 },
       nowSec: nowSec + 130,
     });
     assert.equal(settle2.body.data.firstLossBonusCount, 0);

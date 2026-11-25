@@ -37,9 +37,9 @@ function updateScenarios() {
   document.querySelector('#paper-input-error').hidden = valid;
 
   for (const [id, value] of [
-    ['paper-reward-cap', principal * 15],
-    ['paper-burn', principal],
-    ['paper-refund', principal],
+    ['paper-reward-cap', principal * 5],
+    ['paper-burn', Math.ceil(principal * 0.1)],
+    ['paper-refund', Math.floor(principal * 0.95)],
   ]) {
     document.getElementById(id).textContent = valid ? `${amountFormatter.format(value)} A9` : '—';
   }

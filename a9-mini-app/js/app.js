@@ -471,7 +471,7 @@ function simulateRadarEvent(type) {
     });
     r.qualifiedCandles = r.candles.filter(c => c.status === 'closed' && c.bull).length;
     r.candlesSeen = 18;
-    r.needMore = Math.max(0, (r.minQualifiedCandles || 16) - r.qualifiedCandles);
+    r.needMore = Math.max(0, (r.minQualifiedCandles || 8) - r.qualifiedCandles);
     syncRadarInPlace(r, { batch: true });
     showToast(L('已批量补齐至第 18 段（直接同步）', 'Batch backfilled to slot #18'));
     return;
@@ -489,7 +489,7 @@ function simulateRadarEvent(type) {
   }
   r.qualifiedCandles = r.candles.filter(c => c.status === 'closed' && c.bull).length;
   r.candlesSeen = r.candles.filter(c => c.status === 'closed').length;
-  r.needMore = Math.max(0, (r.minQualifiedCandles || 16) - r.qualifiedCandles);
+  r.needMore = Math.max(0, (r.minQualifiedCandles || 8) - r.qualifiedCandles);
   syncRadarInPlace(r);
 }
 
@@ -508,14 +508,14 @@ function openSimDrawer() {
       <div class="caps text-muted">${L('轮次阶段', 'Round Stage')}</div>
       <div class="grid-2">
         <button class="quick-btn ${round.stage === 'warmup' ? 'active' : ''}" data-sim-stage="warmup">${L('1. 开局倒计时', '1. Pre-Round')}</button>
-        <button class="quick-btn ${round.stage === 'participation' ? 'active' : ''}" data-sim-stage="participation">${L('2. 火热入场', '2. Entry Open')}</button>
-        <button class="quick-btn ${round.stage === 'observation' ? 'active' : ''}" data-sim-stage="observation">${L('3. 24H 闯关中', '3. 24H Quest')}</button>
+        <button class="quick-btn ${round.stage === 'participation' ? 'active' : ''}" data-sim-stage="participation">${L('2. 24H 锁仓开放', '2. 24H Lock')}</button>
+        <button class="quick-btn ${round.stage === 'observation' ? 'active' : ''}" data-sim-stage="observation">${L('3. 12H 冲价中', '3. 12H Push')}</button>
         <button class="quick-btn ${round.stage === 'settlement_success' ? 'active' : ''}" data-sim-stage="settlement_success">${L('4. 通关派奖', '4. Passed')}</button>
-        <button class="quick-btn ${round.stage === 'settlement_burn' ? 'active' : ''}" data-sim-stage="settlement_burn">${L('5. 未通关 · 销毁 BURN', '5. Failed · BURN')}</button>
+        <button class="quick-btn ${round.stage === 'settlement_burn' ? 'active' : ''}" data-sim-stage="settlement_burn">${L('5. 未通关 · 自动止损', '5. Auto Stop-Loss')}</button>
         <button class="quick-btn ${round.stage === 'halted' ? 'active' : ''}" data-sim-stage="halted">${L('6. 异常中止 · 退回本金', '6. Aborted · Refund')}</button>
       </div>
 
-      <div class="caps text-muted">${L('24H 时段状态演练（观察页）', '24H Slot Simulation (Observe)')}</div>
+      <div class="caps text-muted">${L('12H 冲价时段状态演练', '12H Push Slot Simulation')}</div>
       <div class="grid-2">
         <button class="quick-btn" data-sim-radar="pass">${L('当前段确认 · 达标', 'Confirm Slot · Met')}</button>
         <button class="quick-btn" data-sim-radar="miss">${L('当前段确认 · 未达标', 'Confirm Slot · Miss')}</button>
@@ -763,19 +763,19 @@ async function openChestAssistModal(chestId) {
   openModal(`
     <div class="sheet-handle"></div>
     <div class="row-between" style="margin-bottom:8px;">
-      <div class="card-title">${icon('bolt', 15, 'text-gold')} ${isBoost ? L('A9 付费随机暴击箱', 'A9 Paid Crit Chest') : L('双人同行礼 · 开启 A9 宝箱', 'Co-Op Chest Gift · A9')}</div>
+      <div class="card-title">${icon('bolt', 15, 'text-gold')} ${isBoost ? L('A9 付费随机宝箱', 'A9 Paid Random Chest') : L('双人同行礼 · 开启 A9 宝箱', 'Co-Op Chest Gift · A9')}</div>
       <button class="icon-btn" id="chest-assist-close" aria-label="Close">${icon('x', 15)}</button>
     </div>
     <div class="sub-tile" style="margin-bottom:12px;">
       <div class="row-between">
         <strong>${escapeHtml(label)}</strong>
-        <span class="chip ${isBoost ? 'chip-green' : 'chip-gold'} mono">${!hasDetail ? L('待核验', 'Pending') : isBoost ? L('免助力暴击', 'No Assist') : `${cur}/${req} ${L('同行', 'co-op')}`}</span>
+        <span class="chip ${isBoost ? 'chip-green' : 'chip-gold'} mono">${!hasDetail ? L('待核验', 'Pending') : isBoost ? L('合并直发钱包', 'Direct Payout') : `${cur}/${req} ${L('同行', 'co-op')}`}</span>
       </div>
       <div class="num-xs text-sec" style="margin-top:6px;line-height:1.5;">
         ${!hasDetail
           ? L('宝箱详情待核验（暂未拉取到服务端状态），可点击下方重试读取或先连接 TON 钱包。', 'Chest details pending verification. Tap retry below or connect your TON wallet.')
           : isBoost
-            ? L('付费宝箱已升级为整数本金保底 + 免助力随机暴击，无需好友助力！你也可以免费秒开专属青铜新手箱（200 A9）或前往宝箱商城体验。', 'Paid chests roll instant random crits with exact integer base A9! Open your free 200 A9 Bronze Starter Chest or visit Chest Mall.')
+            ? L('付费宝箱已升级为 6 档纯随机开箱，保底 + 随机加赠合并直发钱包，无需好友助力！你也可以免费秒开专属青铜新手箱（200 A9）或前往宝箱商城体验。', 'Paid chests now send base + random bonus directly to your wallet with zero assists needed! Open your free 200 A9 Bronze Starter Chest or visit Chest Mall.')
             : L(`双向开箱礼：帮好友助力开启【${escapeHtml(label)}】（${formatNum(Math.round(rewardA9), 0)} A9），确认同行后立刻为你发放可秒开的专属青铜新手箱（200 A9）！`, `Co-op gift: assist [${escapeHtml(label)}] (${formatNum(Math.round(rewardA9), 0)} A9) and instantly unlock your own 200 A9 Bronze Starter Chest!`)}
       </div>
     </div>

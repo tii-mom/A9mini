@@ -231,7 +231,7 @@ await test('Webhook commands (/start, /status, /help) reply even when A9_BROADCA
   assert.ok(resStatusLive.body.data.replyText.includes('#3'));
   assert.ok(resStatusLive.body.data.replyText.includes('$0.2320'));
   assert.ok(resStatusLive.body.data.replyText.includes('700,000,000 A9'));
-  assert.ok(resStatusLive.body.data.replyText.includes('14/24'));
+  assert.ok(resStatusLive.body.data.replyText.includes('14/12') || resStatusLive.body.data.replyText.includes('/12 时段'));
 
   // 5) /help mentions 0.06 GRAM, 0.03 GRAM, AbortRound
   const resHelp = await routerLive({

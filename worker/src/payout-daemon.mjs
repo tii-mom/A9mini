@@ -110,8 +110,9 @@ export function validateDaemonConfig(env = {}, { executeFlag = false } = {}) {
     jettonMasterAddress: String(env.A9_JETTON_MASTER_ADDRESS || '').trim() || null,
     protocolVersion: (() => {
       const raw = String(env.A9_PROTOCOL_VERSION ?? '').trim().toLowerCase();
-      if (!raw || raw === 'v16') return 'v16';
-      throw new Error(`Unsupported A9_PROTOCOL_VERSION: "${env.A9_PROTOCOL_VERSION}" (expected "v16")`);
+      if (!raw) return 'v17';
+      if (raw === 'v17' || raw === 'v16') return raw;
+      throw new Error(`Unsupported A9_PROTOCOL_VERSION: "${env.A9_PROTOCOL_VERSION}" (expected "v17" or "v16")`);
     })(),
     runnerId: String(env.A9_RUNNER_ID || `daemon-${network}-${process.pid}`),
     intervalMs: Math.max(2000, Number(env.A9_DAEMON_INTERVAL_MS || 10000)),

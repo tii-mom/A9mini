@@ -80,8 +80,8 @@ export function demoFixture() {
     openEnded: true,
     roundCount: null,
     poolState: { successCount: 2 },
-    candleCount: 24,
-    minQualifiedCandles: 16,
+    candleCount: 12,
+    minQualifiedCandles: 8,
     candleSeconds: 3600,
     roundRewardRaw: '700000000000000000',
     minStakeRaw: '1000000000000',
@@ -371,7 +371,7 @@ export function applyDemoInitialState(state) {
   }
 }
 
-/* ---------------- 演示模式：24H 预言擂台内存状态（DEMO ONLY） ---------------- */
+/* ---------------- 演示模式：12H 预言擂台内存状态（DEMO ONLY） ---------------- */
 
 const demoPredRounds = new Map();
 const demoPredUsers = new Map();
@@ -500,7 +500,7 @@ export function demoProgressionClaim({ userId, taskKey, roundId = 3 }) {
   const pred = demoPredictionUser(userId, roundId);
   const hasPred = Boolean(pred?.currentBet);
   if (tKey === 'daily_prediction' && !hasPred) {
-    throw new Error('请先参与本轮 0 GRAM 24H 预言擂台后再盖章');
+    throw new Error('请先参与本轮 0 GRAM 12H 预言擂台后再盖章');
   }
   if (tKey === 'daily_full_bonus') {
     const allDone = DEMO_DAILY_KEYS.every(k => u.todayClaims.has(k));
@@ -510,7 +510,7 @@ export function demoProgressionClaim({ userId, taskKey, roundId = 3 }) {
     throw new Error('连续打卡满 3 天后解锁');
   }
   if (tKey === 'ach_pred_pioneer' && !hasPred && !u.todayClaims.has('daily_prediction')) {
-    throw new Error('需完成至少 1 次 24H 预言擂台后解锁');
+    throw new Error('需完成至少 1 次 12H 预言擂台后解锁');
   }
 
   if (isAch) {
@@ -616,7 +616,7 @@ export function demoPredictionActivate(userId, walletAddress) {
 }
 
 export const ROUND_META = {
-  R3: { zh: '第 3 轮 · 观察中', en: 'Round #3 · Live', target: '$0.1850', est: '$0.1895', bars: '12/16', pct: 75 },
+  R3: { zh: '第 3 轮 · 12H 冲价中', en: 'Round #3 · 12H Push', target: '$0.1850', est: '$0.1895', bars: '7/12', pct: 88 },
   R2: { zh: '第 2 轮 · 已清算', en: 'Round #2 · Paid', target: '$0.1420', est: '$0.1618', bars: '19/16', pct: 100 },
   R1: { zh: '第 1 轮 · 创世轮', en: 'Round #1 · Genesis', target: '$0.1100', est: '$0.1325', bars: '21/16', pct: 100 }
 };
@@ -669,15 +669,14 @@ export function tickDemoPrice(r) {
 /* ---------------- 演示模式：宝箱商城与免费裂变宝箱（DEMO ONLY） ---------------- */
 
 export const DEMO_PAID_CHEST_CRIT_TIERS = [
-  { key: 'normal',    labelZh: '常规奖励', labelEn: 'Normal Bonus',   weight: 75, minRatio: 0.0,  maxRatio: 0.15, isCrit: false },
-  { key: 'lucky',     labelZh: '幸运暴击', labelEn: 'Lucky Bonus',    weight: 18, minRatio: 0.15, maxRatio: 0.35, isCrit: false },
-  { key: 'epic',      labelZh: '史诗暴击', labelEn: 'Epic Crit',      weight: 6,  minRatio: 0.35, maxRatio: 0.65, isCrit: true },
-  { key: 'legendary', labelZh: '传说暴击', labelEn: 'Legendary Crit', weight: 1,  minRatio: 0.65, maxRatio: 1.0,  isCrit: true }
+  { key: 'standard', labelZh: '常规随机', labelEn: 'Standard Range', weight: 75, minRatio: 0.0,  maxRatio: 0.15, isCrit: false },
+  { key: 'bonus',    labelZh: '高额加赠', labelEn: 'High Bonus',     weight: 20, minRatio: 0.15, maxRatio: 0.45, isCrit: false },
+  { key: 'jackpot',  labelZh: '手气爆棚', labelEn: 'Top Roll',       weight: 5,  minRatio: 0.45, maxRatio: 1.0,  isCrit: true }
 ];
 
 function rollDemoPaidChestBonusRaw(maxBoostA9Raw) {
   const maxBonus = BigInt(String(maxBoostA9Raw || '0'));
-  if (maxBonus <= 0n) return { bonusRaw: 0n, critTier: 'normal', isCrit: false };
+  if (maxBonus <= 0n) return { bonusRaw: 0n, critTier: 'standard', isCrit: false };
   const rollPct = Math.random() * 100;
   let acc = 0;
   let chosen = DEMO_PAID_CHEST_CRIT_TIERS[0];
@@ -696,12 +695,12 @@ function rollDemoPaidChestBonusRaw(maxBoostA9Raw) {
 }
 
 export const DEMO_CHEST_SKUS = [
-  { skuId: 'chest_bronze',    tier: 'bronze',    zh: '青铜宝箱', en: 'Bronze Chest',    priceGram: '0.99',  deliveryFeeGram: '0.06', totalPayGram: '1.05',   baseA9: 1500,   maxA9: 2000,    maxBoostPct: 33.3, maxBoostA9: 500,    requiredAssists: 0 },
-  { skuId: 'chest_silver',    tier: 'silver',    zh: '白银宝箱', en: 'Silver Chest',    priceGram: '4.99',  deliveryFeeGram: '0.06', totalPayGram: '5.05',   baseA9: 8000,   maxA9: 11000,   maxBoostPct: 37.5, maxBoostA9: 3000,   requiredAssists: 0 },
-  { skuId: 'chest_gold',      tier: 'gold',      zh: '黄金宝箱', en: 'Gold Chest',      priceGram: '9.99',  deliveryFeeGram: '0.06', totalPayGram: '10.05',  baseA9: 18000,  maxA9: 22000,   maxBoostPct: 22.2, maxBoostA9: 4000,   requiredAssists: 0 },
-  { skuId: 'chest_platinum',  tier: 'platinum',  zh: '白金宝箱', en: 'Platinum Chest',  priceGram: '19.99', deliveryFeeGram: '0.06', totalPayGram: '20.05',  baseA9: 38000,  maxA9: 45000,   maxBoostPct: 18.4, maxBoostA9: 7000,   requiredAssists: 0 },
-  { skuId: 'chest_diamond',   tier: 'diamond',   zh: '钻石宝箱', en: 'Diamond Chest',   priceGram: '99.99', deliveryFeeGram: '0.06', totalPayGram: '100.05', baseA9: 200000, maxA9: 220000,  maxBoostPct: 10,   maxBoostA9: 20000,  requiredAssists: 0 },
-  { skuId: 'chest_legendary', tier: 'legendary', zh: '传说宝箱', en: 'Legendary Chest', priceGram: '500',   deliveryFeeGram: '0.06', totalPayGram: '500.06', baseA9: 900000, maxA9: 1200000, maxBoostPct: 33.3, maxBoostA9: 300000, requiredAssists: 0 }
+  { skuId: 'chest_bronze',    tier: 'bronze',    zh: '青铜宝箱', en: 'Bronze Chest',    priceGram: '0.99',  deliveryFeeGram: '0.06', totalPayGram: '1.05',   baseA9: 1500,    maxA9: 2500,    maxBoostPct: 66.7, maxBoostA9: 1000,   requiredAssists: 0 },
+  { skuId: 'chest_silver',    tier: 'silver',    zh: '白银宝箱', en: 'Silver Chest',    priceGram: '4.99',  deliveryFeeGram: '0.06', totalPayGram: '5.05',   baseA9: 8000,    maxA9: 12000,   maxBoostPct: 50.0, maxBoostA9: 4000,   requiredAssists: 0 },
+  { skuId: 'chest_gold',      tier: 'gold',      zh: '黄金宝箱', en: 'Gold Chest',      priceGram: '9.99',  deliveryFeeGram: '0.06', totalPayGram: '10.05',  baseA9: 17500,   maxA9: 25000,   maxBoostPct: 42.9, maxBoostA9: 7500,   requiredAssists: 0 },
+  { skuId: 'chest_platinum',  tier: 'platinum',  zh: '白金宝箱', en: 'Platinum Chest',  priceGram: '19.99', deliveryFeeGram: '0.06', totalPayGram: '20.05',  baseA9: 37000,   maxA9: 50000,   maxBoostPct: 35.1, maxBoostA9: 13000,  requiredAssists: 0 },
+  { skuId: 'chest_diamond',   tier: 'diamond',   zh: '钻石宝箱', en: 'Diamond Chest',   priceGram: '99.99', deliveryFeeGram: '0.06', totalPayGram: '100.05', baseA9: 195000,  maxA9: 250000,  maxBoostPct: 28.2, maxBoostA9: 55000,  requiredAssists: 0 },
+  { skuId: 'chest_legendary', tier: 'legendary', zh: '传说宝箱', en: 'Legendary Chest', priceGram: '500',   deliveryFeeGram: '0.06', totalPayGram: '500.06', baseA9: 1025000, maxA9: 1300000, maxBoostPct: 26.8, maxBoostA9: 275000, requiredAssists: 0 }
 ];
 
 const demoChestStore = {
@@ -784,49 +783,64 @@ export function demoClaimStarterChests() {
   return { created: false, chests: s.freeChests.map((c) => ({ ...c })) };
 }
 
-export function demoBuyChest(state, skuId, _openMode = 'BOOST') {
+export function demoBuyChest(state, skuId, _openMode = 'INSTANT') {
   const pack = DEMO_CHEST_SKUS.find((p) => p.skuId === skuId);
   if (!pack) return { error: '未知宝箱档位' };
   const price = Number(pack.priceGram);
   const totalPay = Number(pack.totalPayGram || (price + 0.06).toFixed(2));
   if (state.user.tonBalance < totalPay) return { error: 'GRAM 余额不足（需含 0.06 GRAM 发币 Gas）' };
+  const baseRaw = BigInt(Math.round(pack.baseA9 * 1e9));
+  const maxRaw = BigInt(Math.round(pack.maxBoostA9 * 1e9));
+  const rolled = rollDemoPaidChestBonusRaw(maxRaw.toString());
+  const bonusA9 = Number(rolled.bonusRaw) / 1e9;
+  const totalA9 = Number((pack.baseA9 + bonusA9).toFixed(2));
   state.user.tonBalance = Number((state.user.tonBalance - totalPay).toFixed(2));
-  state.user.a9Available = Number((state.user.a9Available + pack.baseA9).toFixed(2));
+  state.user.a9Available = Number((state.user.a9Available + totalA9).toFixed(2));
   const orderId = `CM-${Date.now().toString().slice(-4)}`;
   state.market.records.unshift({
     id: orderId,
     skuId: pack.skuId,
     ton: totalPay,
-    a9: pack.baseA9,
+    a9: totalA9,
+    baseA9: pack.baseA9,
+    bonusA9,
+    totalA9,
     statusCode: 'COMPLETED',
-    status: '演示已发本金·待开暴击',
-    statusEn: 'Demo Base Credited · Crit Ready',
+    status: '演示合并直发到账',
+    statusEn: 'Demo Direct Payout Credited',
     hash: demoTxHash('EQC'),
     time: '刚刚'
   });
   const s = ensureDemoChests();
-  const nowSec = Math.floor(Date.now() / 1000);
-  const baseRaw = BigInt(Math.round(pack.baseA9 * 1e9));
-  const maxRaw = BigInt(Math.round(pack.maxBoostA9 * 1e9));
-  const boostChest = {
-    chestId: `ch_demo_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
-    source: 'SHOP_BOOST',
-    tier: pack.tier,
-    slotIndex: 1,
-    labelZh: pack.zh,
-    labelEn: pack.en,
+  s.instantOrders.unshift({ orderId, tier: pack.tier, baseA9Raw: baseRaw.toString(), bonusA9Raw: rolled.bonusRaw.toString() });
+  if (rolled.isCrit) {
+    demoCritFeedItems.unshift({
+      chestId: `ch_demo_${orderId}`,
+      actor: state?.user?.shortAddress || 'UQ...489f',
+      tier: pack.tier,
+      labelZh: pack.zh,
+      labelEn: pack.en,
+      boostA9Raw: rolled.bonusRaw.toString(),
+      maxBoostA9Raw: maxRaw.toString(),
+      totalA9Raw: (baseRaw + rolled.bonusRaw).toString(),
+      critTier: rolled.critTier,
+      ratioBps: maxRaw > 0n ? Number((rolled.bonusRaw * 10000n) / maxRaw) : 0,
+      openedAt: Math.floor(Date.now() / 1000)
+    });
+    if (demoCritFeedItems.length > 15) demoCritFeedItems.length = 15;
+  }
+  return {
     orderId,
-    baseA9Raw: baseRaw.toString(),
-    boostA9Raw: '0',
-    maxBoostA9Raw: maxRaw.toString(),
-    requiredAssists: 0,
-    currentAssists: 0,
-    status: 'READY',
-    expiresAt: null,
-    createdAt: nowSec
+    pack,
+    openMode: 'INSTANT',
+    baseA9: pack.baseA9,
+    bonusA9,
+    totalA9,
+    receivedA9: totalA9,
+    critTier: rolled.critTier,
+    isCrit: rolled.isCrit,
+    boostChest: null
   };
-  s.shopChests.unshift(boostChest);
-  return { orderId, pack, openMode: 'BOOST', receivedA9: pack.baseA9, boostChest };
 }
 
 export function demoGetChest(chestId) {
@@ -926,7 +940,7 @@ export function demoOpenChest(state, chestId) {
       boostA9Raw: sc.boostA9Raw,
       maxBoostA9Raw: sc.maxBoostA9Raw,
       critTier: rolled.critTier,
-      ratioBps: rolled.critTier === 'legendary' ? 8200 : 4800,
+      ratioBps: (rolled.critTier === 'jackpot' || rolled.critTier === 'legendary') ? 8200 : 4800,
       openedAt: Math.floor(Date.now() / 1000)
     });
     if (demoCritFeedItems.length > 15) demoCritFeedItems.length = 15;
@@ -943,10 +957,10 @@ export function demoOpenChest(state, chestId) {
 }
 
 const demoCritFeedItems = [
-  { chestId: 'ch_demo_crit_1', actor: 'UQ9F...8821', tier: 'legendary', labelZh: '传说宝箱', labelEn: 'Legendary Chest', boostA9Raw: '246000000000000', maxBoostA9Raw: '300000000000000', critTier: 'legendary', ratioBps: 8200, openedAt: Math.floor(Date.now() / 1000) - 95 },
-  { chestId: 'ch_demo_crit_2', actor: 'EQ3A...410C', tier: 'diamond',   labelZh: '钻石宝箱', labelEn: 'Diamond Chest',   boostA9Raw: '16400000000000',  maxBoostA9Raw: '20000000000000',  critTier: 'legendary', ratioBps: 8200, openedAt: Math.floor(Date.now() / 1000) - 260 },
-  { chestId: 'ch_demo_crit_3', actor: 'TG·**7392',   tier: 'platinum',  labelZh: '白金宝箱', labelEn: 'Platinum Chest',  boostA9Raw: '3640000000000',   maxBoostA9Raw: '7000000000000',   critTier: 'epic',      ratioBps: 5200, openedAt: Math.floor(Date.now() / 1000) - 510 },
-  { chestId: 'ch_demo_crit_4', actor: 'UQ7B...19E4', tier: 'gold',      labelZh: '黄金宝箱', labelEn: 'Gold Chest',      boostA9Raw: '3120000000000',   maxBoostA9Raw: '4000000000000',   critTier: 'legendary', ratioBps: 7800, openedAt: Math.floor(Date.now() / 1000) - 880 }
+  { chestId: 'ch_demo_crit_1', actor: 'UQ9F...8821', tier: 'legendary', labelZh: '传说宝箱', labelEn: 'Legendary Chest', boostA9Raw: '225500000000000', maxBoostA9Raw: '275000000000000', totalA9Raw: '1250500000000000', critTier: 'jackpot', ratioBps: 8200, openedAt: Math.floor(Date.now() / 1000) - 95 },
+  { chestId: 'ch_demo_crit_2', actor: 'EQ3A...410C', tier: 'diamond',   labelZh: '钻石宝箱', labelEn: 'Diamond Chest',   boostA9Raw: '44000000000000',  maxBoostA9Raw: '55000000000000',  totalA9Raw: '239000000000000',  critTier: 'jackpot', ratioBps: 8000, openedAt: Math.floor(Date.now() / 1000) - 260 },
+  { chestId: 'ch_demo_crit_3', actor: 'TG·**7392',   tier: 'platinum',  labelZh: '白金宝箱', labelEn: 'Platinum Chest',  boostA9Raw: '9100000000000',   maxBoostA9Raw: '13000000000000',  totalA9Raw: '46100000000000',   critTier: 'jackpot', ratioBps: 7000, openedAt: Math.floor(Date.now() / 1000) - 510 },
+  { chestId: 'ch_demo_crit_4', actor: 'UQ7B...19E4', tier: 'gold',      labelZh: '黄金宝箱', labelEn: 'Gold Chest',      boostA9Raw: '5850000000000',   maxBoostA9Raw: '7500000000000',   totalA9Raw: '23350000000000',   critTier: 'jackpot', ratioBps: 7800, openedAt: Math.floor(Date.now() / 1000) - 880 }
 ];
 
 export function demoChestCritFeed(limit = 12) {
@@ -970,7 +984,7 @@ export function demoOpenAllChests(state, tier = null) {
     totalRewardRaw += BigInt(res.rewardA9Raw || '0');
     totalBaseRaw += BigInt(res.chest?.baseA9Raw || '0');
     if (res.isCrit) critCount += 1;
-    if (res.critTier === 'legendary') legendaryCount += 1;
+    if (res.critTier === 'jackpot' || res.critTier === 'legendary') legendaryCount += 1;
     results.push(res);
   }
   return {
@@ -1058,8 +1072,8 @@ export function demoWarmupRegister({ intentTier = undefined, remindEnabled = und
       source: 'WARMUP_ROUND',
       tier: 'warmup',
       slotIndex: demoWarmupState.roundId,
-      labelZh: `第 ${demoWarmupState.roundId} 轮早鸟预热宝箱`,
-      labelEn: `R${demoWarmupState.roundId} Early Bird Warm-up Chest`,
+      labelZh: `第 ${demoWarmupState.roundId} 轮头矿预热宝箱`,
+      labelEn: `R${demoWarmupState.roundId} First 6H Warm-up Chest`,
       baseA9Raw: '300000000000',
       boostA9Raw: '0',
       maxBoostA9Raw: '600000000000',

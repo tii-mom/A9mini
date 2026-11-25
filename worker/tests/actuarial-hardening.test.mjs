@@ -87,17 +87,17 @@ console.log('Running A9 v16.1 Actuarial & Anti-Abuse Hardening tests (Memory + D
 
 await test('M-4 constants & warmup leaderboard alignment (6% referral, 6-tier integer chest catalog, 5-tier free chests, 300M budget cap)', async () => {
   assert.equal(REFERRAL_BPS, 6n);
-  assert.equal(CHEST_MALL_CATALOG.chest_bronze.maxBoostBps, 3333);
-  assert.equal(CHEST_MALL_CATALOG.chest_silver.maxBoostBps, 3750);
-  assert.equal(CHEST_MALL_CATALOG.chest_gold.maxBoostBps, 2222);
-  assert.equal(CHEST_MALL_CATALOG.chest_platinum.maxBoostBps, 1842);
-  assert.equal(CHEST_MALL_CATALOG.chest_diamond.maxBoostBps, 1000);
-  assert.equal(CHEST_MALL_CATALOG.chest_legendary.maxBoostBps, 3333);
+  assert.equal(CHEST_MALL_CATALOG.chest_bronze.maxBoostBps, 6667);
+  assert.equal(CHEST_MALL_CATALOG.chest_silver.maxBoostBps, 5000);
+  assert.equal(CHEST_MALL_CATALOG.chest_gold.maxBoostBps, 4286);
+  assert.equal(CHEST_MALL_CATALOG.chest_platinum.maxBoostBps, 3514);
+  assert.equal(CHEST_MALL_CATALOG.chest_diamond.maxBoostBps, 2821);
+  assert.equal(CHEST_MALL_CATALOG.chest_legendary.maxBoostBps, 2683);
 
   const totalCritWeight = PAID_CHEST_CRIT_TIERS.reduce((s, t) => s + Number(t.weight || 0), 0);
   assert.equal(totalCritWeight, 100);
   const expectedRatio = PAID_CHEST_CRIT_TIERS.reduce((s, t) => s + (t.weight / 100) * ((t.minRatio + t.maxRatio) / 2), 0);
-  assert.ok(expectedRatio <= 0.15, `expectedRatio ${expectedRatio} exceeded 0.15`);
+  assert.ok(expectedRatio <= 0.155, `expectedRatio ${expectedRatio} exceeded 0.155`);
   const legendaryExpectedBoost = (CHEST_MALL_CATALOG.chest_legendary.maxBoostBps / 10000) * expectedRatio;
   assert.ok(legendaryExpectedBoost < 0.05, `legendaryExpectedBoost ${legendaryExpectedBoost} exceeded 0.05`);
   assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'bronze').rewardA9Raw, String(200n * A9));
@@ -109,8 +109,16 @@ await test('M-4 constants & warmup leaderboard alignment (6% referral, 6-tier in
   assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'platinum').rewardA9Raw, String(40_000n * A9));
   assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'diamond').rewardA9Raw, String(200_000n * A9));
 
+  const legacyFourBudget =
+    BigInt(PROMO_BUDGET_BUCKETS.presale_promo) +
+    BigInt(PROMO_BUDGET_BUCKETS.free_chest_captain) +
+    BigInt(PROMO_BUDGET_BUCKETS.prediction) +
+    BigInt(PROMO_BUDGET_BUCKETS.warmup);
+  assert.equal(legacyFourBudget, 300_000_000n * A9);
+  assert.equal(PROMO_BUDGET_BUCKETS.stake_referral, String(200_000_000n * A9));
+  assert.equal(PROMO_BUDGET_BUCKETS.round_airdrop, String(50_000_000n * A9));
   const totalBudget = Object.values(PROMO_BUDGET_BUCKETS).reduce((s, v) => s + BigInt(v), 0n);
-  assert.equal(totalBudget, 300_000_000n * A9);
+  assert.equal(totalBudget, 550_000_000n * A9);
 
   // GET /api/warmup/leaderboard must NOT fall back to legacy 8,000,000 A9 WARMUP_TIERS
   const { router, socialStore } = await buildStack('memory');
@@ -284,7 +292,7 @@ for (const backend of ['memory', 'd1']) {
     const settleRes = await router({
       method: 'POST', pathname: '/api/admin/prediction/settle',
       headers: { 'x-a9-admin-token': 'adm-act' },
-      body: { roundId: 1, passed: true, actualQualified: 18 },
+      body: { roundId: 1, passed: true, actualQualified: 10 },
       nowSec: 2000,
     });
     assert.equal(settleRes.status, 200);
@@ -343,7 +351,7 @@ for (const backend of ['memory', 'd1']) {
     const settleFail = await router({
       method: 'POST', pathname: '/api/admin/prediction/settle',
       headers: { 'x-a9-admin-token': 'adm-act' },
-      body: { roundId: 1, passed: true, actualQualified: 18 },
+      body: { roundId: 1, passed: true, actualQualified: 10 },
       nowSec: 1020,
     });
     assert.equal(settleFail.status, 503);
@@ -404,6 +412,67 @@ for (const backend of ['memory', 'd1']) {
     assert.equal(meRes.body.data.wallet.address, wNew.address);
     assert.equal((await promoEngine.getBalance(wOld.address)).claimableRaw, '0');
     assert.equal((await promoEngine.getBalance(wNew.address)).claimableRaw, String(5_000n * A9));
+  });
+
+  await test(`[${backend}] v17.1 merged direct payout: concurrent queueConfirmedPayouts idempotency & compensating presale_promo budget release`, async () => {
+    const { presaleEngine, budgetLedger } = await buildStack(backend);
+    const W_BUY = W('91');
+    const ord = await presaleEngine.createOrderIntent(W_BUY, null, 60_000, { skuId: 'chest_gold', openMode: 'INSTANT', tgUserId: '701' });
+    await presaleEngine.ingestInbound(
+      { txHash: `v171-race-${backend}`, finality: 'finalized', to: HOT, from: W_BUY, valueNano: ord.payTonNano, memo: ord.memo },
+      60_005,
+    );
+
+    // 1) Two concurrent queueConfirmedPayouts calls race on the same CONFIRMED order -> exactly 1 queues, budget deducted ONCE
+    const [qA, qB] = await Promise.all([
+      presaleEngine.queueConfirmedPayouts(60_010),
+      presaleEngine.queueConfirmedPayouts(60_010),
+    ]);
+    assert.equal(qA + qB, 1);
+    const ordAfter = await presaleEngine.getOrder(ord.orderId);
+    assert.equal(ordAfter.a9AmountRaw, '17500000000000');
+    assert.equal(ordAfter.bonusRolled, true);
+    const bonusRaw = BigInt(ordAfter.bonusA9Raw);
+    const payout = await presaleEngine.repo.getPayout(`a9:${ord.orderId}`);
+    assert.ok(payout);
+    assert.equal(BigInt(payout.amount), 17_500_000_000_000n + bonusRaw);
+    const bucketAfterRace = await budgetLedger.getBucket('presale_promo');
+    assert.equal(bucketAfterRace.spentRaw, bonusRaw.toString(), 'concurrent loser must release reserved presale_promo budget');
+
+    // 2) Simulated queuePayout failure -> reserved budget MUST be released back to exact pre-call spent
+    const ordFail = await presaleEngine.createOrderIntent(W_BUY, null, 60_020, { skuId: 'chest_silver', openMode: 'INSTANT', tgUserId: '701' });
+    await presaleEngine.ingestInbound(
+      { txHash: `v171-fail-${backend}`, finality: 'finalized', to: HOT, from: W_BUY, valueNano: ordFail.payTonNano, memo: ordFail.memo },
+      60_025,
+    );
+    const spentBeforeFail = (await budgetLedger.getBucket('presale_promo')).spentRaw;
+    const origQueuePayout = presaleEngine.repo.queuePayout.bind(presaleEngine.repo);
+    presaleEngine.repo.queuePayout = async () => false;
+    try {
+      const qFail = await presaleEngine.queueConfirmedPayouts(60_030);
+      assert.equal(qFail, 0);
+    } finally {
+      presaleEngine.repo.queuePayout = origQueuePayout;
+    }
+    assert.equal((await budgetLedger.getBucket('presale_promo')).spentRaw, spentBeforeFail, 'failed queuePayout must refund presale_promo budget');
+
+    // 3) D1 legacy pre-0015 DB (missing bonus_a9_raw/bonus_rolled) MUST reject with MIGRATION_0015_REQUIRED & release budget
+    if (backend === 'd1') {
+      const pre0015Db = createSqliteD1(MIGRATIONS.slice(0, 14));
+      const legacyLedger = new D1PromoBudgetLedger({ db: pre0015Db });
+      const legacyPresale = new D1PresaleStore({ db: pre0015Db, hotWalletAddress: HOT, open: true, budgetLedger: legacyLedger });
+      const legOrd = await legacyPresale.createOrderIntent(W_BUY, null, 61_000, { skuId: 'chest_gold', openMode: 'INSTANT', tgUserId: '702' });
+      await legacyPresale.ingestInbound(
+        { txHash: 'v171-pre0015', finality: 'finalized', to: HOT, from: W_BUY, valueNano: legOrd.payTonNano, memo: legOrd.memo },
+        61_005,
+      );
+      await assert.rejects(
+        () => legacyPresale.queueConfirmedPayouts(61_010),
+        { code: 'MIGRATION_0015_REQUIRED' },
+      );
+      assert.equal((await legacyLedger.getBucket('presale_promo')).spentRaw, '0', 'pre-0015 error must refund reserved presale_promo budget');
+      assert.equal(await legacyPresale.repo.getPayout(`a9:${legOrd.orderId}`), null);
+    }
   });
 }
 

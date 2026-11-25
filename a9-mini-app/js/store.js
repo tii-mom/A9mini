@@ -66,7 +66,7 @@ const DEFAULT_STATE = {
     // 服务端驱动字段（由 js/data.js 的 mapRoundView 注入）
     qualifiedCandles: null,
     candlesConfirmed: null,
-    minQualifiedCandles: 16,
+    minQualifiedCandles: 8,
     needMore: null,
     source: null,
     sourceLabel: null,

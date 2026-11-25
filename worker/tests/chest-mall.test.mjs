@@ -44,17 +44,17 @@ await test('6 Chest Mall SKUs exact integer pricing (incl. 500 GRAM Legendary), 
   assert.equal(DELIVERY_GAS_FEE_NANO, 60_000_000n);
   assert.equal(REFUND_GAS_FEE_NANO, 30_000_000n);
   assert.equal(CHEST_MALL_CATALOG.chest_bronze.baseA9, '1500');
-  assert.equal(CHEST_MALL_CATALOG.chest_bronze.maxA9, '2000');
+  assert.equal(CHEST_MALL_CATALOG.chest_bronze.maxA9, '2500');
   assert.equal(CHEST_MALL_CATALOG.chest_silver.baseA9, '8000');
-  assert.equal(CHEST_MALL_CATALOG.chest_silver.maxA9, '11000');
-  assert.equal(CHEST_MALL_CATALOG.chest_gold.baseA9, '18000');
-  assert.equal(CHEST_MALL_CATALOG.chest_gold.maxA9, '22000');
-  assert.equal(CHEST_MALL_CATALOG.chest_platinum.baseA9, '38000');
-  assert.equal(CHEST_MALL_CATALOG.chest_platinum.maxA9, '45000');
-  assert.equal(CHEST_MALL_CATALOG.chest_diamond.baseA9, '200000');
-  assert.equal(CHEST_MALL_CATALOG.chest_diamond.maxA9, '220000');
-  assert.equal(CHEST_MALL_CATALOG.chest_legendary.baseA9, '900000');
-  assert.equal(CHEST_MALL_CATALOG.chest_legendary.maxA9, '1200000');
+  assert.equal(CHEST_MALL_CATALOG.chest_silver.maxA9, '12000');
+  assert.equal(CHEST_MALL_CATALOG.chest_gold.baseA9, '17500');
+  assert.equal(CHEST_MALL_CATALOG.chest_gold.maxA9, '25000');
+  assert.equal(CHEST_MALL_CATALOG.chest_platinum.baseA9, '37000');
+  assert.equal(CHEST_MALL_CATALOG.chest_platinum.maxA9, '50000');
+  assert.equal(CHEST_MALL_CATALOG.chest_diamond.baseA9, '195000');
+  assert.equal(CHEST_MALL_CATALOG.chest_diamond.maxA9, '250000');
+  assert.equal(CHEST_MALL_CATALOG.chest_legendary.baseA9, '1025000');
+  assert.equal(CHEST_MALL_CATALOG.chest_legendary.maxA9, '1300000');
   assert.equal(CHEST_MALL_CATALOG.chest_legendary.priceGram, '500');
   assert.equal(CHEST_MALL_CATALOG.chest_bronze.requiredAssists, 0);
   assert.equal(CHEST_MALL_CATALOG.chest_legendary.maxSupply, null);
@@ -87,8 +87,8 @@ await test('6 Chest Mall SKUs exact integer pricing (incl. 500 GRAM Legendary), 
   const leg2 = await presale.createOrderIntent(W_OWNER, null, 1002, { skuId: 'chest_legendary', openMode: 'BOOST', tgUserId: '1001' });
   assert.equal(leg1.tonNano, '500000000000');
   assert.equal(leg1.payTonNano, '500060000000');
-  assert.equal(leg1.a9AmountRaw, '900000000000000');
-  assert.equal(leg2.a9AmountRaw, '900000000000000');
+  assert.equal(leg1.a9AmountRaw, '1025000000000000');
+  assert.equal(leg2.a9AmountRaw, '1025000000000000');
 
   // Expired 0.99 GRAM Bronze Chest order paid late (1.05 GRAM) -> passive refund minus 0.03 GRAM on-chain refund gas
   const latePlan = await presale.planInbound(
@@ -198,28 +198,36 @@ await test('Shop Boost Chest: transient creation failure is idempotently backfil
     },
   });
 
-  // Simulate transient failure on first createShopBoostChest during _markConfirmed
-  let failOnce = true;
-  const origCreate = chest.createShopBoostChest.bind(chest);
-  chest.createShopBoostChest = async (...args) => {
-    if (failOnce) {
-      failOnce = false;
-      throw new Error('transient D1 timeout');
-    }
-    return origCreate(...args);
-  };
-
   const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT_WALLET, open: true, promoEngine: promo, chestEngine: chest, broadcaster });
-  const ord = await presale.createOrderIntent(W_OWNER, null, 1000, { skuId: 'chest_gold', openMode: 'BOOST', tgUserId: '1001', referrerId: W_H3 });
+  const ord = await presale.createOrderIntent(W_OWNER, null, 1000, { skuId: 'chest_gold', openMode: 'INSTANT', tgUserId: '1001', referrerId: W_H3 });
   await presale.ingestInbound({ txHash: 'tx_gold_in', finality: 'finalized', to: HOT_WALLET, from: W_OWNER, valueNano: ord.payTonNano, memo: ord.memo }, 1010);
-  await presale.queueConfirmedPayouts(1015);
+
+  // v17.1 merged direct payout: bonusA9Raw rolled once idempotently, a9AmountRaw isolated to baseA9Raw, payout merges base + bonus
+  const queued1 = await presale.queueConfirmedPayouts(1015);
+  assert.equal(queued1, 1);
+  const ordAfterQueue = await presale.getOrder(ord.orderId);
+  assert.equal(ordAfterQueue.a9AmountRaw, '17500000000000');
+  assert.equal(ordAfterQueue.baseA9Raw, '17500000000000');
+  assert.equal(ordAfterQueue.bonusRolled, true);
+  const rolledBonusRaw = BigInt(ordAfterQueue.bonusA9Raw);
+  assert.ok(rolledBonusRaw >= 0n && rolledBonusRaw <= BigInt(CHEST_MALL_CATALOG.chest_gold.maxBoostA9Raw));
+  const payout1 = await presale.repo.getPayout(`a9:${ord.orderId}`);
+  assert.ok(payout1);
+  assert.equal(BigInt(payout1.amount), 17_500_000_000_000n + rolledBonusRaw);
+  assert.equal(ordAfterQueue.totalA9Raw, (17_500_000_000_000n + rolledBonusRaw).toString());
+
+  // Retrying queueConfirmedPayouts must NOT re-roll bonusA9Raw
+  await presale.queueConfirmedPayouts(1016);
+  assert.equal((await presale.getOrder(ord.orderId)).bonusA9Raw, rolledBonusRaw.toString());
+
+  let broadcastAmount = null;
   await presale.processPayouts(1020, {
-    a9Broadcaster: async () => ({ txHash: 'tx_gold_out' }),
+    a9Broadcaster: async (p) => { broadcastAmount = p.jettonAmountRaw; return { txHash: 'tx_gold_out' }; },
     verifier: async () => ({ state: 'CONFIRMED', txHash: 'tx_gold_out' }),
   });
+  assert.equal(broadcastAmount, (17_500_000_000_000n + rolledBonusRaw).toString());
 
-  // Because first attempt threw, no shop chest exists yet — calling /api/chests/me must idempotently backfill it!
-  assert.equal((await chest.listUserChests('1001')).shopChests.length, 0);
+  // Because v17.1 order is bonusRolled, /api/chests/me must NOT spawn a duplicate legacy shopChest
   const router = createApiRouter({
     env: { A9_BOT_TOKEN: BOT_TOKEN },
     stateStore: emptyStateStore,
@@ -230,29 +238,24 @@ await test('Shop Boost Chest: transient creation failure is idempotently backfil
   });
   const meRes = await router({ method: 'GET', pathname: '/api/chests/me', headers: await tgHeaders(1001, { nowSec: 1025 }), nowSec: 1025 });
   assert.equal(meRes.status, 200);
-  assert.equal(meRes.body.data.shopChests.length, 1);
-  const sc = meRes.body.data.shopChests[0];
-  assert.equal(sc.tier, 'gold');
-  assert.equal(sc.orderId, ord.orderId);
+  assert.equal(meRes.body.data.shopChests.length, 0);
 
-  // Second /api/chests/me call stays idempotent (still 1 chest)
-  const meRes2 = await router({ method: 'GET', pathname: '/api/chests/me', headers: await tgHeaders(1001, { nowSec: 1026 }), nowSec: 1026 });
-  assert.equal(meRes2.body.data.shopChests.length, 1);
-
-  // Paid chest rejects social assist; owner opens directly and receives CSPRNG random crit bonus
+  // Legacy SHOP_BOOST chest still rejects social assist & opens cleanly with jackpot tier
+  const sc = await chest.createShopBoostChest({ userId: '1001', walletAddress: W_OWNER, skuId: 'chest_gold', orderId: 'legacy_ord_gold' }, 1028);
   await assert.rejects(
     () => chest.assistChest({ chestId: sc.chestId, helperUserId: '2001', helperWalletAddress: W_H1, walletActive: true }, 1030),
     { code: 'ASSIST_NOT_ALLOWED' },
   );
   const res = await chest.openChest({ chestId: sc.chestId, userId: '1001', walletAddress: W_OWNER, promoEngine: promo, randomFn: () => 0.995 }, 1040);
   assert.equal(res.destination, 'PROMO_BALANCE');
-  assert.equal(res.critTier, 'legendary');
+  assert.equal(res.critTier, 'jackpot');
   assert.equal(res.isCrit, true);
   assert.ok(BigInt(res.rewardA9Raw) > 0n && BigInt(res.rewardA9Raw) <= BigInt(sc.maxBoostA9Raw));
   assert.equal((await promo.getBalance(W_OWNER)).claimableRaw, res.rewardA9Raw);
 
-  // Referral credit triggers DM commission alert
+  // Referral 6% is computed strictly on baseA9Raw (17,500 * 6% = 1,050 A9) & triggers DM alert
   await presale.processReferralCredits(1050);
+  assert.equal((await promo.getBalance(W_H3)).claimableRaw, '1050000000000');
   assert.equal(dmSent.length, 1);
   assert.equal(dmSent[0].body.chat_id, '9001');
   assert.match(dmSent[0].body.text, /返佣到账提醒/);
@@ -538,13 +541,13 @@ await test('Chest OG PNG (16x9 & 9x16) and SVG render real chest progress withou
     chestEngine: chest,
   });
 
-  // 1) Existing Silver chest SVG: must show label, assist count, reward A9, and proportional green bars (1/2 => 12 green bars)
+  // 1) Existing Silver chest SVG: must show label, assist count, reward A9, and proportional green bars (1/2 of 12 => 6 green bars)
   const svgRes = await router({ method: 'GET', pathname: `/c/img/chest/${b1.chestId}.svg`, nowSec: 5010 });
   assert.equal(svgRes.status, 200);
   assert.match(svgRes.rawBody, /A9 CHEST · Silver Co-Op Chest/);
   assert.match(svgRes.rawBody, /1\/2 ASSISTS · 1,000 A9 Reward/);
   assert.doesNotMatch(svgRes.rawBody, /DATA PENDING|ROUND PENDING|16 \/ 24 HOURLY/);
-  assert.equal((svgRes.rawBody.match(/fill="#2DA069"/g) || []).length, 12);
+  assert.equal((svgRes.rawBody.match(/fill="#2DA069"/g) || []).length, 6);
 
   // 2) Existing chest PNG (landscape 1200x630 & story 1080x1920): valid PNG header + distinct raster output from missing chest
   const pngLand = await router({ method: 'GET', pathname: `/c/img/chest/${b1.chestId}.png`, nowSec: 5010 });
@@ -560,7 +563,7 @@ await test('Chest OG PNG (16x9 & 9x16) and SVG render real chest progress withou
   // 3) Missing chest SVG still renders friendly fallback without ROUND PENDING / DATA PENDING
   const svgMissing = await router({ method: 'GET', pathname: '/c/img/chest/nonexistent_id.svg', nowSec: 5010 });
   assert.equal(svgMissing.status, 200);
-  assert.match(svgMissing.rawBody, /A9 CHEST · BOOST &amp; OPEN/);
+  assert.match(svgMissing.rawBody, /A9 CHEST · RANDOM BONUS/);
   assert.doesNotMatch(svgMissing.rawBody, /DATA PENDING|ROUND PENDING/);
 
   // 4) Pure integer reward chest (SHOP_BOOST Bronze: 1,500 A9 base, zero decimals) renders cleanly in SVG & PNG
@@ -662,7 +665,7 @@ await test('GET /api/chests/me chestHoldings merges OPENED free chests + dedupli
   });
   const meRes = await router({ method: 'GET', pathname: '/api/chests/me', headers: await tgHeaders(9101, { nowSec: 7030 }), nowSec: 7030 });
   assert.equal(meRes.status, 200);
-  assert.equal(meRes.body.data.shopChests.length, 1);
+  assert.equal(meRes.body.data.shopChests.length, 0);
   assert.deepEqual(meRes.body.data.chestHoldings, {
     bronze: 1,
     silver: 1,
@@ -713,13 +716,13 @@ await test('POST /api/chests/open-all: 403 gate when disabled, full/tier batch o
   assert.equal(restRes.body.data.openedCount, 1);
   assert.equal((await promo.getBalance(W_OWNER)).claimableRaw, (BigInt(silverRes.body.data.totalRewardA9Raw) + BigInt(restRes.body.data.totalRewardA9Raw)).toString());
 
-  // Config endpoint exposes critTiers
+  // Config endpoint exposes 3 range bonus tiers (75% / 20% / 5%)
   const cfgRes = await routerEnabled({ method: 'GET', pathname: '/api/config', nowSec: 8008 });
   assert.equal(cfgRes.status, 200);
-  assert.equal(cfgRes.body.data.chestMall.critTiers.length, 4);
+  assert.equal(cfgRes.body.data.chestMall.critTiers.length, 3);
 });
 
-await test('GET /api/chests/crit-feed (Memory + D1): returns only anonymized epic/legendary paid crits sorted newest first', async () => {
+await test('GET /api/chests/crit-feed (Memory + D1): returns only anonymized top-roll (5% jackpot) paid bonuses sorted newest first', async () => {
   const db = createSqliteD1(MIGRATIONS);
   const d1Chest = new D1ChestEngine({ db });
   const d1Promo = new D1PromoStore({ db, hotWalletAddress: HOT_WALLET });
@@ -728,13 +731,13 @@ await test('GET /api/chests/crit-feed (Memory + D1): returns only anonymized epi
 
   for (const [engine, promo] of [[memChest, memPromo], [d1Chest, d1Promo]]) {
     const cNormal = await engine.createShopBoostChest({ userId: '9601', walletAddress: W_OWNER, skuId: 'chest_bronze', orderId: 'ord_cf_norm' }, 9000);
-    const cEpic = await engine.createShopBoostChest({ userId: '9602', walletAddress: W_H1, skuId: 'chest_gold', orderId: 'ord_cf_epic' }, 9001);
-    const cLegend = await engine.createShopBoostChest({ userId: '9603', walletAddress: W_H2, skuId: 'chest_diamond', orderId: 'ord_cf_leg' }, 9002);
+    const cHigh1 = await engine.createShopBoostChest({ userId: '9602', walletAddress: W_H1, skuId: 'chest_gold', orderId: 'ord_cf_epic' }, 9001);
+    const cHigh2 = await engine.createShopBoostChest({ userId: '9603', walletAddress: W_H2, skuId: 'chest_diamond', orderId: 'ord_cf_leg' }, 9002);
 
-    // 0.1 -> normal (excluded), 0.95 -> epic (included), 0.995 -> legendary (included)
+    // 0.1 -> standard (excluded), 0.96 -> jackpot (included), 0.995 -> jackpot (included)
     await engine.openChest({ chestId: cNormal.chestId, userId: '9601', walletAddress: W_OWNER, promoEngine: promo, randomFn: () => 0.1 }, 9010);
-    await engine.openChest({ chestId: cEpic.chestId, userId: '9602', walletAddress: W_H1, promoEngine: promo, randomFn: () => 0.95 }, 9020);
-    await engine.openChest({ chestId: cLegend.chestId, userId: '9603', walletAddress: W_H2, promoEngine: promo, randomFn: () => 0.995 }, 9030);
+    await engine.openChest({ chestId: cHigh1.chestId, userId: '9602', walletAddress: W_H1, promoEngine: promo, randomFn: () => 0.96 }, 9020);
+    await engine.openChest({ chestId: cHigh2.chestId, userId: '9603', walletAddress: W_H2, promoEngine: promo, randomFn: () => 0.995 }, 9030);
 
     const router = createApiRouter({
       env: { A9_BOT_TOKEN: BOT_TOKEN },
@@ -746,9 +749,9 @@ await test('GET /api/chests/crit-feed (Memory + D1): returns only anonymized epi
     assert.equal(res.status, 200);
     const items = res.body.data.items;
     assert.equal(items.length, 2);
-    assert.equal(items[0].critTier, 'legendary');
+    assert.equal(items[0].critTier, 'jackpot');
     assert.equal(items[0].tier, 'diamond');
-    assert.equal(items[1].critTier, 'epic');
+    assert.equal(items[1].critTier, 'jackpot');
     assert.equal(items[1].tier, 'gold');
     assert.doesNotMatch(items[0].actor, /9603/);
     assert.equal('ownerUserId' in items[0], false);

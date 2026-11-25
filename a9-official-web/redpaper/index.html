@@ -64,52 +64,52 @@
         </div>
       </aside>
     </div>
-    <nav class="paper-toc" aria-label="目录 / Contents"><a href="#bp-gates"><span lang="zh-CN">目标价与 24H 考核</span><span lang="en">Target price and 24H assessment</span></a><a href="#rules"><span lang="zh-CN">解锁、销毁与退款</span><span lang="en">Unlocks, burns and refunds</span></a><a href="#token-data"><span lang="zh-CN">供应、奖池与销毁</span><span lang="en">Supply, reward pools and burns</span></a><a href="#scenarios"><span lang="zh-CN">收益与损失试算</span><span lang="en">Illustrative rewards and losses</span></a><a href="#verification"><span lang="zh-CN">链上验真</span><span lang="en">On-chain verification</span></a></nav>
+    <nav class="paper-toc" aria-label="目录 / Contents"><a href="#bp-gates"><span lang="zh-CN">目标价与 12H 冲价</span><span lang="en">Target price and 12H push</span></a><a href="#rules"><span lang="zh-CN">解锁、止损与急提</span><span lang="en">Unlocks, stop-loss and cashout</span></a><a href="#token-data"><span lang="zh-CN">供应、奖池与销毁</span><span lang="en">Supply, reward pools and burns</span></a><a href="#scenarios"><span lang="zh-CN">收益与止损试算</span><span lang="en">Illustrative rewards and stop-loss</span></a><a href="#verification"><span lang="zh-CN">链上验真</span><span lang="en">On-chain verification</span></a></nav>
     <section class="paper-chapter" id="bp-gates">
       <div class="chapter-head">
-        <h2 class="sec-title"><span lang="zh-CN">目标价与 24H 考核</span><span lang="en">Target price and 24H assessment</span></h2>
+        <h2 class="sec-title"><span lang="zh-CN">目标价与 12H 冲价</span><span lang="en">Target price and 12H push</span></h2>
         <img class="chapter-art" src="../assets/official-art/clock-tower.svg" alt="" width="160" height="176" loading="lazy" />
       </div>
       <div class="paper-body">
         <dl class="paper-metrics">
-          <div><dt><span lang="zh-CN">目标价走廊</span><span lang="en">Target corridor</span></dt><dd>1.50×–2.50×</dd></div>
-          <div><dt><span lang="zh-CN">通关所需达标时段</span><span lang="en">Intervals required to pass</span></dt><dd>16 / 24</dd></div>
+          <div><dt><span lang="zh-CN">目标价走廊</span><span lang="en">Target corridor</span></dt><dd>1.30×–2.00×</dd></div>
+          <div><dt><span lang="zh-CN">通关所需达标时段</span><span lang="en">Intervals required to pass</span></dt><dd>8 / 12</dd></div>
         </dl>
         <div class="paper-corridor">
           <span><span lang="zh-CN">示例参考均价</span><span lang="en">Example reference average</span><strong>$0.04</strong></span>
           <span aria-hidden="true">→</span>
-          <span><span lang="zh-CN">可设目标价</span><span lang="en">Allowed target range</span><strong>$0.06–$0.10</strong></span>
+          <span><span lang="zh-CN">可设目标价</span><span lang="en">Allowed target range</span><strong>$0.052–$0.08</strong></span>
         </div>
-        <div class="paper-stamps" aria-hidden="true"><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i></div>
+        <div class="paper-stamps" aria-hidden="true"><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class="met"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i></div>
         <details class="paper-details">
           <summary><span lang="zh-CN">查看完整规则</span><span lang="en">Read the full rules</span></summary>
           <div class="paper-details-content">
-            <p><span lang="zh-CN">目标价走廊：参考均价 1.50×–2.50×。考核 24 小时均价，≥ 16 个时段达标即通关。</span><span lang="en">Corridor: 1.50×–2.50× reference TWAP. Pass threshold: ≥ 16 of 24 hourly intervals.</span></p>
-            <p><span lang="zh-CN">奖池分完为止。每轮沿用同一走廊规则，轮数由奖池消耗决定。</span><span lang="en">Challenges continue until the reward pool is exhausted. Each round follows the same corridor rule.</span></p>
+            <p><span lang="zh-CN">目标价走廊：参考均价 1.30×–2.00×（首轮 +30% 起）。24H 锁仓封盘（头矿前 6H 享 5% 轻止损，锁仓期内支持提前解押扣 15% 销毁）→ 12H 冲价禁进禁出，≥ 8/12 根小时均价达标即通关。</span><span lang="en">Corridor: 1.30×–2.00× reference TWAP (+30% min). 24H Lock (First 6H 5% Stop-Loss, Early Exit -15% burn open) → locked 12H Push with ≥ 8/12 qualified hourly slots to pass.</span></p>
+            <p><span lang="zh-CN">奖池分完为止。每轮沿用同一走廊规则，全员 1 A9 = 1 份公平平分，无权重稀释套路。</span><span lang="en">Challenges continue until the reward pool is exhausted. 1 A9 = 1 fair share with zero weight dilution.</span></p>
           </div>
         </details>
       </div>
     </section>
     <section class="paper-chapter" id="rules">
       <div class="chapter-head">
-        <h2 class="sec-title"><span lang="zh-CN">解锁、销毁与退款</span><span lang="en">Unlocks, burns and refunds</span></h2>
+        <h2 class="sec-title"><span lang="zh-CN">解锁、止损与急提</span><span lang="en">Unlocks, stop-loss and cashout</span></h2>
         <img class="chapter-art" src="../assets/official-art/unlock-flaps.svg" alt="" width="184" height="128" loading="lazy" />
       </div>
       <div class="paper-body">
         <div class="paper-tiers">
-          <div><strong><span lang="zh-CN">第 0 天 · 通关</span><span lang="en">Day 0 · Pass</span></strong><div class="paper-meter unlock-meter" aria-hidden="true"><i style="--part:20"></i><i style="--part:80"></i></div><p><span lang="zh-CN">100% 本金 + 20% 奖励秒领</span><span lang="en">100% principal + 20% instant</span></p></div>
-          <div><strong><span lang="zh-CN">第 1–40 天</span><span lang="en">Days 1–40</span></strong><div class="paper-meter unlock-meter" aria-hidden="true"><i style="--part:20"></i><i style="--part:20"></i><i style="--part:20"></i><i style="--part:20"></i><i style="--part:20"></i></div><p><span lang="zh-CN">余下 80% 每日 +2% 按秒线性</span><span lang="en">Remaining 80% at +2%/day per second</span></p></div>
-          <div><strong><span lang="zh-CN">满 40 天</span><span lang="en">Day 40</span></strong><div class="paper-meter unlock-meter" aria-hidden="true"><i style="--part:100"></i></div><p><span lang="zh-CN">100% 永久累计不倒扣</span><span lang="en">100% accrued, never forfeited</span></p></div>
+          <div><strong><span lang="zh-CN">第 0 天 · 通关秒提</span><span lang="en">Day 0 · Pass</span></strong><div class="paper-meter unlock-meter" aria-hidden="true"><i style="--part:20"></i><i style="--part:80"></i></div><p><span lang="zh-CN">100% 本金 + 20% 奖金秒提</span><span lang="en">100% principal + 20% instant</span></p></div>
+          <div><strong><span lang="zh-CN">第 1–14 天逐秒解锁</span><span lang="en">Days 1–14 Unlock</span></strong><div class="paper-meter unlock-meter" aria-hidden="true"><i style="--part:20"></i><i style="--part:20"></i><i style="--part:20"></i><i style="--part:20"></i><i style="--part:20"></i></div><p><span lang="zh-CN">余下 80% 每日 +5.71% 按秒解锁</span><span lang="en">Remaining 80% at +5.71%/day per second</span></p></div>
+          <div><strong><span lang="zh-CN">3 折急提通道</span><span lang="en">Instant Cashout</span></strong><div class="paper-meter unlock-meter" aria-hidden="true"><i style="--part:30"></i><i style="--part:70"></i></div><p><span lang="zh-CN">未解锁余额 30% 秒提 / 70% 销毁</span><span lang="en">Unvested 30% now / 70% burn</span></p></div>
         </div>
-        <p class="paper-risk" id="principal-risk"><span lang="zh-CN">失败轮销毁当轮 100% 质押本金（不影响历史胜利奖励释放）。异常中止按规则退回本金。</span><span lang="en">A failed round burns 100% of that round’s staked principal (without affecting past win vesting). An aborted round returns principal under the refund rules.</span></p>
-        <p><span lang="zh-CN">考核失败与技术异常中止是不同的结算结果。数据缺失时，以该轮最终结算或中止记录为准。</span><span lang="en">A failed assessment and a technical abort have different settlement outcomes. When data is missing, check the round’s final settlement or abort record.</span></p>
+        <p class="paper-risk" id="principal-risk"><span lang="zh-CN">永不爆仓：未达 8/12 时段头矿 6H 自动退回 95% 本金（止损 5% 销毁）、6H 后退回 90% 本金（止损 10% 销毁），另烧半池；异常中止 100% 无损退本。</span><span lang="en">No liquidation: failed rounds auto-refund 95% (First 6H · 5% Stop-Loss) or 90% (10% Stop-Loss) plus burn half the pool; aborted rounds refund 100%.</span></p>
+        <p><span lang="zh-CN">24H 锁仓期内随时支持提前解押（退 85% 本金、扣 15% 永久销毁）；进入 12H 冲价期封盘禁进禁出。</span><span lang="en">During the 24H lock window you may Early Exit anytime (85% refunded, 15% burned); 12H Push is locked.</span></p>
         <details class="paper-details">
           <summary><span lang="zh-CN">查看完整规则</span><span lang="en">Read the full rules</span></summary>
           <div class="paper-details-content">
-            <p><span lang="zh-CN">上限与权重：单轮奖励上限 15× 本金；早鸟权重 2.0× / 1.4× / 1.0× 仅影响份额。</span><span lang="en">Cap & weights: 15× principal cap; early weights 2.0× / 1.4× / 1.0× affect share only.</span></p>
-            <p><span lang="zh-CN">40 天线性释放：通关退 100% 本金 + 秒领 20% 奖励；余下 80% 分 40 天每日 2% 按秒释放，永不倒扣。</span><span lang="en">40d linear vesting: 100% principal + 20% instant; remaining 80% vests per second at 2%/day over 40 days, never forfeited.</span></p>
-            <p><span lang="zh-CN">失败与空轮：失败轮销毁当轮本金与 50% 奖池（50% 滚存），不影响历史释放；零质押空轮 100% 滚存零销毁。</span><span lang="en">Fail & empty rounds: fails burn that round’s stake & 50% pool (50% rolls over); zero-stake rounds roll 100% with zero burn.</span></p>
-            <p><span lang="zh-CN">安全逃生舱：7 天超时可无许可 AbortRound 全额退本，具备 bounce 回滚与 O(1) 重放恢复。</span><span lang="en">Escape hatch: 7d permissionless AbortRound refunds principal, with bounce rollback & O(1) retry.</span></p>
+            <p><span lang="zh-CN">门槛与上限：最低锁仓 100 A9，全员 1:1 公平分奖，单轮奖金封顶 5× 本金（超额 100% 滚存下轮）。</span><span lang="en">Min & cap: 100 A9 min lock, 1:1 fair split, 5× round reward cap (surplus rolls 100%).</span></p>
+            <p><span lang="zh-CN">14 天逐秒解锁与 3 折急提：通关退 100% 本金 + 20% 秒提，余下 80% 分 14 天逐秒解锁；急用钱可随时对未解锁余额走 3 折急提（7 折销毁；满 14 天后误触零销毁）。</span><span lang="en">20% Instant + 14D Per-Second Unlock & Instant Cashout: 100% principal + 20% Instant + 80% over 14 days; Instant Cashout (30% Now / 70% Burn) applies to unvested balance only (0% burned after Day 14).</span></p>
+            <p><span lang="zh-CN">未通关与空轮：永不爆仓 · 自动止损，头矿 6H 退 95% / 普通退 90%（同地址分段精确记账防追加白嫖），另烧 50% 奖池（50% 滚存）；零锁仓空轮 100% 滚存零销毁。</span><span lang="en">No Liquidation · Auto Stop-Loss & empty rounds: 95% (First 6H) / 90% (late) split-ledger refund + 50% pool burn; zero-lock rounds roll 100% with zero burn.</span></p>
+            <p><span lang="zh-CN">安全逃生舱：7 天超时可无许可 AbortRound 100% 无损退本，具备完整 bounce 回滚与 O(1) 重放恢复。</span><span lang="en">Escape hatch: 7d permissionless AbortRound refunds 100% principal, with bounce rollback & O(1) retry.</span></p>
           </div>
         </details>
       </div>
@@ -144,31 +144,31 @@
       <div class="paper-body">
         <div class="paper-scenario-input">
           <label for="paper-principal"><span lang="zh-CN">示例实缴本金（A9）</span><span lang="en">Illustrative principal (A9)</span></label>
-          <input class="sim-input" id="paper-principal" type="number" min="1000" max="10000000000" step="1" value="1000" aria-describedby="paper-input-error" />
-          <p id="paper-input-error" hidden><span lang="zh-CN">请输入 1,000 至 10,000,000,000 之间的整数。</span><span lang="en">Enter a whole number from 1,000 to 10,000,000,000.</span></p>
+          <input class="sim-input" id="paper-principal" type="number" min="100" max="10000000000" step="1" value="1000" aria-describedby="paper-input-error" />
+          <p id="paper-input-error" hidden><span lang="zh-CN">请输入 100 至 10,000,000,000 之间的整数。</span><span lang="en">Enter a whole number from 100 to 10,000,000,000.</span></p>
         </div>
         <div class="paper-outcomes" aria-live="polite" aria-atomic="true">
           <article class="paper-outcome paper-pass">
-            <h3><span lang="zh-CN">达标</span><span lang="en">Pass</span></h3>
-            <p><span lang="zh-CN">单轮奖励上限</span><span lang="en">Round reward cap</span></p>
-            <strong id="paper-reward-cap">15,000 A9</strong>
+            <h3><span lang="zh-CN">通关（≥ 8/12）</span><span lang="en">Pass (≥ 8/12)</span></h3>
+            <p><span lang="zh-CN">单轮奖金封顶（5×）</span><span lang="en">Round reward cap (5×)</span></p>
+            <strong id="paper-reward-cap">5,000 A9</strong>
           </article>
           <article class="paper-outcome paper-fail">
-            <h3><span lang="zh-CN">失败</span><span lang="en">Fail</span></h3>
-            <p><span lang="zh-CN">本金销毁</span><span lang="en">Principal burned</span></p>
-            <strong id="paper-burn">1,000 A9</strong>
+            <h3><span lang="zh-CN">未通关（普通止损）</span><span lang="en">Fail (10% Stop-Loss)</span></h3>
+            <p><span lang="zh-CN">最大止损销毁（10%）</span><span lang="en">Max stop-loss burn (10%)</span></p>
+            <strong id="paper-burn">100 A9</strong>
           </article>
           <article class="paper-outcome paper-abort">
-            <h3><span lang="zh-CN">异常中止</span><span lang="en">Aborted</span></h3>
-            <p><span lang="zh-CN">应退本金</span><span lang="en">Principal refundable</span></p>
-            <strong id="paper-refund">1,000 A9</strong>
+            <h3><span lang="zh-CN">头矿 6H 退本</span><span lang="en">First 6H Refund</span></h3>
+            <p><span lang="zh-CN">未通关自动退本（95%）</span><span lang="en">Auto refund on fail (95%)</span></p>
+            <strong id="paper-refund">950 A9</strong>
           </article>
         </div>
-        <p class="paper-risk"><span lang="zh-CN">15× 是奖励上限。实际奖励按当轮加权份额计算；异常中止退款按对应轮次记录核对。</span><span lang="en">15× is the reward cap. Actual rewards depend on weighted shares. For an aborted round, check the round’s refund records.</span></p>
+        <p class="paper-risk"><span lang="zh-CN">5× 是单轮奖金封顶（全员 1:1 公平平分，超额 100% 滚存下轮）；头矿 6H 仅止损 5%（退 95%），7 天超时 AbortRound 100% 退本。</span><span lang="en">5× is the round reward cap (1:1 fair split, surplus rolls 100%); First 6H carries only 5% Stop-Loss (95% refund), and 7d AbortRound refunds 100%.</span></p>
         <details class="paper-details">
           <summary><span lang="zh-CN">查看完整规则</span><span lang="en">Read the full rules</span></summary>
           <div class="paper-details-content">
-            <p><span lang="zh-CN">示例：1,000 A9 本金的单轮上限为 15,000 A9，实际按加权份额分配；失败轮本金 100% 销毁。</span><span lang="en">Example: 1,000 A9 stake caps at 15,000 A9 by weighted share; failed rounds burn 100% of stake.</span></p>
+            <p><span lang="zh-CN">示例：1,000 A9 本金的单轮奖金封顶 5,000 A9；未通关永不爆仓，头矿 6H 自动退回 950 A9（烧 50 A9），6H 后退回 900 A9（烧 100 A9）。</span><span lang="en">Example: 1,000 A9 caps at 5,000 A9; on fail, First 6H auto-refunds 950 A9 (50 burned) and late entry refunds 900 A9 (100 burned).</span></p>
           </div>
         </details>
       </div>
@@ -182,7 +182,7 @@
         <div class="paper-proof">
           <article>
             <h3><span lang="zh-CN">本金与退款</span><span lang="en">Principal and refunds</span></h3>
-            <p><span lang="zh-CN">从轮次结算或中止记录开始，按同一轮次和凭证核对质押本金、退款资格和实际退款交易。</span><span lang="en">Start with settlement or abort records. Match the round and ticket to check principal, refund eligibility and the actual refund transaction.</span></p>
+            <p><span lang="zh-CN">从轮次结算或中止记录开始，按同一轮次和凭证核对锁仓本金、退款资格和实际退款交易。</span><span lang="en">Start with settlement or abort records. Match the round and ticket to check locked principal, refund eligibility and the actual refund transaction.</span></p>
           </article>
           <article>
             <h3><span lang="zh-CN">奖励与领取</span><span lang="en">Rewards and claims</span></h3>
@@ -199,7 +199,7 @@
           <summary><span lang="zh-CN">查看完整规则</span><span lang="en">Read the full rules</span></summary>
           <div class="paper-details-content">
             <p><span lang="zh-CN">四个合约分别是 JettonMaster、JettonWallet、RoundController 和 StakeTicket。核对时查看对应网络的代币主合约、轮次结算交易、个人凭证及领取或退款记录。</span><span lang="en">The four contracts are JettonMaster, JettonWallet, RoundController and StakeTicket. Check the token master, round settlement transaction, individual ticket and claim or refund history on the corresponding network.</span></p>
-            <p><span lang="zh-CN">本页对应 v16.2 主网唯一合约规则。链上地址与交易以正式发布并核验的记录为准。</span><span lang="en">This edition describes the canonical v16.2 mainnet contract rules. Use published, verified records for contract addresses and transactions.</span></p>
+            <p><span lang="zh-CN">本页对应 v17.0 涨价解锁主网唯一合约规则。链上地址与交易以正式发布并核验的记录为准。</span><span lang="en">This edition describes the canonical v17.0 Price-Unlock mainnet contract rules. Use published, verified records for contract addresses and transactions.</span></p>
           </div>
         </details>
       </div>

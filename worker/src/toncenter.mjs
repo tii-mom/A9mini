@@ -193,10 +193,10 @@ export class TonCenterClient {
     };
   }
 
-  /** Read v16.2 RoundController.get_round(roundId) directly from chain (15-item v16.2 & legacy 17-item stack). */
+  /** Read RoundController.get_round(roundId) directly from chain (16-item v17, 15-item v16.2 & legacy 17-item stack). */
   async fetchRound(roundControllerAddress, roundId) {
     const s = await this.runGetMethod(roundControllerAddress, 'get_round', [['num', String(roundId)]]);
-    if (!Array.isArray(s) || (s.length !== 15 && s.length < 17)) {
+    if (!Array.isArray(s) || (s.length !== 16 && s.length !== 15 && s.length < 17)) {
       throw new Error(`get_round(${roundId}) returned truncated stack (len=${s?.length ?? 0})`);
     }
     const reqNum = (idx, label) => {
@@ -204,7 +204,10 @@ export class TonCenterClient {
       if (v === null) throw new Error(`get_round(${roundId}) invalid ${label} at stack[${idx}]`);
       return v;
     };
+    const isV17 = s.length === 16;
     const isV162 = s.length === 15;
+    const totalStakeRaw = reqNum(6, 'totalStakeRaw').toString();
+    const slot7Raw = reqNum(7, isV17 ? 'earlyStakeRaw' : 'totalWeightRaw').toString();
     return {
       status: Number(reqNum(0, 'status')),
       targetPriceUsdE8: reqNum(1, 'targetPriceUsdE8').toString(),
@@ -212,18 +215,20 @@ export class TonCenterClient {
       stakeOpenAt: Number(reqNum(3, 'stakeOpenAt')),
       stakeCloseAt: Number(reqNum(4, 'stakeCloseAt')),
       settledAt: Number(reqNum(5, 'settledAt')),
-      totalStakeRaw: reqNum(6, 'totalStakeRaw').toString(),
-      totalWeightRaw: reqNum(7, 'totalWeightRaw').toString(),
+      totalStakeRaw,
+      earlyStakeRaw: isV17 ? slot7Raw : '0',
+      totalWeightRaw: isV17 ? totalStakeRaw : slot7Raw,
       rewardBudgetRaw: reqNum(8, 'rewardBudgetRaw').toString(),
       qualifiedCandles: Number(reqNum(9, 'qualifiedCandles')),
       candleHash: `0x${reqNum(10, 'candleHash').toString(16).padStart(64, '0')}`,
       immediateBps: Number(reqNum(11, 'immediateBps')),
-      vestingSeconds: isV162 ? Number(reqNum(12, 'vestingSeconds')) : 3456000,
-      lockedSlices: isV162 ? 0 : Number(reqNum(12, 'lockedSlices')),
-      unlockedSlices: isV162 ? 0 : Number(reqNum(13, 'unlockedSlices')),
-      burnedSlices: isV162 ? 0 : Number(reqNum(14, 'burnedSlices')),
-      lockedTotalRaw: reqNum(isV162 ? 13 : 15, 'lockedTotalRaw').toString(),
-      stakeCount: Number(reqNum(isV162 ? 14 : 16, 'stakeCount')),
+      vestingSeconds: (isV17 || isV162) ? Number(reqNum(12, 'vestingSeconds')) : 3456000,
+      earlyWindowSeconds: isV17 ? Number(reqNum(13, 'earlyWindowSeconds')) : 21600,
+      lockedSlices: (isV17 || isV162) ? 0 : Number(reqNum(12, 'lockedSlices')),
+      unlockedSlices: (isV17 || isV162) ? 0 : Number(reqNum(13, 'unlockedSlices')),
+      burnedSlices: (isV17 || isV162) ? 0 : Number(reqNum(14, 'burnedSlices')),
+      lockedTotalRaw: reqNum(isV17 ? 14 : (isV162 ? 13 : 15), 'lockedTotalRaw').toString(),
+      stakeCount: Number(reqNum(isV17 ? 15 : (isV162 ? 14 : 16), 'stakeCount')),
     };
   }
 
@@ -781,8 +786,40 @@ export class TonCenterClient {
       if (!Array.isArray(td) || td.length < 9) {
         throw new Error('get_ticket_data returned incomplete stack');
       }
+      const isV17Ticket = td.length >= 12;
       const parsedRoundId = TonCenterClient.parseStrictNum(td[2], { allowNegative: false });
       const amountRaw = TonCenterClient.parseStrictNum(td[3], { allowNegative: false });
+      if (isV17Ticket) {
+        const earlyAmountRaw = TonCenterClient.parseStrictNum(td[4], { allowNegative: false });
+        const lateAmountRaw = TonCenterClient.parseStrictNum(td[5], { allowNegative: false });
+        const principalDone = TonCenterClient.parseStrictNum(td[6], { allowNegative: true });
+        const immediateClaimed = TonCenterClient.parseStrictNum(td[7], { allowNegative: true });
+        const lockedClaimedRaw = TonCenterClient.parseStrictNum(td[8], { allowNegative: false });
+        const exited = TonCenterClient.parseStrictNum(td[9], { allowNegative: true });
+        const forfeited = TonCenterClient.parseStrictNum(td[10], { allowNegative: true });
+        const pending = TonCenterClient.parseStrictNum(td[11], { allowNegative: true });
+        if (
+          parsedRoundId === null || amountRaw === null || earlyAmountRaw === null || lateAmountRaw === null ||
+          principalDone === null || immediateClaimed === null || lockedClaimedRaw === null ||
+          exited === null || forfeited === null || pending === null
+        ) {
+          throw new Error('get_ticket_data returned malformed field types');
+        }
+        return {
+          ticketAddress: ticketAddr,
+          roundId: Number(parsedRoundId),
+          amountRaw: amountRaw.toString(),
+          earlyAmountRaw: earlyAmountRaw.toString(),
+          lateAmountRaw: lateAmountRaw.toString(),
+          weightRaw: amountRaw.toString(),
+          principalDone: principalDone !== 0n,
+          immediateClaimed: immediateClaimed !== 0n,
+          lockedClaimedRaw: lockedClaimedRaw.toString(),
+          exited: exited !== 0n,
+          forfeited: forfeited !== 0n,
+          pending: pending !== 0n,
+        };
+      }
       const weightRaw = TonCenterClient.parseStrictNum(td[4], { allowNegative: false });
       const principalDone = TonCenterClient.parseStrictNum(td[5], { allowNegative: true });
       const immediateClaimed = TonCenterClient.parseStrictNum(td[6], { allowNegative: true });
@@ -798,10 +835,14 @@ export class TonCenterClient {
         ticketAddress: ticketAddr,
         roundId: Number(parsedRoundId),
         amountRaw: amountRaw.toString(),
+        earlyAmountRaw: '0',
+        lateAmountRaw: amountRaw.toString(),
         weightRaw: weightRaw.toString(),
         principalDone: principalDone !== 0n,
         immediateClaimed: immediateClaimed !== 0n,
         lockedClaimedRaw: lockedClaimedRaw.toString(),
+        exited: false,
+        forfeited: false,
         pending: pending !== 0n,
       };
     } catch (err) {

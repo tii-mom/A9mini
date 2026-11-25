@@ -147,11 +147,14 @@ export async function readCachedRoundsFromD1(db, nowSec) {
         stakeCloseAt: Number(r.stake_close_at || 0),
         settledAt: Number(r.settled_at || 0),
         totalStakeRaw: String(r.total_stake_raw || '0'),
-        totalWeightRaw: String(r.total_weight_raw || '0'),
+        earlyStakeRaw: String(r.early_stake_raw || '0'),
+        totalWeightRaw: String(r.total_weight_raw || r.total_stake_raw || '0'),
         rewardBudgetRaw: String(r.reward_budget_raw || '0'),
         qualifiedCandles: Number(r.qualified_candles || 0),
         candleHash: String(r.candle_hash || '0x0'),
-        immediateBps: Number(r.immediate_bps || 0),
+        immediateBps: Number(r.immediate_bps || 2000),
+        vestingSeconds: Number(r.vesting_seconds || 1209600),
+        earlyWindowSeconds: Number(r.early_window_seconds || 21600),
         lockedSlices: Number(r.locked_slices || 0),
         unlockedSlices: Number(r.unlocked_slices || 0),
         burnedSlices: Number(r.burned_slices || 0),
@@ -202,10 +205,11 @@ async function writeRoundsCacheToD1(db, rounds, nowSec) {
         .prepare(
           `INSERT INTO rounds_cache (
              round_id, status, target_price_usd_e8, twap_24h_usd_e8, stake_open_at, stake_close_at,
-             settled_at, total_stake_raw, total_weight_raw, reward_budget_raw, qualified_candles,
-             candle_hash, immediate_bps, locked_slices, unlocked_slices, burned_slices, locked_total_raw,
+             settled_at, total_stake_raw, early_stake_raw, total_weight_raw, reward_budget_raw, qualified_candles,
+             candle_hash, immediate_bps, vesting_seconds, early_window_seconds, unlock_model,
+             locked_slices, unlocked_slices, burned_slices, locked_total_raw,
              stake_count, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(round_id) DO UPDATE SET
              status = excluded.status,
              target_price_usd_e8 = excluded.target_price_usd_e8,
@@ -214,11 +218,15 @@ async function writeRoundsCacheToD1(db, rounds, nowSec) {
              stake_close_at = excluded.stake_close_at,
              settled_at = excluded.settled_at,
              total_stake_raw = excluded.total_stake_raw,
+             early_stake_raw = excluded.early_stake_raw,
              total_weight_raw = excluded.total_weight_raw,
              reward_budget_raw = excluded.reward_budget_raw,
              qualified_candles = excluded.qualified_candles,
              candle_hash = excluded.candle_hash,
              immediate_bps = excluded.immediate_bps,
+             vesting_seconds = excluded.vesting_seconds,
+             early_window_seconds = excluded.early_window_seconds,
+             unlock_model = excluded.unlock_model,
              locked_slices = excluded.locked_slices,
              unlocked_slices = excluded.unlocked_slices,
              burned_slices = excluded.burned_slices,
@@ -235,11 +243,15 @@ async function writeRoundsCacheToD1(db, rounds, nowSec) {
           Number(round.stakeCloseAt || 0),
           Number(round.settledAt || 0),
           String(round.totalStakeRaw || '0'),
-          String(round.totalWeightRaw || '0'),
+          String(round.earlyStakeRaw || '0'),
+          String(round.totalWeightRaw || round.totalStakeRaw || '0'),
           String(round.rewardBudgetRaw || '0'),
           Number(round.qualifiedCandles || 0),
           String(round.candleHash || '0x0'),
-          Number(round.immediateBps || 0),
+          Number(round.immediateBps || 2000),
+          Number(round.vestingSeconds || 1209600),
+          Number(round.earlyWindowSeconds || 21600),
+          'LINEAR_14D',
           Number(round.lockedSlices || 0),
           Number(round.unlockedSlices || 0),
           Number(round.burnedSlices || 0),
@@ -304,14 +316,14 @@ export function validateCandidateEnv(env = {}) {
   const envName = String(env.A9_ENVIRONMENT || '').trim().toLowerCase();
   const netName = String(env.A9_NETWORK || '').trim().toLowerCase();
   const rawProtoVer = String(env.A9_PROTOCOL_VERSION || '').trim().toLowerCase();
-  const protoVer = rawProtoVer || 'v16';
+  const protoVer = rawProtoVer || 'v17';
   const isProduction = envName === 'production' || netName === 'mainnet';
   if (isProduction) {
     const missing = [];
     // 生产环境严禁无 D1 绑定时静默退回内存 Store
     if (!env.DB) missing.push('DB');
-    // 主网/生产默认按 v16 强检全部关键合约与域名白名单，防漏配 A9_PROTOCOL_VERSION 绕过门禁
-    if (protoVer === 'v16') {
+    // 主网/生产默认按 v17/v16 强检全部关键合约与域名白名单，防漏配 A9_PROTOCOL_VERSION 绕过门禁
+    if (protoVer === 'v17' || protoVer === 'v16') {
       for (const key of CANDIDATE_REQUIRED_VARS) {
         if (!String(env[key] || '').trim()) missing.push(key);
       }
@@ -357,7 +369,7 @@ export function validateCandidateEnv(env = {}) {
     }
     return { ok: true, missing: [], code: null };
   }
-  const isCandidate = envName === 'candidate' || rawProtoVer === 'v16';
+  const isCandidate = envName === 'candidate' || rawProtoVer === 'v17' || rawProtoVer === 'v16';
   if (isCandidate) {
     const missing = [];
     if (!env.DB) missing.push('DB');
@@ -543,8 +555,9 @@ export default {
 
     const stateStore = {
       getTiming: () => ({
-        observationSeconds: Number(env.A9_OBS_SECONDS || 86400),
-        vestingSeconds: Number(env.A9_VESTING_SECONDS || 3456000),
+        observationSeconds: Number(env.A9_OBS_SECONDS || 43200),
+        vestingSeconds: Number(env.A9_VESTING_SECONDS || 1209600),
+        earlyWindowSeconds: Number(env.A9_EARLY_WINDOW_SECONDS || 21600),
       }),
       getProtocolState: () => ps,
       listRounds: () => rounds,
@@ -601,6 +614,7 @@ export default {
       refundFeeNano: env.A9_PRESALE_REFUND_FEE_NANO || undefined,
       userFaultFeeNano: env.A9_PRESALE_USER_FAULT_FEE_NANO || null,
       promoEngine,
+      predictionEngine,
       socialStore,
       identityStore,
       chestEngine,

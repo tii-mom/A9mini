@@ -13,7 +13,7 @@ import { A9Haptic } from './tma.js';
 import { escapeHtml, showToast, copyText, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
 import { L } from './i18n.js';
-import { buildV15StakeTx, buildV15ClaimTx, buildV15PromoFeeTx, buildV15PresaleTx, parseTonAddress } from './v15-tx.js';
+import { buildV15StakeTx, buildV15ClaimTx, buildV17EarlyExitTx, buildV15PromoFeeTx, buildV15PresaleTx, parseTonAddress } from './v15-tx.js';
 import { A9TMA as TMA } from './tma.js';
 import { fetchMe, requestTonProofPayload, submitTonProof } from './data.js';
 import { openTxRiskConfirmModal } from './tx-ux.js';
@@ -493,7 +493,7 @@ class A9TonConnect {
     if (config.isDemo) return demoWalletSendResult('demo_v15_stake');
     if (!liveFundsReady()) throw createFundsDisabledError();
     if (!userJettonWallet || !roundController || !userAddress) {
-      const err = new Error(L('缺少 A9 钱包或 RoundController 地址，无法构造质押交易', 'Missing A9 wallet or RoundController address'));
+      const err = new Error(L('缺少 A9 钱包或 RoundController 地址，无法构造锁仓交易', 'Missing A9 wallet or RoundController address'));
       err.code = 'STAKE_PARAMS_MISSING';
       throw err;
     }
@@ -502,7 +502,7 @@ class A9TonConnect {
       || serverCfg.stakeProtocolVersion
       || serverCfg.protocolVersion
       || config.stakeProtocolVersion
-      || 'v16';
+      || 'v17';
     return await this._dispatch(buildV15StakeTx({
       userJettonWallet, roundController, userAddress, amountA9Raw, roundId, queryId,
       protocolVersion: resolvedVersion,
@@ -510,9 +510,9 @@ class A9TonConnect {
     }), 'demo_v15_stake');
   }
 
-  /** v16 领取本金 + 已解锁奖励（StakeTicket TicketClaim，附 0.22 GRAM Gas）。 */
-  async sendV15TicketClaim(ticketAddress, queryId = BigInt(Date.now())) {
-    if (config.isDemo) return demoWalletSendResult('demo_v15_claim');
+  /** v17 领取本金/止损退本 + 已解锁奖励，或勾选 3 折急提（普通 0.22 GRAM / 3 折急提 0.34 GRAM，余量全退）。 */
+  async sendV15TicketClaim(ticketAddress, queryId = BigInt(Date.now()), { instantDiscount = false } = {}) {
+    if (config.isDemo) return demoWalletSendResult(instantDiscount ? 'demo_v17_instant_cashout' : 'demo_v15_claim');
     if (!liveFundsReady()) throw createFundsDisabledError();
     const target = ticketAddress || '';
     if (!target) {
@@ -520,7 +520,26 @@ class A9TonConnect {
       err.code = 'TICKET_ADDRESS_MISSING';
       throw err;
     }
-    return await this._dispatch(buildV15ClaimTx(target, queryId, { network: this.getExpectedNetwork() }), 'demo_v15_claim');
+    return await this._dispatch(
+      buildV15ClaimTx(target, queryId, { network: this.getExpectedNetwork(), instantDiscount: Boolean(instantDiscount) }),
+      instantDiscount ? 'demo_v17_instant_cashout' : 'demo_v15_claim',
+    );
+  }
+
+  /** v17 24H 锁仓期提前解押（退 85% 本金 / 扣 15% 销毁，附 0.34 GRAM Gas，余量全退；12H 冲价期合约自动禁止）。 */
+  async sendV17TicketEarlyExit(ticketAddress, queryId = BigInt(Date.now())) {
+    if (config.isDemo) return demoWalletSendResult('demo_v17_early_exit');
+    if (!liveFundsReady()) throw createFundsDisabledError();
+    const target = ticketAddress || '';
+    if (!target) {
+      const err = new Error(L('缺少 StakeTicket 凭证地址，无法发起提前解押', 'Missing StakeTicket address'));
+      err.code = 'TICKET_ADDRESS_MISSING';
+      throw err;
+    }
+    return await this._dispatch(
+      buildV17EarlyExitTx(target, queryId, { network: this.getExpectedNetwork() }),
+      'demo_v17_early_exit',
+    );
   }
 
   /** v16 邀友奖励 0.06 GRAM 手续费转账（触发推广热钱包自动发 A9）。 */

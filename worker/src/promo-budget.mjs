@@ -1,5 +1,5 @@
-// A9 Protocol v16.1 — Global Off-Chain Promo Budget Ledger (300,000,000 A9 Hard Cap).
-// Enforces BigInt decimal string + CAS atomic deduction across 4 independent buckets
+// A9 Protocol v17.0 — Global Off-Chain Promo Budget Ledger (6 Buckets: 300M Legacy + 250M v17 Referral/Airdrop).
+// Enforces BigInt decimal string + CAS atomic deduction across 6 independent buckets
 // for both in-memory engines and Cloudflare D1 databases.
 
 export const A9_RAW = 1_000_000_000n;
@@ -7,8 +7,10 @@ export const A9_RAW = 1_000_000_000n;
 export const PROMO_BUDGET_BUCKETS = Object.freeze({
   presale_promo: (48_000_000n * A9_RAW).toString(),       // 48,000,000 A9 (6% referral + shop boost)
   free_chest_captain: (100_000_000n * A9_RAW).toString(), // 100,000,000 A9 (free chests + captain founding)
-  prediction: (100_000_000n * A9_RAW).toString(),         // 100,000,000 A9 (24H prediction + first-loss)
+  prediction: (100_000_000n * A9_RAW).toString(),         // 100,000,000 A9 (12H prediction + first-loss)
   warmup: (52_000_000n * A9_RAW).toString(),              // 52,000,000 A9 (warmup round chests)
+  stake_referral: (200_000_000n * A9_RAW).toString(),     // 200,000,000 A9 (v17 8% pass-round stake referral)
+  round_airdrop: (50_000_000n * A9_RAW).toString(),       // 50,000,000 A9 (v17 per-round equal airdrop raffle)
 });
 
 const changes = (r) => Number(r?.meta?.changes ?? r?.changes ?? 0);
@@ -80,6 +82,22 @@ export class MemoryPromoBudgetLedger {
     return {
       bucketKey: b.bucketKey,
       reservedRaw: delta.toString(),
+      spentRaw: b.spentRaw.toString(),
+      remainingRaw: (b.capRaw - b.spentRaw).toString(),
+    };
+  }
+
+  async release(bucketKey, deltaRaw, nowSec = Math.floor(Date.now() / 1000)) {
+    const delta = BigInt(String(deltaRaw || '0'));
+    if (delta <= 0n) return { bucketKey: String(bucketKey), releasedRaw: '0' };
+    const b = this.buckets.get(String(bucketKey));
+    if (!b) throw new BudgetError('BAD_BUDGET_BUCKET', `unknown promo budget bucket: ${bucketKey}`);
+    const released = b.spentRaw >= delta ? delta : b.spentRaw;
+    b.spentRaw -= released;
+    b.updatedAt = nowSec;
+    return {
+      bucketKey: b.bucketKey,
+      releasedRaw: released.toString(),
       spentRaw: b.spentRaw.toString(),
       remainingRaw: (b.capRaw - b.spentRaw).toString(),
     };
@@ -209,5 +227,35 @@ export class D1PromoBudgetLedger {
       }
     }
     throw new BudgetError('BUDGET_CONFLICT', '推广预算池并发扣减冲突，请重试');
+  }
+
+  /** Standalone atomic CAS compensating release when an upstream payout CAS loses or fails. */
+  async release(bucketKey, deltaRaw, nowSec = Math.floor(Date.now() / 1000)) {
+    const delta = BigInt(String(deltaRaw || '0'));
+    const key = String(bucketKey);
+    if (delta <= 0n) return { bucketKey: key, releasedRaw: '0' };
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const row = await this._ensureRow(key, nowSec);
+      if (!row) return { bucketKey: key, releasedRaw: '0', legacySkipped: true };
+      const curSpent = BigInt(String(row.spent_raw || '0'));
+      const released = curSpent >= delta ? delta : curSpent;
+      const nextSpent = curSpent - released;
+      const res = await this.db
+        .prepare(
+          `UPDATE promo_budget_ledger
+           SET spent_raw = ?, updated_at = ?
+           WHERE bucket_key = ? AND spent_raw = ?`,
+        )
+        .bind(nextSpent.toString(), nowSec, key, curSpent.toString())
+        .run();
+      if (changes(res) === 1) {
+        return {
+          bucketKey: key,
+          releasedRaw: released.toString(),
+          spentRaw: nextSpent.toString(),
+        };
+      }
+    }
+    throw new BudgetError('BUDGET_CONFLICT', '推广预算池并发归还冲突，请重试');
   }
 }

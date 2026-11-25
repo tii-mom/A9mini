@@ -360,7 +360,7 @@ function paintCartridgePoster(canvas, {
   ctx.fillText(L('扫码进入 A9 广场', 'Scan to Enter A9 Plaza'), textX, stubY + 84, stageW - qrSize - 86);
   ctx.fillStyle = '#7B8396';
   ctx.font = '700 17px Rubik, monospace';
-  ctx.fillText('A9 PROTOCOL v16.2 · TON', textX, stubY + 116, stageW - qrSize - 86);
+  ctx.fillText('A9 PROTOCOL v17.0 · TON', textX, stubY + 116, stageW - qrSize - 86);
 
   // 右侧装饰防伪竖条码
   drawVerticalBarcode(ctx, stageX + stageW - 34, stubY + 22, 18, stubH - 44, serialCode || param);
@@ -386,14 +386,14 @@ export function renderReferralPoster(canvas) {
   const teamPrefix = team.id && /^(?:G|T|TM|TEAM)-/i.test(team.id) ? `${team.id}_` : '';
   paintCartridgePoster(canvas, {
     headerTone: 'green',
-    serialTag: 'A9 SQUAD PASS · v16.2',
-    title: L('战队邀请函', 'Squad Invitation'),
-    subtitle: L('24H 达标闯关 · 宝箱随机暴击 · 链上透明结算', '24H Pass Quest · Random Crit Chests · On-Chain'),
-    badgeText: L('直推 6% 返佣', '6% REFERRAL'),
+    serialTag: 'A9 SQUAD PASS · v17.0',
+    title: L('战队邀请函 · 涨价解锁', 'Squad Invite · Price-Unlock'),
+    subtitle: L('24H 锁仓 → 12H 冲价 · 永不爆仓 · 头矿 6H 5% 止损', '24H Lock → 12H Push · No Liquidation · First 6H 5% SL'),
+    badgeText: L('通关返佣 8%', '8% REBATE'),
     metrics: [
-      { label: L('直推宝箱返佣', 'Chest Referral'), value: '6%', tone: 'green' },
-      { label: L('新人体验金', 'Rookie Floor'), value: '500 A9', tone: 'gold' },
-      { label: L('单轮回报上限', 'Round Cap'), value: '15×', tone: 'ink' },
+      { label: L('好友通关返佣', '8% Referral Rebate'), value: '8%', tone: 'green' },
+      { label: L('最低锁仓门槛', 'Min Lock'), value: '100 A9', tone: 'gold' },
+      { label: L('单轮封顶倍率', 'Round Cap'), value: '5×', tone: 'ink' },
     ],
     serialCode: team?.name ? String(team.name) : 'A9 SQUAD INVITE',
     param: `invite_${teamPrefix}${ref}`,
@@ -407,29 +407,30 @@ export function renderProofFlexPoster(canvas, certInput) {
   const isSettled = cert?.status === 'settled';
   const passed = Number.isFinite(Number(r.qualifiedCandles)) ? Number(r.qualifiedCandles) : 0;
   const confirmed = Number.isFinite(Number(r.candlesSeen)) ? Number(r.candlesSeen) : passed;
-  const required = Number(r.minQualifiedCandles) || 16;
+  const required = Number(r.minQualifiedCandles) || 8;
+  const totalSlots = Number(r.protocolConfig?.candleCount) || 12;
 
   paintCartridgePoster(canvas, {
     headerTone: isSettled ? 'green' : 'red',
     serialTag: cert ? `SBT PASS · R${String(cert.round).padStart(2, '0')}` : 'SBT PASS',
-    title: L('链上闯关凭证', 'On-Chain Quest Pass'),
+    title: L('涨价解锁凭证', 'Price-Unlock Pass'),
     subtitle: cert
-      ? L(`第 ${cert.round} 轮 · ${isSettled ? '已通关结算' : '24H 观察期进行中'}`, `Round #${cert.round} · ${isSettled ? 'Settled' : '24H Observing'}`)
+      ? L(`第 ${cert.round} 轮 · ${isSettled ? '已通关结算' : '12H 冲价进行中'}`, `Round #${cert.round} · ${isSettled ? 'Settled' : '12H Pushing'}`)
       : L('暂无已核验凭证', 'No verified ticket'),
-    badgeText: cert ? `${(Number(cert.multiplier) || 1).toFixed(1)}× EARLY` : 'A9 v16.2',
+    badgeText: 'A9 v17.0 · 5% SL',
     metrics: cert
       ? [
-          { label: L('质押本金', 'Staked'), value: `${fmtPosterNum(cert.stakeTon)} A9`, tone: 'ink' },
-          { label: L('早鸟权重', 'Weight'), value: `${(Number(cert.multiplier) || 1).toFixed(1)}×`, tone: 'gold' },
-          { label: isSettled ? L('实际奖励', 'Confirmed') : L('预计奖励', 'Est. Reward'), value: `+${fmtPosterNum(cert.estRewardA9)} A9`, tone: 'green' },
+          { label: L('锁仓本金', 'Locked'), value: `${fmtPosterNum(cert.stakeTon)} A9`, tone: 'ink' },
+          { label: L('头矿/止损', 'Stop-Loss'), value: '5% / 10%', tone: 'gold' },
+          { label: isSettled ? L('实际奖金', 'Confirmed') : L('预计奖金', 'Est. Reward'), value: `+${fmtPosterNum(cert.estRewardA9)} A9`, tone: 'green' },
         ]
       : [],
     progress: cert
       ? {
-          label: L(`24H 观测进度（已确认 ${confirmed}/24）`, `24H Progress (${confirmed}/24 confirmed)`),
+          label: L(`12H 冲价进度（已确认 ${confirmed}/${totalSlots}）`, `12H Push (${confirmed}/${totalSlots} confirmed)`),
           rightText: `${passed} / ${required} ${L('达标', 'PASS')}`,
-          pct: Math.round((passed / 24) * 100),
-          thresholdPct: Math.round((required / 24) * 100),
+          pct: Math.round((passed / totalSlots) * 100),
+          thresholdPct: Math.round((required / totalSlots) * 100),
         }
       : null,
     serialCode: cert ? `#${cert.id}` : 'A9-QUEST-PASS',
@@ -445,34 +446,153 @@ export function renderStoryPoster(canvas, payload = {}) {
   const same = Boolean(id) && id === r.currentRound;
   const passed = same && Number.isFinite(Number(r.qualifiedCandles)) ? Number(r.qualifiedCandles) : 0;
   const confirmed = same && Number.isFinite(Number(r.candlesSeen)) ? Number(r.candlesSeen) : passed;
-  const required = Number(r.minQualifiedCandles) || 16;
+  const required = Number(r.minQualifiedCandles) || 8;
+  const totalSlots = Number(r.protocolConfig?.candleCount) || 12;
 
   paintCartridgePoster(canvas, {
     headerTone: r.stage === 'settlement_burn' ? 'red' : 'green',
     serialTag: id ? `A9 STORY · R${String(id).padStart(2, '0')}` : 'A9 STORY',
-    title: L('24H 轮次战报', '24H Round Report'),
-    subtitle: same ? stageLabel(r.stage) : L('链上 24H 达标挑战', 'On-Chain 24H Challenge'),
-    badgeText: cert ? `${(Number(cert.multiplier) || 1).toFixed(1)}× EARLY` : `${passed}/${required} PASS`,
+    title: L('12H 冲价战报', '12H Push Report'),
+    subtitle: same ? stageLabel(r.stage) : L('涨价解锁 · 12H 冲价挑战', 'Price-Unlock · 12H Push'),
+    badgeText: `${passed}/${required} PASS`,
     metrics: cert
       ? [
-          { label: L('质押本金', 'Staked'), value: `${fmtPosterNum(cert.stakeTon)} A9`, tone: 'ink' },
-          { label: L('早鸟权重', 'Weight'), value: `${(Number(cert.multiplier) || 1).toFixed(1)}×`, tone: 'gold' },
-          { label: L('预计奖励', 'Est. Reward'), value: `+${fmtPosterNum(cert.estRewardA9)} A9`, tone: 'green' },
+          { label: L('锁仓本金', 'Locked'), value: `${fmtPosterNum(cert.stakeTon)} A9`, tone: 'ink' },
+          { label: L('止损保护', 'Stop-Loss'), value: '5% / 10%', tone: 'gold' },
+          { label: L('预计奖金', 'Est. Reward'), value: `+${fmtPosterNum(cert.estRewardA9)} A9`, tone: 'green' },
         ]
       : [
           { label: L('当前轮次', 'Round'), value: id ? `#${id}` : '—', tone: 'ink' },
-          { label: L('达标进度', 'Qualified'), value: `${passed}/${required}`, tone: 'green' },
-          { label: L('回报上限', 'Cap'), value: '15×', tone: 'gold' },
+          { label: L('冲价进度', 'Qualified'), value: `${passed}/${required}`, tone: 'green' },
+          { label: L('封顶倍率', 'Cap'), value: '5×', tone: 'gold' },
         ],
     progress: {
-      label: L(`24H 达标进度（已确认 ${confirmed}/24）`, `24H Progress (${confirmed}/24 confirmed)`),
+      label: L(`12H 冲价进度（已确认 ${confirmed}/${totalSlots}）`, `12H Push (${confirmed}/${totalSlots} confirmed)`),
       rightText: `${passed} / ${required} ${L('达标', 'PASS')}`,
-      pct: Math.round((passed / 24) * 100),
-      thresholdPct: Math.round((required / 24) * 100),
+      pct: Math.round((passed / totalSlots) * 100),
+      thresholdPct: Math.round((required / totalSlots) * 100),
     },
     serialCode: cert ? `#${cert.id}` : (id ? `A9-ROUND-${id}` : 'A9-PROTOCOL'),
     param: cert ? 'proof_' + cert.id : (id ? 'round_' + id : 'round'),
     tall: true,
+  });
+}
+
+/**
+ * 3 套裂变场景化海报（① 冲价喊单卡 / ② 开箱喜报卡 / ③ 通关盈利卡）
+ * 严格遵循 Live 缺值护栏：价格、距目标价涨幅、奖池等字段为 null 时严禁展示演示数值，仅展示「待核验 / Pending」。
+ */
+export function renderScenarioPoster(canvas, scenario = 'push', extra = {}) {
+  const r = store.state.round || {};
+  const team = store.state.team || {};
+  const ref = getShareRef();
+  const teamPrefix = team.id && /^(?:G|T|TM|TEAM)-/i.test(team.id) ? `${team.id}_` : '';
+  const pendingTxt = L('待核验', 'Pending');
+
+  const roundNum = r.currentRound ?? null;
+  const required = Number(r.minQualifiedCandles) || 8;
+  const totalSlots = Number(r.protocolConfig?.candleCount ?? r.candleCount) || 12;
+  const passed = Number.isFinite(Number(r.qualifiedCandles)) ? Number(r.qualifiedCandles) : null;
+  const confirmed = Number.isFinite(Number(r.candlesSeen)) ? Number(r.candlesSeen) : passed;
+
+  const targetPrice = (r.targetPrice !== null && r.targetPrice !== undefined && Number.isFinite(Number(r.targetPrice)) && Number(r.targetPrice) > 0)
+    ? Number(r.targetPrice)
+    : null;
+  const rawCurPrice = r.priceValid !== false ? (r.livePrice ?? r.twap24h) : null;
+  const curPrice = (rawCurPrice !== null && rawCurPrice !== undefined && Number.isFinite(Number(rawCurPrice)) && Number(rawCurPrice) > 0)
+    ? Number(rawCurPrice)
+    : null;
+  const gapPct = (targetPrice !== null && curPrice !== null)
+    ? (((targetPrice - curPrice) / curPrice) * 100)
+    : null;
+  const gapStr = gapPct === null
+    ? pendingTxt
+    : gapPct <= 0
+      ? `+${Math.abs(gapPct).toFixed(1)}%`
+      : `+${gapPct.toFixed(1)}%`;
+  const poolStr = (r.rewardBudgetA9 !== null && r.rewardBudgetA9 !== undefined && Number.isFinite(Number(r.rewardBudgetA9)))
+    ? `${fmtPosterNum(r.rewardBudgetA9)} A9`
+    : pendingTxt;
+
+  if (scenario === 'chest') {
+    const latestRec = Array.isArray(store.state.market?.records) && store.state.market.records.length > 0
+      ? store.state.market.records[0]
+      : null;
+    const totalA9 = extra.totalA9 ?? (config.isDemo ? (latestRec?.totalA9 ?? latestRec?.a9 ?? null) : null);
+    const baseA9 = extra.baseA9 ?? (config.isDemo ? (latestRec?.baseA9 ?? null) : null);
+    const bonusA9 = extra.bonusA9 ?? (config.isDemo ? (latestRec?.bonusA9 ?? null) : null);
+
+    paintCartridgePoster(canvas, {
+      headerTone: 'green',
+      serialTag: 'A9 CHEST · DIRECT PAYOUT',
+      title: L('开箱喜报 · 合并直发钱包', 'Unboxing · Direct to Wallet'),
+      subtitle: L('6 档纯随机开箱 · 0.99 GRAM 起 · 买完直通头矿 6H', '6-Tier Random Chest · From 0.99 GRAM · Straight to First 6H'),
+      badgeText: L('直推返佣 6%', '6% REFERRAL'),
+      metrics: [
+        { label: L('本箱到账', 'Total Got'), value: totalA9 !== null ? `${fmtPosterNum(totalA9)} A9` : L('1,500–1,300,000 A9', '1,500–1,300,000 A9'), tone: 'green' },
+        { label: L('保底 / 加赠', 'Base / Bonus'), value: (baseA9 !== null && bonusA9 !== null) ? `${fmtPosterNum(baseA9)}+${fmtPosterNum(bonusA9)}` : L('最高 +66.7%', 'Up to +66.7%'), tone: 'gold' },
+        { label: L('起投门槛', 'Entry'), value: '0.99 GRAM', tone: 'ink' },
+      ],
+      serialCode: team?.name ? String(team.name) : 'A9 CHEST MALL',
+      param: `market_${teamPrefix}${ref}`,
+      tall: false,
+    });
+    return;
+  }
+
+  if (scenario === 'win') {
+    const cert = extra.cert || store.state.certificates?.[0] || null;
+    const hasCert = Boolean(cert && Number.isFinite(Number(cert.stakeTon)));
+    const estVal = hasCert && Number.isFinite(Number(cert.estRewardA9)) ? `+${fmtPosterNum(cert.estRewardA9)} A9` : pendingTxt;
+    paintCartridgePoster(canvas, {
+      headerTone: 'green',
+      serialTag: roundNum ? `A9 PASS · R${String(roundNum).padStart(2, '0')}` : 'A9 PASS',
+      title: L('通关盈利卡 · 涨价解锁', 'Round Pass · Price-Unlock'),
+      subtitle: L('20% 秒提 + 14 天逐秒解锁 · 永不爆仓，自动止损', '20% Instant + 14D Per-Second Unlock · No Liquidation'),
+      badgeText: L('封顶 5× 收益', 'UP TO 5×'),
+      metrics: [
+        { label: L('锁仓本金', 'Locked'), value: hasCert ? `${fmtPosterNum(cert.stakeTon)} A9` : pendingTxt, tone: 'ink' },
+        { label: L('通关奖金', 'Prize'), value: estVal, tone: 'green' },
+        { label: L('头矿止损', 'First 6H SL'), value: '5% / 95%退', tone: 'gold' },
+      ],
+      progress: passed !== null
+        ? {
+            label: L(`12H 冲价进度（已确认 ${confirmed ?? passed}/${totalSlots}）`, `12H Push (${confirmed ?? passed}/${totalSlots} confirmed)`),
+            rightText: `${passed} / ${required} ${L('达标', 'PASS')}`,
+            pct: Math.round((passed / totalSlots) * 100),
+            thresholdPct: Math.round((required / totalSlots) * 100),
+          }
+        : null,
+      serialCode: cert ? `#${cert.id}` : (team?.name ? String(team.name) : 'A9 PRICE-UNLOCK'),
+      param: `invite_${teamPrefix}${ref}`,
+      tall: false,
+    });
+    return;
+  }
+
+  // Default: 'push' 冲价喊单卡
+  paintCartridgePoster(canvas, {
+    headerTone: 'red',
+    serialTag: roundNum ? `A9 12H PUSH · R${String(roundNum).padStart(2, '0')}` : 'A9 12H PUSH',
+    title: L('冲价喊单卡 · 齐心冲目标价', 'Price-Push Call · Hit Target'),
+    subtitle: L('70% 奖池 + 12% 团队全锁涨价解锁 · 100 A9 起锁仓永不爆仓', '70% Pool + 12% Team Price-Unlock · Lock from 100 A9'),
+    badgeText: passed !== null ? `${passed}/${required} PASS` : pendingTxt,
+    metrics: [
+      { label: L('目标底价', 'Target'), value: targetPrice !== null ? `$${targetPrice.toFixed(4)}` : pendingTxt, tone: 'ink' },
+      { label: L('距目标价', 'To Target'), value: gapStr, tone: gapPct !== null && gapPct <= 0 ? 'green' : 'gold' },
+      { label: L('本轮奖池', 'Round Pool'), value: poolStr, tone: 'green' },
+    ],
+    progress: passed !== null
+      ? {
+          label: L(`12H 冲价血条（已确认 ${confirmed ?? passed}/${totalSlots}）`, `12H Push Bar (${confirmed ?? passed}/${totalSlots})`),
+          rightText: `${passed} / ${required} ${L('达标', 'PASS')}`,
+          pct: Math.round((passed / totalSlots) * 100),
+          thresholdPct: Math.round((required / totalSlots) * 100),
+        }
+      : null,
+    serialCode: team?.name ? String(team.name) : 'A9 SQUAD CALL',
+    param: `invite_${teamPrefix}${ref}`,
+    tall: false,
   });
 }
 

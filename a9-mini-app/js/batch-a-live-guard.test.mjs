@@ -603,14 +603,14 @@ test('P0-1 / P0-4 / P0-5: default v16 config, live Chest Mall never falls back t
       }));
     `,
   );
-  assert.equal(out.stakeProto, 'v16');
+  assert.equal(out.stakeProto, 'v17');
   assert.equal(out.hasUnavailableCard, true);
   assert.equal(out.leakedDemoPrice, false);
 
   const wvSrc = readFileSync(join(JS_DIR, 'pages', 'wealthverse.js'), 'utf8');
   const rhSrc = readFileSync(join(JS_DIR, 'pages', 'round_hub.js'), 'utf8');
   const pfSrc = readFileSync(join(JS_DIR, 'pages', 'profile.js'), 'utf8');
-  assert.match(wvSrc, /(?:最低|≥)\s*1,000 A9/);
+  assert.match(wvSrc, /(?:最低|≥|100 A9 起)/);
   assert.doesNotMatch(wvSrc, /最低 10 GRAM/);
   assert.doesNotMatch(rhSrc, /最低参与 10 GRAM/);
   assert.doesNotMatch(pfSrc, /最低 10 GRAM/);
@@ -914,7 +914,7 @@ test('PROTOCOL_SPECS single source of truth & Live renderRiskAudit invariants ch
       console.log(JSON.stringify({
         missingKeys,
         hasCap: auditRoot.innerHTML.includes('300,000,000 A9'),
-        hasRules: auditRoot.innerHTML.includes('16/24 · 15× · 6%'),
+        hasRules: auditRoot.innerHTML.includes('8/12 · 5× · 6%'),
         hasUndefined: /\\bundefined\\b/.test(auditRoot.innerHTML),
         compactExact: compactBanner.includes('1,800 A9'),
         vaultExact: vaultBanner.includes('1,800 A9'),
@@ -1283,17 +1283,103 @@ test('Batch C: lockMode blocks ?mode=demo, TON Connect enforces mainnet chain & 
   const systemSrc = readFileSync(join(JS_DIR, 'pages/system.js'), 'utf8');
   assert.ok(systemSrc.includes('${escapeHtml(ev.detail)}'), 'system.js must escape audit log detail');
 
-  // v16.2 40-day per-second linear vesting consistency checks
+  // v17.0 14-day per-second unlock + instant cashout consistency checks
   const dataSrc = readFileSync(join(JS_DIR, 'data.js'), 'utf8');
-  assert.ok(dataSrc.includes("version: 'v16.2'"), 'PROTOCOL_SPECS must declare v16.2');
-  assert.ok(dataSrc.includes('immediateUnlockPct: 20') && dataSrc.includes('linearVestingDays: 40') && dataSrc.includes('dailyUnlockPct: 2'));
+  assert.ok(dataSrc.includes("version: 'v17.0'"), 'PROTOCOL_SPECS must declare v17.0');
+  assert.ok(dataSrc.includes('immediateUnlockPct: 20') && dataSrc.includes('linearVestingDays: 14') && dataSrc.includes('minStakeA9: 100'));
   const wvSrc = readFileSync(join(JS_DIR, 'pages/wealthverse.js'), 'utf8');
-  assert.ok(wvSrc.includes('40 天线性释放机制'), 'wealthverse rewards view must describe 40-day linear vesting');
+  assert.ok(wvSrc.includes('14 天逐秒解锁'), 'wealthverse rewards view must describe 14-day per-second unlock');
   assert.ok(!wvSrc.includes('4 × 20%'), 'wealthverse rewards view must not retain legacy 3-tier slices');
   const rhSrc = readFileSync(join(JS_DIR, 'pages/round_hub.js'), 'utf8');
-  assert.ok(rhSrc.includes('40 天线性释放进度'), 'round_hub must describe 40-day linear vesting curve');
+  assert.ok(rhSrc.includes('14 天逐秒解锁进度'), 'round_hub must describe 14-day unlock curve');
   assert.ok(!rhSrc.includes('4×20%'), 'round_hub must not retain legacy 3-tier vesting');
   const termsHtml = readFileSync(join(appRoot, 'terms.html'), 'utf8');
-  assert.ok(termsHtml.includes('v16.2') && termsHtml.includes('40 天'), 'terms.html must match v16.2 40-day linear vesting');
+  assert.ok(termsHtml.includes('v17.0') && termsHtml.includes('14 天'), 'terms.html must match v17.0 14-day unlock');
+
+  // v17.1 guardrails: zero 暴击 copy, zero #cert-renew-switch, Live null-value guard in Plaza & 3 scenario posters, confirm ?amt= validation
+  const wmSrc = readFileSync(join(JS_DIR, 'pages/warmup_market.js'), 'utf8');
+  const shareSrc = readFileSync(join(JS_DIR, 'share.js'), 'utf8');
+  const posterSrc = readFileSync(join(JS_DIR, 'poster.js'), 'utf8');
+  const teamSrc = readFileSync(join(JS_DIR, 'pages/team.js'), 'utf8');
+  assert.ok(!wmSrc.includes('暴击'), 'warmup_market.js must not contain 暴击 copy');
+  assert.ok(!shareSrc.includes('暴击'), 'share.js must not contain 暴击 copy');
+  assert.ok(!wvSrc.includes('暴击'), 'wealthverse.js must not contain 暴击 copy');
+  assert.ok(!profileSrc.includes('cert-renew-switch'), 'profile.js must remove #cert-renew-switch');
+  assert.ok(rhSrc.includes('parseConfirmAmtParam'), 'round_hub.js must validate #/challenge/confirm?amt= as positive integer');
+  assert.ok(posterSrc.includes('export function renderScenarioPoster'), 'poster.js must export renderScenarioPoster');
+  assert.ok(!wvSrc.includes('$0.0130') && !wvSrc.includes('+14.2%'), 'wealthverse.js must never hardcode demo prices or percentages');
+  assert.ok(!posterSrc.includes('$0.0130') && !posterSrc.includes('+14.2%'), 'poster.js must never hardcode demo prices or percentages');
+  assert.ok(!teamSrc.includes('$0.0130') && !teamSrc.includes('+14.2%'), 'team.js must never hardcode demo prices or percentages');
 });
+
+test('Global v17.1 terminology guardrail across Mini App, Bot, Official Web, and Worker', () => {
+  const repoRoot = join(JS_DIR, '../..');
+  const checkedFiles = [
+    'a9-mini-app/js/router.js',
+    'a9-mini-app/js/components.js',
+    'a9-mini-app/js/i18n.js',
+    'a9-mini-app/js/tonconnect.js',
+    'a9-mini-app/js/chest-theater.js',
+    'a9-mini-app/js/poster.js',
+    'a9-mini-app/js/share.js',
+    'a9-mini-app/js/wealth-art.js',
+    'a9-mini-app/js/pages/round_hub.js',
+    'a9-mini-app/js/pages/round_stages.js',
+    'a9-mini-app/js/pages/profile.js',
+    'a9-mini-app/js/pages/wealthverse.js',
+    'a9-mini-app/js/pages/system.js',
+    'a9-mini-app/js/pages/team.js',
+    'a9-mini-app/js/pages/warmup_market.js',
+    'a9-mini-app/assets/boxheads/manifest.json',
+    'a9-mini-app/a9.json',
+    'a9-mini-app/terms.html',
+    'a9-mini-app/privacy.html',
+    'a9-mini-app/bot/a9_bot.py',
+    'a9-official-web/index.html',
+    'a9-official-web/js/data.js',
+    'a9-official-web/redpaper/index.html',
+    'worker/src/tg-broadcaster.mjs',
+    'worker/src/growth-engine.mjs',
+    'worker/src/d1-growth-store.mjs',
+    'worker/src/api.mjs',
+  ];
+  const forbiddenPatterns = [
+    /24H\s*(观测盘|印章簿|预言|观察|考核|闯关中|竞猜|巡视|达标竞猜|Observe|Stamp Log|Observation Board|Prediction Stamp|Logbook Stamp|Guess|Inspect|Quest)/,
+    /16\s*\/\s*24/,
+    /\/\s*24\b/,
+    /max="24"/,
+    /\{q\}\/24/,
+    /\b15[xX]\b/,
+    /100% BURN MONUMENT/,
+    /A9 PAPER CRAFT/,
+    /自动连闯/,
+    /Auto-Continue/,
+    /Early Bird/,
+    /\b700M\b/,
+    /链上质押/,
+    /暴击/,
+    /早鸟/,
+    /Early 6H/,
+    /First-6H/,
+    /\bNo Liq\b/,
+    /Zero Liquidation/,
+    /30% Cashout/i,
+    /Stake Rebate/,
+    /销毁 BURN/,
+    /销毁警报/,
+    /销毁空军/,
+    /1,500–1\.3M/,
+    /cert-renew-switch/,
+  ];
+  const violations = [];
+  for (const rel of checkedFiles) {
+    const content = readFileSync(join(repoRoot, rel), 'utf8');
+    for (const rx of forbiddenPatterns) {
+      const m = content.match(rx);
+      if (m) violations.push(`${rel}: matched ${rx} (${m[0]})`);
+    }
+  }
+  assert.deepEqual(violations, [], `Global terminology regressions found:\n${violations.join('\n')}`);
+});
+
 

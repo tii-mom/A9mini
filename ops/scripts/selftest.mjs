@@ -27,11 +27,11 @@ function test(name, fn) {
 
 console.log('Running A9 v15 ops offline self-test...');
 
-test('v16 compiled artifacts match ci/artifacts.sha256 (4 contracts) and invalid protocol throws', () => {
+test('v17 compiled artifacts match ci/artifacts.sha256 (4 contracts) and invalid protocol throws', () => {
   const list = verifyV15Artifacts();
   assert.equal(list.length, 4);
-  assert.throws(() => resolveProtocolRoot('v15'), /must be v16/);
-  assert.throws(() => resolveProtocolRoot('v14'), /must be v16/);
+  assert.throws(() => resolveProtocolRoot('v15'), /must be v17 or v16/);
+  assert.throws(() => resolveProtocolRoot('v14'), /must be v17 or v16/);
 });
 
 test('testnet / testnet-fast / mainnet param profiles validate cleanly', () => {
@@ -41,49 +41,53 @@ test('testnet / testnet-fast / mainnet param profiles validate cleanly', () => {
   assert.equal(t.network, 'testnet');
   assert.equal(tf.profile, 'testnet-fast');
   assert.equal(m.network, 'mainnet');
-  assert.equal(m.timing.stakeDurationSeconds, 129600);
-  assert.equal(m.timing.vestingSeconds, 3456000);
+  assert.equal(m.timing.stakeDurationSeconds, 86400);
+  assert.equal(m.timing.earlyWindowSeconds, 21600);
+  assert.equal(m.timing.observationSeconds, 43200);
+  assert.equal(m.timing.candleCount, 12);
+  assert.equal(m.timing.minQualifiedCandles, 8);
+  assert.equal(m.timing.vestingSeconds, 1209600);
 });
 
-test('OpenRound [1.5x, 2.5x] corridor math and bounds check', () => {
+test('OpenRound [1.30x, 2.00x] corridor math and bounds check', () => {
   const c1 = computeCorridor(1, 0, 116000);
-  assert.equal(c1.minTarget, 174000n);
-  assert.equal(c1.maxTarget, 290000n);
-  assertTargetInCorridor(1, 0, 232000, 116000);
-  assert.throws(() => assertTargetInCorridor(1, 0, 173999, 116000));
+  assert.equal(c1.minTarget, 150800n);
+  assert.equal(c1.maxTarget, 232000n);
+  assertTargetInCorridor(1, 0, 150800, 116000);
+  assert.throws(() => assertTargetInCorridor(1, 0, 150799, 116000));
   assert.throws(() => assertTargetInCorridor(2, 0, 232000, 116000));
 });
 
-test('24-candle off-chain aggregation produces deterministic candleHash', () => {
-  const candles = Array.from({ length: 24 }, (_, i) => ({
+test('12-candle off-chain aggregation produces deterministic candleHash', () => {
+  const candles = Array.from({ length: 12 }, (_, i) => ({
     start: 1000 + i * 3600,
     end: 1000 + (i + 1) * 3600,
-    twapUsdE8: i < 18 ? 250000 : 200000,
+    twapUsdE8: i < 9 ? 160000 : 120000,
   }));
-  const a1 = aggregateCandles(1, 232000, candles);
-  const a2 = aggregateCandles(1, 232000, candles);
-  assert.equal(a1.qualifiedCandles, 18);
+  const a1 = aggregateCandles(1, 150800, candles);
+  const a2 = aggregateCandles(1, 150800, candles);
+  assert.equal(a1.qualifiedCandles, 9);
   assert.equal(a1.candleHashHex, a2.candleHashHex);
   assert.equal(a1.candleHashHex.length, 66);
 });
 
-test('v16.2 win settlement math matches on-chain 15x cap, team ratio, and 20% + 40d linear vesting', () => {
+test('v17.0 win settlement math matches on-chain 5x cap, team ratio, and 20% + 14d linear vesting', () => {
   const A9 = 1_000_000_000n;
   const r1 = previewWinSettlement({
     budgetRaw: 700_000_000n * A9,
     totalStakeRaw: 2_000n * A9,
     teamBudgetRaw: 120_000_000n * A9,
   });
-  assert.equal(r1.distributable, 30_000n * A9);
-  assert.equal(r1.teamReleased, 5_142_857_142_857n);
+  assert.equal(r1.distributable, 10_000n * A9);
+  assert.equal(r1.teamReleased, 1_714_285_714_285n);
   assert.equal(r1.immediateBps, 2000);
-  assert.equal(r1.vestingSeconds, 3456000);
-  assert.equal(r1.immediateTotal, 6_000n * A9);
-  assert.equal(r1.lockedTotal, 24_000n * A9);
+  assert.equal(r1.vestingSeconds, 1209600);
+  assert.equal(r1.immediateTotal, 2_000n * A9);
+  assert.equal(r1.lockedTotal, 8_000n * A9);
 
   const r11 = previewWinSettlement({
     budgetRaw: 700_000_000n * A9,
-    totalStakeRaw: 50_000_000n * A9,
+    totalStakeRaw: 200_000_000n * A9,
     teamBudgetRaw: 120_000_000n * A9,
   });
   assert.equal(r11.distributable, 700_000_000n * A9);
@@ -241,12 +245,12 @@ test('W2: round-ops enforces explicit --round on open-round, blocks mainnet cand
     roundOpsPath, '--action', 'settle-round', '--profile', 'testnet', '--round', '1', '--qualified', '25', '--candle-hash', '0x1234',
   ], { encoding: 'utf8' });
   assert.notEqual(rBadQual.status, 0);
-  assert.match(rBadQual.stderr, /--qualified must be an integer in 0\.\.24/);
+  assert.match(rBadQual.stderr, /--qualified must be an integer in 0\.\.12/);
 });
 
 test('Mainnet preflight hardening: Acton network API key mapping, ample mainnet deployTon, and Basechain-only role guard', () => {
   const m = loadParams('mainnet').data;
-  assert.equal(m.version, '16.2.0');
+  assert.equal(m.version, '17.0.0');
   assert.ok(BigInt(m.deployTon.jettonMaster) >= 500_000_000n);
   assert.ok(BigInt(m.deployTon.mintTotal) >= BigInt(m.deployTon.mintForward) + 100_000_000n);
   assert.ok(BigInt(m.deployTon.roundController) >= 1_500_000_000n);

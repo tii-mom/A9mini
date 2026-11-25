@@ -12,13 +12,16 @@
 export const V15_OPCODES = Object.freeze({
   JETTON_TRANSFER: 0x0f8a7ea5,
   STAKE_DEPOSIT_V16: 0x52540010,
+  STAKE_DEPOSIT_V17: 0x52540010,
   TICKET_CLAIM: 0x52540303,
+  TICKET_EARLY_EXIT: 0x52540306,
 });
 
 export const V15_GAS = Object.freeze({
   STAKE_FORWARD_NANO: '150000000',       // 0.15 GRAM forward to RoundController
   STAKE_TOTAL_NANO: '300000000',         // 0.30 GRAM attached to user's JettonWallet
-  CLAIM_NANO: '220000000',               // 0.22 GRAM attached to StakeTicket
+  CLAIM_NANO: '220000000',               // 0.22 GRAM attached to StakeTicket (normal claim / stop-loss refund)
+  DUAL_CLAIM_NANO: '340000000',          // 0.34 GRAM attached to StakeTicket (EarlyExit / 30% Instant Cashout dual-action)
   PROMO_FEE_NANO: '60000000',            // 0.06 GRAM user-covered gas to promo hot wallet
 });
 
@@ -229,16 +232,25 @@ export function encodeTextCommentBoc(text) {
   return encodeSingleCellBoc(payload);
 }
 
-/** Build v15 StakeTicket TicketClaim BOC: op(0x52540303, 32b) + queryId(64b) */
-export function encodeTicketClaimBoc(queryId = BigInt(Date.now())) {
+/** Build v17 StakeTicket TicketClaim BOC: op(0x52540303, 32b) + queryId(64b) + instantDiscount(1b) */
+export function encodeTicketClaimBoc(queryId = BigInt(Date.now()), instantDiscount = false) {
   const b = new BitBuilder()
     .storeUint(V15_OPCODES.TICKET_CLAIM, 32)
+    .storeUint(BigInt(queryId), 64)
+    .storeBit(Boolean(instantDiscount) ? 1 : 0);
+  return encodeCellsBoc(b);
+}
+
+/** Build v17 StakeTicket TicketEarlyExit BOC: op(0x52540306, 32b) + queryId(64b) */
+export function encodeEarlyExitBoc(queryId = BigInt(Date.now())) {
+  const b = new BitBuilder()
+    .storeUint(V15_OPCODES.TICKET_EARLY_EXIT, 32)
     .storeUint(BigInt(queryId), 64);
   return encodeCellsBoc(b);
 }
 
 /**
- * Build standard TEP-74 AskToTransfer BOC for staking A9 into v16 RoundController.
+ * Build standard TEP-74 AskToTransfer BOC for staking A9 into v17/v16 RoundController.
  * Sends to user's A9 JettonWallet; forwards ^Cell(0x52540010 + roundId:uint32 + addr_none) with 0.15 GRAM.
  */
 export function encodeStakeJettonTransferBoc({
@@ -248,13 +260,15 @@ export function encodeStakeJettonTransferBoc({
   roundId,
   queryId = BigInt(Date.now()),
   forwardTonNano = V15_GAS.STAKE_FORWARD_NANO,
-  protocolVersion = 'v16',
+  protocolVersion = 'v17',
   network = null,
 }) {
   assertValidBasechainAddress(roundController, 'roundController', network);
   assertValidBasechainAddress(responseDestination, 'responseDestination', network);
   if (BigInt(amountA9Raw) <= 0n) throw new Error('amountA9Raw must be positive');
-  if (protocolVersion !== 'v16') throw new Error(`unsupported stake protocol version: ${protocolVersion}`);
+  if (protocolVersion !== 'v17' && protocolVersion !== 'v16') {
+    throw new Error(`unsupported stake protocol version: ${protocolVersion}`);
+  }
   const maxRoundId = 0xffffffff;
   const rId = Number(roundId);
   if (!Number.isInteger(rId) || rId < 1 || rId > maxRoundId) throw new Error(`roundId must be 1..${maxRoundId}`);
@@ -286,7 +300,7 @@ export function buildV15StakeTx({
   amountA9Raw,
   roundId,
   queryId = BigInt(Date.now()),
-  protocolVersion = 'v16',
+  protocolVersion = 'v17',
   network = null,
 }) {
   assertValidBasechainAddress(userJettonWallet, 'userJettonWallet', network);
@@ -310,16 +324,32 @@ export function buildV15StakeTx({
   };
 }
 
-/** Ready-to-sign TON Connect 2.0 tx for claiming principal + unlocked rewards from StakeTicket */
-export function buildV15ClaimTx(ticketAddress, queryId = BigInt(Date.now()), { network = null } = {}) {
+/** Ready-to-sign TON Connect 2.0 tx for claiming principal + unlocked rewards (or 30% instant cashout) from StakeTicket */
+export function buildV15ClaimTx(ticketAddress, queryId = BigInt(Date.now()), { network = null, instantDiscount = false } = {}) {
+  assertValidBasechainAddress(ticketAddress, 'ticketAddress', network);
+  const useDiscount = Boolean(instantDiscount);
+  return {
+    validUntil: resolveValidUntil(null),
+    messages: [
+      {
+        address: ticketAddress,
+        amount: useDiscount ? V15_GAS.DUAL_CLAIM_NANO : V15_GAS.CLAIM_NANO,
+        payload: encodeTicketClaimBoc(queryId, useDiscount),
+      },
+    ],
+  };
+}
+
+/** Ready-to-sign TON Connect 2.0 tx for v17 lock-window Early Exit (85% refund / 15% burn) */
+export function buildV17EarlyExitTx(ticketAddress, queryId = BigInt(Date.now()), { network = null } = {}) {
   assertValidBasechainAddress(ticketAddress, 'ticketAddress', network);
   return {
     validUntil: resolveValidUntil(null),
     messages: [
       {
         address: ticketAddress,
-        amount: V15_GAS.CLAIM_NANO,
-        payload: encodeTicketClaimBoc(queryId),
+        amount: V15_GAS.DUAL_CLAIM_NANO,
+        payload: encodeEarlyExitBoc(queryId),
       },
     ],
   };

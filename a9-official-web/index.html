@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#F4F5F8" />
-  <meta name="description" content="A9 — 基于 TON 的链上价格挑战。每轮考核 24 个均价时段，挑战持续至奖池耗尽。" />
+  <meta name="description" content="A9 — 基于 TON 的 v17.0 涨价解锁协议。24H 锁仓（头矿 6H · 5% 止损）→ 12H 冲价（≥ 8/12 达标），通关退本 + 20% 秒提 + 14 天逐秒解锁（支持 3 折急提），奖池分完为止。" />
   <link rel="icon" type="image/png" sizes="16x16" href="./assets/brand/favicon-16.png" />
   <link rel="icon" type="image/png" sizes="32x32" href="./assets/brand/favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="./assets/brand/apple-touch-icon.png" />
@@ -12,11 +12,11 @@
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://a9.lat/" />
   <meta property="og:title" content="A9 · 财富大冒险" />
-  <meta property="og:description" content="基于 TON 的链上价格挑战。每轮考核 24 个均价时段，挑战持续至奖池耗尽。" />
+  <meta property="og:description" content="基于 TON 的 v17.0 涨价解锁协议。24H 锁仓 → 12H 冲价（≥ 8/12 达标），永不爆仓自动止损，奖池分完为止。" />
   <meta property="og:image" content="https://a9.lat/assets/token/a9-token-2048.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="A9 · 财富大冒险" />
-  <meta name="twitter:description" content="基于 TON 的链上价格挑战。每轮考核 24 个均价时段，挑战持续至奖池耗尽。" />
+  <meta name="twitter:description" content="基于 TON 的 v17.0 涨价解锁协议。24H 锁仓 → 12H 冲价（≥ 8/12 达标），永不爆仓自动止损，奖池分完为止。" />
   <meta name="twitter:image" content="https://a9.lat/assets/token/a9-token-2048.png" />
   <script src="./js/boot-preferences.js"></script>
   <title>A9 · 财富大冒险</title>
@@ -37,7 +37,7 @@
       <nav class="desktop-nav" id="desktop-nav" aria-label="Primary Navigation">
         <span class="nav-indicator" id="nav-indicator" aria-hidden="true"></span>
         <a href="#top" class="is-active" data-section="top" data-i18n="navHome">首页</a>
-        <a href="#observatory" data-section="observatory" data-i18n="navObservatory">考核示例</a>
+        <a href="#observatory" data-section="observatory" data-i18n="navObservatory">冲价示例</a>
         <a href="#unlock" data-section="unlock" data-i18n="navUnlock">奖励解锁</a>
         <a href="#allocation" data-section="allocation" data-i18n="navAllocation">分配与规则</a>
         <a href="#ledger" data-section="ledger" data-i18n="navLedger">闯关账本</a>
@@ -62,7 +62,7 @@
     <div class="mobile-drawer" id="mobile-drawer" hidden>
       <nav class="mobile-nav">
         <a href="#top" data-i18n="navHome">首页</a>
-        <a href="#observatory" data-i18n="navObservatory">考核示例</a>
+        <a href="#observatory" data-i18n="navObservatory">冲价示例</a>
         <a href="#unlock" data-i18n="navUnlock">奖励解锁</a>
         <a href="#allocation" data-i18n="navAllocation">分配与规则</a>
         <a href="#ledger" data-i18n="navLedger">闯关账本</a>
@@ -79,23 +79,23 @@
         <div class="hero-copy">
           <div class="hero-status">
             <span class="live-dot" aria-hidden="true"></span>
-            <span class="mono" data-i18n="heroEyebrow">第 03 轮 · 24H 示例</span>
+            <span class="mono" data-i18n="heroEyebrow">第 03 轮 · 12H 冲价示例</span>
           </div>
 
           <h1 class="hero-title" data-i18n="heroTitle">财富大冒险</h1>
-          <p class="hero-lede" data-i18n="heroLede">质押 A9 闯 24H 价格关，达标 ≥ 16 小时瓜分奖池。</p>
+          <p class="hero-lede" data-i18n="heroLede">24H 锁仓 A9，12H 冲价达标 ≥ 8/12 小时瓜分奖池，未通关永不爆仓。</p>
 
           <div class="risk-banner" role="note">
             <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
               <path d="M10 2.5L18.2 17H1.8L10 2.5z" />
               <path d="M10 7.5v4.2M10 14.2v.6" stroke-linecap="round" />
             </svg>
-            <span data-i18n="riskPill">未达 16/24 时段，本金 100% 销毁 BURN。</span>
+            <span data-i18n="riskPill">永不爆仓：未达 8/12 时段头矿 6H 退 95%（止损 5%）/ 普通退 90%（止损 10%）。</span>
           </div>
 
           <div class="hero-cta-row">
             <a class="cta-red cta-lg" href="#sandbox" data-miniapp-cta="1" data-i18n="ctaPrimary">进入闯关</a>
-            <a class="cta-card cta-lg" href="#sandbox" data-i18n="ctaSecondary">24H 判定试玩</a>
+            <a class="cta-card cta-lg" href="#sandbox" data-i18n="ctaSecondary">12H 冲价试玩</a>
             <a class="text-link" href="./redpaper/" data-i18n="openRedpaper">A9 红皮书</a>
           </div>
           <div class="hero-trust-links">
@@ -108,7 +108,7 @@
         <div class="hero-focal-card">
           <div class="focal-head">
             <span class="focal-badge mono" data-i18n="focalDemo">第 03 轮 · 示例</span>
-            <span class="focal-meta mono">1.90× CORRIDOR</span>
+            <span class="focal-meta mono">1.60× CORRIDOR</span>
           </div>
 
           <div class="focal-center">
@@ -116,7 +116,7 @@
               <div class="focal-price-label" data-i18n="lockedTargetLabel">已锁定目标价</div>
               <div class="focal-price-val mono">$0.0680</div>
               <div class="focal-progress-row">
-                <span class="mono text-green">14 / 16</span>
+                <span class="mono text-green">7 / 8</span>
                 <span class="focal-bar" aria-hidden="true"><i style="width: 87.5%;"></i></span>
               </div>
             </div>
@@ -155,13 +155,13 @@
             <div>
               <div class="pool-giant-num mono" id="pool-giant-num" data-count-suffix=" A9">—</div>
               <h2 class="pool-headline" data-i18n="poolHeadline">闯关奖励池</h2>
-              <p class="pool-sub" data-i18n="poolSub">每轮基础 700,000,000 A9（7%），15× 超额与失败轮 50% 滚存下轮。</p>
+              <p class="pool-sub" data-i18n="poolSub">每轮基础 700,000,000 A9（7%），5× 超额 100% 滚存、未通关轮 50% 滚存下轮。</p>
             </div>
             <img src="./assets/official-art/reward-vault.svg" alt="" width="180" height="160" class="pool-vault-art" />
           </div>
           <div class="pool-facts mono">
             <span data-i18n="poolPill1">10,000,000,000 固定总供应</span>
-            <span data-i18n="poolPill2">单轮上限 15× 本金</span>
+            <span data-i18n="poolPill2">全员 1:1 · 单轮封顶 5× 本金</span>
             <span data-i18n="poolPill3">12% 团队池 · 18% 其余预留</span>
           </div>
         </div>
@@ -184,13 +184,13 @@
       </div>
     </section>
 
-    <!-- HIGH-EFFICIENCY ZONE 1: 10-ROUND LADDER & 24H STAMP OBSERVATORY -->
+    <!-- HIGH-EFFICIENCY ZONE 1: ROUND LADDER & 12H STAMP OBSERVATORY -->
     <section class="section" id="observatory">
       <div class="wrap">
         <div class="sec-head chapter-head">
           <div>
-            <h2 class="sec-title" id="ladder-title" data-i18n="obsTitle">24H 考核示例</h2>
-            <p class="sec-desc" data-i18n="obsDesc">目标价走廊 [1.50×, 2.50×]，点选轮次查看逐小时均价。</p>
+            <h2 class="sec-title" id="ladder-title" data-i18n="obsTitle">12H 冲价示例</h2>
+            <p class="sec-desc" data-i18n="obsDesc">目标价走廊 [1.30×, 2.00×]，点选轮次查看逐小时均价。</p>
           </div>
           <div class="floor-badge mono" data-i18n="floorBadge">奖池分完为止</div>
           <img class="chapter-art" src="./assets/official-art/clock-tower.svg" alt="" width="160" height="176" loading="lazy" />
@@ -203,7 +203,7 @@
             <div class="obs-metrics-box">
               <div class="obs-round-head">
                 <strong class="mono" id="obs-round-title">第 03 轮</strong>
-                <span class="status-badge" id="obs-round-status">24H 观察中</span>
+                <span class="status-badge" id="obs-round-status">12H 冲价中</span>
               </div>
               <dl class="obs-kpi-grid">
                 <div class="obs-kpi">
@@ -211,20 +211,20 @@
                   <dd class="mono" id="obs-target">$0.0680</dd>
                 </div>
                 <div class="obs-kpi">
-                  <dt data-i18n="latestTwapLabel">最近判定均价</dt>
+                  <dt data-i18n="latestTwapLabel">最新 1H 均价</dt>
                   <dd class="mono" id="obs-twap">$0.0714</dd>
                 </div>
                 <div class="obs-kpi">
-                  <dt data-i18n="qualifiedLabel">已达标时段（门槛 16/24）</dt>
-                  <dd class="mono" id="obs-qualified">14 / 24</dd>
+                  <dt data-i18n="qualifiedLabel">已达标时段（门槛 8/12）</dt>
+                  <dd class="mono" id="obs-qualified">7 / 12</dd>
                 </div>
               </dl>
-              <button type="button" class="cta-card cta-sm" id="obs-open-modal" data-i18n="viewFullLog">查看 24H 明细</button>
+              <button type="button" class="cta-card cta-sm" id="obs-open-modal" data-i18n="viewFullLog">查看 12H 明细</button>
             </div>
 
             <div class="obs-stamps-box">
               <div class="stamps-head">
-                <h3 data-i18n="stampTitle">24H 印章簿</h3>
+                <h3 data-i18n="stampTitle">12H 冲价印章簿</h3>
                 <div class="stamps-legend">
                   <span><i class="lg-dot hit"></i><em data-i18n="stampLegendHit">达标</em></span>
                   <span><i class="lg-dot miss"></i><em data-i18n="stampLegendMiss">未达标</em></span>
@@ -240,18 +240,18 @@
         <section class="surface-card sandbox" id="sandbox" aria-labelledby="sandbox-title">
           <div class="sandbox-head">
             <div>
-              <h3 id="sandbox-title" data-i18n="sandboxTitle">24H 判定试玩</h3>
-              <p data-i18n="sandboxHint">点击印章切换达标，体验 16/24 通关与 15/24 销毁的分界。</p>
+              <h3 id="sandbox-title" data-i18n="sandboxTitle">12H 冲价试玩</h3>
+              <p data-i18n="sandboxHint">点击印章切换达标，体验 8/12 通关派奖与 7/12 自动止损的分界。</p>
             </div>
             <div class="sandbox-presets">
-              <button class="cta-card cta-sm" type="button" data-sandbox-preset="16" data-i18n="sandboxPassPreset">刚好 16 个</button>
-              <button class="cta-card cta-sm" type="button" data-sandbox-preset="15" data-i18n="sandboxFailPreset">只差 1 个</button>
+              <button class="cta-card cta-sm" type="button" data-sandbox-preset="8" data-i18n="sandboxPassPreset">刚好 8 个</button>
+              <button class="cta-card cta-sm" type="button" data-sandbox-preset="7" data-i18n="sandboxFailPreset">只差 1 个</button>
             </div>
           </div>
           <div class="stamp-grid" id="sandbox-stamps" role="group" aria-labelledby="sandbox-title"></div>
           <div class="sandbox-result" id="sandbox-result" role="status">
-            <strong class="mono" id="sandbox-count">16 / 24</strong>
-            <span id="sandbox-verdict">通关</span>
+            <strong class="mono" id="sandbox-count">8 / 12</strong>
+            <span id="sandbox-verdict">通关派奖</span>
           </div>
         </section>
       </div>
@@ -263,7 +263,7 @@
         <div class="sec-head chapter-head">
           <div>
             <h2 class="sec-title" data-i18n="unlockTitle">奖励释放与试算</h2>
-            <p class="sec-desc" data-i18n="unlockDesc">通关退 100% 本金 + 20% 奖励秒领，余下 80% 分 40 天按秒线性释放。</p>
+            <p class="sec-desc" data-i18n="unlockDesc">通关退 100% 本金 + 20% 秒提，余下 80% 分 14 天逐秒解锁（支持随时 3 折急提，7 折销毁）。</p>
           </div>
           <img class="chapter-art" src="./assets/official-art/reward-crystal.svg" alt="" width="160" height="176" loading="lazy" />
         </div>
@@ -272,91 +272,91 @@
           <div class="unlock-tiers-col">
             <div class="tier-card">
               <div class="tier-top">
-                <span class="tier-badge" data-i18n="tier1Title">第 0 天 · 通关秒领</span>
-                <strong class="mono text-red" data-i18n="tier1Rate">20% 立领</strong>
+                <span class="tier-badge" data-i18n="tier1Title">第 0 天 · 通关秒提</span>
+                <strong class="mono text-red" data-i18n="tier1Rate">20% 秒提</strong>
               </div>
               <div class="tier-bar"><i style="width: 20%;"></i></div>
-              <p data-i18n="tier1Desc">通关即退 100% 质押本金 + 即时可领 20% 奖励</p>
+              <p data-i18n="tier1Desc">通关即退 100% 锁仓本金 + 即时秒提 20% 奖金</p>
             </div>
 
             <div class="tier-card">
               <div class="tier-top">
-                <span class="tier-badge" data-i18n="tier2Title">第 1–40 天线性</span>
-                <strong class="mono text-blue" data-i18n="tier2Rate">每日 +2%</strong>
+                <span class="tier-badge" data-i18n="tier2Title">第 1–14 天逐秒解锁</span>
+                <strong class="mono text-blue" data-i18n="tier2Rate">每日 +5.71%</strong>
               </div>
               <div class="tier-bar"><i class="blue" style="width: 60%;"></i></div>
-              <p data-i18n="tier2Desc">余下 80% 按秒连续线性释放，随时可合并一次领完</p>
+              <p data-i18n="tier2Desc">余下 80% 按秒连续解锁，随时可领已解锁部分，或对未解锁余额走 3 折急提（7 折销毁）</p>
             </div>
 
             <div class="tier-card">
               <div class="tier-top">
-                <span class="tier-badge" data-i18n="tier3Title">满 40 天全额</span>
+                <span class="tier-badge" data-i18n="tier3Title">满 14 天全额解锁</span>
                 <strong class="mono text-green" data-i18n="tier3Rate">100% 永久累计</strong>
               </div>
               <div class="tier-bar"><i class="green" style="width: 100%;"></i></div>
-              <p data-i18n="tier3Desc">奖励永不倒扣，不受后续轮次胜负或登录频次影响</p>
+              <p data-i18n="tier3Desc">奖金永不倒扣，满 14 天后零销毁 100% 实发，不受后续轮次胜负影响</p>
             </div>
 
-            <p class="unlock-note" data-i18n="unlockNote">v16.2：零质押空轮无论胜负 100% 滚存零销毁；7 天超时无许可 AbortRound 全额退本。</p>
+            <p class="unlock-note" data-i18n="unlockNote">v17.0：24H 锁仓期支持提前解押（退 85% / 扣 15% 销毁）；12H 冲价封盘禁进禁出；7 天超时无许可 AbortRound 100% 退本。</p>
           </div>
 
           <div class="surface-card sim-card" id="simulator">
-            <h3 class="sim-title" data-i18n="simTitle">收益试算</h3>
+            <h3 class="sim-title" data-i18n="simTitle">收益与止损试算</h3>
 
             <div class="sim-field">
-              <label for="sim-stake" data-i18n="simStakeLabel">质押本金（最低 1,000 A9）</label>
-              <input id="sim-stake" type="number" min="1000" step="1000" value="10000" class="sim-input mono" />
+              <label for="sim-stake" data-i18n="simStakeLabel">锁仓本金（最低 100 A9）</label>
+              <input id="sim-stake" type="number" min="100" step="100" value="10000" class="sim-input mono" />
             </div>
 
             <div class="sim-field">
-              <span class="sim-label" data-i18n="simWindowLabel">报名时段（早鸟权重）</span>
+              <span class="sim-label" data-i18n="simWindowLabel">进池窗口 / 提前解押（未通关退本档位）</span>
               <div class="seg-group" id="sim-weight-group">
                 <span class="seg-indicator" id="seg-indicator" aria-hidden="true"></span>
-                <button type="button" class="seg-btn is-active mono" data-weight="2.0">0–12h · 2.0×</button>
-                <button type="button" class="seg-btn mono" data-weight="1.4">12–24h · 1.4×</button>
-                <button type="button" class="seg-btn mono" data-weight="1.0">24–36h · 1.0×</button>
+                <button type="button" class="seg-btn is-active mono" data-weight="0.95">头矿 6H · -5%</button>
+                <button type="button" class="seg-btn mono" data-weight="0.90">6H–24H · -10%</button>
+                <button type="button" class="seg-btn mono" data-weight="0.85">提前解押 · -15%</button>
               </div>
             </div>
 
             <div class="sim-field">
               <div class="sim-field-head">
-                <label for="sim-assumed-reward" data-i18n="simAssumedLabel">假设本轮奖励（上限 15×）</label>
+                <label for="sim-assumed-reward" data-i18n="simAssumedLabel">假设本轮奖金（全员 1:1 · 封顶 5×）</label>
                 <div class="sim-presets" role="group" aria-label="Reward presets">
                   <button type="button" class="sim-preset-btn mono" data-reward-mult="1">1×</button>
                   <button type="button" class="sim-preset-btn mono" data-reward-mult="3">3×</button>
-                  <button type="button" class="sim-preset-btn mono" data-reward-mult="15">15×</button>
+                  <button type="button" class="sim-preset-btn mono" data-reward-mult="5">5×</button>
                 </div>
               </div>
-              <input id="sim-assumed-reward" type="number" min="0" step="1000" value="15000" class="sim-input mono" />
+              <input id="sim-assumed-reward" type="number" min="0" step="1000" value="30000" class="sim-input mono" />
             </div>
 
             <div class="sim-field">
-              <label for="sim-tier" data-i18n="simWinTierLabel">40 天线性释放进度（每日 +2%）</label>
+              <label for="sim-tier" data-i18n="simWinTierLabel">14 天逐秒解锁进度 / 3 折急提</label>
               <select id="sim-tier" class="sim-select">
-                <option value="0.2" data-i18n="simWinTier1">第 0 天 · 通关当日（20% 可领）</option>
-                <option value="0.4" data-i18n="simWinTier2">第 10 天（40% 累计可领）</option>
-                <option value="0.6" data-i18n="simWinTier2b">第 20 天（60% 累计可领）</option>
-                <option value="0.8" data-i18n="simWinTier2c">第 30 天（80% 累计可领）</option>
-                <option value="1.0" data-i18n="simWinTier3">满 40 天（100% 全额可领）</option>
+                <option value="0.2" data-i18n="simWinTier1">第 0 天 · 通关秒提（20% 可领）</option>
+                <option value="cashout" data-i18n="simWinTier2">第 0 天 · 3 折急提（44% 秒提 / 56% 销毁）</option>
+                <option value="0.6" data-i18n="simWinTier2b">第 7 天 · 逐秒解锁（60% 累计可领）</option>
+                <option value="0.77" data-i18n="simWinTier2c">第 10 天 · 逐秒解锁（77% 累计可领）</option>
+                <option value="1.0" data-i18n="simWinTier3">满 14 天（100% 全额可领 · 0 销毁）</option>
               </select>
             </div>
 
             <dl class="sim-results">
               <div>
-                <dt data-i18n="simWeightOut">早鸟权重份额</dt>
-                <dd class="mono" id="sim-out-weight">20,000</dd>
+                <dt data-i18n="simWeightOut">未通关 / 提前解押退回本金</dt>
+                <dd class="mono" id="sim-out-weight">9,500 A9 (-500)</dd>
               </div>
               <div>
-                <dt data-i18n="simCapOut">单轮奖励上限（15×）</dt>
-                <dd class="mono" id="sim-out-cap">150,000 A9</dd>
+                <dt data-i18n="simCapOut">单轮奖金封顶（5×）</dt>
+                <dd class="mono" id="sim-out-cap">50,000 A9</dd>
               </div>
               <div class="highlight-row">
-                <dt data-i18n="simInstantOut">该节点累计可领（含本金）</dt>
-                <dd class="mono text-green" id="sim-out-instant">13,000 A9</dd>
+                <dt data-i18n="simInstantOut">该节点累计实拿（含本金）</dt>
+                <dd class="mono text-green" id="sim-out-instant">16,000 A9</dd>
               </div>
               <div>
-                <dt data-i18n="simLockedOut">剩余 40 天线性待释放</dt>
-                <dd class="mono text-gold" id="sim-out-locked">12,000 A9</dd>
+                <dt data-i18n="simLockedOut">剩余 14 天待解锁 / 急提销毁</dt>
+                <dd class="mono text-gold" id="sim-out-locked">24,000 A9</dd>
               </div>
             </dl>
           </div>
@@ -366,7 +366,7 @@
         <div class="steps-block">
           <div class="sec-head compact">
             <h3 class="sec-subtitle" data-i18n="stepsTitle">3 步参与</h3>
-            <a class="cta-red" href="#sandbox" data-i18n="ctaSecondary">24H 判定试玩</a>
+            <a class="cta-red" href="#sandbox" data-i18n="ctaSecondary">12H 冲价试玩</a>
           </div>
           <div class="steps-grid">
             <article class="surface-card step-card">
@@ -376,13 +376,13 @@
             </article>
             <article class="surface-card step-card">
               <span class="step-num mono">02</span>
-              <h4 data-i18n="step2Title">报名质押 A9</h4>
-              <p data-i18n="step2Desc">≥ 1,000 A9 · 早鸟 2.0× / 1.4× / 1.0×。</p>
+              <h4 data-i18n="step2Title">24H 锁仓 A9</h4>
+              <p data-i18n="step2Desc">最低 100 A9 · 全员 1:1 公平分奖 · 头矿 6H 享 5% 止损。</p>
             </article>
             <article class="surface-card step-card">
               <span class="step-num mono">03</span>
-              <h4 data-i18n="step3Title">24H 自动结算</h4>
-              <p data-i18n="step3Desc">≥ 16/24 达标通关，链上领本金与奖励。</p>
+              <h4 data-i18n="step3Title">12H 冲价结算</h4>
+              <p data-i18n="step3Desc">≥ 8/12 达标通关，退 100% 本金 + 20% 秒提 + 14 天逐秒解锁。</p>
             </article>
           </div>
         </div>
@@ -403,24 +403,24 @@
         <div class="surface-card alloc-ribbon-card">
           <div class="ribbon-head" data-i18n="ribbonHead">10,000,000,000 A9 分配结构</div>
           <div class="alloc-ribbon" id="alloc-ribbon"></div>
-          <div class="alloc-ribbon-note mono" id="alloc-ribbon-note">第 03 轮 · 1.90× 走廊 · 基础预算 700,000,000 A9（7%）</div>
+          <div class="alloc-ribbon-note mono" id="alloc-ribbon-note">第 03 轮 · 1.60× 走廊 · 基础预算 700,000,000 A9（7%）</div>
         </div>
 
         <div class="outcomes-grid">
           <article class="surface-card outcome-card">
-            <span class="outcome-chip green" data-i18n="outcomeWinChip">退本 · 上限 15×</span>
-            <h3 data-i18n="outcomeWinTitle">通关 PASS（≥ 16/24）</h3>
-            <p data-i18n="outcomeWinDesc">全额退本，按早鸟权重分奖（上限 15×），超额滚存下轮。</p>
+            <span class="outcome-chip green" data-i18n="outcomeWinChip">退本 · 封顶 5×</span>
+            <h3 data-i18n="outcomeWinTitle">通关 PASS（≥ 8/12）</h3>
+            <p data-i18n="outcomeWinDesc">全额退本，全员 1:1 公平分奖（封顶 5×），20% 秒提 + 14 天逐秒解锁（支持 3 折急提），超额 100% 滚存下轮。</p>
           </article>
           <article class="surface-card outcome-card">
-            <span class="outcome-chip rose" data-i18n="outcomeBurnChip">本金 100% 销毁</span>
-            <h3 data-i18n="outcomeBurnTitle">销毁 BURN（&lt; 16/24）</h3>
-            <p data-i18n="outcomeBurnDesc">质押本金永久销毁；当轮奖池 50% 销毁、50% 滚存。</p>
+            <span class="outcome-chip rose" data-i18n="outcomeBurnChip">永不爆仓 · 自动止损</span>
+            <h3 data-i18n="outcomeBurnTitle">未通关自动止损（&lt; 8/12）</h3>
+            <p data-i18n="outcomeBurnDesc">头矿 6H 自动退 95% 本金（烧 5%）、普通退 90%（烧 10%）；当轮奖池与团队结转各 50% 销毁、50% 滚存。</p>
           </article>
           <article class="surface-card outcome-card">
             <span class="outcome-chip blue" data-i18n="outcomeAbortChip">全额退本</span>
             <h3 data-i18n="outcomeAbortTitle">异常中止 · 退回本金</h3>
-            <p data-i18n="outcomeAbortDesc">本金原路退回，奖池 100% 滚存下轮。</p>
+            <p data-i18n="outcomeAbortDesc">7 天超时无许可 AbortRound，100% 无损退本，奖池 100% 滚存下轮。</p>
           </article>
         </div>
 
@@ -487,7 +487,7 @@
       </div>
 
       <nav class="footer-nav" aria-label="Footer Links">
-        <a href="#observatory" data-i18n="navObservatory">考核示例</a>
+        <a href="#observatory" data-i18n="navObservatory">冲价示例</a>
         <a href="#unlock" data-i18n="navUnlock">奖励解锁</a>
         <a href="#allocation" data-i18n="navAllocation">分配与规则</a>
         <a href="#ledger" data-i18n="navLedger">闯关账本</a>
@@ -498,7 +498,7 @@
       </nav>
 
       <div class="footer-risk">
-        <div class="risk-pill-mini" data-i18n="riskPill">未达 16/24 时段，本金 100% 销毁 BURN。</div>
+        <div class="risk-pill-mini" data-i18n="riskPill">永不爆仓：未达 8/12 时段头矿 6H 退 95%（止损 5%）/ 普通退 90%（止损 10%）。</div>
         <div class="footer-meta mono" data-i18n="footerMeta">A9 Protocol · TON · 10,000,000,000 Fixed Supply</div>
       </div>
     </div>
@@ -512,7 +512,7 @@
   <div class="modal-backdrop" id="round-modal" hidden role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal-sheet surface-card">
       <div class="modal-head">
-        <h3 id="modal-title" class="mono">第 03 轮 · 24H 核对</h3>
+        <h3 id="modal-title" class="mono">第 03 轮 · 12H 冲价核对</h3>
         <button type="button" class="pill-btn" id="modal-close" data-i18n="modalClose">关闭</button>
       </div>
       <div class="modal-body" id="modal-body"></div>

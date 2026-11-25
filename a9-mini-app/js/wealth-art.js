@@ -156,7 +156,7 @@ export const BOXHEADS_SERIES = {
         tier: 2, id: 'wlt-02', rarity: 'UNCOMMON', reqUsd: 10,
         nameZh: 'A2 雷达哨兵', nameEn: 'A2 Radar Scout', styleZh: '雷达猎手', styleEn: 'Field Scout',
         traitZh: '橘红战术护目镜 · 双筒绿光雷达', traitEn: 'Amber visor · neon radar binoculars',
-        voiceZh: '雷达已锁定目标底价，早鸟机会绝不漏网！', voiceEn: 'Target price locked on radar—never missing early bird!',
+        voiceZh: '雷达已锁定目标底价，头矿 6H · 5% 止损护盾绝不漏网！', voiceEn: 'Target price locked on radar—never missing First 6H · 5% Stop-Loss!',
         shortReqZh: '$10', shortReqEn: '$10',
         hintZh: '持有 A9 代币市值达 $10 解锁', hintEn: 'Hold $10+ in A9 value',
         avatar: './assets/boxheads/wealth/avatars/wlt-02.png',

@@ -8,7 +8,7 @@ const state = {
   selectedRoundId: 3,
   selectedAllocId: 3,
   selectedCandleIdx: null,
-  simWeight: 2.0,
+  simWeight: 0.95,
   activeNavSection: 'top',
   lastModalTrigger: null,
   modalTimer: null,
@@ -268,14 +268,14 @@ function renderObservatoryDetail() {
 
   $('#obs-target').textContent = round.targetPrice !== null ? formatUsd(round.targetPrice) : t('targetTbd');
   $('#obs-twap').textContent = round.latestTwap !== null ? formatUsd(round.latestTwap) : '—';
-  $('#obs-qualified').textContent = round.seen > 0 ? `${round.qualified} / 24` : '0 / 24';
+  $('#obs-qualified').textContent = round.seen > 0 ? `${round.qualified} / ${PROTOCOL_META.candleCount}` : `0 / ${PROTOCOL_META.candleCount}`;
 
   const stampGrid = $('#stamp-grid');
   stampGrid.innerHTML = '';
   round.candles.forEach((c, idx) => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = `stamp-tile ${c.status}${state.selectedCandleIdx === c.index ? ' is-active' : ''}${c.index === 16 ? ' is-threshold' : ''}`;
+    btn.className = `stamp-tile ${c.status}${state.selectedCandleIdx === c.index ? ' is-active' : ''}${c.index === PROTOCOL_META.minQualified ? ' is-threshold' : ''}`;
     btn.style.setProperty('--idx', String(idx));
     const mark = c.status === 'hit' ? '✓' : c.status === 'miss' ? '×' : '·';
     btn.innerHTML = `<span>H${String(c.index).padStart(2, '0')}</span><span>${mark}</span>`;
@@ -360,7 +360,7 @@ function renderLedger() {
     const tag = String(round.id).padStart(2, '0');
     const corridor = round.multiplier || '—';
     const target = round.targetPrice !== null ? formatUsd(round.targetPrice) : t('targetTbd');
-    const qual = round.seen > 0 ? `${round.qualified} / 24` : '—';
+    const qual = round.seen > 0 ? `${round.qualified} / ${PROTOCOL_META.candleCount}` : '—';
     const badgeCls = stateBadgeClass(round.state);
     const statusText = STATE_LABELS[round.state][state.lang];
 
@@ -471,19 +471,25 @@ function updateSimulator() {
   const stakeInput = $('#sim-stake');
   const assumedInput = $('#sim-assumed-reward');
   const principal = Math.max(PROTOCOL_META.minStake, Number(stakeInput.value) || PROTOCOL_META.minStake);
-  const instantRate = Number($('#sim-tier').value) || 0.2;
-  const weightShare = Math.round(principal * state.simWeight);
-  const maxCapReward = principal * 15;
+  const tierRaw = String($('#sim-tier').value || '0.2');
+  const isCashout = tierRaw === 'cashout';
+  const instantRate = isCashout ? 0.44 : (Number(tierRaw) || 0.2);
+  const refundRatio = Number(state.simWeight) > 0 && Number(state.simWeight) <= 1 ? Number(state.simWeight) : 0.95;
+  const failRefund = Math.floor(principal * refundRatio);
+  const failBurn = principal - failRefund;
+  const maxCapReward = principal * (PROTOCOL_META.maxRewardMultiplier || 5);
   const rawAssumed = Math.max(0, Number(assumedInput?.value) || 0);
   const effectiveReward = Math.min(maxCapReward, Math.round(rawAssumed));
   const instantClaim = Math.round(principal + effectiveReward * instantRate);
-  const lockedReward = Math.round(effectiveReward * (1 - instantRate));
+  const lockedOrBurn = Math.round(effectiveReward * (1 - instantRate));
 
   const fmt = new Intl.NumberFormat('en-US');
-  $('#sim-out-weight').textContent = fmt.format(weightShare);
+  $('#sim-out-weight').textContent = `${fmt.format(failRefund)} A9 (-${fmt.format(failBurn)})`;
   $('#sim-out-cap').textContent = `${fmt.format(maxCapReward)} A9`;
   $('#sim-out-instant').textContent = `${fmt.format(instantClaim)} A9`;
-  $('#sim-out-locked').textContent = `${fmt.format(lockedReward)} A9`;
+  $('#sim-out-locked').textContent = isCashout
+    ? `${fmt.format(lockedOrBurn)} A9 (BURN)`
+    : `${fmt.format(lockedOrBurn)} A9`;
 }
 
 /* ==========================================================================
@@ -679,7 +685,7 @@ function bindEvents() {
     assumedInput.addEventListener('input', updateSimulator);
     assumedInput.addEventListener('blur', () => {
       const principal = Math.max(PROTOCOL_META.minStake, Number(stakeInput.value) || PROTOCOL_META.minStake);
-      const capped = Math.min(principal * 15, Math.max(0, Math.round(Number(assumedInput.value) || 0)));
+      const capped = Math.min(principal * (PROTOCOL_META.maxRewardMultiplier || 5), Math.max(0, Math.round(Number(assumedInput.value) || 0)));
       assumedInput.value = String(capped);
       updateSimulator();
     });
@@ -697,7 +703,7 @@ function bindEvents() {
     btn.addEventListener('click', () => {
       $('#sim-weight-group').querySelectorAll('.seg-btn').forEach((b) => b.classList.remove('is-active'));
       btn.classList.add('is-active');
-      state.simWeight = Number(btn.dataset.weight) || 2.0;
+      state.simWeight = Number(btn.dataset.weight) || 0.95;
       updateSegIndicator();
       updateSimulator();
     });

@@ -13,9 +13,9 @@ function stagePillTrigger(stage, roundNum) {
   const labels = {
     warmup: L(`第 ${roundNum} 轮 · 开局倒计时`, `Round ${roundNum} · Pre-Round`),
     participation: L(`第 ${roundNum} 轮 · 火热入场`, `Round ${roundNum} · Entry Open`),
-    observation: L(`第 ${roundNum} 轮 · 24H 闯关中`, `Round ${roundNum} · 24H Quest`),
+    observation: L(`第 ${roundNum} 轮 · 12H 冲价中`, `Round ${roundNum} · 12H Push`),
     settlement_success: L(`第 ${roundNum} 轮 · 通关派奖`, `Round ${roundNum} · Passed`),
-    settlement_burn: L(`第 ${roundNum} 轮 · 未通关 · 销毁 BURN`, `Round ${roundNum} · Failed · BURN`),
+    settlement_burn: L(`第 ${roundNum} 轮 · 未通关 · 自动止损`, `Round ${roundNum} · Auto Stop-Loss`),
     halted: L(`第 ${roundNum} 轮 · 异常中止 · 退回本金`, `Round ${roundNum} · Aborted · Refund`)
   };
   const text = labels[stage] || labels.participation;
@@ -66,8 +66,8 @@ export function renderPlazaCompactBanner(pred, round) {
       return `
         <a class="plaza-compact-strip is-early" id="a9-early-bird-banner" data-early-rem="${remSec}" href="#/challenge/confirm">
           <span class="plaza-compact-left">
-            <span class="chip chip-gold" style="min-height:20px;font-size:10px;padding:0 6px;">2.0×</span>
-            <span class="plaza-compact-text">${L('早鸟黄金窗口进行中 · 同额双倍权重', '2.0× Early Window Live · Double Share')}</span>
+            <span class="chip chip-red" style="min-height:20px;font-size:10px;padding:0 6px;">-5%</span>
+            <span class="plaza-compact-text">${L('头矿 6H · 5% 轻止损窗口开放中（全员 1:1 分奖）', 'First 6H · 5% Stop-Loss Live (1:1 Fair Split)')}</span>
           </span>
           <span class="plaza-compact-right mono" id="early-window-cd">${formatTimer(remSec)} ›</span>
         </a>
@@ -109,7 +109,7 @@ export function renderPendingVaultBanner(pred, round) {
         <span class="vault-step next">2/2 ${L('首单加赠或 0 元激活', 'Activate with Order / 0-Cost')}</span>
       </div>
       <p class="num-xs text-sec" style="margin:6px 0 10px;line-height:1.45;">
-        ${L(`0.99 GRAM 购箱共得 ${formatNum(firstOrderTotalA9, 0)} A9（含 +${bonusPct}% 赠金），或质押 / 邀 1 友免费激活。`, `0.99 GRAM chest yields ${formatNum(firstOrderTotalA9, 0)} A9 (+${bonusPct}% bonus), or unlock free via stake / 1 invite.`)}
+        ${L(`0.99 GRAM 购箱共得 ${formatNum(firstOrderTotalA9, 0)} A9（含 +${bonusPct}% 赠金），或锁仓 / 邀 1 友自动激活。`, `0.99 GRAM chest yields ${formatNum(firstOrderTotalA9, 0)} A9 (+${bonusPct}% bonus), or auto-activates via lock / 1 invite.`)}
       </p>
       <div class="grid-2" style="gap:8px;">
         <button class="btn btn-primary btn-sm" data-nav="/internal/market" type="button" style="width:100%;min-height:40px;white-space:nowrap;">${icon('swap', 14)} ${L('首单加赠领箱', 'Claim with Bonus')}</button>
@@ -129,7 +129,7 @@ function toUnixSec(v) {
 }
 
 /**
- * 第一刀 ②：2.0x 早鸟黄金窗口倒计时条（前 1/3 入场窗口，基于 stakeOpenAt / stakeCloseAt）
+ * 第一刀 ②：头矿 6H · 5% 止损窗口倒计时条（锁仓前 6 小时，基于 stakeOpenAt / stakeCloseAt）
  */
 export function renderEarlyBirdBanner(round) {
   if (!round || round.stage !== 'participation') return '';
@@ -138,7 +138,7 @@ export function renderEarlyBirdBanner(round) {
   const nowSec = Math.floor(Date.now() / 1000);
   let remSec = null;
   if (openAt > 0 && closeAt > openAt) {
-    const earlyEnd = openAt + Math.floor((closeAt - openAt) / 3);
+    const earlyEnd = openAt + Number(round.earlyWindowSeconds || 21600);
     if (nowSec < earlyEnd) remSec = earlyEnd - nowSec;
   }
   if ((remSec === null || remSec <= 0) && config.isDemo && Number(round.earlyBirdSec) > 0) {
@@ -150,20 +150,20 @@ export function renderEarlyBirdBanner(round) {
     <section class="early-bird-banner" id="a9-early-bird-banner" data-early-rem="${remSec}">
       <div class="row-between" style="gap:8px;">
         <span class="row-start" style="gap:6px;font-weight:900;font-size:12.5px;">
-          <span class="chip chip-gold" style="height:20px;font-size:10px;padding:0 7px;">2.0× ${L('早鸟权重', 'EARLY')}</span>
-          <span>${L('2.0× 早鸟窗口', '2.0× Early Window')}</span>
+          <span class="chip chip-red" style="height:20px;font-size:10px;padding:0 7px;">${L('头矿 6H', 'FIRST 6H')}</span>
+          <span>${L('头矿 6H · 5% 轻止损窗口', 'First 6H · 5% Stop-Loss Window')}</span>
         </span>
         <span class="mono early-bird-cd" id="early-window-cd">${formatTimer(remSec)}</span>
       </div>
       <div class="num-xs text-sec" style="margin-top:4px;">
-        ${L('前 12h 享 2.0× 权重 · 后续依次降为 1.4× / 1.0×', '2.0× first 12h · then 1.4× / 1.0×')}
+        ${L('前 6 小时进池未通关仅扣 5% 止损（退 95%）；6 小时后为 10% 止损（退 90%），全员 1:1 公平分奖。', 'Lock in First 6H for 5% Stop-Loss (95% refund on fail); 10% Stop-Loss (90% refund) after 6H. 1:1 fair reward split.')}
       </div>
     </section>
   `;
 }
 
 /**
- * v16.2：通关奖励已升级为「20% 秒领 + 80% 分 40 天按秒线性释放，永久累计不倒扣」，
+ * v17.0：通关奖励采用「20% 秒提 + 80% 分 14 天逐秒解锁（支持随时 3 折急提，7 折销毁），永久累计不倒扣」，
  * 不再存在跨轮连坐销毁切片，此卡片默认隐藏。
  */
 export function renderVeteranShieldCard() {
@@ -171,11 +171,11 @@ export function renderVeteranShieldCard() {
 }
 
 /**
- * 24H 预言擂台嵌入式卡片（0 GRAM 参战 + 新人首轮保底 + 防薅激活闭环）
+ * 12H 预言擂台嵌入式卡片（0 GRAM 参战 + 新人首轮保底 + 防薅激活闭环）
  */
 export function renderPredictionCard(round, pred, user) {
   if (!config.isDemo && (!pred?.loaded || pred.roundId !== round.currentRound)) {
-    return `<div class="card" id="a9-prediction-card"><div class="card-title">${L('24H 预言擂台', '24H Prediction Arena')}</div><p class="num-xs text-muted" style="margin:6px 0 0;">${L('正在读取预言数据…', 'Reading prediction data…')}</p></div>`;
+    return `<div class="card" id="a9-prediction-card"><div class="card-title">${L('12H 预言擂台', '12H Prediction Arena')}</div><p class="num-xs text-muted" style="margin:6px 0 0;">${L('正在读取预言数据…', 'Reading prediction data…')}</p></div>`;
   }
   const p = pred || {};
   const roundNum = round?.currentRound || 1;
@@ -215,15 +215,15 @@ export function renderPredictionCard(round, pred, user) {
 
   const qualNow = Number(round?.qualifiedCandles);
   const isSprint4h = round?.stage === 'observation' && Number(round?.countdownSec) > 0 && Number(round?.countdownSec) <= 14400;
-  const isRedAlert = (isSprint4h && Number.isFinite(qualNow) && qualNow >= 12 && qualNow <= 15) || round?.stage === 'settlement_burn';
+  const isRedAlert = (isSprint4h && Number.isFinite(qualNow) && qualNow >= 6 && qualNow <= 7) || round?.stage === 'settlement_burn';
   const headerTag = isRedAlert
-    ? `<span class="chip chip-red">${round?.stage === 'settlement_burn' ? L('销毁警报 BURN', 'BURN ALERT') : L('最后 4H 红警', '4H RED ALERT')}</span>`
+    ? `<span class="chip chip-red">${round?.stage === 'settlement_burn' ? L('止损警报 FAIL', 'STOP-LOSS ALERT') : L('最后 4H 红警', '4H RED ALERT')}</span>`
     : isSprint4h
       ? `<span class="chip chip-red">${L('最后 4H 冲刺', 'Last 4H')}</span>`
       : settled
         ? `<span class="chip chip-muted">${L('已结算', 'Settled')}</span>`
         : bet
-          ? `<span class="chip ${bet.side === 'BURN' ? 'chip-red' : 'chip-green'}">${bet.side === 'BURN' ? L('已押销毁', 'BURN') : L('已押通关', 'PASS')}</span>`
+          ? `<span class="chip ${bet.side === 'BURN' ? 'chip-red' : 'chip-green'}">${bet.side === 'BURN' ? L('已押未通关', 'FAIL') : L('已押通关', 'PASS')}</span>`
           : `<span class="chip chip-green">${L('0 GRAM 免费猜', '0 GRAM Free')}</span>`;
 
   const pendingBlock = pendingA9 > 0 ? `
@@ -233,12 +233,12 @@ export function renderPredictionCard(round, pred, user) {
         <span class="num-md text-green mono">${formatNum(pendingA9)} A9${usdEst !== null ? ` <span class="num-xs text-sec">(${L('约', '~')} $${formatNum(usdEst, 2)})</span>` : ''}</span>
       </div>
       <div class="num-xs text-muted" style="margin-bottom:6px;">${expRemSec !== null ? `<span id="pred-exp-cd" class="mono text-red">${L('距过期', 'Expires')} ${formatTimer(expRemSec)}</span>` : L('48 小时内未激活将自动作废回流奖池', 'Expires in 48H if unactivated')}</div>
-      <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('购任意宝箱（0.99 GRAM 起）、链上质押或邀 1 友购箱即可 0 元激活，合并 0.06 GRAM 领取。', 'Buy any chest (0.99+ GRAM), stake, or invite 1 paid friend to unlock free (0.06 GRAM claim gas).')}</div>
+      <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('购任意宝箱（0.99 GRAM 起）、链上锁仓或邀 1 友购箱即可自动激活，合并 0.06 GRAM 领取。', 'Buy any chest (0.99+ GRAM), lock A9, or invite 1 paid friend to auto-activate (0.06 GRAM claim gas).')}</div>
       <div class="col-gap" style="gap:8px;">
         <button class="btn btn-primary btn-sm" id="btn-pred-activate" type="button" style="width:100%;min-height:40px;">${icon('bolt', 14)} ${L('立即激活奖励', 'Activate Reward')}</button>
         <div class="grid-2">
           <button class="btn btn-secondary btn-sm" data-nav="/internal/market" type="button" style="width:100%;">${icon('swap', 13)} ${L('去宝箱商城 (0.99 GRAM 起)', 'Chest Mall (0.99+)')}</button>
-          <button class="btn btn-secondary btn-sm" data-nav="/challenge/confirm" type="button" style="width:100%;">${icon('shieldCheck', 13)} ${L('链上质押', 'Stake')}</button>
+          <button class="btn btn-secondary btn-sm" data-nav="/challenge/confirm" type="button" style="width:100%;">${icon('shieldCheck', 13)} ${L('链上锁仓', 'Lock A9')}</button>
         </div>
       </div>
     </div>
@@ -248,14 +248,14 @@ export function renderPredictionCard(round, pred, user) {
   if (settled) {
     const won = bet && winningSide && bet.side === winningSide;
     const isRookieBonus = bet && bet.status === 'LOST_FIRST_BONUS';
-    const outcomeText = winningSide === 'BURN' ? L('本轮结果：未达标 · 销毁 BURN', 'Outcome: BURN') : L('本轮结果：达标通关 (PASS)', 'Outcome: PASS');
+    const outcomeText = winningSide === 'BURN' ? L('本轮结果：未通关 · 自动止损', 'Outcome: Auto Stop-Loss') : L('本轮结果：达标通关 (PASS)', 'Outcome: PASS');
     bodyHtml = `
       <div class="sub-tile" style="margin-top:12px;">
         <div class="row-between">
           <span class="num-sm" style="font-weight:700;">${outcomeText}</span>
           ${bet ? `<span class="chip ${won ? 'chip-green' : isRookieBonus ? 'chip-gold' : 'chip-red'}">${won ? L('预言命中', 'Won') : isRookieBonus ? L('首轮保底 +500 A9', 'Rookie +500 A9') : L('未命中', 'Missed')}</span>` : `<span class="chip chip-muted">${L('未参战', 'No Entry')}</span>`}
         </div>
-        ${bet ? `<div class="num-xs text-sec" style="margin-top:6px;">${L('我的立场', 'My Call')}: <b>${bet.side === 'BURN' ? 'BURN' : 'PASS'}</b>${bet.guessSlots !== null && bet.guessSlots !== undefined ? ` · ${L(`精准 ${bet.guessSlots} 段`, `${bet.guessSlots} slots`)}` : ''}${isRookieBonus ? ` · ${L('新人首轮保底已入待解锁金库', 'First-round rookie floor credited to vault')}` : ''}</div>` : ''}
+        ${bet ? `<div class="num-xs text-sec" style="margin-top:6px;">${L('我的立场', 'My Call')}: <b>${bet.side === 'BURN' ? L('未通关 FAIL', 'FAIL') : 'PASS'}</b>${bet.guessSlots !== null && bet.guessSlots !== undefined ? ` · ${L(`精准 ${bet.guessSlots} 段`, `${bet.guessSlots} slots`)}` : ''}${isRookieBonus ? ` · ${L('新人首轮保底已入待解锁金库', 'First-round rookie floor credited to vault')}` : ''}</div>` : ''}
       </div>
     `;
   } else if (bet) {
@@ -263,8 +263,8 @@ export function renderPredictionCard(round, pred, user) {
       <div class="sub-tile" style="margin-top:12px;border-color:${bet.side === 'BURN' ? 'var(--red-border)' : 'var(--emerald-border)'};">
         <div class="row-between">
           <div class="num-sm" style="font-weight:700;">
-            <span class="${bet.side === 'BURN' ? 'text-red' : 'text-green'}">${bet.side === 'BURN' ? L('已押销毁 BURN', 'BURN') : L('已押通关 PASS', 'PASS')}</span>
-            ${bet.guessSlots !== null && bet.guessSlots !== undefined ? `<span class="text-sec"> · ${L(`精准 ${bet.guessSlots}/24`, `${bet.guessSlots}/24`)}</span>` : ''}
+            <span class="${bet.side === 'BURN' ? 'text-red' : 'text-green'}">${bet.side === 'BURN' ? L('已押未通关 FAIL', 'FAIL') : L('已押通关 PASS', 'PASS')}</span>
+            ${bet.guessSlots !== null && bet.guessSlots !== undefined ? `<span class="text-sec"> · ${L(`精准 ${bet.guessSlots}/12`, `${bet.guessSlots}/12`)}</span>` : ''}
           </div>
           <span class="num-xs text-muted">${icon('lock', 11)} ${L('每轮限 1 次', 'Locked')}</span>
         </div>
@@ -278,7 +278,7 @@ export function renderPredictionCard(round, pred, user) {
   } else if (needsIdentity) {
     bodyHtml = `
       <div class="sub-tile" style="margin-top:12px;border-color:var(--gold-border);">
-        <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('请在 Telegram 内打开或先连接 TON 钱包，即可 0 GRAM 免费参与 24H 预言擂台（新人首轮参与保底 500 A9 待解锁体验金）。', 'Open in Telegram or connect a TON wallet to join the 0 GRAM 24H Prediction Arena (500 A9 first-round rookie floor).')}</div>
+        <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('请在 Telegram 内打开或先连接 TON 钱包，即可 0 GRAM 免费参与 12H 预言擂台（新人首轮参与保底 500 A9 待解锁体验金）。', 'Open in Telegram or connect a TON wallet to join the 0 GRAM 12H Prediction Arena (500 A9 first-round rookie floor).')}</div>
         <button class="btn btn-primary btn-sm" id="btn-pred-connect" type="button" style="width:100%;min-height:40px;">${icon('wallet', 14)} ${L('连接钱包参与', 'Connect Wallet')}</button>
       </div>
     `;
@@ -286,14 +286,14 @@ export function renderPredictionCard(round, pred, user) {
     bodyHtml = `
       <div class="grid-2" style="margin-top:12px;">
         <button class="pred-side-btn pass" data-pred-side="PASS" type="button">${icon('checkCircle', 15)} ${L('猜通关 PASS', 'Guess PASS')}</button>
-        <button class="pred-side-btn burn" data-pred-side="BURN" type="button">${icon('flame', 15)} ${L('猜销毁 BURN', 'Guess BURN')}</button>
+        <button class="pred-side-btn burn" data-pred-side="BURN" type="button">${icon('flame', 15)} ${L('猜未通关 FAIL', 'Guess FAIL')}</button>
       </div>
       <div class="row-between" style="margin-top:10px;">
         <div>
-          <div class="num-xs" style="font-weight:700;">${L('精准格数（选填 0–24）', 'Exact Slots (0-24)')}</div>
+          <div class="num-xs" style="font-weight:700;">${L('精准格数（选填 0–12）', 'Exact Slots (0-12)')}</div>
           <div class="num-xs text-muted">${L('猜中达标时段数享 +0.5x 权重 · 首轮保底 500 A9', 'Exact match +0.5x · 500 A9 first-round floor')}</div>
         </div>
-        <input id="pred-guess-slots" class="pred-slot-input" type="number" min="0" max="24" placeholder="0-24" aria-label="${L('精准达标格数', 'Exact qualified slots')}" />
+        <input id="pred-guess-slots" class="pred-slot-input" type="number" min="0" max="12" placeholder="0-12" aria-label="${L('精准达标格数', 'Exact qualified slots')}" />
       </div>
       ${weightHintHtml}
       <button class="btn btn-primary" id="btn-pred-submit" type="button" style="margin-top:12px;min-height:46px;">${icon('bolt', 15)} ${L('0 GRAM 锁定本轮预言', 'Lock 0 GRAM Prediction')}</button>
@@ -304,7 +304,7 @@ export function renderPredictionCard(round, pred, user) {
     <div class="card${isRedAlert ? ' alert-red-mode' : ''}" id="a9-prediction-card">
       <div class="pred-card-head" id="pred-toggle-head" role="button" tabindex="0" aria-expanded="${isExpanded}">
         <div class="row-start" style="gap:8px;">
-          <span class="card-title">${icon('radar', 15, 'text-cyan')} ${L('24H 预言擂台', '24H Prediction Arena')}</span>
+          <span class="card-title">${icon('radar', 15, 'text-cyan')} ${L('12H 预言擂台', '12H Prediction Arena')}</span>
           ${headerTag}
         </div>
         <div class="row-start num-xs text-muted">
@@ -318,7 +318,7 @@ export function renderPredictionCard(round, pred, user) {
             <div class="row-between num-xs" style="margin-bottom:6px;">
               <span style="color:var(--emerald);font-weight:800;">${L('通关多军 PASS', 'PASS')} ${passPct}%</span>
               <span class="text-muted mono">${L(`共 ${formatNum(total)} 人对决`, `${formatNum(total)} entries`)}</span>
-              <span class="text-red" style="font-weight:800;">${L('销毁空军 BURN', 'BURN')} ${burnPct}%</span>
+              <span class="text-red" style="font-weight:800;">${L('未通关空军 FAIL', 'FAIL')} ${burnPct}%</span>
             </div>
             <div class="pred-split-bar pred-versus-bar">
               <div class="pred-split-pass" style="width:${passPct}%;"></div>
@@ -347,7 +347,7 @@ export function renderWarmupStage(round, user) {
         <div class="metric-cell"><span class="num-xs text-muted">${L('我的有效直邀', 'Valid Invites')}</span><span class="num-sm text-gold">${user.warmupInvites}</span></div>
         <div class="metric-cell"><span class="num-xs text-muted">${L('开箱门槛', 'Unlock Goal')}</span><span class="num-sm">2–5</span></div>
       </div>
-      <button class="btn btn-primary" data-nav="/warmup">${icon('flame', 16)} ${user.warmupRegistered ? L('已报名 · 早鸟先锋榜', 'Joined · Early Bird Board') : L('免费报名开局预热', 'Join Pre-Round Free')}</button>
+      <button class="btn btn-primary" data-nav="/warmup">${icon('flame', 16)} ${user.warmupRegistered ? L('已报名 · 预热先锋榜', 'Joined · Warm-Up Board') : L('免费报名开局预热', 'Join Pre-Round Free')}</button>
     </div>
 
     <div class="grid-4">
@@ -390,7 +390,7 @@ export function renderParticipation(round) {
           <span class="num-md">${priceOrDash(round.targetPrice)}</span>
         </div>
         <div class="metric-cell">
-          <span class="num-xs text-muted">${L('判定均价', 'Judge TWAP')}</span>
+          <span class="num-xs text-muted">${L('1H 均价', '1H TWAP')}</span>
           <span class="num-md text-green">${priceOrDash(round.twap24h)}</span>
         </div>
       </div>
@@ -401,7 +401,7 @@ export function renderParticipation(round) {
         `).join('')}
       </div>
 
-      <button class="btn btn-primary" id="hero-stake-cta" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L(`立即参与 ${formatNum(qAmt)} A9`, `Participate ${formatNum(qAmt)} A9`)}</button>
+      <button class="btn btn-primary" id="hero-stake-cta" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L(`立即锁仓 ${formatNum(qAmt)} A9`, `Lock ${formatNum(qAmt)} A9`)}</button>
       <div class="num-xs text-muted" style="margin-top:8px;">
         ${est === null
           ? L('预计奖励：等待服务端参与数据', 'Estimate: awaiting participation data')
@@ -410,9 +410,9 @@ export function renderParticipation(round) {
     </div>
 
     <div class="step-rail">
-      <div class="step-item current" ${config.isDemo ? 'data-step-stage="participation"' : ''}><span class="step-num">1</span><span>${L('参与', 'Enter')}</span></div>
-      <div class="step-item" ${config.isDemo ? 'data-step-stage="observation"' : ''}><span class="step-num">2</span><span>${L('观察 24H', '24H Observe')}</span></div>
-      <div class="step-item" ${config.isDemo ? 'data-step-stage="settlement_success"' : ''}><span class="step-num">3</span><span>${L('领取 A9', 'Claim A9')}</span></div>
+      <div class="step-item current" ${config.isDemo ? 'data-step-stage="participation"' : ''}><span class="step-num">1</span><span>${L('24H 锁仓', '24H Lock')}</span></div>
+      <div class="step-item" ${config.isDemo ? 'data-step-stage="observation"' : ''}><span class="step-num">2</span><span>${L('12H 冲价', '12H Push')}</span></div>
+      <div class="step-item" ${config.isDemo ? 'data-step-stage="settlement_success"' : ''}><span class="step-num">3</span><span>${L('20% 秒提', '20% Instant')}</span></div>
     </div>
 
     ${renderVeteranShieldCard(round, store.state.user)}
@@ -430,17 +430,17 @@ export function renderParticipation(round) {
 }
 
 /**
- * 挑战页观察总览：重心 100% 放在「达标进度 + 剩余时间 → 24H 观测盘 → 选中时段依据」
+ * 挑战页 12H 冲价总览：重心 100% 放在「达标进度 + 剩余时间 → 12H 冲价盘 → 选中时段依据」
  */
 export function renderObservation(round) {
   const hasQualified = Number.isInteger(round.qualifiedCandles);
   const passed = hasQualified ? round.qualifiedCandles : 0;
-  const required = round.minQualifiedCandles || 16;
+  const required = round.minQualifiedCandles || 8;
   const need = !hasQualified ? null : (Number.isFinite(round.needMore) ? round.needMore : Math.max(0, required - passed));
   const pct = hasQualified && required ? Math.round(Math.min(100, (passed / required) * 100)) : 0;
   const est = round.myWeight > 0 ? estimateRewardA9(round.myStakeTon) : null;
   const isSprint4h = Number(round.countdownSec) > 0 && Number(round.countdownSec) <= 14400;
-  const isRedAlert = isSprint4h && hasQualified && passed >= 12 && passed <= 15;
+  const isRedAlert = isSprint4h && hasQualified && passed >= 6 && passed <= 7;
   const isMatchPoint = isSprint4h || (hasQualified && passed >= Math.max(1, required - 2) && passed < required);
 
   return `
@@ -488,21 +488,22 @@ export function renderObservation(round) {
 }
 
 /**
- * 任天堂「24H 印章簿」（#/observation/records）
- * 彻底移除旧圆形星盘，改为 4×6 大号手盖圆章速选板 + 固定高度判定依据卡 + 记忆选中时段
+ * 任天堂「12H 印章簿」（#/observation/records）
+ * 改为大号手盖圆章速选板 + 固定高度判定依据卡 + 记忆选中时段
  */
 export function renderObservationRecords(root) {
   const round = store.state.round;
   const candles = round.candles || [];
+  const totalSlots = Number(round.protocolConfig?.candleCount ?? round.candleCount) || 12;
   const states = {
     pass: L('已确认达标', 'Confirmed · met'),
     miss: L('已确认未达标', 'Confirmed · missed'),
-    active: L('观察中 · 待确认', 'Observing · pending'),
+    active: L('冲价中 · 待确认', 'Pushing · pending'),
     pending: L('尚未开始', 'Upcoming'),
     unknown: L('数据待核验', 'Awaiting verification')
   };
   const symbols = { pass: '✓', miss: '×', active: '◉', pending: '·', unknown: '?' };
-  const slots = Array.from({ length: 24 }, (_, i) => {
+  const slots = Array.from({ length: totalSlots }, (_, i) => {
     const candle = candles.find(c => c.index === i + 1);
     const state = candle?.confirmed
       ? (candle.bull ? 'pass' : 'miss')
@@ -511,11 +512,11 @@ export function renderObservationRecords(root) {
   });
 
   const confirmedCount = slots.filter(s => s.state === 'pass' || s.state === 'miss').length;
-  const required = round.minQualifiedCandles || 16;
+  const required = round.minQualifiedCandles || 8;
   const roundKey = String(round.currentRound ?? 'cur');
   const remembered = uiMemory.selectedSlotByRound[roundKey];
   const active = slots.find(slot => slot.state === 'active');
-  let selected = Number.isInteger(remembered) && remembered >= 1 && remembered <= 24
+  let selected = Number.isInteger(remembered) && remembered >= 1 && remembered <= totalSlots
     ? remembered
     : (active?.number || 1);
 
@@ -524,8 +525,8 @@ export function renderObservationRecords(root) {
       <section class="stamp-logbook wv-tower" data-round="${round.currentRound ?? ''}">
         <header class="row-between" style="margin-bottom:10px;">
           <div>
-            <small>${L('第', 'Round')} ${round.currentRound ?? '—'}${L(' 轮', '')} · 24H</small>
-            <h1 style="margin:2px 0 0;font-size:18px;font-weight:900;">${L('24H 印章簿', '24H Stamp Log')}</h1>
+            <small>${L('第', 'Round')} ${round.currentRound ?? '—'}${L(' 轮', '')} · 12H Push</small>
+            <h1 style="margin:2px 0 0;font-size:18px;font-weight:900;">${L('12H 印章簿', '12H Stamp Log')}</h1>
           </div>
           <span class="chip chip-muted mono">${L('门槛', 'Goal')} ${round.qualifiedCandles ?? '—'}/${required}</span>
         </header>
@@ -533,7 +534,7 @@ export function renderObservationRecords(root) {
         <div class="radar-dual-counts" style="margin-top:0;">
           <div class="radar-count-box">
             <small>${L('已确认时段', 'Confirmed')}</small>
-            <b>${confirmedCount} / 24</b>
+            <b>${confirmedCount} / ${totalSlots}</b>
           </div>
           <div class="radar-count-box pass">
             <small>${L('已达标时段', 'Qualified')}</small>
@@ -541,7 +542,7 @@ export function renderObservationRecords(root) {
           </div>
         </div>
 
-        <div class="stamp-board wv-windows" role="group" aria-label="${L('选择观测时段', 'Select observation slot')}">
+        <div class="stamp-board wv-windows" role="group" aria-label="${L('选择冲价时段', 'Select 12H Push slot')}">
           ${slots.map(({ number, state }) => `
             <button type="button" class="stamp-pad" data-slot="${number}" data-state="${state}" aria-label="${L('第', 'Slot')} ${number} · ${states[state]}">
               <em aria-hidden="true">${symbols[state]}</em>
@@ -553,7 +554,7 @@ export function renderObservationRecords(root) {
         <div class="star-key" style="margin-top:8px;">
           <span><i class="key-pass"></i>${L('达标 ✓', 'Met ✓')}</span>
           <span><i class="key-miss"></i>${L('未达 ×', 'Miss ×')}</span>
-          <span><i class="key-active"></i>${L('观察中 ◉', 'Live ◉')}</span>
+          <span><i class="key-active"></i>${L('冲价中 ◉', 'Pushing ◉')}</span>
           <span><i class="key-pending"></i>${L('未开始', 'Upcoming')}</span>
         </div>
 
@@ -573,8 +574,8 @@ export function renderObservationRecords(root) {
   const fmtPrice = (v) => (v > 0 ? '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 12 }) : '—');
 
   function explainSlot(slot) {
-    if (slot.state === 'pass') return L('本段判定均价 ≥ 目标底价，已盖章计入达标。', 'Slot TWAP met or exceeded target; counted as qualified.');
-    if (slot.state === 'miss') return L('本段判定均价低于目标底价，未计入达标。', 'Slot TWAP fell below target; not counted.');
+    if (slot.state === 'pass') return L('本段 1H 均价 ≥ 目标底价，已盖章计入达标。', 'Slot 1H TWAP met or exceeded target; counted as qualified.');
+    if (slot.state === 'miss') return L('本段 1H 均价低于目标底价，未计入达标。', 'Slot 1H TWAP fell below target; not counted.');
     if (slot.state === 'active') return L('当前时段仍在采集中，整点收盘后确认盖章。', 'Slot is live; sealed automatically on the hour.');
     if (slot.state === 'pending') return L('该时段尚未到达，进入后自动开始观测。', 'This slot has not started yet.');
     return L('该时段暂无核验记录，请等待接口同步。', 'No verified data yet for this slot.');
@@ -631,12 +632,12 @@ export function renderSettlementSuccess(round, user) {
     <div class="card card-hero">
       <div class="row-between" style="margin-bottom:10px;">
         ${stagePillTrigger('settlement_success', round.currentRound)}
-        <span class="chip chip-green">${icon('checkCircle', 11)} ${round.qualifiedCandles}/${round.minQualifiedCandles || 16}</span>
+        <span class="chip chip-green">${icon('checkCircle', 11)} ${round.qualifiedCandles}/${round.minQualifiedCandles || 8}</span>
       </div>
       <div class="num-xs text-muted">${L('实际可领奖励（已结算）', 'Actual claimable (settled)')}</div>
       <div class="num-hero" style="margin-top:4px;">${formatNum(user.a9Claimable)} <span class="num-md text-green">A9</span></div>
       <div class="metric-strip">
-        <div class="metric-cell"><span class="num-xs text-muted">${L('达标时段', 'Qualified slots')}</span><span class="num-md">${round.qualifiedCandles}/${round.minQualifiedCandles || 16}</span></div>
+        <div class="metric-cell"><span class="num-xs text-muted">${L('达标时段', 'Qualified slots')}</span><span class="num-md">${round.qualifiedCandles}/${round.minQualifiedCandles || 8}</span></div>
         <div class="metric-cell"><span class="num-xs text-muted">${L('待解锁奖励', 'Locked')}</span><span class="num-md text-sec">${formatNum(user.a9Locked)} A9</span></div>
       </div>
       <button class="btn btn-primary" data-nav="/claim">${icon('bolt', 16)} ${L('前往金库领奖', 'Claim Prizes')}</button>
@@ -652,24 +653,24 @@ export function renderSettlementSuccess(round, user) {
 
 export function renderSettlementFailed(round) {
   const hasQ = Number.isInteger(round.qualifiedCandles);
-  const reqQ = round.minQualifiedCandles || 16;
+  const reqQ = round.minQualifiedCandles || 8;
   const failPct = hasQ ? Math.round((round.qualifiedCandles / reqQ) * 100) : 0;
   return `
     ${renderPendingVaultBanner(store.state.prediction, round)}
     <div class="card card-glow-red alert-red-mode" id="burn-monument-card">
       <div class="row-between" style="margin-bottom:10px;">
         ${stagePillTrigger('settlement_burn', round?.currentRound || 1)}
-        <span class="chip chip-red">${L('未通关 · 销毁 BURN', 'Failed · BURN')} ${hasQ ? round.qualifiedCandles : '—'}/${reqQ}</span>
+        <span class="chip chip-red">${L('未通关 · 自动止损', 'Auto Stop-Loss')} ${hasQ ? round.qualifiedCandles : '—'}/${reqQ}</span>
       </div>
       <div class="progress-track" style="margin-bottom:10px;"><div class="progress-fill red no-anim" style="width:${failPct}%"></div></div>
       <div>
-        <div class="list-row"><span class="text-sec">${L('本轮参与本金处理', 'Principal')}</span><span class="num-xs text-red">${L('按 v16.2 规则销毁 BURN', 'Burned per v16.2')}</span></div>
+        <div class="list-row"><span class="text-sec">${L('本轮参与本金处理', 'Principal')}</span><span class="num-xs text-red">${L('永不爆仓 · 自动止损（头矿 6H 退 95% / 普通退 90%）', 'No Liquidation · Auto Stop-Loss (95% First 6H / 90% Std)')}</span></div>
         <div class="list-row"><span class="text-sec">${L('战队额度', 'Squad quota')}</span><span class="num-xs text-gold">${L('120,000,000 A9 销毁 / 结转', '120,000,000 A9 burned / carried')}</span></div>
       </div>
       <div class="sub-tile" style="margin-top:10px;">
-        <div class="num-xs text-sec" style="line-height:1.5;">${L('见证销毁 BURN 并分享，下轮宝箱商城享优先通道与额度加成。', 'Share this BURN proof for next-round Chest Mall priority and quota boost.')}</div>
+        <div class="num-xs text-sec" style="line-height:1.5;">${L('分享本轮自动止损与半池通缩战报，下轮宝箱商城享优先通道。', 'Share this Auto Stop-Loss & half-pool burn proof for next-round Chest Mall access.')}</div>
       </div>
-      <button class="btn btn-secondary" data-x-share="burn" type="button" style="margin-top:10px;">${icon('xBrand', 15)} ${L('分享销毁 BURN 证明', 'Share Burn Proof')}</button>
+      <button class="btn btn-secondary" data-x-share="burn" type="button" style="margin-top:10px;">${icon('xBrand', 15)} ${L('分享本轮自动止损战报', 'Share Stop-Loss Proof')}</button>
     </div>
     ${renderPredictionCard(round, store.state.prediction, store.state.user)}
     <div class="grid-2">

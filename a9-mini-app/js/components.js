@@ -445,10 +445,10 @@ export function launchCoinArc(fromEl, toEl, count = 6) {
 }
 
 /**
- * A9 标志性 24H 手盖圆章观测矩阵 (4x6)
- * - 双分母顶标：已确认 X/24 · 已达标 Y/16
- * - 每格同时用编号 + 几何状态符号（✓ 达标 / × 未达标 / ◉ 观察中青蓝 / · 未开始），颜色只作辅助
- * - 固定高度底部判定依据栏：并列展示本段均价、目标底价与明确结论，切格绝不跳动
+ * A9 标志性 12H 冲价手盖圆章矩阵
+ * - 双分母顶标：已确认 X/12 · 已达标 Y/8
+ * - 每格同时用编号 + 几何状态符号（✓ 达标 / × 未达标 / ◉ 冲价中青蓝 / · 未开始），颜色只作辅助
+ * - 固定高度底部判定依据栏：并列展示本段 1H 均价、目标底价与明确结论，切格绝不跳动
  */
 function slotSymbol(status, bull) {
   if (status === 'pending') return '·';
@@ -467,20 +467,20 @@ function buildInspectorHtml(slotInfo, targetPrice, activeCandleSec) {
 
   let verdictText = L('尚未开始', 'Upcoming');
   let verdictCls = 'text-muted';
-  let explain = L('等待到达该时段后再开始采集判定均价', 'Awaiting slot window');
+  let explain = L('等待到达该时段后再开始采集 1H 均价', 'Awaiting slot window');
 
   if (confirmed) {
     if (bull) {
       verdictText = L('已核验达标 ✓', 'Met ✓');
       verdictCls = 'text-green';
-      explain = `${L('本段均价', 'Slot')} ${priceStr} ≥ ${L('目标', 'Target')} ${targetStr}`;
+      explain = `${L('本段 1H 均价', 'Slot 1H TWAP')} ${priceStr} ≥ ${L('目标', 'Target')} ${targetStr}`;
     } else {
       verdictText = L('已确认未达标 ×', 'Missed ×');
       verdictCls = 'text-red';
-      explain = `${L('本段均价', 'Slot')} ${priceStr} < ${L('目标', 'Target')} ${targetStr}`;
+      explain = `${L('本段 1H 均价', 'Slot 1H TWAP')} ${priceStr} < ${L('目标', 'Target')} ${targetStr}`;
     }
   } else if (status === 'active') {
-    verdictText = L('观察中 · 待确认', 'Observing · pending');
+    verdictText = L('冲价中 · 待确认', 'Pushing · pending');
     verdictCls = 'text-cyan';
     explain = `${L('当前均价', 'Now')} ${priceStr} · ${L('目标', 'Target')} ${targetStr}`;
   } else if (status === 'unknown') {
@@ -506,7 +506,7 @@ function buildInspectorHtml(slotInfo, targetPrice, activeCandleSec) {
 }
 
 export function renderCorridorRadar(candles, targetPrice, activeCandleSec, livePrice, meta = {}) {
-  const required = Number(meta.minQualified) || 16;
+  const required = Number(meta.minQualified) || 8;
   const passed = Number.isFinite(meta.qualified) ? Number(meta.qualified)
     : candles.filter(c => c.status === 'closed' && c.bull).length;
   const confirmedSlots = candles.filter(c => c.status === 'closed').length;
@@ -556,19 +556,19 @@ export function renderCorridorRadar(candles, targetPrice, activeCandleSec, liveP
     <div class="card${isMatchPoint ? ' is-matchpoint' : ''}" id="a9-radar-card" data-target-price="${targetPrice ?? ''}">
       <div class="card-header" style="margin-bottom:8px;">
         <div class="row-start" style="gap:6px;flex-wrap:wrap;">
-          <div class="card-title">${icon('radar', 15, 'text-cyan')} ${L('24H 观测盘', '24H Observation Board')}</div>
+          <div class="card-title">${icon('radar', 15, 'text-cyan')} ${L('12H 冲价盘', '12H Push Board')}</div>
           ${sprintBadge}
         </div>
         <div class="row-start" style="gap:10px;">
           <button class="text-link-btn" type="button" data-x-share="round" style="color:var(--text-secondary);">${icon('xBrand', 12)} ${L('分享', 'Share')}</button>
-          <button class="text-link-btn" type="button" data-nav="/observation/records">${L('集章明细', 'Details')} ${icon('chevronRight', 13)}</button>
+          <button class="text-link-btn" type="button" data-nav="/observation/records">${L('12H 印章明细', 'Details')} ${icon('chevronRight', 13)}</button>
         </div>
       </div>
 
       <div class="radar-dual-counts" id="radar-counts">
         <div class="radar-count-box">
           <small>${L('已确认时段', 'Confirmed')}</small>
-          <b>${confirmedSlots} / 24</b>
+          <b>${confirmedSlots} / ${candles.length || 12}</b>
         </div>
         <div class="radar-count-box pass">
           <small>${L('已达标门槛', 'Qualified')}</small>
@@ -587,27 +587,27 @@ export function renderCorridorRadar(candles, targetPrice, activeCandleSec, liveP
       <div class="radar-legend" aria-hidden="true">
         <span class="legend-item"><span class="legend-dot bull"></span>${L('达标 ✓', 'Met ✓')}</span>
         <span class="legend-item"><span class="legend-dot bear"></span>${L('未达 ×', 'Miss ×')}</span>
-        <span class="legend-item"><span class="legend-dot active"></span>${L('观察中 ◉', 'Live ◉')}</span>
+        <span class="legend-item"><span class="legend-dot active"></span>${L('冲价中 ◉', 'Pushing ◉')}</span>
         <span class="legend-item"><span class="legend-dot pending"></span>${L('未开始', 'Soon')}</span>
       </div>
 
       <div class="row-between num-xs text-muted" style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--card-border);">
         <span>${L('目标底价', 'Target')} <b class="mono" style="color:var(--ink);">${targetStr}</b></span>
-        <span>${L('判定均价', 'TWAP')} <b class="mono text-green" id="live-twap-val">${priceText(livePrice)}</b></span>
+        <span>${L('1H 均价', '1H TWAP')} <b class="mono text-green" id="live-twap-val">${priceText(livePrice)}</b></span>
       </div>
     </div>
   `;
 }
 
 /**
- * 增量原位更新 24H 观测盘
+ * 增量原位更新 12H 冲价盘
  * - 平时保持安静，仅当某格真实从 active 转为 closed 时触发短促盖章动画
  */
 export function syncRadarInPlace(round, { batch = false } = {}) {
   const grid = document.getElementById('a9-radar-grid');
   if (!grid || !Array.isArray(round.candles)) return;
 
-  const required = round.minQualifiedCandles || 16;
+  const required = round.minQualifiedCandles || 8;
   const passed = round.qualifiedCandles || 0;
   const need = Math.max(0, required - passed);
   const confirmedSlots = round.candles.filter(c => c.status === 'closed').length;
@@ -647,7 +647,7 @@ export function syncRadarInPlace(round, { batch = false } = {}) {
     countsEl.innerHTML = `
       <div class="radar-count-box">
         <small>${L('已确认时段', 'Confirmed')}</small>
-        <b>${confirmedSlots} / 24</b>
+        <b>${confirmedSlots} / ${round.candles.length || 12}</b>
       </div>
       <div class="radar-count-box pass">
         <small>${L('已达标门槛', 'Qualified')}</small>
@@ -685,7 +685,7 @@ export function syncRadarInPlace(round, { batch = false } = {}) {
   }
 }
 
-/** 绑定 24H 观测盘点选事件（稳态输出判定依据，零跳动） */
+/** 绑定 12H 冲价盘点选事件（稳态输出判定依据，零跳动） */
 export function bindCorridorRadarEvents(root) {
   if (!root) return;
   const card = root.querySelector('#a9-radar-card');

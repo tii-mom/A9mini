@@ -5,9 +5,11 @@ import {
   encodeSingleCellBoc,
   encodeTextCommentBoc,
   encodeTicketClaimBoc,
+  encodeEarlyExitBoc,
   parseTonAddress,
   buildV15StakeTx,
   buildV15ClaimTx,
+  buildV17EarlyExitTx,
   buildV15PromoFeeTx,
   buildV15PresaleTx,
   V15_GAS,
@@ -166,6 +168,21 @@ test('parseTonAddress exposes testOnly/bounceable flags and BitBuilder rejects u
     roundId: 1,
     network: 'mainnet',
   }), /coins overflow/);
+});
+
+test('v17 EarlyExit (0x52540306) and TicketClaim instantDiscount=true encode dual-action 0.34 GRAM BOCs', () => {
+  const TICKET = '0:' + 'aa'.repeat(32);
+  const exitTx = buildV17EarlyExitTx(TICKET, 77n, { network: 'mainnet' });
+  assert.equal(exitTx.messages[0].amount, '340000000');
+  const exitRaw = Buffer.from(exitTx.messages[0].payload, 'base64');
+  assert.equal(exitRaw.subarray(0, 4).toString('hex'), 'b5ee9c72');
+  assert.ok(exitRaw.includes(Buffer.from([0x52, 0x54, 0x03, 0x06])));
+
+  const normalClaim = buildV15ClaimTx(TICKET, 88n, { network: 'mainnet', instantDiscount: false });
+  const fastClaim = buildV15ClaimTx(TICKET, 88n, { network: 'mainnet', instantDiscount: true });
+  assert.equal(normalClaim.messages[0].amount, '220000000');
+  assert.equal(fastClaim.messages[0].amount, '340000000');
+  assert.notEqual(normalClaim.messages[0].payload, fastClaim.messages[0].payload);
 });
 
 console.log(`All ${passed} v15 frontend tx-builder tests passed.`);

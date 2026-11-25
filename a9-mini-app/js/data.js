@@ -31,22 +31,35 @@ import {
 import { A9TMA } from './tma.js';
 import { L } from './i18n.js';
 
-/** v16.2 唯一前端展示口径常量源（Single Source of Truth，严禁各页散落旧口径） */
+/** v17.0 涨价解锁（Price-Unlock）唯一前端展示口径常量源（Single Source of Truth） */
 export const PROTOCOL_SPECS = Object.freeze({
-  version: 'v16.2',
+  version: 'v17.0',
   referralPct: 6,
+  stakeReferralPct: 8,
   chestBoostMinPct: 5,
   chestBoostMaxPct: 30,
   deliveryFeeGram: 0.06,
   refundGasGram: 0.03,
   stakeGasGram: 0.30,
   claimGasGram: 0.22,
-  maxRewardMultiplier: 15,
-  passRequired: 16,
-  passTotal: 24,
+  dualClaimGasGram: 0.34,
+  minStakeA9: 100,
+  maxRewardMultiplier: 5,
+  lockHours: 24,
+  first6hHours: 6,
+  pushHours: 12,
+  passRequired: 8,
+  passTotal: 12,
+  corridorMinPct: 30,
+  corridorMaxPct: 100,
   immediateUnlockPct: 20,
-  linearVestingDays: 40,
-  dailyUnlockPct: 2,
+  linearVestingDays: 14,
+  dailyUnlockPct: 5.71,
+  failEarlyStopLossPct: 5,
+  failLateStopLossPct: 10,
+  earlyExitBurnPct: 15,
+  instantCashoutPct: 30,
+  instantCashoutBurnPct: 70,
   promoCapA9: 300_000_000,
   totalSupplyA9: 10_000_000_000,
   rewardPoolA9: 7_000_000_000,
@@ -241,13 +254,13 @@ export function mapRoundView(snapshot) {
   const d = snapshot.detail || {};
   const c = snapshot.config || {};
   const decimals = c.token?.decimals ?? 9;
-  const candleCount = c.candleCount || 24;
-  const minQualified = c.minQualifiedCandles || 16;
+  const candleCount = c.candleCount || 12;
+  const minQualified = c.minQualifiedCandles || 8;
   const target = d.targetLocked === false ? null : e8ToUsd(d.targetPriceUsdE8);
   const judgePrice = d.priceValid === false ? null : e8ToUsd(d.priceUsdE8);
   const seen = Number(d.candlesSeen) || 0;
   const confirmed = Array.isArray(d.candles) ? d.candles.length : seen;
-  const qualified = Number.isInteger(d.qualifiedCandles) && d.qualifiedCandles >= 0 && d.qualifiedCandles <= 24 ? d.qualifiedCandles : null;
+  const qualified = Number.isInteger(d.qualifiedCandles) && d.qualifiedCandles >= 0 && d.qualifiedCandles <= candleCount ? d.qualifiedCandles : null;
   const liveIndex = d.live ? Number(d.live.candleIndex) : -1;
   const livePrice = d.live ? e8ToUsd(d.live.twapPriceUsdE8) : judgePrice;
 
@@ -298,6 +311,11 @@ export function mapRoundView(snapshot) {
     priceChangePct: null,
     stakeOpenAt: d.stakeOpenAt ?? null,
     stakeCloseAt: d.stakeCloseAt ?? null,
+    earlyCloseAt: d.earlyCloseAt ?? (d.stakeOpenAt ? Number(d.stakeOpenAt) + Number(d.earlyWindowSeconds || c.earlyWindowSeconds || 21600) : null),
+    earlyWindowSeconds: Number(d.earlyWindowSeconds || c.earlyWindowSeconds || 21600),
+    inFirst6h: Boolean(d.inFirst6h),
+    earlySecondsRemaining: Number(d.earlySecondsRemaining || 0),
+    earlyStakeRaw: d.earlyStakeRaw ?? '0',
     countdownSec: d.secondsRemaining === null || d.secondsRemaining === undefined ? null : Number(d.secondsRemaining),
     nextState: d.nextState || null,
     candlesSeen: seen,
@@ -626,11 +644,10 @@ export async function fetchUserPortfolio(walletAddress, { fromRound = null, toRo
 }
 
 /**
- * v16 口径奖励估算（非承诺）：
- * 可分奖励 = min(本轮预算, 全轮实缴本金 × 15)，个人按早鸟权重占比瓜分，结算后以链上实际为准。
- * v16 合约原生以 A9 质押，不再依赖已废弃的 tonUsdE8 折算。
+ * v17 涨价解锁口径奖励估算（非承诺）：
+ * 全员 1 A9 = 1 份公平平分，单轮封顶 5x，可分奖励 = min(本轮预算, 全轮总锁仓 × 5)，结算后以链上实际为准。
  */
-export function estimateRewardA9(amountA9Input, view = currentView, { weightMultiplier = 1 } = {}) {
+export function estimateRewardA9(amountA9Input, view = currentView) {
   const amountA9 = Number(amountA9Input);
   if (!view || !Number.isFinite(amountA9) || amountA9 <= 0) return null;
   const c = view.protocolConfig || {};
@@ -638,14 +655,11 @@ export function estimateRewardA9(amountA9Input, view = currentView, { weightMult
   const budget = rawToA9(view.rewardBudgetRaw, decimals);
   if (budget === null || budget <= 0) return null;
 
-  const totalWeight = rawToA9(view.totalWeightRaw, decimals) || 0;
   const totalStake = rawToA9(view.totalStakedRaw, decimals) || 0;
-  const capMultiplier = Number(c.maxRewardCapMultiplier) || 15;
-  const mult = Number.isFinite(Number(weightMultiplier)) && Number(weightMultiplier) > 0 ? Number(weightMultiplier) : 1;
-  const effectiveWeight = amountA9 * mult;
+  const capMultiplier = Number(c.maxRewardCapMultiplier) || PROTOCOL_SPECS.maxRewardMultiplier;
   const distributable = Math.min(budget, (totalStake + amountA9) * capMultiplier);
-  const denom = totalWeight + effectiveWeight;
-  return denom > 0 ? (distributable * effectiveWeight) / denom : 0;
+  const denom = totalStake + amountA9;
+  return denom > 0 ? Math.min(amountA9 * capMultiplier, (distributable * amountA9) / denom) : 0;
 }
 
 export function fetchWarmupRank(roundId) {
@@ -713,7 +727,7 @@ export async function openAllChests({ tier = null, stateForDemo = null, walletAd
   });
 }
 
-/** 宝箱商城实时暴击捷报（公开只读；Live 模式空态返回空数组，绝不伪造） */
+/** 宝箱商城实时手气爆棚捷报（公开只读；Live 模式空态返回空数组，绝不伪造） */
 export async function fetchChestCritFeed(limit = 12) {
   if (config.isDemo) return demoChestCritFeed(limit)?.items || [];
   const data = await request(ENDPOINTS.chestsCritFeed(limit));

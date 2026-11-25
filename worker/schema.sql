@@ -21,7 +21,15 @@ CREATE TABLE IF NOT EXISTS rounds_cache (
   burned_slices INTEGER NOT NULL DEFAULT 0,
   locked_total_raw TEXT NOT NULL DEFAULT '0',
   stake_count INTEGER NOT NULL DEFAULT 0,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  early_stake_raw TEXT NOT NULL DEFAULT '0',
+  early_window_seconds INTEGER NOT NULL DEFAULT 21600,
+  vesting_seconds INTEGER NOT NULL DEFAULT 1209600,
+  unlock_model TEXT NOT NULL DEFAULT 'LINEAR_14D',
+  fail_early_burn_bps INTEGER NOT NULL DEFAULT 500,
+  fail_late_burn_bps INTEGER NOT NULL DEFAULT 1000,
+  early_exit_burn_bps INTEGER NOT NULL DEFAULT 1500,
+  instant_discount_bps INTEGER NOT NULL DEFAULT 3000
 );
 
 CREATE TABLE IF NOT EXISTS round_candles (
@@ -74,7 +82,9 @@ CREATE TABLE IF NOT EXISTS presale_orders (
   last_error TEXT,
   expires_at INTEGER NOT NULL DEFAULT 0,
   sku_id TEXT,
-  open_mode TEXT NOT NULL DEFAULT 'INSTANT'
+  open_mode TEXT NOT NULL DEFAULT 'INSTANT',
+  bonus_a9_raw TEXT NOT NULL DEFAULT '0',
+  bonus_rolled INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS warmup_registrations (
@@ -358,7 +368,9 @@ INSERT OR IGNORE INTO promo_budget_ledger (bucket_key, cap_raw, spent_raw, updat
   ('presale_promo', '48000000000000000', '0', 0),
   ('free_chest_captain', '100000000000000000', '0', 0),
   ('prediction', '100000000000000000', '0', 0),
-  ('warmup', '52000000000000000', '0', 0);
+  ('warmup', '52000000000000000', '0', 0),
+  ('stake_referral', '200000000000000000', '0', 0),
+  ('round_airdrop', '50000000000000000', '0', 0);
 
 CREATE TABLE IF NOT EXISTS chest_open_credits (
   chest_id TEXT PRIMARY KEY,
@@ -473,3 +485,32 @@ CREATE TABLE IF NOT EXISTS user_notification_prefs (
 
 CREATE INDEX IF NOT EXISTS idx_user_notification_prefs_settlement
   ON user_notification_prefs(settlement_push, updated_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- v17.0: 好友通关 8% 返佣账本与每轮等权空投抽奖公示 (migration 0014)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS stake_referral_credits (
+  credit_id TEXT PRIMARY KEY,
+  round_id INTEGER NOT NULL,
+  referrer_wallet TEXT NOT NULL,
+  referee_wallet TEXT NOT NULL,
+  referee_reward_raw TEXT NOT NULL,
+  commission_raw TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING', -- PENDING | CREDITED
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_stake_referral_credits_referrer
+  ON stake_referral_credits(referrer_wallet, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_stake_referral_credits_round
+  ON stake_referral_credits(round_id, status);
+
+CREATE TABLE IF NOT EXISTS round_jackpot_draws (
+  round_id INTEGER PRIMARY KEY,
+  seed_hash TEXT NOT NULL,
+  winner_wallet TEXT NOT NULL,
+  prize_raw TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING', -- PENDING | CREDITED
+  created_at INTEGER NOT NULL
+);

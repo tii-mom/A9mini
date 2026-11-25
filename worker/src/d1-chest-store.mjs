@@ -265,7 +265,7 @@ export class D1ChestEngine {
       throw new ChestError('ASSIST_NOT_ALLOWED', '预热宝箱仅可通过邀请好友预约并绑定活跃钱包解锁');
     }
     if (chest.source === 'SHOP_BOOST') {
-      throw new ChestError('ASSIST_NOT_ALLOWED', '付费宝箱无需好友膨胀，购买后可直接开箱触发随机暴击奖励');
+      throw new ChestError('ASSIST_NOT_ALLOWED', '付费宝箱无需好友助力，购买后随机区间加赠将随保底本金合并直发钱包');
     }
     if (chest.status === 'LOCKED') throw new ChestError('CHEST_LOCKED', '该宝箱尚未解锁，请先开启上一个宝箱');
     if (chest.status === 'OPENED' || chest.status === 'EXPIRED') {
@@ -489,7 +489,7 @@ export class D1ChestEngine {
 
       if (chest.source === 'SHOP_BOOST') {
         if (!walletAddress) {
-          throw new ChestError('WALLET_REQUIRED', '开启付费宝箱领取随机暴击奖励需绑定钱包地址');
+          throw new ChestError('WALLET_REQUIRED', '开启付费宝箱领取随机区间加赠需绑定钱包地址');
         }
         if (!cachedShopRoll) {
           cachedShopRoll = rollPaidChestBonusRaw(chest.maxBoostA9Raw, randomFn);
@@ -803,7 +803,7 @@ export class D1ChestEngine {
       totalRewardRaw += BigInt(opened.rewardA9Raw || '0');
       totalBaseRaw += BigInt(opened.chest?.baseA9Raw || '0');
       if (opened.isCrit) critCount += 1;
-      if (opened.critTier === 'legendary') legendaryCount += 1;
+      if (opened.critTier === 'jackpot' || opened.critTier === 'legendary') legendaryCount += 1;
       if (opened.budgetCapped) budgetCappedCount += 1;
       results.push(opened);
     }

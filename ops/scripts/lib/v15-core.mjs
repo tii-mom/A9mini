@@ -10,14 +10,16 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const OPS_ROOT = resolve(__dirname, '../..');
 export const V16_ROOT = resolve(OPS_ROOT, '../v16');
-export function resolveProtocolRoot(protocolVersion = 'v16') {
+export const V17_ROOT = resolve(OPS_ROOT, '../v17');
+export function resolveProtocolRoot(protocolVersion = 'v17') {
+  if (protocolVersion === 'v17') return V17_ROOT;
   if (protocolVersion === 'v16') return V16_ROOT;
-  throw new Error(`--protocol must be v16, got ${protocolVersion}`);
+  throw new Error(`--protocol must be v17 or v16, got ${protocolVersion}`);
 }
 
 
 export const BPS = 10000n;
-export const MAX_REWARD_MULTIPLIER = 15n;
+export const MAX_REWARD_MULTIPLIER = 5n;
 
 const A9 = 1_000_000_000n;
 const TON = 1_000_000_000n;
@@ -34,22 +36,23 @@ const SHARED_ECON = {
   p0UsdE8: '116000',
   roundRewardRaw: String(700_000_000n * A9),
   teamRoundRaw: String(120_000_000n * A9),
-  minStakeRaw: String(1_000n * A9),
-  maxRewardMultiplier: 15,
+  minStakeRaw: String(100n * A9),
+  maxRewardMultiplier: 5,
 };
 
 const PROD_TIMING = {
-  stakeDurationSeconds: 129600,
-  observationSeconds: 86400,
-  candleCount: 24,
-  minQualifiedCandles: 16,
+  stakeDurationSeconds: 86400,    // 24H 锁仓
+  earlyWindowSeconds: 21600,      // 头矿 6H（5% 止损）
+  observationSeconds: 43200,      // 12H 冲价
+  candleCount: 12,
+  minQualifiedCandles: 8,
   abortTimeoutSeconds: 604800,
-  vestingSeconds: 3456000, // 40d linear vesting (80% / 40d = 2%/day)
+  vestingSeconds: 1209600,        // 14 天逐秒解锁（80% / 14d）
 };
 
 export const PROFILES = {
   testnet: {
-    version: '16.2.0',
+    version: '17.0.0',
     network: 'testnet',
     profile: 'testnet',
     supply: SHARED_SUPPLY,
@@ -65,18 +68,19 @@ export const PROFILES = {
     promoHotWallet: { userFeeTon: '0.06', transferGasTon: '0.05' },
   },
   'testnet-fast': {
-    version: '16.2.0',
+    version: '17.0.0',
     network: 'testnet',
     profile: 'testnet-fast',
     supply: SHARED_SUPPLY,
     econ: SHARED_ECON,
     timing: {
       stakeDurationSeconds: 120,
+      earlyWindowSeconds: 30,
       observationSeconds: 60,
-      candleCount: 24,
-      minQualifiedCandles: 16,
+      candleCount: 12,
+      minQualifiedCandles: 8,
       abortTimeoutSeconds: 120,
-      vestingSeconds: 1200, // 20m fast linear vesting for testnet end-to-end verification
+      vestingSeconds: 600,
     },
     deployTon: {
       jettonMaster: String(500_000_000n),
@@ -88,7 +92,7 @@ export const PROFILES = {
     promoHotWallet: { userFeeTon: '0.06', transferGasTon: '0.05' },
   },
   mainnet: {
-    version: '16.2.0',
+    version: '17.0.0',
     network: 'mainnet',
     profile: 'mainnet',
     supply: SHARED_SUPPLY,
@@ -113,7 +117,7 @@ export function loadParams(profileName = 'testnet') {
 }
 
 export function validateParams(p) {
-  if (p.version !== '16.2.0') throw new Error(`unexpected version: ${p.version}`);
+  if (p.version !== '17.0.0') throw new Error(`unexpected version: ${p.version}`);
   if (p.network !== 'testnet' && p.network !== 'mainnet') {
     throw new Error(`network must be testnet or mainnet, got ${p.network}`);
   }
@@ -134,7 +138,7 @@ export function validateParams(p) {
   return true;
 }
 
-export function verifyV15Artifacts(protocolRoot = V16_ROOT) {
+export function verifyV15Artifacts(protocolRoot = V17_ROOT) {
   const manifestPath = resolve(protocolRoot, 'ci/artifacts.sha256');
   const lines = readFileSync(manifestPath, 'utf8')
     .split('\n')
@@ -154,7 +158,7 @@ export function verifyV15Artifacts(protocolRoot = V16_ROOT) {
   return results;
 }
 
-// v15 corridor: [floor(base * 3 / 2), floor(base * 5 / 2)]
+// v17 corridor: [floor(base * 13 / 10), floor(base * 2)]
 export function computeCorridor(roundId, twap24hUsdE8, p0UsdE8) {
   const twap = BigInt(twap24hUsdE8);
   const p0 = BigInt(p0UsdE8);
@@ -162,8 +166,8 @@ export function computeCorridor(roundId, twap24hUsdE8, p0UsdE8) {
   if (base <= 0n) throw new Error('basePrice must be > 0 (twap24h=0 only allowed on Round 1)');
   return {
     base,
-    minTarget: (base * 3n) / 2n,
-    maxTarget: (base * 5n) / 2n,
+    minTarget: (base * 13n) / 10n,
+    maxTarget: base * 2n,
   };
 }
 
@@ -171,13 +175,13 @@ export function assertTargetInCorridor(roundId, twap24hUsdE8, targetPriceUsdE8, 
   const { base, minTarget, maxTarget } = computeCorridor(roundId, twap24hUsdE8, p0UsdE8);
   const target = BigInt(targetPriceUsdE8);
   if (target < minTarget || target > maxTarget) {
-    throw new Error(`target ${target} outside [1.5x, 2.5x] corridor [${minTarget}, ${maxTarget}] for base ${base}`);
+    throw new Error(`target ${target} outside [1.30x, 2.00x] corridor [${minTarget}, ${maxTarget}] for base ${base}`);
   }
   return { base, minTarget, maxTarget, target };
 }
 
-// Aggregate 24 hourly candles off-chain into single-tx SettleRound inputs
-export function aggregateCandles(roundId, targetPriceUsdE8, candles, expectedCount = 24, opts = {}) {
+// Aggregate 12 hourly candles off-chain into single-tx SettleRound inputs
+export function aggregateCandles(roundId, targetPriceUsdE8, candles, expectedCount = 12, opts = {}) {
   const rId = Number(roundId);
   if (!Number.isInteger(rId) || rId < 1) {
     throw new Error(`roundId must be a positive integer, got ${roundId}`);
@@ -280,8 +284,8 @@ export function aggregateCandles(roundId, targetPriceUsdE8, candles, expectedCou
   };
 }
 
-// Mirror of RoundController.tolk v16.2 win settlement math (constant 20% immediate + 80% 40-day linear vesting)
-export function previewWinSettlement({ budgetRaw, totalStakeRaw, teamBudgetRaw, vestingSeconds = 3456000 }) {
+// Mirror of RoundController.tolk v17.0 win settlement math (constant 20% immediate + 80% 14-day linear vesting, 5x cap)
+export function previewWinSettlement({ budgetRaw, totalStakeRaw, teamBudgetRaw, vestingSeconds = 1209600 }) {
   const budget = BigInt(budgetRaw);
   const stake = BigInt(totalStakeRaw);
   const teamBudget = BigInt(teamBudgetRaw);
@@ -487,6 +491,7 @@ export function verifyActonWalletsReadOnly({
     A9_TEAM_ROUND_RAW: params.econ.teamRoundRaw,
     A9_MIN_STAKE_RAW: params.econ.minStakeRaw,
     A9_STAKE_SECONDS: String(params.timing.stakeDurationSeconds),
+    A9_EARLY_WINDOW_SECONDS: String(params.timing.earlyWindowSeconds || 21600),
     A9_OBS_SECONDS: String(params.timing.observationSeconds),
     A9_CANDLE_COUNT: String(params.timing.candleCount),
     A9_MIN_QUALIFIED: String(params.timing.minQualifiedCandles),
@@ -539,7 +544,7 @@ export function parseActonDerivedAddresses(stdout = '') {
  * and execution confirmation gates.
  */
 export function validateDeployPreflight({
-  protocol = 'v16',
+  protocol = 'v17',
   profile = 'testnet',
   env = process.env,
   execute = false,

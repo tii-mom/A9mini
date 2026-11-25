@@ -28,7 +28,7 @@ import { A9Haptic, A9TMA } from '../tma.js';
 import { escapeHtml, formatNum, showToast, copyText, animateSlotCounter, openChoiceSheet, renderProgressRing } from '../components.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
-import { renderReferralPoster, renderProofFlexPoster, renderStoryPoster, downloadPosterPng } from '../poster.js';
+import { renderReferralPoster, renderProofFlexPoster, renderStoryPoster, renderScenarioPoster, downloadPosterPng } from '../poster.js';
 import { triggerStoryShare, buildTmaDeepLink, getShareRef } from '../share.js';
 
 export function renderTeamHome(root, navigate) {
@@ -191,7 +191,7 @@ export function renderTeamHome(root, navigate) {
     html = `
       <div class="card card-hero guild-board">
         <div class="row-between" style="margin-bottom:6px;">
-          <span class="chip chip-gold">${L('v16.2 战队 · 6% 直推返佣', 'v16.2 Squad · 6% Referral')}</span>
+          <span class="chip chip-gold">${L('v17.0 战队 · 6% 直推返佣', 'v17.0 Squad · 6% Referral')}</span>
           ${rolePill}
         </div>
         <div style="font-size:17px;font-weight:900;">${L('加入一个活跃战队', 'Join an Active Squad')}</div>
@@ -316,9 +316,9 @@ export function renderTeamProfile(root, navigate, id) {
         <div class="metric-strip cols-3">
           <div class="metric-cell"><span class="num-xs text-muted">${L('直推返佣', 'Referral')}</span><span class="num-md text-green">6%</span></div>
           <div class="metric-cell"><span class="num-xs text-muted">${L('成员', 'Members')}</span><span class="num-md">412</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('质押 A9', 'Staked A9')}</span><span class="num-md">580,000</span></div>
+          <div class="metric-cell"><span class="num-xs text-muted">${L('锁仓 A9', 'Locked A9')}</span><span class="num-md">580,000</span></div>
         </div>
-        <button class="btn btn-primary" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L('加入并参与质押', 'Join & Stake')}</button>
+        <button class="btn btn-primary" data-nav="/challenge/confirm">${icon('bolt', 16)} ${L('加入并参与锁仓', 'Join & Lock')}</button>
       </div>
     </div>
   `;
@@ -458,16 +458,47 @@ export function renderInviteShare(root) {
   const inviteLink = config.isDemo
     ? `${window.location.origin}${window.location.pathname}?mode=${config.mode}&startapp=invite_${encodeURIComponent(shareRef)}`
     : buildTmaDeepLink(`invite_${shareRef}`);
-  let template = 'invite';
+  let template = 'push';
   let livePromo = null;
   let livePromoErr = null;
   let promoClaimBusy = false;
   let lastClaimStatus = null;
 
-  const pitchText = L(
-    `来 A9 广场查看轮次闯关与战队：${inviteLink}`,
-    `Explore A9 Plaza, Round Quest and Squads: ${inviteLink}`
-  );
+  const buildScenarioPitch = (tpl) => {
+    const r = store.state.round || {};
+    const roundLabel = r.currentRound ? L(`第 ${r.currentRound} 轮`, `Round #${r.currentRound}`) : L('本轮', 'Current Round');
+    const targetStr = (r.targetPrice !== null && r.targetPrice !== undefined && Number.isFinite(Number(r.targetPrice)) && Number(r.targetPrice) > 0)
+      ? `$${Number(r.targetPrice).toFixed(4)}`
+      : null;
+    const rawCur = r.priceValid !== false ? (r.livePrice ?? r.twap24h) : null;
+    const curNum = (rawCur !== null && rawCur !== undefined && Number.isFinite(Number(rawCur)) && Number(rawCur) > 0) ? Number(rawCur) : null;
+    const gapPct = (targetStr && curNum) ? (((Number(r.targetPrice) - curNum) / curNum) * 100) : null;
+    const gapLineZh = targetStr && gapPct !== null
+      ? (gapPct <= 0 ? `已站上目标价 ${targetStr}（+${Math.abs(gapPct).toFixed(1)}%）` : `目标价 ${targetStr}，距解锁还差 +${gapPct.toFixed(1)}%`)
+      : (targetStr ? `目标价 ${targetStr}` : '链上实时目标价核验中');
+    const gapLineEn = targetStr && gapPct !== null
+      ? (gapPct <= 0 ? `above ${targetStr} target (+${Math.abs(gapPct).toFixed(1)}%)` : `target ${targetStr} (+${gapPct.toFixed(1)}% away)`)
+      : (targetStr ? `target ${targetStr}` : 'on-chain target syncing');
+    const poolStr = (r.rewardBudgetA9 !== null && r.rewardBudgetA9 !== undefined && Number.isFinite(Number(r.rewardBudgetA9)))
+      ? `${formatNum(r.rewardBudgetA9)} A9`
+      : L('7 亿奖池（链上实时核验）', '700,000,000 A9 pool (on-chain verified)');
+    if (tpl === 'chest') {
+      return L(
+        `A9 宝箱商城升级「纯随机合并直发钱包」：0.99 GRAM 起保底 1,500 A9、最高开出 2,500 A9（传说箱最高 1,300,000 A9），只收一次 0.06 GRAM Gas，买完直接进头矿 6H（未通关仅 5% 止损）。直推好友购箱实时返佣 6%：${inviteLink}`,
+        `A9 Chest Mall now pays base + random bonus straight to your wallet in one tx (0.06 GRAM gas once): from 0.99 GRAM (1,500–2,500 A9) up to 1,300,000 A9, plus 6% direct referral: ${inviteLink}`
+      );
+    }
+    if (tpl === 'win') {
+      return L(
+        `A9 ${roundLabel} 涨价解锁机制：70% 奖池 + 12% 团队全锁价格，100 A9 起锁仓永不爆仓（头矿 6H 仅 5% 止损退 95%），12H 冲价达标 ≥ 8/12 段通关分 ${poolStr}，最高 5 倍币、20% 秒提 + 14 天逐秒解锁：${inviteLink}`,
+        `A9 ${roundLabel} Price-Unlock: 70% pool + 12% team locked on price, lock from 100 A9 with zero liquidation (First 6H 5% Stop-Loss / 95% refund), pass 8/12 slots to split ${poolStr} up to 5x: ${inviteLink}`
+      );
+    }
+    return L(
+      `【A9 ${roundLabel} 冲价喊单】${gapLineZh}！70% 奖池（${poolStr}）+ 12% 团队全锁价格，齐心冲上目标价稳住 8/12 小时全员分奖，没过自动退 95%/90% 永不爆仓。0.99 GRAM 开箱或 100 A9 锁仓一起冲：${inviteLink}`,
+      `[A9 ${roundLabel} Price-Push] ${gapLineEn}! 70% pool (${poolStr}) + 12% team locked on price—hold 8/12 hourly slots to split rewards, 95%/90% refund if missed. Join from 0.99 GRAM chest or 100 A9 lock: ${inviteLink}`
+    );
+  };
 
   const loadLivePromo = async () => {
     if (config.isDemo) return;
@@ -518,9 +549,9 @@ export function renderInviteShare(root) {
         </div>
 
         <div class="seg-tabs">
-          <button class="seg-tab ${template === 'invite' ? 'active' : ''}" data-tpl="invite">${L('招募海报', 'Invite')}</button>
-          <button class="seg-tab ${template === 'flex' ? 'active' : ''}" data-tpl="flex">${L('战绩卡', 'Flex')}</button>
-          <button class="seg-tab ${template === 'story' ? 'active' : ''}" data-tpl="story">${L('9:16 Story 战报', '9:16 Story')}</button>
+          <button class="seg-tab ${template === 'push' ? 'active' : ''}" data-tpl="push">${L('冲价喊单卡', 'Push Call')}</button>
+          <button class="seg-tab ${template === 'chest' ? 'active' : ''}" data-tpl="chest">${L('开箱喜报卡', 'Unboxing')}</button>
+          <button class="seg-tab ${template === 'win' ? 'active' : ''}" data-tpl="win">${L('通关盈利卡', 'Pass Card')}</button>
         </div>
 
         <div class="card">
@@ -537,7 +568,7 @@ export function renderInviteShare(root) {
             <span class="card-title">${icon('copy', 14, 'text-gold')} ${L('一键复制群推话术', '1-Tap Viral Pitch')}</span>
             <button class="pill-trigger" id="btn-copy-pitch" type="button">${L('复制全文', 'Copy')}</button>
           </div>
-          <div class="share-copy-box">${escapeHtml(pitchText)}</div>
+          <div class="share-copy-box">${escapeHtml(buildScenarioPitch(template))}</div>
         </div>
 
         ${config.isDemo ? `<div class="card">
@@ -546,8 +577,8 @@ export function renderInviteShare(root) {
             <span class="num-xs text-muted">${L('有效 16 人', '16 Valid')}</span>
           </div>
           <div class="col-gap">
-            <div class="list-row"><div><div class="num-sm">UQ...8892</div><div class="num-xs text-muted">5,000 A9 · 2.0×</div></div><span class="chip chip-green">${L('已达标', 'Passed')}</span></div>
-            <div class="list-row"><div><div class="num-sm">EQ...3312</div><div class="num-xs text-muted">2,000 A9 · 2.0×</div></div><span class="chip chip-gold">${L('观察中', 'Live')}</span></div>
+            <div class="list-row"><div><div class="num-sm">UQ...8892</div><div class="num-xs text-muted">5,000 A9 · ${L('头矿 6H', 'First 6H')}</div></div><span class="chip chip-green">${L('已达标', 'Passed')}</span></div>
+            <div class="list-row"><div><div class="num-sm">EQ...3312</div><div class="num-xs text-muted">2,000 A9 · ${L('头矿 6H', 'First 6H')}</div></div><span class="chip chip-gold">${L('12H 冲价中', '12H Push')}</span></div>
             <div class="list-row"><div><div class="num-sm">UQ...77ea</div><div class="num-xs text-muted">0 A9</div></div><span class="chip chip-muted">${L('待参与', 'Pending')}</span></div>
           </div>
         </div>` : `<div class="card">
@@ -559,6 +590,7 @@ export function renderInviteShare(root) {
 
     const canvas = root.querySelector('#a9-poster-canvas');
     if (template === 'story') renderStoryPoster(canvas, { roundId: store.state.round.currentRound });
+    else if (template === 'push' || template === 'chest' || template === 'win') renderScenarioPoster(canvas, template);
     else if (template === 'flex') renderProofFlexPoster(canvas, store.state.certificates[0]);
     else renderReferralPoster(canvas);
 
@@ -566,9 +598,10 @@ export function renderInviteShare(root) {
       b.onclick = () => { A9Haptic.light(); template = b.dataset.tpl; paint(); };
     });
 
+    const activePitch = buildScenarioPitch(template);
     root.querySelector('#btn-dl-poster').onclick = () => {
       A9Haptic.success();
-      const name = template === 'story' ? 'A9-Story-9x16.png' : template === 'flex' ? 'A9-Yield-Flex.png' : 'A9-Invite-Poster.png';
+      const name = template === 'story' ? 'A9-Story-9x16.png' : template === 'chest' ? 'A9-Unboxing-Card.png' : template === 'win' ? 'A9-Round-Pass-Card.png' : 'A9-Price-Push-Card.png';
       downloadPosterPng(canvas, name);
       showToast(L('高清海报已保存', 'Poster saved'));
     };
@@ -585,10 +618,10 @@ export function renderInviteShare(root) {
         triggerStoryShare({ canvas, type: 'round', id: store.state.round.currentRound, filename: 'A9-Story-9x16.png' });
       };
     }
-    root.querySelector('#btn-copy-pitch').onclick = () => copyText(pitchText, L('已复制群推话术', 'Copied pitch'));
+    root.querySelector('#btn-copy-pitch').onclick = () => copyText(activePitch, L('已复制群推话术', 'Copied pitch'));
     root.querySelector('#btn-tg-share').onclick = () => {
       A9Haptic.light();
-      A9TMA.shareInvite(inviteLink, pitchText);
+      A9TMA.shareInvite(inviteLink, activePitch);
       showToast(L('已调起 Telegram 分享', 'Share opened'));
     };
     const promoBtn = root.querySelector('#btn-claim-promo-hot');

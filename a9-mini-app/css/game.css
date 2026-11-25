@@ -774,7 +774,7 @@
   line-height: 1.45;
 }
 
-/* 10. 规则页交互演示卡（早鸟权重试算 + 24H 通关线推演滑杆） */
+/* 10. 规则页交互演示卡（止损挡位试算 + 12H 通关线推演滑杆） */
 .rule-sim-card {
   display: flex;
   flex-direction: column;

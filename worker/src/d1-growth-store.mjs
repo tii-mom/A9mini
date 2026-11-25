@@ -1048,8 +1048,8 @@ export class D1PredictionEngine {
     if (existing) throw new GrowthError('ALREADY_BET', 'user already placed a prediction for this round');
 
     const slots = guessSlots === null || guessSlots === undefined ? null : Number(guessSlots);
-    if (slots !== null && (!Number.isInteger(slots) || slots < 0 || slots > 24)) {
-      throw new GrowthError('BAD_REQUEST', 'guessSlots must be 0..24');
+    if (slots !== null && (!Number.isInteger(slots) || slots < 0 || slots > 12)) {
+      throw new GrowthError('BAD_REQUEST', 'guessSlots must be 0..12');
     }
 
     const cleanRef = referrerId && String(referrerId).trim() !== uid ? String(referrerId).trim() : null;
@@ -1428,7 +1428,7 @@ export class D1PredictionEngine {
     if (qualified !== true) {
       throw new GrowthError(
         'ACTIVATION_REQUIREMENT_UNMET',
-        '请先在宝箱商城购任意宝箱（0.99 GRAM 起）、链上质押，或直邀 1 位好友购箱后再激活',
+        '请先在宝箱商城购任意宝箱（0.99 GRAM 起）、链上锁仓，或直邀 1 位好友购箱后再激活',
       );
     }
     if (!promoEngine || promoEngine.db !== this.db) {
@@ -1745,7 +1745,7 @@ export class D1ProgressionEngine {
     const curStreak = computeEffectiveStreak(u.checkinStreak, u.lastCheckinDay, todayStr);
 
     if (tKey === 'daily_prediction' && !hasPredictionBet) {
-      throw new GrowthError('TASK_PREREQUISITE_UNMET', '请先参与本轮 0 GRAM 24H 达标竞猜后再盖章');
+      throw new GrowthError('TASK_PREREQUISITE_UNMET', '请先参与本轮 0 GRAM 12H 达标竞猜后再盖章');
     }
     if (tKey === 'daily_full_bonus') {
       const cntRow = await this.db
@@ -1775,7 +1775,7 @@ export class D1ProgressionEngine {
         hasEverPred = Boolean(predClaim);
       }
       if (!hasEverPred) {
-        throw new GrowthError('TASK_PREREQUISITE_UNMET', '需完成至少 1 次 24H 达标竞猜后解锁');
+        throw new GrowthError('TASK_PREREQUISITE_UNMET', '需完成至少 1 次 12H 达标竞猜后解锁');
       }
     }
     if (tKey === 'ach_stamp_10' && u.totalStamps < 10) {
@@ -1866,6 +1866,8 @@ const ORDER_COLS = {
   refundTonNano: 'refund_ton_nano',
   refundReason: 'refund_reason',
   lastError: 'last_error',
+  bonusA9Raw: 'bonus_a9_raw',
+  bonusRolled: 'bonus_rolled',
   updatedAt: 'updated_at',
 };
 const PAYOUT_COLS = {
@@ -1907,6 +1909,8 @@ function rowToOrder(r) {
     openMode: r.open_mode || 'INSTANT',
     tonNano: BigInt(r.ton_nano || '0'),
     a9AmountRaw: BigInt(r.a9_amount_raw || '0'),
+    bonusA9Raw: BigInt(r.bonus_a9_raw || '0'),
+    bonusRolled: Number(r.bonus_rolled || 0) === 1,
     memo: r.memo,
     status: r.status,
     inboundTxHash: r.inbound_tx_hash || null,
@@ -2352,20 +2356,41 @@ export class D1PresaleRepo {
   }
 
   async queuePayout(orderId, fromStatus, patch, p) {
-    const set = buildSet(patch, ORDER_COLS);
-    const out = await this.db.batch([
-      this.db
-        .prepare(
-          `INSERT INTO presale_payouts
-             (payout_id, order_id, inbound_tx_hash, kind, recipient, amount, query_id, status, attempts, ambiguous, tx_hash, last_error, created_at, updated_at)
-           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?
-           WHERE EXISTS (SELECT 1 FROM presale_orders WHERE order_id = ? AND status = ?)
-           ON CONFLICT DO NOTHING`,
-        )
-        .bind(p.payoutId, p.orderId, p.inboundTxHash, p.kind, p.recipient, p.amount, p.queryId, p.status, p.attempts, 0, p.createdAt, p.updatedAt, orderId, fromStatus),
-      this.db.prepare(`UPDATE presale_orders SET ${set.sql} WHERE order_id = ? AND status = ?`).bind(...set.vals, orderId, fromStatus),
-    ]);
-    return changes(out?.[1]) === 1;
+    const runWithPatch = async (effectivePatch) => {
+      const set = buildSet(effectivePatch, ORDER_COLS);
+      const out = await this.db.batch([
+        this.db
+          .prepare(
+            `INSERT INTO presale_payouts
+               (payout_id, order_id, inbound_tx_hash, kind, recipient, amount, query_id, status, attempts, ambiguous, tx_hash, last_error, created_at, updated_at)
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?
+             WHERE EXISTS (SELECT 1 FROM presale_orders WHERE order_id = ? AND status = ?)
+             ON CONFLICT DO NOTHING`,
+          )
+          .bind(p.payoutId, p.orderId, p.inboundTxHash, p.kind, p.recipient, p.amount, p.queryId, p.status, p.attempts, 0, p.createdAt, p.updatedAt, orderId, fromStatus),
+        this.db.prepare(`UPDATE presale_orders SET ${set.sql} WHERE order_id = ? AND status = ?`).bind(...set.vals, orderId, fromStatus),
+      ]);
+      return changes(out?.[1]) === 1;
+    };
+    try {
+      return await runWithPatch(patch);
+    } catch (e) {
+      const errText = `${e?.message || ''} ${e?.cause?.message || ''}`;
+      if (/(no such column|has no column named)[\s:]+["'`]?(bonus_a9_raw|bonus_rolled)["'`]?/i.test(errText)) {
+        // 严禁在旧库缺列时保留含 bonus 的 payout.amount 同时剥离 bonusRolled（否则后续会误建 SHOP_BOOST 双发）。
+        // 若当前订单含合并直发加赠或 bonusRolled 标记，显式报错要求执行 0015 迁移（上游自动归还已扣预算）。
+        const hasBonusOrRoll = Boolean(patch?.bonusRolled) || BigInt(patch?.bonusA9Raw || 0n) > 0n;
+        if (hasBonusOrRoll) {
+          throw new PresaleError(
+            'MIGRATION_0015_REQUIRED',
+            'presale_orders 缺少 bonus_a9_raw/bonus_rolled 列，请先执行 0015_v17_1_chest_direct_payout.sql 迁移',
+          );
+        }
+        const { bonusA9Raw: _b, bonusRolled: _r, ...fallbackPatch } = patch || {};
+        return await runWithPatch(fallbackPatch);
+      }
+      throw e;
+    }
   }
 
   async listOpenPayouts() {

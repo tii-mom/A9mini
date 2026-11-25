@@ -9,7 +9,7 @@ import { store } from '../store.js';
 import { config } from '../config.js';
 import { uiMemory } from '../app.js';
 import { demoTxHash } from '../demo-data.js';
-import { A9Haptic } from '../tma.js';
+import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { escapeHtml, formatNum, showToast, copyText, mountSlider, renderCorridorRadar, bindCorridorRadarEvents, animateSlotCounter, launchCoinArc, burstParticles, openChoiceSheet, openModal, closeModal } from '../components.js';
 import { renderVaultChestSvg, renderNintendoGateIcon } from '../paper-art.js';
@@ -19,7 +19,7 @@ import { openXShareSheet, triggerStoryShare } from '../share.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
-import { fetchUserPortfolio, fetchPromoBalance, fetchPredictionUser, getEffectiveUserId, rawToA9 } from '../data.js';
+import { fetchUserPortfolio, fetchPromoBalance, fetchPredictionUser, fetchNotificationPrefs, updateNotificationPrefs, getEffectiveUserId, rawToA9 } from '../data.js';
 import { pendingTxManager } from '../tx-ux.js';
 
 function renderMiniBarcode() {
@@ -71,7 +71,7 @@ function renderUnifiedVaultHtml({
   const lockedValDisplay = roundLockedA9 !== null && roundLockedA9 !== undefined
     ? fmtA9(roundLockedA9)
     : (stakedPrincipalA9 !== null && stakedPrincipalA9 > 0
-      ? `${L('质押中', 'Staked')} ${fmtA9(stakedPrincipalA9)}`
+      ? `${L('锁仓中', 'Locked')} ${fmtA9(stakedPrincipalA9)}`
       : fmtA9(null));
 
   return `
@@ -94,7 +94,7 @@ function renderUnifiedVaultHtml({
           <strong class="mono">${availA9 !== null && availA9 !== undefined ? formatNum(availA9, availA9 % 1 === 0 ? 0 : 2) : (loading ? '…' : '—')}</strong>
         </div>
         <div class="profile-telemetry-cell">
-          <small>${isLive ? L('质押本金', 'Staked') : L('待解锁', 'Locked')}</small>
+          <small>${isLive ? L('锁仓本金', 'Locked') : L('待解锁', 'Locked')}</small>
           <strong class="mono">${isLive ? (stakedPrincipalA9 !== null ? formatNum(stakedPrincipalA9, stakedPrincipalA9 % 1 === 0 ? 0 : 2) : (loading ? '…' : '—')) : formatNum(roundLockedA9 ?? 0)}</strong>
         </div>
         <div class="profile-telemetry-cell">
@@ -106,41 +106,41 @@ function renderUnifiedVaultHtml({
       <div class="unified-vault-list">
         <a class="unified-vault-row" href="#/claim">
           <div>
-            <div class="num-sm" style="font-weight:800;">${L('轮次奖励', 'Round Prizes')}</div>
-            <div class="num-xs text-muted">${L('链上领奖 · 0.22 GRAM Gas', 'On-chain · 0.22 GRAM gas')}</div>
+            <div class="num-sm" style="font-weight:800;">${L('链上轮次领奖', 'On-Chain Round Prizes')}</div>
+            <div class="num-xs text-muted">${L('StakeTicket 链上直领 · 0.22 GRAM Gas', 'StakeTicket claim · 0.22 GRAM gas')}</div>
           </div>
           <div class="unified-vault-val">
             <b class="mono text-green">${roundValDisplay}</b>
-            <span>${L('领取', 'Claim')} ›</span>
+            <span>${L('领奖', 'Claim')} ›</span>
           </div>
         </a>
 
         <a class="unified-vault-row" href="#/team/invite">
           <div>
-            <div class="num-sm" style="font-weight:800;">${L('推广返佣 (6%)', 'Referral (6%)')}</div>
-            <div class="num-xs text-muted">${L('热钱包直发 · 0.06 GRAM Gas', 'Hot wallet · 0.06 GRAM gas')}</div>
+            <div class="num-sm" style="font-weight:800;">${L('站内赏金余额 · 一键 0.06 GRAM 全提', 'Off-Chain Bounty · 1-Tap 0.06 GRAM Withdraw')}</div>
+            <div class="num-xs text-muted">${L('6% 返佣 + 预言激活 + 免费箱奖励合并一笔提现', '6% referral + prediction + free chests in one tx')}</div>
           </div>
           <div class="unified-vault-val">
             <b class="mono text-gold">${fmtA9(promoClaimableA9)}</b>
-            <span>${L('领取', 'Claim')} ›</span>
+            <span>${L('全提', 'Withdraw')} ›</span>
           </div>
         </a>
 
         <button type="button" class="unified-vault-row unified-vault-btn" id="btn-vault-go-pred">
           <div>
-            <div class="num-sm" style="font-weight:800;">${L('24H 预言金库', '24H Prediction Vault')}</div>
-            <div class="num-xs text-muted">${hasPendingVault ? L('48H 内购箱 / 质押 / 邀 1 友激活', 'Activate in 48H via chest / stake / 1 invite') : L('0 GRAM 参战 · 激活后合并领取', '0 GRAM arena · merges when active')}</div>
+            <div class="num-sm" style="font-weight:800;">${L('12H 预言金库', '12H Prediction Vault')}</div>
+            <div class="num-xs text-muted">${hasPendingVault ? L('48H 内购箱 / 锁仓 / 邀 1 友自动激活并入赏金余额', 'Auto-activates in 48H via chest / lock / 1 invite') : L('0 GRAM 参战 · 激活后自动并入站内赏金余额', '0 GRAM arena · auto-merges to bounty balance')}</div>
           </div>
           <div class="unified-vault-val">
             <b class="mono">${fmtA9(predActivatedA9)} / <span class="text-gold">${fmtA9(predPendingA9)}</span></b>
-            <span>${hasPendingVault ? L('激活', 'Activate') : L('查看', 'View')} ›</span>
+            <span>${hasPendingVault ? L('待激活', 'Pending') : L('查看', 'View')} ›</span>
           </div>
         </button>
 
         <a class="unified-vault-row" href="#/rewards">
           <div>
-            <div class="num-sm" style="font-weight:800;">${L('40 天线性待释放', '40d Linear Vesting')}</div>
-            <div class="num-xs text-muted">${L('秒领 20% + 每日 2% × 40 天', '20% instant + 2%/day × 40d')}</div>
+            <div class="num-sm" style="font-weight:800;">${L('14 天逐秒待解锁', '14D Per-Second Unlock')}</div>
+            <div class="num-xs text-muted">${L('20% 秒提 + 14 天逐秒解锁（支持 3 折急提，7 折销毁）', '20% Instant + 14D Per-Second Unlock (Instant Cashout 30% Now / 70% Burn)')}</div>
           </div>
           <div class="unified-vault-val">
             <b class="mono">${lockedValDisplay}</b>
@@ -178,8 +178,8 @@ export function renderProfileHome(root, navigate) {
             <span class="profile-dock-sub">${L('明细', 'Log')}</span>
           </button>
           <button class="profile-dock-tile" data-nav="/renew" type="button">
-            <span class="profile-dock-icon tone-blue">${icon('refresh', 18)}</span>
-            <span class="profile-dock-label">${L('连闯', 'Auto')}</span>
+            <span class="profile-dock-icon tone-blue">${icon('clock', 18)}</span>
+            <span class="profile-dock-label">${L('提醒', 'Alert')}</span>
             <span class="profile-dock-sub" style="color:${u.autoRenew ? 'var(--nt-green)' : 'var(--ink-muted)'};">${u.autoRenew ? L('已开', 'ON') : L('已关', 'OFF')}</span>
           </button>
           <button class="profile-dock-tile" data-nav="/settings" type="button">
@@ -300,10 +300,10 @@ export function renderProfileHome(root, navigate) {
         <div class="card">
           <div class="empty-state" style="padding:10px 8px 6px;">
             <span class="nt-art-badge tone-blue" style="width:52px;height:52px;" aria-hidden="true">${renderNintendoGateIcon('vault', 32)}</span>
-            <div style="font-size:15px;font-weight:900;margin-top:4px;">${L('还没有质押持仓', 'No Active Position Yet')}</div>
-            <div class="text-sec" style="font-size:12px;max-width:260px;">${L('最低 1,000 A9 参与，达标瓜分当轮奖池。', 'Stake 1,000+ A9 to split the round pool.')}</div>
+            <div style="font-size:15px;font-weight:900;margin-top:4px;">${L('还没有锁仓持仓', 'No Active Lock Position Yet')}</div>
+            <div class="text-sec" style="font-size:12px;max-width:260px;">${L('最低 100 A9 无门槛锁仓，头矿 6H · 5% 止损，永不爆仓。', 'Lock from 100 A9 — First 6H · 5% Stop-Loss, No Liquidation.')}</div>
             <div class="grid-2" style="width:100%;margin-top:10px;gap:8px;">
-              <button class="btn btn-primary btn-sm" data-nav="/challenge/confirm" type="button">${icon('bolt', 14)} ${L('立即参与', 'Stake Now')}</button>
+              <button class="btn btn-primary btn-sm" data-nav="/challenge/confirm" type="button">${icon('bolt', 14)} ${L('立即锁仓', 'Lock Now')}</button>
               <button class="btn btn-secondary btn-sm" data-nav="/internal/market" type="button">${icon('swap', 14)} ${L('宝箱商城', 'Chest Mall')}</button>
             </div>
           </div>
@@ -320,8 +320,8 @@ export function renderProfileHome(root, navigate) {
             <span class="profile-dock-sub">${L('明细', 'Log')}</span>
           </button>
           <button class="profile-dock-tile" data-nav="/renew" type="button">
-            <span class="profile-dock-icon tone-blue">${icon('refresh', 18)}</span>
-            <span class="profile-dock-label">${L('连闯', 'Auto')}</span>
+            <span class="profile-dock-icon tone-blue">${icon('clock', 18)}</span>
+            <span class="profile-dock-label">${L('提醒', 'Alert')}</span>
             <span class="profile-dock-sub">${user.autoRenew ? 'ON' : 'OFF'}</span>
           </button>
           <button class="profile-dock-tile" data-nav="/settings" type="button">
@@ -383,8 +383,8 @@ export function renderProfileHome(root, navigate) {
             <span class="profile-dock-sub">${store.state.ledger.length} ${L('笔', 'tx')}</span>
           </button>
           <button class="profile-dock-tile" data-nav="/renew" type="button">
-            <span class="profile-dock-icon tone-blue">${icon('refresh', 18)}</span>
-            <span class="profile-dock-label">${L('连闯', 'Auto')}</span>
+            <span class="profile-dock-icon tone-blue">${icon('clock', 18)}</span>
+            <span class="profile-dock-label">${L('提醒', 'Alert')}</span>
             <span class="profile-dock-sub" style="color:${user.autoRenew ? 'var(--nt-green)' : 'var(--ink-muted)'};">${user.autoRenew ? L('已开', 'ON') : L('已关', 'OFF')}</span>
           </button>
           <button class="profile-dock-tile" data-nav="/settings" type="button">
@@ -399,7 +399,7 @@ export function renderProfileHome(root, navigate) {
             <div class="card-title">${icon('shieldCheck', 16, 'text-green')} ${L('凭证收藏册', 'Ticket Collection')}</div>
             <span class="chip chip-muted mono">${certificates.length}</span>
           </div>
-          <nav class="ticket-tabs" id="ticket-filter-tabs" aria-label="${L('筛选凭证', 'Filter tickets')}">${[['all', L('全部', 'All')], ['observation', L('观察中', 'Observing')], ['settled', L('已结算', 'Settled')]].map(([value, label]) => `<button type="button" data-ticket-filter="${value}" aria-pressed="${value === activeFilter}">${label}</button>`).join('')}</nav>
+          <nav class="ticket-tabs" id="ticket-filter-tabs" aria-label="${L('筛选凭证', 'Filter tickets')}">${[['all', L('全部', 'All')], ['observation', L('12H 冲价中', '12H Push')], ['settled', L('已结算', 'Settled')]].map(([value, label]) => `<button type="button" data-ticket-filter="${value}" aria-pressed="${value === activeFilter}">${label}</button>`).join('')}</nav>
           <p class="ticket-empty" hidden>${L('该状态下暂无闯关凭证', 'No quest passes in this state')}</p>
           ${certificates.length === 0
             ? `<div class="empty-state" style="padding:14px;"><div class="num-xs text-muted">${L('暂无进行中的闯关凭证', 'No active quest passes')}</div><button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/round">${L('前往轮次闯关', 'Go to Quest')}</button></div>`
@@ -408,11 +408,11 @@ export function renderProfileHome(root, navigate) {
                 <span class="collectible-ticket-badge" aria-hidden="true">${renderNintendoGateIcon('ticket', 24)}</span>
                 <div>
                   <div class="num-sm" style="font-weight:900;">#${escapeHtml(c.id)}</div>
-                  <div class="num-xs text-muted">${L('第', 'R')}${c.round}${L('轮', '')} · ${formatNum(c.stakeTon)} A9 · ${(Number(c.multiplier) || 1).toFixed(1)}×</div>
+                  <div class="num-xs text-muted">${L('第', 'R')}${c.round}${L('轮', '')} · ${formatNum(c.stakeTon)} A9 · ${L('全员 1:1', '1:1 Equal')}</div>
                 </div>
                 <div style="text-align:right;">
                   <div class="num-sm text-green" style="font-weight:900;">+${formatNum(c.estRewardA9)} A9</div>
-                  <span class="chip ${c.status === 'settled' ? 'chip-green' : 'chip-blue'}" style="min-height:18px;font-size:9.5px;margin-top:3px;">${c.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</span>
+                  <span class="chip ${c.status === 'settled' ? 'chip-green' : 'chip-blue'}" style="min-height:18px;font-size:9.5px;margin-top:3px;">${c.status === 'settled' ? L('已结算', 'Settled') : L('12H 冲价中', '12H Push')}</span>
                 </div>
               </div>
             `).join('')}
@@ -660,14 +660,14 @@ function renderLiveTicketClaimPage(root) {
           </div>
           <div class="num-xs text-sec" style="line-height:1.5;">
             ${range && range.fromRound && range.toRound
-              ? L(`当前已扫描第 ${range.fromRound} 至第 ${range.toRound} 轮链上质押凭证；每笔领奖需附带 0.22 GRAM 链上 Gas（余量原路退回）。`, `Scanned rounds ${range.fromRound}–${range.toRound}. Each claim attaches 0.22 GRAM gas (excess refunded).`)
+              ? L(`当前已扫描第 ${range.fromRound} 至第 ${range.toRound} 轮链上锁仓凭证；每笔领奖需附带 0.22 GRAM 链上 Gas（余量原路退回）。`, `Scanned rounds ${range.fromRound}–${range.toRound}. Each claim attaches 0.22 GRAM gas (excess refunded).`)
               : L('每笔 StakeTicket 领奖需附带 0.22 GRAM 链上 Gas（余量原路退回）。', 'Each StakeTicket claim attaches 0.22 GRAM gas (excess refunded).')}
           </div>
           ${loadError ? `<div class="num-xs text-red" style="margin-top:8px;">${escapeHtml(loadError)}</div>` : ''}
         </div>
 
         ${!user.connected
-          ? `<div class="card empty-state"><div class="num-sm text-sec">${L('请先连接非托管 TON 钱包读取链上质押凭证', 'Connect TON wallet to load on-chain StakeTickets')}</div><button class="btn btn-primary btn-sm" id="btn-live-claim-connect" style="margin-top:10px;">${L('连接钱包', 'Connect Wallet')}</button></div>`
+          ? `<div class="card empty-state"><div class="num-sm text-sec">${L('请先连接非托管 TON 钱包读取链上锁仓凭证', 'Connect TON wallet to load on-chain StakeTickets')}</div><button class="btn btn-primary btn-sm" id="btn-live-claim-connect" style="margin-top:10px;">${L('连接钱包', 'Connect Wallet')}</button></div>`
           : !portfolio
             ? `<div class="card empty-state"><div class="num-sm text-muted">${L('正在读取链上 StakeTicket…', 'Loading on-chain StakeTickets…')}</div></div>`
             : tickets.length === 0
@@ -680,32 +680,51 @@ function renderLiveTicketClaimPage(root) {
                     const isPending = Boolean(t.pending);
                     const hasPreview = typeof t.canClaim === 'boolean';
                     const canClaim = hasPreview ? t.canClaim : !isPending;
+                    const canEarlyExit = Boolean(t.canEarlyExit);
+                    const canInstantCashout = Boolean(t.canInstantCashout);
                     const claimablePrincipalA9 = rawToA9(t.claimablePrincipalRaw) ?? 0;
+                    const burnedPrincipalA9 = rawToA9(t.burnedPrincipalRaw) ?? 0;
                     const claimableRewardA9 = rawToA9(t.claimableRewardRaw) ?? 0;
                     const claimableTotalA9 = rawToA9(t.claimableTotalRaw) ?? 0;
                     const lockedRemA9 = rawToA9(t.lockedRemainingRaw) ?? 0;
+                    const earlyExitRefA9 = rawToA9(t.earlyExitRefundRaw) ?? 0;
+                    const earlyExitBurnA9 = rawToA9(t.earlyExitBurnRaw) ?? 0;
+                    const cashoutTotalA9 = rawToA9(t.instantCashoutTotalRaw) ?? 0;
+                    const cashoutBurnA9 = rawToA9(t.instantCashoutBurnRaw) ?? 0;
                     const rState = String(t.roundState || '').toUpperCase();
                     const isBusy = claimingAddr === t.ticketAddress;
                     const isGlobalClaimLocked = pendingTxManager.isLocked('claim');
                     const disabled = !canClaim || isPending || isBusy || isGlobalClaimLocked;
+                    const earlyExitDisabled = !canEarlyExit || isPending || isBusy || isGlobalClaimLocked;
+                    const cashoutDisabled = !canInstantCashout || isPending || isBusy || isGlobalClaimLocked;
+
                     let statusChip = `<span class="chip chip-cyan">${L('持有中', 'Active')}</span>`;
                     if (isPending) statusChip = `<span class="chip chip-gold">${L('链上处理中', 'Pending')}</span>`;
-                    else if (rState === 'FAILED_PERMANENT' || rState === 'FAILED') statusChip = `<span class="chip chip-red">${L('未达标 · 已销毁 BURN', 'Failed · Burned')}</span>`;
-                    else if (rState === 'STAKING_OPEN' || rState === 'OBSERVING') statusChip = `<span class="chip chip-gold">${L('观察期 · 暂不可领', 'Observing · Locked')}</span>`;
-                    else if (rState === 'ABORTED') statusChip = canClaim ? `<span class="chip chip-green">${L('异常中止 · 可退本金', 'Aborted · Refundable')}</span>` : `<span class="chip chip-muted">${L('已全额退本', 'Refunded')}</span>`;
-                    else if (canClaim) statusChip = `<span class="chip chip-green">${L('可领本金/奖励', 'Claimable')}</span>`;
-                    else if (t.principalDone) statusChip = `<span class="chip chip-muted">${lockedRemA9 > 0 ? L('40 天线性释放中', '40d Linear Vesting') : L('已全额领完', 'Fully Claimed')}</span>`;
+                    else if (t.exited) statusChip = `<span class="chip chip-muted">${L('已提前解押 (-15%)', 'Early Exited (-15%)')}</span>`;
+                    else if (rState === 'FAILED_PERMANENT' || rState === 'FAILED') {
+                      statusChip = canClaim
+                        ? `<span class="chip chip-green">${L('未达标 · 可领止损退本', 'Failed · Stop-Loss Refund')}</span>`
+                        : `<span class="chip chip-muted">${L('已领回止损退本', 'Stop-Loss Refunded')}</span>`;
+                    }
+                    else if (rState === 'STAKING_OPEN') statusChip = `<span class="chip chip-gold">${L('24H 锁仓中 · 可提前解押', '24H Lock · Early Exit Open')}</span>`;
+                    else if (rState === 'OBSERVING') statusChip = `<span class="chip chip-gold">${L('12H 冲价中 · 封盘禁出', '12H Push · Locked')}</span>`;
+                    else if (rState === 'ABORTED' || rState === 'TECHNICAL_ABORTED') statusChip = canClaim ? `<span class="chip chip-green">${L('异常中止 · 100% 退本', 'Aborted · 100% Refund')}</span>` : `<span class="chip chip-muted">${L('已全额退本', 'Refunded')}</span>`;
+                    else if (canClaim) statusChip = `<span class="chip chip-green">${L('可领本金/奖金', 'Claimable')}</span>`;
+                    else if (t.forfeited) statusChip = `<span class="chip chip-muted">${L('已 3 折急提结清', 'Instant Cashed Out')}</span>`;
+                    else if (t.principalDone) statusChip = `<span class="chip chip-muted">${lockedRemA9 > 0 ? L('14 天逐秒解锁中', '14D Unlocking') : L('已全额领完', 'Fully Claimed')}</span>`;
 
                     let btnLabel = L('发起链上领奖（附 0.22 GRAM Gas）', 'Claim On-Chain (0.22 GRAM Gas)');
                     if (isPending) btnLabel = L('凭证正在链上确认中（防重锁）', 'Claim Pending On-Chain');
-                    else if (isGlobalClaimLocked) btnLabel = L('领奖确认中（防重锁）', 'Claim Confirming…');
+                    else if (isGlobalClaimLocked) btnLabel = L('交易确认中（防重锁）', 'Confirming…');
                     else if (isBusy) btnLabel = L('等待钱包签名…', 'Awaiting Signature…');
                     else if (!canClaim) {
-                      if (rState === 'FAILED_PERMANENT' || rState === 'FAILED') btnLabel = L('本轮未达标 · 本金已销毁（不可领）', 'Round Burned (Nothing to Claim)');
-                      else if (rState === 'STAKING_OPEN' || rState === 'OBSERVING') btnLabel = L('本轮结算前暂不可领', 'Locked Until Settlement');
+                      if (rState === 'STAKING_OPEN') btnLabel = L('24H 锁仓期内待冲价结算', 'In 24H Lock Window');
+                      else if (rState === 'OBSERVING') btnLabel = L('12H 冲价封盘中（禁进禁出）', '12H Push Locked');
                       else btnLabel = L('当前无可领金额（避免浪费 Gas）', 'Nothing Claimable Right Now');
+                    } else if (rState === 'FAILED_PERMANENT' || rState === 'FAILED') {
+                      btnLabel = L(`领回止损退本 ${formatNum(claimablePrincipalA9, 2)} A9（永不爆仓）`, `Claim Stop-Loss Refund ${formatNum(claimablePrincipalA9, 2)} A9`);
                     } else if (hasPreview && claimableTotalA9 > 0) {
-                      btnLabel = L(`领取 ${formatNum(claimableTotalA9, 2)} A9（附 0.22 GRAM Gas）`, `Claim ${formatNum(claimableTotalA9, 2)} A9 (0.22 GRAM Gas)`);
+                      btnLabel = L(`逐秒全领 ${formatNum(claimableTotalA9, 2)} A9（附 0.22 GRAM）`, `Claim ${formatNum(claimableTotalA9, 2)} A9 (0.22 GRAM)`);
                     }
 
                     return `
@@ -720,22 +739,31 @@ function renderLiveTicketClaimPage(root) {
                         </div>
                         ${hasPreview ? `
                         <div class="row-between num-xs text-sec" style="margin-top:4px;">
-                          <span>${L('当前可领（本金 + 奖励）', 'Claimable Now')}</span>
-                          <b class="mono ${claimableTotalA9 > 0 ? 'text-green' : 'text-muted'}">${formatNum(claimableTotalA9, 2)} A9 (${formatNum(claimablePrincipalA9, 2)} + ${formatNum(claimableRewardA9, 2)})</b>
+                          <span>${(rState === 'FAILED_PERMANENT' || rState === 'FAILED') ? L('可领止损退本 / 已销毁止损', 'Stop-Loss Refund / Burned') : L('当前可领（本金 + 奖金）', 'Claimable Now')}</span>
+                          <b class="mono ${claimableTotalA9 > 0 ? 'text-green' : 'text-muted'}">${(rState === 'FAILED_PERMANENT' || rState === 'FAILED') ? `${formatNum(claimablePrincipalA9, 2)} A9 / -${formatNum(burnedPrincipalA9, 2)} A9` : `${formatNum(claimableTotalA9, 2)} A9 (${formatNum(claimablePrincipalA9, 2)} + ${formatNum(claimableRewardA9, 2)})`}</b>
                         </div>
                         ${lockedRemA9 > 0 ? `
                         <div class="row-between num-xs text-sec" style="margin-top:4px;">
-                          <span>${Number.isFinite(Number(t.unlockedPctBps)) ? L(`40 天线性待释放（已解锁 ${(Number(t.unlockedPctBps) / 100).toFixed(2)}%）`, `40d Linear Remaining (${(Number(t.unlockedPctBps) / 100).toFixed(2)}% unlocked)`) : L('40 天线性待释放奖励', '40d Linear Remaining')}</span>
+                          <span>${Number.isFinite(Number(t.unlockedPctBps)) ? L(`14 天逐秒待解锁（已解锁 ${(Number(t.unlockedPctBps) / 100).toFixed(2)}%）`, `14D Unlock Remaining (${(Number(t.unlockedPctBps) / 100).toFixed(2)}% unlocked)`) : L('14 天逐秒待解锁奖金', '14D Unlock Remaining')}</span>
                           <b class="mono text-gold">${formatNum(lockedRemA9, 2)} A9</b>
                         </div>` : ''}` : `
                         <div class="row-between num-xs text-sec" style="margin-top:4px;">
-                          <span>${L('即时奖励 / 已领锁仓', 'Immediate / Locked Claimed')}</span>
+                          <span>${L('即时奖金 / 已领解锁', 'Instant / Unlocked Claimed')}</span>
                           <b class="mono text-green">${immLabel} · ${formatNum(lockedClaimedA9, 2)} A9</b>
                         </div>`}
                         <div class="num-xs text-muted mono" style="margin:6px 0 10px;word-break:break-all;">${escapeHtml(t.ticketAddress)}</div>
+                        ${canClaim || (!canEarlyExit) ? `
                         <button class="btn ${disabled ? 'btn-secondary' : 'btn-primary'} btn-sm" data-claim-ticket="${escapeHtml(t.ticketAddress)}" type="button" style="width:100%;" ${disabled ? 'disabled' : ''}>
                           ${icon(disabled ? (isPending || isGlobalClaimLocked ? 'clock' : 'lock') : 'wallet', 13)} ${btnLabel}
-                        </button>
+                        </button>` : ''}
+                        ${canInstantCashout ? `
+                        <button class="btn btn-secondary btn-sm" data-instant-cashout-ticket="${escapeHtml(t.ticketAddress)}" type="button" style="width:100%;margin-top:6px;border-color:var(--gold-border);color:var(--gold);" ${cashoutDisabled ? 'disabled' : ''}>
+                          ${icon('bolt', 13)} ${L(`3 折急提：立刻拿 ${formatNum(cashoutTotalA9, 2)} A9（另烧 ${formatNum(cashoutBurnA9, 2)} A9 · 0.34 GRAM）`, `Instant Cashout: ${formatNum(cashoutTotalA9, 2)} A9 Now (Burn ${formatNum(cashoutBurnA9, 2)} A9)`)}
+                        </button>` : ''}
+                        ${canEarlyExit ? `
+                        <button class="btn btn-secondary btn-sm" data-early-exit-ticket="${escapeHtml(t.ticketAddress)}" type="button" style="width:100%;margin-top:6px;border-color:var(--red-border, #F3B3B8);color:var(--red);" ${earlyExitDisabled ? 'disabled' : ''}>
+                          ${icon('flame', 13)} ${L(`提前解押：退 ${formatNum(earlyExitRefA9, 2)} A9 / 扣 15%（${formatNum(earlyExitBurnA9, 2)} A9）销毁`, `Early Exit: Refund ${formatNum(earlyExitRefA9, 2)} A9 (-15% Burn)`)}
+                        </button>` : ''}
                       </div>
                     `;
                   }).join('')}
@@ -861,6 +889,94 @@ function renderLiveTicketClaimPage(root) {
         }
       };
     });
+
+    // v17: 3 折急提（已解锁 100% 实发，仅未解锁余额按 30% 秒提 + 70% 直接销毁；0.34 GRAM 余量全退）
+    root.querySelectorAll('[data-instant-cashout-ticket]').forEach((btn) => {
+      btn.onclick = async () => {
+        const ticketAddr = btn.dataset.instantCashoutTicket;
+        if (!ticketAddr || claimingAddr || pendingTxManager.isLocked('claim')) return;
+        A9Haptic.warning();
+        const ticket = tickets.find((item) => item.ticketAddress === ticketAddr);
+        if (!ticket?.canInstantCashout) return;
+        try {
+          tonConnect.assertWalletReadyForLiveTx();
+        } catch (guardErr) {
+          showToast(guardErr?.message || L('请检查钱包连接与网络状态', 'Check wallet connection and network'), 'error');
+          return;
+        }
+        const totalCashA9 = rawToA9(ticket.instantCashoutTotalRaw) ?? 0;
+        const burnA9 = rawToA9(ticket.instantCashoutBurnRaw) ?? 0;
+        const ok = await tonConnect.confirmBeforeSign({
+          title: L('确认 3 折急提（未解锁部分 7 折永久销毁）', 'Confirm Instant Cashout (70% Unvested Burned)'),
+          contractLabel: L('目标凭证 StakeTicket', 'Target StakeTicket'),
+          targetAddress: ticketAddr,
+          principalText: `${L(`第 ${ticket.roundId ?? '—'} 轮`, `Round #${ticket.roundId ?? '—'}`)} · ${L('立刻实拿', 'Receive Now')} ${formatNum(totalCashA9, 2)} A9 · ${L('永久销毁', 'Burn')} ${formatNum(burnA9, 2)} A9`,
+          gasText: `0.34 GRAM (${L('含发币+销毁双动作 Gas，余量全退', 'dual-action gas, excess refunded')})`,
+          totalText: '0.34 GRAM (Gas)',
+          note: L('已自然解锁的奖金按 100% 实发，仅尚未解锁的未来余额按 30% 秒提、70% 永久打入黑洞销毁且不可撤回。', 'Already-unlocked rewards pay 100%; only remaining unvested rewards split 30% instant / 70% permanent burn.'),
+          confirmText: L('确认并签名 3 折急提', 'Confirm & Sign Instant Cashout'),
+        });
+        if (!ok) return;
+        claimingAddr = ticketAddr;
+        paint();
+        try {
+          await tonConnect.sendV15TicketClaim(ticketAddr, BigInt(Date.now()), { instantDiscount: true });
+          A9Haptic.success();
+          showToast(L('已提交 3 折急提交易，等待链上确认…', 'Instant Cashout sent, awaiting confirmation…'));
+          await loadTickets();
+        } catch (e) {
+          A9Haptic.error();
+          showToast(e?.message || L('发起 3 折急提签名失败，请重试', 'Instant Cashout signature failed'), 'error');
+        } finally {
+          claimingAddr = null;
+          if (root.isConnected) paint();
+        }
+      };
+    });
+
+    // v17: 24H 锁仓期提前解押（退 85% 本金 / 扣 15% 永久销毁；进入 12H 冲价期封盘禁止）
+    root.querySelectorAll('[data-early-exit-ticket]').forEach((btn) => {
+      btn.onclick = async () => {
+        const ticketAddr = btn.dataset.earlyExitTicket;
+        if (!ticketAddr || claimingAddr || pendingTxManager.isLocked('claim')) return;
+        A9Haptic.warning();
+        const ticket = tickets.find((item) => item.ticketAddress === ticketAddr);
+        if (!ticket?.canEarlyExit) return;
+        try {
+          tonConnect.assertWalletReadyForLiveTx();
+        } catch (guardErr) {
+          showToast(guardErr?.message || L('请检查钱包连接与网络状态', 'Check wallet connection and network'), 'error');
+          return;
+        }
+        const refA9 = rawToA9(ticket.earlyExitRefundRaw) ?? 0;
+        const burnA9 = rawToA9(ticket.earlyExitBurnRaw) ?? 0;
+        const ok = await tonConnect.confirmBeforeSign({
+          title: L('确认提前解押（退 85% 本金 / 扣 15% 销毁）', 'Confirm Early Exit (85% Refund / -15% Burn)'),
+          contractLabel: L('目标凭证 StakeTicket', 'Target StakeTicket'),
+          targetAddress: ticketAddr,
+          principalText: `${L(`第 ${ticket.roundId ?? '—'} 轮`, `Round #${ticket.roundId ?? '—'}`)} · ${L('退回本金', 'Refund')} ${formatNum(refA9, 2)} A9 · ${L('扣除销毁', 'Burn')} ${formatNum(burnA9, 2)} A9`,
+          gasText: `0.34 GRAM (${L('余量原路退回', 'excess refunded')})`,
+          totalText: '0.34 GRAM (Gas)',
+          note: L('仅限 24H 锁仓期内可执行提前解押，扣除 15% 本金永久销毁，进入 12H 冲价期后将自动锁定禁止撤本。', 'Early Exit is only available during the 24H lock window (15% burned); locked once 12H push begins.'),
+          confirmText: L('确认并签名提前解押', 'Confirm & Sign Early Exit'),
+        });
+        if (!ok) return;
+        claimingAddr = ticketAddr;
+        paint();
+        try {
+          await tonConnect.sendV17TicketEarlyExit(ticketAddr);
+          A9Haptic.success();
+          showToast(L('已提交提前解押交易，等待链上确认…', 'Early Exit sent, awaiting confirmation…'));
+          await loadTickets();
+        } catch (e) {
+          A9Haptic.error();
+          showToast(e?.message || L('发起提前解押签名失败，请重试', 'Early Exit signature failed'), 'error');
+        } finally {
+          claimingAddr = null;
+          if (root.isConnected) paint();
+        }
+      };
+    });
   };
 
   const loadTickets = async () => {
@@ -887,7 +1003,7 @@ export function renderProofDetail(root, navigate, certId) {
         <div class="card card-hero empty-state">
           <span class="nt-art-badge tone-red" aria-hidden="true">${renderNintendoGateIcon('ticket', 34)}</span>
           <div style="font-weight:900;font-size:16px;margin-top:4px;">${L('暂无闯关凭证', 'No Quest Pass Yet')}</div>
-          <div class="num-xs text-muted" style="max-width:250px;">${L('完成任意一轮 A9 质押入场后，将自动铸造链上 SBT 闯关凭证。', 'Complete any round A9 stake entry to mint your on-chain SBT quest pass.')}</div>
+          <div class="num-xs text-muted" style="max-width:250px;">${L('完成任意一轮 A9 锁仓入场后，将自动铸造链上 SBT 锁仓凭证。', 'Complete any round A9 lock entry to mint your on-chain SBT pass.')}</div>
           <button class="btn btn-primary btn-sm" style="margin-top:10px;" data-nav="/challenge/confirm">${icon('bolt', 14)} ${L('立即入场获取凭证', 'Enter to Mint')}</button>
         </div>
         <button class="btn btn-secondary" data-nav="/profile">${icon('arrowLeft', 15)} ${L('返回我的', 'Back to Me')}</button>
@@ -928,12 +1044,12 @@ export function renderProofDetail(root, navigate, certId) {
 
               <div class="cert-metrics-grid">
                 <div class="cert-metric-tile">
-                  <small>${L('质押本金', 'Stake')}</small>
+                  <small>${L('锁仓本金', 'Locked')}</small>
                   <strong>${formatNum(cert.stakeTon)}<span class="cert-unit">A9</span></strong>
                 </div>
                 <div class="cert-metric-tile is-gold">
-                  <small>${L('早鸟权重', 'Boost')}</small>
-                  <strong class="text-gold">${(Number(cert.multiplier) || 1).toFixed(1)}×</strong>
+                  <small>${L('单轮封顶', 'Round Cap')}</small>
+                  <strong class="text-gold">5×</strong>
                 </div>
                 <div class="cert-metric-tile is-green">
                   <small>${estLabel}</small>
@@ -942,7 +1058,7 @@ export function renderProofDetail(root, navigate, certId) {
               </div>
             </div>
             <div class="cert-foot">
-              <span class="num-xs text-muted mono">A9 v16.2 · ${isSettled ? L('已结算', 'SETTLED') : L('24H 观察中', 'OBSERVING')}</span>
+              <span class="num-xs text-muted mono">A9 v17.0 · ${isSettled ? L('已结算', 'SETTLED') : L('12H 冲价中', '12H PUSH')}</span>
               ${renderMiniBarcode()}
             </div>
           </div>
@@ -973,18 +1089,18 @@ export function renderProofDetail(root, navigate, certId) {
         <button class="btn btn-secondary" id="btn-x-proof" style="min-height:46px;font-size:14px;">${icon('xBrand', 14)} ${L('发 X 炫耀凭证', 'Share on X')}</button>
       </div>
 
-      ${renderCorridorRadar(round.candles || [], round.targetPrice, round.activeCandleSec || 0, round.livePrice, { qualified: round.qualifiedCandles || 0, minQualified: round.minQualifiedCandles || 16, seen: round.candlesSeen || 0 })}
+      ${renderCorridorRadar(round.candles || [], round.targetPrice, round.activeCandleSec || 0, round.livePrice, { qualified: round.qualifiedCandles || 0, minQualified: round.minQualifiedCandles || 8, seen: round.candlesSeen || 0 })}
 
       <div class="card">
-        <div class="row-between">
+        <div class="row-between" style="gap:8px;">
           <div class="settings-row-left">
-            <span class="icon-badge sky">${icon('refresh', 16)}</span>
+            <span class="icon-badge sky">${icon('clock', 16)}</span>
             <div>
-              <div class="settings-row-title">${L('本凭证自动连闯', 'Pass Auto-Continue')}</div>
-              <div class="settings-row-sub">${L('达标后自动将本金顺延至下一轮', 'Roll principal into next round on win')}</div>
+              <div class="settings-row-title">${L('头矿 6H 开盘 Bot 私信提醒', 'First 6H Opening Bot Alert')}</div>
+              <div class="settings-row-sub">${L('非托管架构不代扣本金 · 领完后可一键复投下一轮', 'Non-custodial · 1-tap re-lock after claim')}</div>
             </div>
           </div>
-          <div class="a9-switch ${cert.autoRenew ? 'on' : ''}" id="cert-renew-switch" role="switch" aria-checked="${Boolean(cert.autoRenew)}" tabindex="0"></div>
+          <button class="btn btn-secondary btn-sm" data-nav="/renew" type="button" style="white-space:nowrap;">${L('去设置', 'Set Alert')} ›</button>
         </div>
       </div>
     </div>
@@ -1055,18 +1171,7 @@ export function renderProofDetail(root, navigate, certId) {
     openProofModal();
   };
 
-  const renewSw = root.querySelector('#cert-renew-switch');
-  if (renewSw) {
-    const toggleCertRenew = () => {
-      A9Haptic.tick();
-      store.update(s => { const target = s.certificates.find(c => c.id === cert.id); if (target) target.autoRenew = !target.autoRenew; });
-      const on = renewSw.classList.toggle('on');
-      renewSw.setAttribute('aria-checked', String(on));
-      showToast(L('已更新续期设置', 'Rollover updated'));
-    };
-    renewSw.onclick = toggleCertRenew;
-    renewSw.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCertRenew(); } };
-  }
+
 
   bindCorridorRadarEvents(root);
   root.querySelectorAll('[data-x-share="round"]').forEach(btn => {
@@ -1086,30 +1191,57 @@ export function renderProofDetail(root, navigate, certId) {
   }
 }
 
+let liveRenewNotifCache = { fetched: false, settlementPush: null, error: null, saving: false };
+let renewRenderSeq = 0;
+
 export function renderRenewPage(root) {
-  const { user, round, certificates } = store.state;
+  const { user, round } = store.state;
   const nextRoundNum = round.currentRound ? round.currentRound + 1 : null;
   const nextRoundZh = nextRoundNum ? `第 ${nextRoundNum} 轮` : '下一轮';
   const nextRoundEn = nextRoundNum ? `Round ${nextRoundNum}` : 'Next Round';
-  const isOn = Boolean(user.autoRenew);
+  const isDemo = config.isDemo;
+  const hasInitData = !isDemo && Boolean(A9TMA.getRawInitData());
+  const seq = ++renewRenderSeq;
+  const isOn = isDemo
+    ? Boolean(user.autoRenew)
+    : Boolean(hasInitData && liveRenewNotifCache.fetched && liveRenewNotifCache.settlementPush === true);
+  const availFloor = user.a9Available !== null && user.a9Available !== undefined ? Math.floor(Number(user.a9Available) || 0) : 0;
+  const restakeHref = availFloor >= 100 ? `#/challenge/confirm?amt=${availFloor}` : '#/challenge/confirm';
+  const subText = isDemo
+    ? L(`${nextRoundZh}开盘第一时间推送 Bot 通知，锁头矿 5% 轻止损`, `Get instant Bot DM when ${nextRoundEn} opens for 5% Stop-Loss`)
+    : (!hasInitData
+        ? L('请在 Telegram 小程序内打开以管理 Bot 开盘与结算提醒', 'Open in Telegram Mini App to manage Bot opening & settlement alerts')
+        : (liveRenewNotifCache.saving
+            ? L('正在同步服务端提醒设置…', 'Saving alert preference…')
+            : (liveRenewNotifCache.error
+                ? L('提醒状态同步失败，点击开关重试', 'Failed to sync alert preference, tap to retry')
+                : (!liveRenewNotifCache.fetched
+                    ? L('正在同步服务端提醒状态…', 'Syncing alert preference…')
+                    : (isOn
+                        ? L(`已开启 Telegram Bot 私信提醒（${nextRoundZh}开盘 / 结算自动推送）`, `Telegram Bot DM alerts ON (${nextRoundEn} open & settle)`)
+                        : L('已关闭 Telegram Bot 私信提醒', 'Telegram Bot DM alerts OFF'))))));
 
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
-      <section class="renew-hero-card ${isOn ? 'is-on' : ''}">
+      <section class="renew-hero-card ${isOn ? 'is-on' : ''}" id="renew-hero-card">
         <div class="row-between">
           <div class="settings-row-left">
             <span class="nt-art-badge ${isOn ? 'tone-green' : 'tone-blue'}" style="width:46px;height:46px;border-radius:14px;">
-              ${icon('refresh', 22, isOn ? 'text-green' : 'text-cyan')}
+              ${icon('clock', 22, isOn ? 'text-green' : 'text-cyan')}
             </span>
             <div>
               <div class="row-start" style="gap:6px;">
-                <strong style="font-size:16px;font-weight:900;">${L('自动连闯', 'Auto-Continue')}</strong>
-                <span class="chip ${isOn ? 'chip-green' : 'chip-muted'}" style="min-height:20px;font-size:10px;">${isOn ? L('已开启', 'ACTIVE') : L('已关闭', 'OFF')}</span>
+                <strong style="font-size:16px;font-weight:900;">${L('头矿 6H 开盘 Bot 私信提醒', 'First 6H Bot Opening Alert')}</strong>
+                <span class="chip ${isOn ? 'chip-green' : 'chip-muted'}" id="renew-status-chip" style="min-height:20px;font-size:10px;">${isOn ? L('已开启', 'ACTIVE') : (!isDemo && !hasInitData ? L('仅 TG 内可用', 'TG ONLY') : L('已关闭', 'OFF'))}</span>
               </div>
-              <div class="num-xs text-sec" style="margin-top:2px;">${L(`达标结算后自动顺延本金至${nextRoundZh}`, `Auto-roll principal into ${nextRoundEn} on win`)}</div>
+              <div class="num-xs text-sec" id="renew-status-sub" style="margin-top:2px;">${subText}</div>
             </div>
           </div>
-          <div class="a9-switch ${isOn ? 'on' : ''}" id="global-renew-sw" role="switch" aria-checked="${isOn}" tabindex="0"></div>
+          ${isDemo
+            ? `<div class="a9-switch ${isOn ? 'on' : ''}" id="global-renew-sw" role="switch" aria-checked="${isOn}" tabindex="0"></div>`
+            : (!hasInitData
+                ? `<div class="a9-switch disabled" id="global-renew-sw" role="switch" aria-checked="false" aria-disabled="true"></div>`
+                : `<div class="a9-switch ${isOn ? 'on' : ''}${liveRenewNotifCache.saving ? ' disabled' : ''}" id="global-renew-sw" role="switch" aria-checked="${isOn}" aria-disabled="${liveRenewNotifCache.saving ? 'true' : 'false'}" tabindex="0"></div>`)}
         </div>
 
         <div class="renew-preview-grid">
@@ -1118,84 +1250,143 @@ export function renderRenewPage(root) {
             <strong>${nextRoundNum ? `R${String(nextRoundNum).padStart(2, '0')}` : L('下轮', 'Next')}</strong>
           </div>
           <div class="renew-preview-cell">
-            <small>${L('顺延范围', 'Scope')}</small>
-            <strong>${L('仅本金', 'Principal')}</strong>
+            <small>${L('资金模式', 'Custody')}</small>
+            <strong>${L('纯非托管', 'Non-Custodial')}</strong>
           </div>
           <div class="renew-preview-cell">
-            <small>${L('早鸟权重', 'Weight')}</small>
-            <strong class="text-gold">2.0× ${L('优先', 'First')}</strong>
+            <small>${L('头矿特权', 'First 6H')}</small>
+            <strong class="text-gold">${L('5% 轻止损', '5% Stop-Loss')}</strong>
           </div>
         </div>
       </section>
 
       <section class="card">
         <div class="card-header">
-          <div class="card-title">${icon('bolt', 15, 'text-gold')} ${L('自动连闯如何生效', 'How Auto-Continue Works')}</div>
+          <div class="card-title">${icon('bolt', 15, 'text-gold')} ${L('领奖后本金一键复投下一轮', '1-Tap Principal Re-Lock')}</div>
         </div>
-        <div class="renew-step-list">
-          <div class="renew-step-item">
-            <span class="renew-step-num">01</span>
-            <div class="renew-step-copy">
-              <strong>${L('仅在达标胜出时触发', 'Triggers Only on Passing Rounds')}</strong>
-              <p>${L('当轮 24H 达标 ≥ 16 段后，系统自动将已结本金无感迁移至下一轮。', 'When a round passes (≥ 16/24 slots), settled principal rolls seamlessly into the next round.')}</p>
-            </div>
-          </div>
-          <div class="renew-step-item">
-            <span class="renew-step-num">02</span>
-            <div class="renew-step-copy">
-              <strong>${L('自动抢占首段 2.0× 早鸟权重', 'Locks 2.0× Early-Bird Weight')}</strong>
-              <p>${L('开窗即入场，自动锁定最高早鸟权重份额，无需半夜蹲守手动质押。', 'Enters immediately at open to capture the top 2.0× weight tier without manual timing.')}</p>
-            </div>
-          </div>
-          <div class="renew-step-item">
-            <span class="renew-step-num">03</span>
-            <div class="renew-step-copy">
-              <strong>${L('奖励照常发放 · 随时可关', 'Rewards Separate · Toggle Anytime')}</strong>
-              <p>${L('当轮赢取的 A9 奖励照常进入金库可领；新轮开盘前 30 分钟内锁定当次开关。', 'Earned A9 rewards go to your vault as usual; toggle locks 30 mins before next round open.')}</p>
-            </div>
-          </div>
+        <p class="num-xs text-sec" style="margin:0 0 10px;line-height:1.5;">${L('A9 采用纯非托管链上架构，合约绝不代扣你的钱包本金。开盘提醒送达后，点下方按钮即可携带可用本金直通下一轮锁仓确认页。', 'A9 is strictly non-custodial and never auto-deducts your wallet. After claiming or receiving an alert, tap below to jump straight into next-round lock confirmation.')}</p>
+        <div class="grid-2" style="gap:8px;">
+          <a class="btn btn-primary btn-sm" href="${restakeHref}" style="width:100%;min-height:42px;">${icon('bolt', 14)} ${L('本金一键复投下一轮', '1-Tap Re-Lock')}</a>
+          <button class="btn btn-secondary btn-sm" data-nav="/warmup" type="button" style="width:100%;min-height:42px;">${icon('clock', 14)} ${L('去预热预约', 'Warm-Up Reserve')}</button>
         </div>
       </section>
 
-      ${config.isDemo && certificates.length > 0 ? `
-        <section class="card">
-          <div class="card-header">
-            <div class="card-title">${icon('shieldCheck', 15, 'text-green')} ${L('当前凭证续期状态', 'Active Pass Rollover')}</div>
-            <span class="chip chip-muted mono">${certificates.length}</span>
-          </div>
-          <div class="col-gap" style="gap:8px;">
-            ${certificates.map((c) => `
-              <div class="list-row clickable" role="button" tabindex="0" data-nav="${c.id ? `/proof/${escapeHtml(c.id)}` : '/proof'}">
-                <div>
-                  <div class="num-sm" style="font-weight:800;">#${c.id} · ${L('第', 'R')}${c.round}${L('轮', '')}</div>
-                  <div class="num-xs text-muted">${formatNum(c.stakeTon)} A9</div>
-                </div>
-                <span class="chip ${c.autoRenew ? 'chip-green' : 'chip-muted'}">${c.autoRenew ? L('已启用连闯', 'Auto ON') : L('手动结算', 'Manual')}</span>
-              </div>
-            `).join('')}
-          </div>
-        </section>
-      ` : ''}
-
       <div class="grid-2">
-        <button class="btn btn-secondary" data-nav="/round" type="button">${icon('radar', 14)} ${L('查看闯关进度', 'View Quest')}</button>
+        <button class="btn btn-secondary" data-nav="/round" type="button">${icon('radar', 14)} ${L('查看本轮进度', 'View Round')}</button>
         <button class="btn btn-secondary" data-nav="/profile" type="button">${icon('arrowLeft', 14)} ${L('返回我的', 'Back to Me')}</button>
       </div>
     </div>
   `;
 
   const sw = root.querySelector('#global-renew-sw');
-  if (sw) {
+  if (!sw) return;
+
+  if (isDemo) {
     const toggle = () => {
       A9Haptic.tick();
       A9Audio.tick();
       store.update(s => { s.user.autoRenew = !s.user.autoRenew; });
-      showToast(store.state.user.autoRenew ? L('已开启自动连闯', 'Auto-Continue enabled') : L('已关闭自动连闯', 'Auto-Continue disabled'));
+      showToast(store.state.user.autoRenew ? L('已开启头矿 6H 开盘提醒', 'First 6H opening alert enabled') : L('已关闭开盘提醒', 'Opening alert disabled'));
       renderRenewPage(root);
     };
     sw.onclick = toggle;
     sw.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+    return;
   }
+
+  if (!hasInitData) {
+    sw.onclick = () => {
+      A9Haptic.warning();
+      showToast(L('请在 Telegram 小程序内打开以管理 Bot 提醒', 'Open inside Telegram Mini App to manage Bot alerts'), 'amber');
+    };
+    return;
+  }
+
+  const applyLiveUi = () => {
+    if (seq !== renewRenderSeq || root.isConnected === false || !sw || sw.isConnected === false) return;
+    const curOn = Boolean(liveRenewNotifCache.fetched && liveRenewNotifCache.settlementPush === true);
+    const hero = root.querySelector('#renew-hero-card');
+    const chip = root.querySelector('#renew-status-chip');
+    const sub = root.querySelector('#renew-status-sub');
+    if (hero) hero.classList.toggle('is-on', curOn);
+    sw.classList.toggle('on', curOn);
+    sw.classList.toggle('disabled', Boolean(liveRenewNotifCache.saving));
+    sw.setAttribute('aria-checked', String(curOn));
+    sw.setAttribute('aria-disabled', String(Boolean(liveRenewNotifCache.saving)));
+    if (chip) {
+      chip.className = `chip ${curOn ? 'chip-green' : 'chip-muted'}`;
+      chip.textContent = curOn ? L('已开启', 'ACTIVE') : L('已关闭', 'OFF');
+    }
+    if (sub) {
+      if (liveRenewNotifCache.saving) {
+        sub.textContent = L('正在同步服务端提醒设置…', 'Saving alert preference…');
+      } else if (liveRenewNotifCache.error && liveRenewNotifCache.settlementPush === null) {
+        sub.textContent = L('提醒状态同步失败，点击开关重试', 'Failed to sync alert preference, tap to retry');
+      } else if (!liveRenewNotifCache.fetched) {
+        sub.textContent = L('正在同步服务端提醒状态…', 'Syncing alert preference…');
+      } else {
+        sub.textContent = curOn
+          ? L(`已开启 Telegram Bot 私信提醒（${nextRoundZh}开盘 / 结算自动推送）`, `Telegram Bot DM alerts ON (${nextRoundEn} open & settle)`)
+          : L('已关闭 Telegram Bot 私信提醒', 'Telegram Bot DM alerts OFF');
+      }
+    }
+  };
+
+  const syncLivePrefs = () => {
+    fetchNotificationPrefs()
+      .then((res) => {
+        const on = Boolean(res?.settlementPush);
+        liveRenewNotifCache = { fetched: true, settlementPush: on, error: null, saving: false };
+        store.update(s => {
+          s.user.autoRenew = on;
+          s.settings.settlementPush = on;
+        });
+        applyLiveUi();
+      })
+      .catch(() => {
+        liveRenewNotifCache = { fetched: true, settlementPush: null, error: 'SYNC_FAILED', saving: false };
+        applyLiveUi();
+      });
+  };
+
+  if (!liveRenewNotifCache.fetched && !liveRenewNotifCache.saving) {
+    syncLivePrefs();
+  }
+
+  const toggleLive = async () => {
+    if (liveRenewNotifCache.saving) return;
+    if (!liveRenewNotifCache.fetched || (liveRenewNotifCache.error && liveRenewNotifCache.settlementPush === null)) {
+      liveRenewNotifCache = { fetched: false, settlementPush: null, error: null, saving: false };
+      applyLiveUi();
+      syncLivePrefs();
+      return;
+    }
+    A9Haptic.tick();
+    A9Audio.tick();
+    const prev = Boolean(liveRenewNotifCache.settlementPush);
+    const next = !prev;
+    liveRenewNotifCache = { fetched: true, settlementPush: next, error: null, saving: true };
+    applyLiveUi();
+    try {
+      const res = await updateNotificationPrefs({ settlementPush: next });
+      const saved = Boolean(res?.settlementPush);
+      liveRenewNotifCache = { fetched: true, settlementPush: saved, error: null, saving: false };
+      store.update(s => {
+        s.user.autoRenew = saved;
+        s.settings.settlementPush = saved;
+      });
+      applyLiveUi();
+      showToast(saved
+        ? L('已开启 Telegram Bot 开盘与结算提醒', 'Telegram Bot opening & settlement alerts enabled')
+        : L('已关闭 Telegram Bot 提醒', 'Telegram Bot alerts disabled'));
+    } catch (e) {
+      liveRenewNotifCache = { fetched: true, settlementPush: prev, error: 'SAVE_FAILED', saving: false };
+      applyLiveUi();
+      showToast(e?.message || L('提醒设置保存失败，请重试', 'Failed to save alert preference'), 'error');
+    }
+  };
+  sw.onclick = toggleLive;
+  sw.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleLive(); } };
 }
 
 export function renderLedgerPage(root) {
@@ -1205,7 +1396,7 @@ export function renderLedgerPage(root) {
         <section class="card card-hero empty-state">
           <span class="nt-art-badge tone-green" aria-hidden="true">${icon('receipt', 24, 'text-green')}</span>
           <div style="font-size:16px;font-weight:900;margin-top:4px;">${L('收益账本等待链上核验', 'Ledger Awaits Verification')}</div>
-          <p class="num-xs text-sec" style="margin:0;max-width:260px;">${L('真实模式下不展示演示流水；请返回「我的」连接钱包核验链上余额与质押凭证。', 'Live mode never displays demo entries. Return to Me to verify wallet balances and passes.')}</p>
+          <p class="num-xs text-sec" style="margin:0;max-width:260px;">${L('真实模式下不展示演示流水；请返回「我的」连接钱包核验链上余额与锁仓凭证。', 'Live mode never displays demo entries. Return to Me to verify wallet balances and passes.')}</p>
           <a class="btn btn-primary btn-sm" style="margin-top:10px;" href="#/profile">${icon('wallet', 14)} ${L('查看钱包资产', 'View Wallet Assets')}</a>
         </section>
       </div>
@@ -1249,7 +1440,7 @@ export function renderLedgerPage(root) {
               <span class="cert-status-pill mono">${history.length} ${L('轮', 'ROUNDS')}</span>
             </div>
             <div class="ledger-hero-body">
-              <span class="num-xs text-muted">${L('累计质押本金', 'Total Staked Principal')}</span>
+              <span class="num-xs text-muted">${L('累计锁仓本金', 'Total Locked Principal')}</span>
               <div class="num-hero" style="margin-top:2px;">${formatNum(totalStaked)} <span class="num-md text-green">A9</span></div>
               <div class="cert-perf" aria-hidden="true"><span class="cert-perf-line"></span></div>
               <div class="ledger-kpi-strip">
@@ -1258,12 +1449,12 @@ export function renderLedgerPage(root) {
                   <strong class="text-green">${settledCnt}</strong>
                 </div>
                 <div class="ledger-kpi-box">
-                  <small>${L('观察中', 'Observing')}</small>
+                  <small>${L('12H 冲价中', '12H Push')}</small>
                   <strong class="text-cyan">${obsCnt}</strong>
                 </div>
                 <div class="ledger-kpi-box">
-                  <small>${L('最高权重', 'Max Boost')}</small>
-                  <strong class="text-gold">${history.length ? Math.max(...history.map(h => Number(h.multiplier) || 1)).toFixed(1) + '×' : '—'}</strong>
+                  <small>${L('单轮封顶', 'Round Cap')}</small>
+                  <strong class="text-gold">5×</strong>
                 </div>
               </div>
             </div>
@@ -1279,11 +1470,11 @@ export function renderLedgerPage(root) {
                       <span class="chip chip-muted mono">R${String(h.round).padStart(2, '0')}</span>
                       <strong style="font-size:14px;">#${h.id}</strong>
                     </div>
-                    <span class="chip ${h.status === 'settled' ? 'chip-green' : 'chip-blue'}">${h.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</span>
+                    <span class="chip ${h.status === 'settled' ? 'chip-green' : 'chip-blue'}">${h.status === 'settled' ? L('已结算', 'Settled') : L('12H 冲价中', '12H Push')}</span>
                   </div>
                   <div class="record-pass-metrics">
                     <div>
-                      <div class="num-xs text-muted">${L('质押本金', 'Principal')}</div>
+                      <div class="num-xs text-muted">${L('锁仓本金', 'Locked Principal')}</div>
                       <div class="num-sm mono" style="font-weight:900;">${formatNum(h.stakeTon)} A9</div>
                     </div>
                     <div style="text-align:right;">
@@ -1378,7 +1569,7 @@ export function renderRecordsPage(root) {
         <section class="card card-hero empty-state">
           <span class="nt-art-badge tone-red" aria-hidden="true">${renderNintendoGateIcon('ticket', 32)}</span>
           <div style="font-size:16px;font-weight:900;margin-top:4px;">${L('闯关战绩等待链上核验', 'History Awaits Verification')}</div>
-          <p class="num-xs text-sec" style="margin:0;max-width:260px;">${L('真实模式下请连接钱包在「我的」核验链上质押凭证。', 'Connect your wallet in Me to verify on-chain passes.')}</p>
+          <p class="num-xs text-sec" style="margin:0;max-width:260px;">${L('真实模式下请连接钱包在「我的」核验链上锁仓凭证。', 'Connect your wallet in Me to verify on-chain passes.')}</p>
           <a class="btn btn-primary btn-sm" style="margin-top:10px;" href="#/profile">${icon('wallet', 14)} ${L('查看钱包资产', 'View Wallet Assets')}</a>
         </section>
       </div>
@@ -1400,7 +1591,7 @@ export function renderRecordsPage(root) {
             <span class="cert-status-pill mono">${history.length} ${L('轮', 'ROUNDS')}</span>
           </div>
           <div class="ledger-hero-body">
-            <span class="num-xs text-muted">${L('累计质押本金', 'Total Staked')}</span>
+            <span class="num-xs text-muted">${L('累计锁仓本金', 'Total Locked')}</span>
             <div class="num-hero" style="margin-top:2px;">${formatNum(totalStaked)} <span class="num-md text-green">A9</span></div>
           </div>
         </section>
@@ -1421,7 +1612,7 @@ export function renderRecordsPage(root) {
                     <span class="chip chip-muted mono">R${String(h.round).padStart(2, '0')}</span>
                     <strong style="font-size:14px;">${formatNum(h.stakeTon)} A9</strong>
                   </div>
-                  <span class="chip ${h.status === 'settled' ? 'chip-green' : 'chip-blue'}">${h.status === 'settled' ? L('已结算', 'Settled') : L('观察中', 'Observing')}</span>
+                  <span class="chip ${h.status === 'settled' ? 'chip-green' : 'chip-blue'}">${h.status === 'settled' ? L('已结算', 'Settled') : L('12H 冲价中', '12H Push')}</span>
                 </div>
                 <div class="row-between" style="margin-top:8px;">
                   <span class="num-xs text-muted">${L('凭证', 'Pass')} #${escapeHtml(h.id)}</span>
