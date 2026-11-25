@@ -138,8 +138,7 @@ fun main() {
             candleCount: reqInt("A9_CANDLE_COUNT") as uint8,
             minQualifiedCandles: reqInt("A9_MIN_QUALIFIED") as uint8,
             abortTimeoutSeconds: reqInt("A9_ABORT_TIMEOUT_SECONDS") as uint32,
-            fallbackUnlockSeconds: reqInt("A9_FALLBACK_UNLOCK_SECONDS") as uint32,
-            inactivityBurnSeconds: reqInt("A9_INACTIVITY_BURN_SECONDS") as uint32,
+            vestingSeconds: reqInt("A9_VESTING_SECONDS") as uint32,
         }.toCell(),
         codes: ProtocolCodes { jettonWalletCode: walletCode, ticketCode }.toCell(),
     };
@@ -157,7 +156,8 @@ fun main() {
             teamCarryRaw: 0,
             lastSuccessAt: 0,
             endAt: 0,
-            activeLockedRounds: 0,
+            pendingTeamReleaseRaw: 0,
+            pendingBurnRaw: 0,
         }.toCell(),
     };
     val controller = AutoDeployAddress { stateInit: controllerInit }.calculateAddress();
@@ -210,20 +210,20 @@ fun main() {
         }), "step1-deploy-master");
     }
 
-    // 2. Mint 10B A9 once -> permanently drop admin (idempotent resume)
+    // 2. Mint 10B A9 once -> verify treasury received 10B -> DropMinterAdmin permanently (P0-1 idempotent resume)
     val mBefore = net.runGetMethod<JettonDataReply>(master, "get_jetton_data");
-    if (mBefore.totalSupply == totalSupply && !mBefore.mintable) {
+    if (mBefore.totalSupply == totalSupply && mBefore.adminAddress == null && !mBefore.mintable) {
         println("[2/4] SKIP: 10B A9 already minted and admin permanently renounced.");
     } else if (mBefore.totalSupply == 0 && mBefore.mintable && mBefore.adminAddress != null && mBefore.adminAddress! == treasury.address) {
-        val needTreasury = mintTotal + ton("0.1");
+        val needTreasury = mintTotal + ton("0.15");
         if (scripts.fetchAccountBalance(treasury.address) < needTreasury) {
-            Assert.fail(format("insufficient treasury balance for MintOnce (need >= {})", needTreasury));
+            Assert.fail(format("insufficient treasury balance for MintOnce + DropMinterAdmin (need >= {})", needTreasury));
         }
         if (mintTotal < mintFwd + ton("0.10")) {
             Assert.fail("A9_TON_MINT_TOTAL must exceed A9_TON_MINT_FORWARD by >= 0.10 GRAM");
         }
         val mintMsgTotal = mintFwd + ton("0.05");
-        println("[2/4] Minting 10B A9 once and renouncing admin...");
+        println("[2/4] Minting 10B A9 once to treasury...");
         val mintBody = beginCell()
             .storeUint(0x00000015, 32)
             .storeUint(1, 64)
@@ -233,14 +233,39 @@ fun main() {
             .storeCoins(mintMsgTotal)
             .storeUint(0, 1)
             .endCell();
-        sendAndVerify(treasury.address, createMessage({ bounce: true, value: mintTotal, dest: master, body: mintBody }), "step2-mint-once");
+        sendAndVerify(treasury.address, createMessage({ bounce: true, value: mintTotal, dest: master, body: mintBody }), "step2a-mint-once");
+    } else if (mBefore.totalSupply == totalSupply && mBefore.adminAddress != null && mBefore.adminAddress! == treasury.address) {
+        println("[2/4] 10B A9 already minted; proceeding to permanent DropMinterAdmin...");
     } else {
         Assert.fail("unexpected JettonMaster state before MintOnce");
     }
 
+    // Verify treasuryWallet holds minted supply before permanently renouncing admin
+    val treasuryWallet = net.runGetMethod<address>(master, "get_wallet_address", [treasury.address]);
+    val mMid = net.runGetMethod<JettonDataReply>(master, "get_jetton_data");
+    if (mMid.totalSupply != totalSupply || mMid.mintable) {
+        Assert.fail("mint-once supply verification failed");
+    }
+    if (mMid.adminAddress != null) {
+        if (mMid.adminAddress! != treasury.address) {
+            Assert.fail("JettonMaster admin does not match treasury wallet before DropMinterAdmin");
+        }
+        val twBal = net.runGetMethod<JettonWalletDataReply>(treasuryWallet, "get_wallet_data").jettonBalance;
+        if (twBal == 0) {
+            Assert.fail("treasury JettonWallet balance is 0 after MintOnce; refusing to drop admin");
+        }
+        println("[2/4] Treasury JettonWallet verified ({}); sending permanent DropMinterAdmin...", twBal);
+        sendAndVerify(treasury.address, createMessage({
+            bounce: true,
+            value: ton("0.05"),
+            dest: master,
+            body: DropMinterAdmin { queryId: 2 },
+        }), "step2b-drop-admin");
+    }
+
     val mData = net.runGetMethod<JettonDataReply>(master, "get_jetton_data");
-    if (mData.totalSupply != totalSupply || mData.mintable) {
-        Assert.fail("mint-once verification failed");
+    if (mData.totalSupply != totalSupply || mData.mintable || mData.adminAddress != null) {
+        Assert.fail("mint-once + admin renouncement verification failed");
     }
 
     // 3. Deploy RoundController (idempotent resume)
@@ -265,7 +290,6 @@ fun main() {
     }
 
     // 4. Fund RoundController with 8.2B A9 (forward_ton_amount = 0, idempotent resume)
-    val treasuryWallet = net.runGetMethod<address>(master, "get_wallet_address", [treasury.address]);
     if (net.runGetMethod<address>(controller, "get_jetton_wallet_address") != rcWallet) {
         Assert.fail("RoundController jetton wallet address mismatch");
     }

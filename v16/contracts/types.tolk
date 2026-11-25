@@ -1,4 +1,5 @@
-// A9 协议 v16 — 极简常量、错误码、主控/凭证存储结构、消息、事件与只读视图
+// A9 协议 v16.2 — 极简常量、错误码、主控/凭证存储结构、消息、事件与只读视图
+// 解锁机制：通关即退 100% 本金 + 秒领 20% 奖励；余下 80% 奖励按 40 天（每日 2%）按秒线性释放，永久累计不倒扣。
 
 // ===========================================================================
 // 消息操作码 (Opcodes)
@@ -6,8 +7,8 @@
 const OP_OPEN_ROUND: uint32 = 0x52540001;
 const OP_SETTLE_ROUND: uint32 = 0x52540002;
 const OP_ABORT_ROUND: uint32 = 0x52540003;
-const OP_BURN_INACTIVE_LOCKED: uint32 = 0x52540004;
-const OP_STAKE_DEPOSIT: uint32 = 0x52540010;        // v16 TEP-74 forward_payload 操作码（32 位轮号）
+const OP_RETRY_SETTLE_PAYOUTS: uint32 = 0x52540005;  // 无许可重放因 bounce 滞留的团队释放/销毁
+const OP_STAKE_DEPOSIT: uint32 = 0x52540010;         // v16 TEP-74 forward_payload 操作码（32 位轮号）
 
 const OP_TICKET_ADD_STAKE: uint32 = 0x52540301;
 const OP_TICKET_CONFIRM: uint32 = 0x52540302;
@@ -16,6 +17,10 @@ const OP_TICKET_CLAIM_REQ: uint32 = 0x52540305;
 
 const OP_JETTON_TRANSFER: uint32 = 0x0f8a7ea5;
 const OP_JETTON_BURN: uint32 = 0x595f07bc;
+
+// 用于在 JettonTransfer bounce 中区分「结算团队释放」与「用户领奖发放」的 queryId 高 32 位标签
+const TEAM_QID_PREFIX: uint64 = 0x5445414D00000000;
+const TEAM_QID_MASK: uint64 = 0xFFFFFFFF00000000;
 
 // ===========================================================================
 // 轮次状态与经济学 / Gas 常量
@@ -28,20 +33,21 @@ const STATUS_ABORTED: uint8 = 4;
 
 const MAX_ROUNDS: uint32 = 4294967295;
 const BPS: uint128 = 10000;
+const IMMEDIATE_BPS: uint16 = 2000;                  // 恒定 20% 即时解锁；余下 80% 按 vestingSeconds 线性释放
 const MAX_REWARD_MULTIPLIER: uint128 = 15;
-const TIMING_BPS_FIRST: uint128 = 20000;            // 前 1/3 质押期：2.0x 早鸟权重
-const TIMING_BPS_SECOND: uint128 = 14000;           // 中 1/3 质押期：1.4x 权重
-const TIMING_BPS_LAST: uint128 = 10000;             // 后 1/3 质押期：1.0x 权重
+const TIMING_BPS_FIRST: uint16 = 20000;              // 前 1/3 质押期：2.0x 早鸟权重
+const TIMING_BPS_SECOND: uint16 = 14000;             // 中 1/3 质押期：1.4x 权重
+const TIMING_BPS_LAST: uint16 = 10000;               // 后 1/3 质押期：1.0x 权重
 
-const VALUE_JETTON_ACTION: coins = ton("0.1");
+const VALUE_JETTON_ACTION: coins = ton("0.12");
 const VALUE_TICKET_MSG: coins = ton("0.02");
 const TICKET_MIN_BALANCE: coins = ton("0.02");
 const RC_MIN_BALANCE: coins = ton("0.1");
 const MIN_DEPOSIT_VALUE: coins = ton("0.1");
 const MIN_REFUND_VALUE: coins = ton("0.06");
-const MIN_CLAIM_VALUE: coins = ton("0.2");
-const MIN_RC_CLAIM_VALUE: coins = ton("0.15");
-const MIN_SETTLE_VALUE: coins = ton("0.25");
+const MIN_CLAIM_VALUE: coins = ton("0.22");
+const MIN_RC_CLAIM_VALUE: coins = ton("0.16");
+const MIN_SETTLE_VALUE: coins = ton("0.35");
 
 enum Errors {
     Unauthorized = 101,
@@ -59,11 +65,11 @@ enum Errors {
     NotTicket = 236,
     NotOwner = 237,
     TicketPending = 238,
-    NothingToBurn = 240,
+    NothingToRetry = 240,
 }
 
 // ===========================================================================
-// 协议配置与 O(1) 主控存储（零待决字典）
+// 协议配置与 O(1) 主控存储（零待决字典、零历史锁定队列）
 // ===========================================================================
 struct ProtocolEcon {
     teamWallet: address
@@ -79,8 +85,7 @@ struct ProtocolTiming {
     candleCount: uint8
     minQualifiedCandles: uint8
     abortTimeoutSeconds: uint32
-    fallbackUnlockSeconds: uint32
-    inactivityBurnSeconds: uint32
+    vestingSeconds: uint32                           // 80% 奖励线性释放总时长（主网 40 天 = 3,456,000s，每日 2%）
 }
 
 struct ProtocolCodes {
@@ -100,9 +105,6 @@ struct ProtocolConfig {
 struct RoundMeta {
     candleHash: uint256
     immediateBps: uint16
-    lockedSlices: uint8
-    unlockedSlices: uint8
-    burnedSlices: uint8
     lockedTotalRaw: uint128
     stakeCount: uint32
 }
@@ -132,7 +134,8 @@ struct Storage {
     teamCarryRaw: uint128
     lastSuccessAt: uint64
     endAt: uint64
-    activeLockedRounds: uint128                     // 最多打包 4 个活跃锁定轮号（4 × uint32）
+    pendingTeamReleaseRaw: uint128                   // 团队释放 bounce 回滚滞留额（O(1) 无许可可重试）
+    pendingBurnRaw: uint128                          // 销毁 bounce 回滚滞留额（O(1) 无许可可重试）
 }
 
 fun Storage.load(): Storage { return Storage.fromCell(contract.getData()); }
@@ -142,9 +145,6 @@ fun emptyMeta(): RoundMeta {
     return {
         candleHash: 0 as uint256,
         immediateBps: 0,
-        lockedSlices: 0,
-        unlockedSlices: 0,
-        burnedSlices: 0,
         lockedTotalRaw: 0,
         stakeCount: 0,
     };
@@ -168,10 +168,12 @@ struct TicketStorage {
 fun TicketStorage.load(): TicketStorage { return TicketStorage.fromCell(contract.getData()); }
 fun TicketStorage.save(self) { contract.setData(self.toCell()); }
 
+// 精确控制总位宽 = 32 + 64 + 32 + 64 + 16 = 208 bits <= 256 bits，确保 Only256BitsOfBody bounce 完整回传供主控精确回滚
 struct (0x52540301) TicketAddStake {
     queryId: uint64
-    amountRaw: uint128
-    weightRaw: uint128
+    roundId: uint32
+    amountRaw: uint64
+    timingBps: uint16
 }
 
 struct (0x52540302) TicketConfirm {
@@ -236,7 +238,7 @@ struct (0x52540002) SettleRound {
 }
 
 struct (0x52540003) AbortRound { queryId: uint64 }
-struct (0x52540004) BurnInactiveLocked { queryId: uint64 }
+struct (0x52540005) RetrySettlePayouts { queryId: uint64 }
 
 struct (0x7362d09c) TransferNotification {
     queryId: uint64
@@ -287,9 +289,15 @@ struct (0x52540105) EvClaimed {
     rewardRaw: uint128
 }
 
-struct (0x52540106) EvInactiveLockedBurned {
-    burnedRaw: uint128
-    at: uint64
+struct (0x52540107) EvDepositBounced {
+    roundId: uint32
+    amountRaw: uint128
+    weightRaw: uint128
+}
+
+struct (0x52540108) EvClaimPayoutBounced {
+    queryId: uint64
+    amountRaw: uint128
 }
 
 struct ProtocolStateView {
@@ -301,7 +309,8 @@ struct ProtocolStateView {
     teamCarryRaw: uint128
     lastSuccessAt: uint64
     endAt: uint64
-    activeLockedRounds: uint128
+    pendingTeamReleaseRaw: uint128
+    pendingBurnRaw: uint128
 }
 
 struct RoundView {
@@ -317,9 +326,7 @@ struct RoundView {
     qualifiedCandles: uint8
     candleHash: uint256
     immediateBps: uint16
-    lockedSlices: uint8
-    unlockedSlices: uint8
-    burnedSlices: uint8
+    vestingSeconds: uint32
     lockedTotalRaw: uint128
     stakeCount: uint32
 }

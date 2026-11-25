@@ -1,5 +1,5 @@
-// A9 Protocol v16 — Minimalist round operations script (Acton 1.1.0).
-// Supports: open-round | settle-round | abort-round | burn-inactive
+// A9 Protocol v16.2 — Minimalist round operations script (Acton 1.1.0).
+// Supports: open-round | settle-round | abort-round | retry-payouts
 import "@acton/env"
 import "@stdlib/strings"
 import "@acton/testing/assert"
@@ -158,7 +158,7 @@ fun main() {
             },
         });
     } else if (action.equalTo("settle-round")) {
-        requiredValue = ton("0.3");
+        requiredValue = ton("0.4");
         msg = createMessage({
             bounce: true,
             value: requiredValue,
@@ -178,13 +178,16 @@ fun main() {
             dest: rc,
             body: AbortRound { queryId: qid },
         });
-    } else if (action.equalTo("burn-inactive")) {
-        requiredValue = ton("0.22");
+    } else if (action.equalTo("retry-payouts")) {
+        if (stBefore.pendingTeamReleaseRaw == 0 && stBefore.pendingBurnRaw == 0) {
+            Assert.fail("retry-payouts blocked: no pendingTeamReleaseRaw or pendingBurnRaw on-chain");
+        }
+        requiredValue = ton("0.4");
         msg = createMessage({
             bounce: true,
             value: requiredValue,
             dest: rc,
-            body: BurnInactiveLocked { queryId: qid },
+            body: RetrySettlePayouts { queryId: qid },
         });
     } else {
         Assert.fail(format("unknown action: {}", action));

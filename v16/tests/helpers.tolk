@@ -49,8 +49,7 @@ const OBS_WINDOW: uint32 = 86400;                 // 24h
 const CANDLES: uint8 = 24;
 const MIN_QUALIFIED: uint8 = 16;
 const ABORT_TIMEOUT: uint32 = 604800;             // 7d
-const FALLBACK: uint32 = 2592000;                 // 30d
-const INACTIVITY_BURN: uint32 = 7776000;          // 90d
+const VESTING_SECONDS: uint32 = 3456000;          // 40d (每日 2% × 40 = 80%)
 const T0: uint32 = 1000000;
 
 struct Env {
@@ -133,6 +132,14 @@ fun setup(): Env {
         },
     }))).toHaveSuccessfulTx<MintOnceMsg>({ to: master });
 
+    // P0-1: 验明 treasuryWallet 实收 10B 后发 DropMinterAdmin 永久弃权
+    expect(net.send(treasury.address, createMessage({
+        bounce: true,
+        value: ton("0.05"),
+        dest: master,
+        body: DropMinterAdmin { queryId: 2 },
+    }))).toHaveSuccessfulTx<DropMinterAdmin>({ to: master });
+
     val cfg = ProtocolConfig {
         keeper: keeper.address,
         roundOpener: opener.address,
@@ -150,8 +157,7 @@ fun setup(): Env {
             candleCount: CANDLES,
             minQualifiedCandles: MIN_QUALIFIED,
             abortTimeoutSeconds: ABORT_TIMEOUT,
-            fallbackUnlockSeconds: FALLBACK,
-            inactivityBurnSeconds: INACTIVITY_BURN,
+            vestingSeconds: VESTING_SECONDS,
         }.toCell(),
         codes: ProtocolCodes {
             jettonWalletCode: build("JettonWallet"),
@@ -169,7 +175,8 @@ fun setup(): Env {
         teamCarryRaw: 0,
         lastSuccessAt: 0,
         endAt: 0,
-        activeLockedRounds: 0,
+        pendingTeamReleaseRaw: 0,
+        pendingBurnRaw: 0,
     };
 
     val deployer = testing.treasury("v16-rc-deployer");
@@ -239,7 +246,7 @@ fun settleRound(env: Env, roundId: uint32, qualified: uint8): SendResultList {
     testing.setNow((rd.stakeCloseAt + (OBS_WINDOW as uint64)) as uint32);
     return net.send(env.keeper, createMessage({
         bounce: true,
-        value: ton("0.3"),
+        value: ton("0.4"),
         dest: env.rc,
         body: SettleRound { queryId: 2, roundId, qualifiedCandles: qualified, candleHash: 0x1234 as uint256 },
     }));

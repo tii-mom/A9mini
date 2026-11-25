@@ -1,4 +1,4 @@
-// A9 协议 v16 — 标准 TEP-74 / TEP-89 JettonMaster（100 亿一次性铸造后永久放弃管理员权限）
+// A9 协议 v16.2 — 标准 TEP-74 / TEP-89 JettonMaster（100 亿一次性铸造，验收后再永久放弃管理员权限）
 import "@gen/JettonWallet.code"
 import "storage"
 
@@ -6,8 +6,8 @@ const TOTAL_SUPPLY_RAW: coins = 10000000000000000000;
 
 contract JettonMaster {
     author: "A9 Protocol"
-    version: "16.0.0"
-    description: "Standard TEP-74 Jetton Master: mint 10B A9 once then permanently renounce admin."
+    version: "16.2.0"
+    description: "Standard TEP-74 Jetton Master: mint 10B A9 once, then permanently renounce admin via DropMinterAdmin."
     storage: MasterStorage
     incomingMessages: MasterAllowedMessage
 }
@@ -53,9 +53,9 @@ fun onInternalMessage(in: InMessage) {
             msg.forwardPayload.checkIsCorrectTlbEither();
             checkAmountIsEnoughToTransfer(msg.tonAmount, 0, in.originalForwardFee);
 
+            // P0-1: 仅置 totalSupply = 10B（已由 totalSupply == 0 门禁杜绝复铸），保留 adminAddress 直至
+            // 部署脚本验明 treasuryWallet 实收 10B 后发 DropMinterAdmin 永久弃权；若首笔铸币 bounce 可安全重试。
             storage.totalSupply = TOTAL_SUPPLY_RAW;
-            storage.adminAddress = null;
-            storage.nextAdminAddress = null;
             storage.save();
 
             reserveToncoinsOnBalance(ton("0.01"), RESERVE_MODE_EXACT_AMOUNT);
@@ -148,7 +148,7 @@ get fun get_jetton_data(): JettonDataReply {
     val storage = lazy MasterStorage.load();
     return {
         totalSupply: storage.totalSupply,
-        mintable: storage.adminAddress != null,
+        mintable: storage.totalSupply == 0 && storage.adminAddress != null,
         adminAddress: storage.adminAddress,
         jettonContent: storage.metadata as Cell<OnchainMetadataReply>,
         jettonWalletCode: jettonWalletCompiledCode(),

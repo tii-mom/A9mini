@@ -58,11 +58,14 @@ export function mapV15RoundDetail(roundId, round, candles = [], nowSec = Math.fl
     candles,
     candleHash: round.candleHash || '0x0',
     unlock: {
+      model: 'LINEAR_40D',
       immediateBps: Number(round.immediateBps || 0),
-      lockedSlices: Number(round.lockedSlices || 0),
-      unlockedSlices: Number(round.unlockedSlices || 0),
-      burnedSlices: Number(round.burnedSlices || 0),
+      dailyUnlockBps: 200,
+      vestingSeconds: Number(round.vestingSeconds ?? timing.vestingSeconds ?? 3456000),
       lockedTotalRaw: String(round.lockedTotalRaw ?? '0'),
+      lockedSlices: 0,
+      unlockedSlices: 0,
+      burnedSlices: 0,
     },
     entryCount: Number(round.stakeCount || 0),
     updatedAt: nowSec * 1000,
@@ -77,16 +80,17 @@ export function resolveProtocolVersion(rawValue, defaultVersion = 'v16') {
 }
 
 /**
- * 1:1 镜像 RoundController.tolk:100-116,517-549 链上领奖核算（零额外 RPC）。
+ * 1:1 镜像 RoundController.tolk v16.2（20% 即时 + 80% 40 天按秒线性释放，永久累计不倒扣）。
  * 防止前端对观察中 / 失败销毁 / 已全额领完的 StakeTicket 发起必败 0.22 GRAM 领奖交易。
  */
 export function computeTicketClaimPreview(
   ticket,
   round,
-  protocolState = null,
+  _protocolState = null,
   nowSec = Math.floor(Date.now() / 1000),
-  { observationSeconds = 86400, fallbackUnlockSeconds = 30 * 86400 } = {},
+  { observationSeconds = 86400, vestingSeconds = 40 * 86400 } = {},
 ) {
+  const defaultVestSec = Number(round?.vestingSeconds ?? vestingSeconds ?? 40 * 86400);
   if (!ticket || !round) {
     return {
       roundState: 'UNKNOWN',
@@ -96,6 +100,8 @@ export function computeTicketClaimPreview(
       claimableTotalRaw: '0',
       lockedRemainingRaw: '0',
       burnedLockedRaw: '0',
+      vestingSeconds: defaultVestSec,
+      unlockedPctBps: 0,
     };
   }
   const derived = deriveRoundStage(round, nowSec, observationSeconds);
@@ -109,6 +115,8 @@ export function computeTicketClaimPreview(
       claimableTotalRaw: '0',
       lockedRemainingRaw: '0',
       burnedLockedRaw: '0',
+      vestingSeconds: defaultVestSec,
+      unlockedPctBps: 0,
     };
   }
 
@@ -117,14 +125,14 @@ export function computeTicketClaimPreview(
   const payPrincipal = !ticket.principalDone ? amountRaw : 0n;
   let payReward = 0n;
   let lockedRemaining = 0n;
-  let burnedLocked = 0n;
+  let unlockedPctBps = 0;
 
   if (status === 2) {
     const totalWeightRaw = BigInt(round.totalWeightRaw || '0');
     const rewardBudgetRaw = BigInt(round.rewardBudgetRaw || '0');
     if (totalWeightRaw > 0n && weightRaw > 0n) {
       const totalReward = (rewardBudgetRaw * weightRaw) / totalWeightRaw;
-      const immBps = BigInt(Number(round.immediateBps || 0));
+      const immBps = BigInt(Number(round.immediateBps || 2000));
       const imm = (totalReward * immBps) / 10000n;
       const locked = totalReward - imm;
 
@@ -132,34 +140,22 @@ export function computeTicketClaimPreview(
         payReward += imm;
       }
 
-      const lockedSlices = BigInt(Number(round.lockedSlices || 0));
-      const unlockedSlices = BigInt(Number(round.unlockedSlices || 0));
-      const burnedSlices = BigInt(Number(round.burnedSlices || 0));
-
+      const settledAt = Number(round.settledAt || 0);
       let unlockedNow = 0n;
-      if (lockedSlices > 0n && locked > 0n) {
-        const fromWins = (locked * unlockedSlices) / lockedSlices;
-        unlockedNow = fromWins;
-        const endAt = Number(protocolState?.endAt || 0);
-        if (endAt > 0 && nowSec > endAt) {
-          const remSlices = lockedSlices - unlockedSlices - burnedSlices;
-          if (remSlices > 0n) {
-            const remLocked = (locked * remSlices) / lockedSlices;
-            const elapsed = BigInt(nowSec - endAt);
-            const fb = BigInt(Math.max(0, Number(fallbackUnlockSeconds || 0)));
-            const fromFallback = (fb === 0n || elapsed >= fb) ? remLocked : (remLocked * elapsed) / fb;
-            unlockedNow = fromWins + fromFallback;
-          }
-        }
-        burnedLocked = (locked * burnedSlices) / lockedSlices;
+      if (locked > 0n && settledAt > 0 && nowSec > settledAt) {
+        const elapsed = BigInt(nowSec - settledAt);
+        const dur = BigInt(Math.max(0, defaultVestSec));
+        unlockedNow = (dur === 0n || elapsed >= dur) ? locked : (locked * elapsed) / dur;
       }
 
       const lockedClaimed = BigInt(ticket.lockedClaimedRaw ?? ticket.rewardClaimedRaw ?? '0');
       if (unlockedNow > lockedClaimed) {
         payReward += unlockedNow - lockedClaimed;
       }
-      const settledLocked = unlockedNow + burnedLocked;
-      lockedRemaining = locked > settledLocked ? locked - settledLocked : 0n;
+      lockedRemaining = locked > unlockedNow ? locked - unlockedNow : 0n;
+      if (totalReward > 0n) {
+        unlockedPctBps = Number(((imm + unlockedNow) * 10000n) / totalReward);
+      }
     }
   }
 
@@ -171,7 +167,9 @@ export function computeTicketClaimPreview(
     claimableRewardRaw: payReward.toString(),
     claimableTotalRaw: claimableTotal.toString(),
     lockedRemainingRaw: lockedRemaining.toString(),
-    burnedLockedRaw: burnedLocked.toString(),
+    burnedLockedRaw: '0',
+    vestingSeconds: defaultVestSec,
+    unlockedPctBps,
   };
 }
 
@@ -196,6 +194,10 @@ export function buildV15ConfigPayload(env = {}, protocolState = null) {
     candleCount: 24,
     minQualifiedCandles: 16,
     maxRewardCapMultiplier: 15,
+    unlockModel: 'LINEAR_40D',
+    immediateBps: 2000,
+    dailyUnlockBps: 200,
+    vestingSeconds: Number(env.A9_VESTING_SECONDS || 3456000),
     roundRewardRaw: String(700_000_000n * A9),
     teamRoundRaw: String(120_000_000n * A9),
     minStakeRaw: String(1_000n * A9),
@@ -228,6 +230,8 @@ export function buildV15ConfigPayload(env = {}, protocolState = null) {
           teamCarryRaw: ps.teamCarryRaw !== undefined && ps.teamCarryRaw !== null ? String(ps.teamCarryRaw) : null,
           lastSuccessAt: Number(ps.lastSuccessAt || 0),
           endAt: Number(ps.endAt || 0),
+          pendingTeamReleaseRaw: ps.pendingTeamReleaseRaw !== undefined && ps.pendingTeamReleaseRaw !== null ? String(ps.pendingTeamReleaseRaw) : '0',
+          pendingBurnRaw: ps.pendingBurnRaw !== undefined && ps.pendingBurnRaw !== null ? String(ps.pendingBurnRaw) : '0',
           activeLockedRoundsRaw: ps.activeLockedRoundsRaw !== undefined && ps.activeLockedRoundsRaw !== null
             ? String(ps.activeLockedRoundsRaw)
             : (ps.activeLockedRounds !== undefined && ps.activeLockedRounds !== null ? String(ps.activeLockedRounds) : '0'),
@@ -242,6 +246,8 @@ export function buildV15ConfigPayload(env = {}, protocolState = null) {
           teamCarryRaw: null,
           lastSuccessAt: null,
           endAt: null,
+          pendingTeamReleaseRaw: null,
+          pendingBurnRaw: null,
           activeLockedRoundsRaw: null,
         },
   };

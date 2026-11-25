@@ -542,7 +542,10 @@ export default {
     }
 
     const stateStore = {
-      getTiming: () => ({ observationSeconds: Number(env.A9_OBS_SECONDS || 86400) }),
+      getTiming: () => ({
+        observationSeconds: Number(env.A9_OBS_SECONDS || 86400),
+        vestingSeconds: Number(env.A9_VESTING_SECONDS || 3456000),
+      }),
       getProtocolState: () => ps,
       listRounds: () => rounds,
       getRound: (id) => rounds.find((r) => r.roundId === Number(id)) || null,

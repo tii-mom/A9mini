@@ -258,7 +258,7 @@ export function identityStage({ modePill = '', walletAddr = '', gramText = '', w
   </section>`;
 }
 
-/** 为背包身份栏头像绑定 360° 翻身试穿交互（仅演示模式） */
+/** 为我的身份栏头像绑定 360° 翻身试穿交互（仅演示模式） */
 export function bindIdentityStage(root, onRerender) {
   if (!config.isDemo || !root) return;
   const img = root.querySelector('#identity-standee-stage .wv-person');
@@ -286,7 +286,7 @@ export function bindIdentityStage(root, onRerender) {
 }
 
 /**
- * 主城首屏（#/challenge）：重心看「轮次进展」
+ * 广场首屏（#/challenge）：重心看「轮次进展」
  * 第一张主卡随阶段动态切换唯一视觉大数字焦点，奖池/权重/上限收为轻摘要；
  * 中层 4 枚任天堂服务入口；第二层为 24H 预言、全局解锁与返佣。
  */
@@ -398,7 +398,7 @@ export function city() {
     showSlotTrack = true;
   } else if (r.stage === 'settlement_burn') {
     hpBadge = `${passed ?? 0} / ${required}`;
-    hpHint = L('未达 16/24 达标线 · 已按 v16.1 规则执行链上销毁 BURN', 'Below 16/24 · on-chain BURN executed per v16.1');
+    hpHint = L('未达 16/24 达标线 · 已按 v16.2 规则执行链上销毁 BURN', 'Below 16/24 · on-chain BURN executed per v16.2');
     hpTone = 'burn';
     ctaText = L('查看销毁存证', 'View Burn Proof');
     dotTone = 'red';
@@ -445,10 +445,11 @@ export function city() {
   const curBet = pred?.currentBet || null;
   const predSettled = Boolean(pred?.settled || r.stage === 'settlement_success' || r.stage === 'settlement_burn');
 
-  const onboardHtml = renderPlazaOnboardingStrip(pred, r);
+  const compactBannerHtml = renderPlazaCompactBanner(pred, r);
+  const onboardHtml = compactBannerHtml ? '' : renderPlazaOnboardingStrip(pred, r);
 
   return `<section class="wv-hero game-city anim-page-enter">
-    ${renderPlazaCompactBanner(pred, r)}
+    ${compactBannerHtml}
     ${onboardHtml}
 
     <div class="diorama-stage city-hub-stage${isRedAlert ? ' alert-red-mode' : ''}" data-mood="${sandtableMood}">
@@ -460,9 +461,9 @@ export function city() {
           ${isMatchPoint ? `<span class="chip chip-gold" style="min-height:18px;font-size:9.5px;padding:0 6px;">${L('赛点', 'MATCH PT')}</span>` : ''}
         </div>
         <div class="row-start" style="gap:5px;">
-          <button type="button" class="plaza-trust-capsule" id="btn-plaza-trust-badge" title="${L('v16.1 合约已弃权 · 奖池链上可查', 'v16.1 Renounced · On-Chain Verified')}">
+          <button type="button" class="plaza-trust-capsule" id="btn-plaza-trust-badge" title="${L('v16.2 合约已弃权 · 奖池链上可查', 'v16.2 Renounced · On-Chain Verified')}">
             ${icon('shieldCheck', 12, 'text-green')}
-            <span>${L('已弃权', 'v16.1')}</span>
+            <span>${L('已弃权', 'v16.2')}</span>
           </button>
           <div class="city-cd-badge" title="${L('当前阶段剩余时间', 'Time remaining')}">
             ${icon('clock', 12)}
@@ -478,35 +479,20 @@ export function city() {
       </div>
 
       <div class="plaza-hp-card${isMatchPoint ? ' is-matchpoint' : ''}${hpTone ? ` tone-${hpTone}` : ''}">
-        <div class="row-between" style="margin-bottom:5px;">
+        <div class="row-between" style="margin-bottom:6px;">
           <span class="num-xs" style="font-weight:800;color:var(--ink);">${hpLabel}</span>
           <span class="chip ${hpTone === 'burn' ? 'chip-red' : hpTone === 'gold' ? 'chip-gold' : 'chip-green'} mono">${hpBadge}</span>
         </div>
         ${showSlotTrack ? `
-          <div class="plaza-mini-strip" id="plaza-mini-strip" title="${L('24H 时段赛点条（红线为第 16 格通关线）', '24H slot strip (red mark = slot 16 goal)')}">${miniStripCells}</div>
-          <div class="plaza-hp-track" aria-label="${L('16/24 通关进度血条', '16/24 pass bar')}">
-            <div class="plaza-hp-fill${hpTone === 'burn' ? ' is-burn' : ''}" style="width:${hpPct}%;"></div>
-          </div>
-          <div class="row-between num-xs text-sec" style="margin:5px 0 0;font-weight:700;gap:6px;">
+          <a href="#/observation/records" class="plaza-mini-strip" id="plaza-mini-strip" style="text-decoration:none;" title="${L('查看 24H 印章簿（第 16 格为通关线）', 'View 24H Stamp Log (Slot 16 = Goal)')}">${miniStripCells}</a>
+          <div class="row-between num-xs text-sec" style="margin:6px 0 0;font-weight:700;gap:6px;">
             <span>${hpHint}</span>
             <span class="mono text-green" id="live-twap-val">${priceOrDash(r.twap24h ?? r.livePrice)}</span>
           </div>
-          <details class="plaza-slots-drawer" id="plaza-slots-drawer">
-            <summary class="plaza-slots-summary">
-              <span>${L('展开 24H 详情与目标底价', '24H Details & Target')} (${priceOrDash(r.targetPrice)})</span>
-              <span class="num-xs text-muted">▾</span>
-            </summary>
-            <a class="city-slot-strip${isMatchPoint ? ' is-matchpoint' : ''}" href="#/observation/records">
-              <div class="city-slot-dots" aria-label="${L('24H 时段进度', '24H slot progress')}">${slotDots}</div>
-              <div class="row-between city-price-inline">
-                <span>${L('目标', 'Target')} <b class="mono">${priceOrDash(r.targetPrice)}</b></span>
-                <span class="row-start" style="gap:6px;">
-                  <span>${L('均价', 'TWAP')} <b class="mono text-green">${priceOrDash(r.twap24h ?? r.livePrice)}</b></span>
-                  ${history.length > 1 ? renderLiveSparkline(history) : ''}
-                </span>
-              </div>
-            </a>
-          </details>
+          <div class="row-between num-xs text-muted" style="margin-top:4px;">
+            <span>${L('目标', 'Target')} <b class="mono" style="color:var(--ink);">${priceOrDash(r.targetPrice)}</b></span>
+            <a href="#/observation/records" style="color:var(--nt-blue);font-weight:800;text-decoration:none;">${L('24H 印章簿', '24H Log')} ›</a>
+          </div>
         ` : `
           <div class="num-xs text-sec" style="margin-bottom:6px;font-weight:700;">${hpHint}</div>
           <div class="row-between num-xs" style="padding:6px 9px;border-radius:10px;background:var(--paper-tray);">
@@ -537,7 +523,7 @@ export function city() {
         </div>
         <span class="city-pred-go" id="city-pred-status">${curBet ? (curBet.side === 'BURN' ? L('已押 BURN', 'Locked BURN') : L('已押 PASS', 'Locked PASS')) : L('进擂台', 'Arena')} ›</span>
       </div>
-      <p class="city-pred-desc">${L('0 GRAM 押 PASS / BURN · 新人首轮保底 500 A9 赠金', '0 GRAM PASS / BURN · 500 A9 rookie floor')}</p>
+      <p class="city-pred-desc">${L('0 GRAM 免费猜 · 首轮保底 500 A9 · 48H 内激活', '0 GRAM Free · 500 A9 rookie floor · 48H unlock')}</p>
       ${showPredRatio ? `
         <div class="city-pred-bar-wrap">
           <div class="row-between num-xs">
@@ -705,7 +691,7 @@ function bindHandbookStampEvents(root, navigate) {
   });
 }
 
-/** 弹出 v16.1 合约防 Rug 链上验真卡（展示实时奖池余量、admin_address = addr_none、7天 AbortRound 逃生舱、code_hash 与 Tonviewer 查验） */
+/** 弹出 v16.2 合约防 Rug 链上验真卡（展示实时奖池余量、admin_address = addr_none、7天 AbortRound 逃生舱、code_hash 与 Tonviewer 查验） */
 function openContractTrustModal(navigate) {
   A9Haptic.light();
   const r = store.state.round || {};
@@ -740,7 +726,7 @@ function openContractTrustModal(navigate) {
   openModal(`
     <div class="sheet-handle"></div>
     <div class="row-between" style="margin-bottom:8px;">
-      <div class="card-title">${icon('shieldCheck', 17, 'text-green')} ${L('v16.1 合约链上防 Rug 验真', 'v16.1 On-Chain Anti-Rug Proof')}</div>
+      <div class="card-title">${icon('shieldCheck', 17, 'text-green')} ${L('v16.2 合约链上防 Rug 验真', 'v16.2 On-Chain Anti-Rug Proof')}</div>
       <button class="icon-btn" id="trust-modal-close" type="button" aria-label="${L('关闭', 'Close')}">${icon('x', 15)}</button>
     </div>
     <div class="trust-modal-scroll">
@@ -1489,19 +1475,19 @@ export function gallery(root, navigate, param) {
 }
 
 /**
- * 奖励宝库（#/rewards）：
- * 明确拆分为「1. 当前解锁档位与资产状态」与「2. 三阶水晶概念美术预览（非持仓）」两大独立分区
+ * 奖金金库（#/rewards）：
+ * v16.2 极简 40 天按秒连续线性释放机制（通关退 100% 本金 + 秒领 20% 奖励，余下 80% 分 40 天每日 +2% 按秒线性释放，永久累计不倒扣）
  */
 export function rewards(root) {
   const n = store.state.round.successCount;
   const u = store.state.user;
-  const activeStepIdx = n > 0 ? (n <= 5 ? 0 : n <= 10 ? 1 : 2) : -1;
-  const curUnlockLabel = activeStepIdx === 0 ? '20%' : activeStepIdx === 1 ? '40%' : activeStepIdx === 2 ? '100%' : waiting();
+  const lockedNum = config.isDemo && Number.isFinite(Number(u.a9Locked)) ? Number(u.a9Locked) : null;
+  const dailyRateNum = lockedNum !== null ? Math.round(lockedNum * (PROTOCOL_SPECS.dailyUnlockPct / 80)) : null;
 
   const amounts = [
-    [L('已解锁待领取', 'Unlocked and claimable'), config.isDemo ? u.a9Claimable : null],
-    [L('待解锁份额', 'Locked shares'), config.isDemo ? u.a9Locked : null],
-    [L('已销毁份额', 'Burned shares'), null],
+    [L('已解锁待领取', 'Unlocked & Claimable'), config.isDemo ? u.a9Claimable : null],
+    [L('40 天线性待释放', '40-Day Linear Vesting'), lockedNum],
+    [L('每日释放速率（2%/天）', 'Daily Release Rate (2%/day)'), dailyRateNum],
   ];
   const balances = amounts
     .map(
@@ -1515,23 +1501,23 @@ export function rewards(root) {
       <section class="card card-hero wv-vault-summary">
         <div class="row-between">
           <div>
-            <span class="diorama-kicker">A9 / TREASURY</span>
-            <h2 style="margin:3px 0 0;font-size:19px;font-weight:900;">${L('当前解锁档位', 'Current Vesting Tier')}</h2>
-            <p class="num-xs text-sec" style="margin:4px 0 0;">${L('全网累计达标', 'Global wins')} · <b class="mono" style="color:var(--ink);">${n ?? waiting()}</b> · ${L('即时解锁', 'Instant')} <b class="mono text-gold">${curUnlockLabel}</b></p>
+            <span class="diorama-kicker">A9 / TREASURY · v16.2</span>
+            <h2 style="margin:3px 0 0;font-size:19px;font-weight:900;">${L('40 天线性释放机制', '40-Day Linear Vesting')}</h2>
+            <p class="num-xs text-sec" style="margin:4px 0 0;">${L('通关秒领', 'Instant')} <b class="mono text-gold">${PROTOCOL_SPECS.immediateUnlockPct}%</b> · ${L('余下 80% 每日释放', 'Remaining 80% releases')} <b class="mono" style="color:var(--ink);">${PROTOCOL_SPECS.dailyUnlockPct}%/${L('天', 'day')}</b> · ${L('全网达标', 'Wins')} <b class="mono" style="color:var(--ink);">${n ?? waiting()}</b></p>
           </div>
           <span class="nt-art-badge tone-blue" aria-hidden="true">${renderNintendoGateIcon('vault', 36)}</span>
         </div>
         <div class="wv-steps" style="margin-top:12px;">
           ${[
-            ['1–5', '20%', '4 × 20%'],
-            ['6–10', '40%', '2 × 30%'],
-            ['11+', '100%', '—'],
-          ].map(([range, pct, rest], i) => `
-            <article class="${activeStepIdx === i ? 'current' : ''}">
-              <small>${L('累计成功', 'Wins')} ${range}</small>
+            [L('第 0 天 · 通关', 'Day 0 · Pass'), '20%', L('即时秒领', 'Instant'), L('+ 100% 本金', '+ 100% Principal')],
+            [L('第 1–40 天', 'Days 1–40'), '+2%', L('每日释放', 'Per Day'), L('按秒连续计息', 'Per-Second Linear')],
+            [L('满 40 天', 'Day 40'), '100%', L('全额可领', 'Full Unlock'), L('永久累计不倒扣', 'Never Forfeited')],
+          ].map(([stage, pct, sub, foot], i) => `
+            <article class="${i === 0 ? 'current' : ''}">
+              <small>${stage}</small>
               <strong>${pct}</strong>
-              ${L('即时解锁', 'Immediate')}
-              <p>${rest}</p>
+              ${sub}
+              <p>${foot}</p>
             </article>
           `).join('')}
         </div>
@@ -1543,7 +1529,7 @@ export function rewards(root) {
           <span class="chip ${config.isDemo ? 'chip-muted' : 'chip-gold'}">${config.isDemo ? L('演示数据', 'DEMO') : L('待核验', 'PENDING')}</span>
         </div>
         <div>${balances}</div>
-        <p class="num-xs text-muted" style="margin:10px 0 0;line-height:1.5;">${L('失败将销毁对应待解锁份额 · 奖池分完为止', 'Loss burns scheduled slice · until pool exhaustion')}</p>
+        <p class="num-xs text-muted" style="margin:10px 0 0;line-height:1.5;">${L('通关奖励自动累计、永不倒扣，随时合并一次领完（仅未达标轮销毁当轮质押本金） · 奖池分完为止', 'Winning rewards accrue per second and never expire; claim anytime in one tx (only failed rounds burn that round\'s stake) · until pool exhaustion')}</p>
       </section>
 
       <nav class="wv-links">${link('/claim', L('金库领奖', 'Claim Prizes'), 'unlock')}${link('/profile', L('我的档案', 'My Profile'), 'wallet')}</nav>
@@ -1662,8 +1648,7 @@ export function portfolioPanel(root, guild = false) {
       if (!active.length) row(L('质押中 A9', 'Staked A9'), waiting());
       for (const labels of [
         ['已解锁待领取', 'Unlocked, unclaimed'],
-        ['待解锁', 'Locked rewards'],
-        ['已销毁', 'Burned shares'],
+        ['40 天线性待释放', '40d Linear Vesting'],
       ])
         row(L(...labels), waiting());
     }

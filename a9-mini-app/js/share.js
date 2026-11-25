@@ -105,7 +105,7 @@ function buildAngles(type, id, ctx = {}) {
         label: L('数据派', 'Data'),
         text: L(
           `A9 第 ${roundNum} 轮 ${gapText}（定格 ${passed}/${required} 段）——合约已链上执行 100% 销毁 BURN，Tx 全网可查。见证销毁并分享，解锁下轮宝箱商城优先通道。`,
-          `A9 Round #${roundNum} ${gapText} (${passed}/${required} slots)—100% on-chain BURN executed per v16.1 contract. Share to unlock next-round Chest Mall priority.`
+          `A9 Round #${roundNum} ${gapText} (${passed}/${required} slots)—100% on-chain BURN executed per v16.2 contract. Share to unlock next-round Chest Mall priority.`
         )
       },
       {

@@ -111,7 +111,7 @@ export function renderPendingVaultBanner(pred, round) {
         <span class="vault-step next">2/2 ${L('首单加赠或 0 元激活', 'Activate with Order / 0-Cost')}</span>
       </div>
       <p class="num-xs text-sec" style="margin:6px 0 10px;line-height:1.45;">
-        ${L(`首单加赠：0.99 GRAM 购箱实际到手 ${formatNum(firstOrderTotalA9, dec)} A9（含 +${bonusPct}% 赠金）；也可通过链上质押（≥ 1,000 A9）或直邀 1 位好友购箱 0 元全额激活。`, `First-order bonus: 0.99 GRAM chest yields ${formatNum(firstOrderTotalA9, dec)} A9 (+${bonusPct}% bonus), or unlock at 0 cost via on-chain stake (≥ 1,000 A9) or 1 paid invite.`)}
+        ${L(`0.99 GRAM 购箱共得 ${formatNum(firstOrderTotalA9, dec)} A9（含 +${bonusPct}% 赠金），或质押 / 邀 1 友免费激活。`, `0.99 GRAM chest yields ${formatNum(firstOrderTotalA9, dec)} A9 (+${bonusPct}% bonus), or unlock free via stake / 1 invite.`)}
       </p>
       <div class="grid-2" style="gap:8px;">
         <button class="btn btn-primary btn-sm" data-nav="/internal/market" type="button" style="width:100%;min-height:40px;white-space:nowrap;">${icon('swap', 14)} ${L('首单加赠领箱', 'Claim with Bonus')}</button>
@@ -153,55 +153,23 @@ export function renderEarlyBirdBanner(round) {
       <div class="row-between" style="gap:8px;">
         <span class="row-start" style="gap:6px;font-weight:900;font-size:12.5px;">
           <span class="chip chip-gold" style="height:20px;font-size:10px;padding:0 7px;">2.0× ${L('早鸟权重', 'EARLY')}</span>
-          <span>${L('2.0× 早鸟黄金窗口倒计时', '2.0× Early Window Ends In')}</span>
+          <span>${L('2.0× 早鸟窗口', '2.0× Early Window')}</span>
         </span>
         <span class="mono early-bird-cd" id="early-window-cd">${formatTimer(remSec)}</span>
       </div>
       <div class="num-xs text-sec" style="margin-top:4px;">
-        ${L('窗口结束后早鸟权重自动降至 1.4×，入场末期仅 1.0×（权重决定同额本金瓜分占比）。', 'Weight drops to 1.4× after this window and 1.0× in the final third.')}
+        ${L('前 12h 享 2.0× 权重 · 后续依次降为 1.4× / 1.0×', '2.0× first 12h · then 1.4× / 1.0×')}
       </div>
     </section>
   `;
 }
 
 /**
- * 第一刀 ③：老赢家「跨轮锁仓护盾」损益对比卡
- * 仅当存在历史未解锁切片（lockedSlices - unlockedSlices - burnedSlices > 0）且个人存在待解锁份额时展示；真实模式缺值严格隐藏。
+ * v16.2：通关奖励已升级为「20% 秒领 + 80% 分 40 天按秒线性释放，永久累计不倒扣」，
+ * 不再存在跨轮连坐销毁切片，此卡片默认隐藏。
  */
-export function renderVeteranShieldCard(round, user) {
-  const lockedA9 = Number(user?.a9Locked || 0);
-  const unlock = round?.unlock || null;
-  const remainingSlices = unlock
-    ? Math.max(0, Number(unlock.lockedSlices || 0) - Number(unlock.unlockedSlices || 0) - Number(unlock.burnedSlices || 0))
-    : 0;
-  if (lockedA9 <= 0) return '';
-  if (!config.isDemo && remainingSlices <= 0) return '';
-  const sliceCount = remainingSlices > 0 ? remainingSlices : 3;
-  const nextSliceA9 = Math.round(lockedA9 / sliceCount);
-
-  return `
-    <section class="card veteran-shield-card" id="a9-veteran-shield">
-      <div class="row-between" style="margin-bottom:8px;">
-        <div class="card-title">${icon('shieldAlert', 15, 'text-gold')} ${L('跨轮锁仓护盾 · 本轮生死对赌', 'Cross-Round Lock Shield')}</div>
-        <span class="chip chip-gold mono">${L(`待解锁 ${sliceCount} 份`, `${sliceCount} Slices`)}</span>
-      </div>
-      <div class="veteran-shield-grid">
-        <div class="shield-col pass">
-          <small>${L('本轮达标（≥16/24 段）', 'If Round Passes')}</small>
-          <strong class="mono text-green">+${formatNum(nextSliceA9)} A9</strong>
-          <span>${L('立即解锁释放下一档', 'Unlocks next slice')}</span>
-        </div>
-        <div class="shield-col burn">
-          <small>${L('本轮未达标（销毁 BURN）', 'If Round Fails')}</small>
-          <strong class="mono text-red">-${formatNum(nextSliceA9)} A9</strong>
-          <span>${sliceCount > 1 ? L(`销毁 1 份，余 ${sliceCount - 1} 份`, `Burns 1 slice, ${sliceCount - 1} left`) : L('销毁最后 1 份', 'Burns final slice')}</span>
-        </div>
-      </div>
-      <button class="btn btn-secondary btn-sm" data-x-share="proof" type="button" style="width:100%;margin-top:10px;min-height:38px;">
-        ${icon('xBrand', 14)} ${L('生成闯关凭证战报 · 发圈拉队守线', 'Share Quest Pass Report')}
-      </button>
-    </section>
-  `;
+export function renderVeteranShieldCard() {
+  return '';
 }
 
 /**
@@ -523,7 +491,7 @@ export function renderObservation(round) {
 
 /**
  * 任天堂「24H 印章簿」（#/observation/records）
- * 彻底移除旧圆形星盘，改为 4×6 大号手盖圆章速选板 + 固定高度判定依据纸卡 + 记忆选中时段
+ * 彻底移除旧圆形星盘，改为 4×6 大号手盖圆章速选板 + 固定高度判定依据卡 + 记忆选中时段
  */
 export function renderObservationRecords(root) {
   const round = store.state.round;
@@ -697,7 +665,7 @@ export function renderSettlementFailed(round) {
       </div>
       <div class="progress-track" style="margin-bottom:10px;"><div class="progress-fill red no-anim" style="width:${failPct}%"></div></div>
       <div>
-        <div class="list-row"><span class="text-sec">${L('本轮参与本金处理', 'Principal')}</span><span class="num-xs text-red">${L('按 v16.1 规则销毁 BURN', 'Burned per v16.1')}</span></div>
+        <div class="list-row"><span class="text-sec">${L('本轮参与本金处理', 'Principal')}</span><span class="num-xs text-red">${L('按 v16.2 规则销毁 BURN', 'Burned per v16.2')}</span></div>
         <div class="list-row"><span class="text-sec">${L('战队额度', 'Squad quota')}</span><span class="num-xs text-gold">${L('120,000,000 A9 销毁 / 结转', '120,000,000 A9 burned / carried')}</span></div>
       </div>
       <div class="sub-tile" style="margin-top:10px;">

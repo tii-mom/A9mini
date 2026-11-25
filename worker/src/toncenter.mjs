@@ -162,7 +162,7 @@ export class TonCenterClient {
     return parsed === null ? 0n : parsed;
   }
 
-  /** Read v15/v16 RoundController.get_protocol_state() directly from chain (strict stack validation). */
+  /** Read v16.2 RoundController.get_protocol_state() directly from chain (strict stack validation). */
   async fetchProtocolState(roundControllerAddress) {
     const s = await this.runGetMethod(roundControllerAddress, 'get_protocol_state');
     if (!Array.isArray(s) || s.length < 9) {
@@ -173,7 +173,10 @@ export class TonCenterClient {
       if (v === null) throw new Error(`get_protocol_state invalid ${label} at stack[${idx}]`);
       return v;
     };
-    const activeLockedRounds = reqNum(8, 'activeLockedRounds');
+    const isV162 = s.length >= 10;
+    const pendingTeamReleaseRaw = isV162 ? reqNum(8, 'pendingTeamReleaseRaw').toString() : '0';
+    const pendingBurnRaw = isV162 ? reqNum(9, 'pendingBurnRaw').toString() : '0';
+    const activeLockedRounds = isV162 ? 0n : reqNum(8, 'activeLockedRounds');
     return {
       currentRoundId: Number(reqNum(0, 'currentRoundId')),
       successCount: Number(reqNum(1, 'successCount')),
@@ -183,15 +186,17 @@ export class TonCenterClient {
       teamCarryRaw: reqNum(5, 'teamCarryRaw').toString(),
       lastSuccessAt: Number(reqNum(6, 'lastSuccessAt')),
       endAt: Number(reqNum(7, 'endAt')),
+      pendingTeamReleaseRaw,
+      pendingBurnRaw,
       activeLockedRounds: activeLockedRounds <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(activeLockedRounds) : null,
       activeLockedRoundsRaw: activeLockedRounds.toString(),
     };
   }
 
-  /** Read v15/v16 RoundController.get_round(roundId) directly from chain (strict stack validation). */
+  /** Read v16.2 RoundController.get_round(roundId) directly from chain (15-item v16.2 & legacy 17-item stack). */
   async fetchRound(roundControllerAddress, roundId) {
     const s = await this.runGetMethod(roundControllerAddress, 'get_round', [['num', String(roundId)]]);
-    if (!Array.isArray(s) || s.length < 17) {
+    if (!Array.isArray(s) || (s.length !== 15 && s.length < 17)) {
       throw new Error(`get_round(${roundId}) returned truncated stack (len=${s?.length ?? 0})`);
     }
     const reqNum = (idx, label) => {
@@ -199,6 +204,7 @@ export class TonCenterClient {
       if (v === null) throw new Error(`get_round(${roundId}) invalid ${label} at stack[${idx}]`);
       return v;
     };
+    const isV162 = s.length === 15;
     return {
       status: Number(reqNum(0, 'status')),
       targetPriceUsdE8: reqNum(1, 'targetPriceUsdE8').toString(),
@@ -212,11 +218,12 @@ export class TonCenterClient {
       qualifiedCandles: Number(reqNum(9, 'qualifiedCandles')),
       candleHash: `0x${reqNum(10, 'candleHash').toString(16).padStart(64, '0')}`,
       immediateBps: Number(reqNum(11, 'immediateBps')),
-      lockedSlices: Number(reqNum(12, 'lockedSlices')),
-      unlockedSlices: Number(reqNum(13, 'unlockedSlices')),
-      burnedSlices: Number(reqNum(14, 'burnedSlices')),
-      lockedTotalRaw: reqNum(15, 'lockedTotalRaw').toString(),
-      stakeCount: Number(reqNum(16, 'stakeCount')),
+      vestingSeconds: isV162 ? Number(reqNum(12, 'vestingSeconds')) : 3456000,
+      lockedSlices: isV162 ? 0 : Number(reqNum(12, 'lockedSlices')),
+      unlockedSlices: isV162 ? 0 : Number(reqNum(13, 'unlockedSlices')),
+      burnedSlices: isV162 ? 0 : Number(reqNum(14, 'burnedSlices')),
+      lockedTotalRaw: reqNum(isV162 ? 13 : 15, 'lockedTotalRaw').toString(),
+      stakeCount: Number(reqNum(isV162 ? 14 : 16, 'stakeCount')),
     };
   }
 

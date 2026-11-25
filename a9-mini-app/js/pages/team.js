@@ -40,7 +40,7 @@ export function renderTeamHome(root, navigate) {
             <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('群主创世金库 & 6% 永久返佣', 'Captain Vault & 6% Referral')}</span>
             <span class="chip chip-gold">+5,000 A9</span>
           </div>
-          <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('绑定 ≥50 人真实 TG 群且战队满 3 名已绑定成员立领 5,000 A9 创世金库；分享招募海报，直推成员每购任意宝箱即享 6% 返佣实时私聊提醒。', 'Verify a 50+ member TG group with ≥3 bound squad members for a 5,000 A9 founding vault. Share invite poster to earn 6% live commission on every chest purchase.')}</div>
+          <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('绑 ≥50 人 TG 群（满 3 成员）领 5,000 A9 · 直推购箱实时返佣 6%', 'Verify 50+ member TG group (≥3 members) for 5,000 A9 · 6% live chest referral')}</div>
           <div class="grid-2" style="gap:8px;">
             <button class="btn btn-primary btn-sm" data-nav="/team/bind-tg" type="button" style="width:100%;min-height:40px;">${icon('send', 13)} ${L('绑群领 5,000 A9', 'Link TG Group')}</button>
             <button class="btn btn-secondary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:40px;">${icon('qr', 13)} ${L('生成招募海报', 'Invite Poster')}</button>
@@ -140,7 +140,7 @@ export function renderTeamHome(root, navigate) {
           <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('群主创世金库 & 返佣叮咚提醒', 'Captain Bonus & Live DM Alerts')}</span>
           <span class="chip chip-gold">+5,000 A9</span>
         </div>
-        <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:8px;">${L('绑定满 50 人真实 TG 群且战队满 3 名已绑定成员立领 5,000 A9 创世金库；直推每成交 1 笔宝箱订单，Bot 实时私聊播报 6% 返佣到账。', 'Verify a 50+ member TG group with ≥3 bound squad members for a 5,000 A9 founding vault. Bot DMs you live on every 6% chest commission.')}</div>
+        <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:8px;">${L('绑 ≥50 人 TG 群（满 3 成员）领 5,000 A9 · 直推购箱实时返佣 6%', 'Verify 50+ member TG group (≥3 members) for 5,000 A9 · 6% live chest referral')}</div>
         <button class="btn btn-secondary btn-sm" data-nav="/internal/market?tab=free" type="button" style="width:100%;">${icon('swap', 14)} ${L('前往宝箱商城冲击黄金/白金/钻石免费宝箱', 'Open Chest Mall Free Tiers')}</button>
       </div>
 
@@ -191,7 +191,7 @@ export function renderTeamHome(root, navigate) {
     html = `
       <div class="card card-hero guild-board">
         <div class="row-between" style="margin-bottom:6px;">
-          <span class="chip chip-gold">${L('v16.1 战队 · 6% 直推返佣', 'v16.1 Squad · 6% Referral')}</span>
+          <span class="chip chip-gold">${L('v16.2 战队 · 6% 直推返佣', 'v16.2 Squad · 6% Referral')}</span>
           ${rolePill}
         </div>
         <div style="font-size:17px;font-weight:900;">${L('加入一个活跃战队', 'Join an Active Squad')}</div>

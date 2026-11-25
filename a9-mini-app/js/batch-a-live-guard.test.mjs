@@ -1282,5 +1282,18 @@ test('Batch C: lockMode blocks ?mode=demo, TON Connect enforces mainnet chain & 
   assert.ok(profileSrc.includes('${escapeHtml(txHash)}'), 'profile.js must escape txHash');
   const systemSrc = readFileSync(join(JS_DIR, 'pages/system.js'), 'utf8');
   assert.ok(systemSrc.includes('${escapeHtml(ev.detail)}'), 'system.js must escape audit log detail');
+
+  // v16.2 40-day per-second linear vesting consistency checks
+  const dataSrc = readFileSync(join(JS_DIR, 'data.js'), 'utf8');
+  assert.ok(dataSrc.includes("version: 'v16.2'"), 'PROTOCOL_SPECS must declare v16.2');
+  assert.ok(dataSrc.includes('immediateUnlockPct: 20') && dataSrc.includes('linearVestingDays: 40') && dataSrc.includes('dailyUnlockPct: 2'));
+  const wvSrc = readFileSync(join(JS_DIR, 'pages/wealthverse.js'), 'utf8');
+  assert.ok(wvSrc.includes('40 天线性释放机制'), 'wealthverse rewards view must describe 40-day linear vesting');
+  assert.ok(!wvSrc.includes('4 × 20%'), 'wealthverse rewards view must not retain legacy 3-tier slices');
+  const rhSrc = readFileSync(join(JS_DIR, 'pages/round_hub.js'), 'utf8');
+  assert.ok(rhSrc.includes('40 天线性释放进度'), 'round_hub must describe 40-day linear vesting curve');
+  assert.ok(!rhSrc.includes('4×20%'), 'round_hub must not retain legacy 3-tier vesting');
+  const termsHtml = readFileSync(join(appRoot, 'terms.html'), 'utf8');
+  assert.ok(termsHtml.includes('v16.2') && termsHtml.includes('40 天'), 'terms.html must match v16.2 40-day linear vesting');
 });
 

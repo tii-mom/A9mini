@@ -44,13 +44,12 @@ const PROD_TIMING = {
   candleCount: 24,
   minQualifiedCandles: 16,
   abortTimeoutSeconds: 604800,
-  fallbackUnlockSeconds: 2592000,
-  inactivityBurnSeconds: 7776000,
+  vestingSeconds: 3456000, // 40d linear vesting (80% / 40d = 2%/day)
 };
 
 export const PROFILES = {
   testnet: {
-    version: '16.1.0',
+    version: '16.2.0',
     network: 'testnet',
     profile: 'testnet',
     supply: SHARED_SUPPLY,
@@ -66,7 +65,7 @@ export const PROFILES = {
     promoHotWallet: { userFeeTon: '0.06', transferGasTon: '0.05' },
   },
   'testnet-fast': {
-    version: '16.1.0',
+    version: '16.2.0',
     network: 'testnet',
     profile: 'testnet-fast',
     supply: SHARED_SUPPLY,
@@ -77,8 +76,7 @@ export const PROFILES = {
       candleCount: 24,
       minQualifiedCandles: 16,
       abortTimeoutSeconds: 120,
-      fallbackUnlockSeconds: 300,
-      inactivityBurnSeconds: 600,
+      vestingSeconds: 1200, // 20m fast linear vesting for testnet end-to-end verification
     },
     deployTon: {
       jettonMaster: String(500_000_000n),
@@ -90,7 +88,7 @@ export const PROFILES = {
     promoHotWallet: { userFeeTon: '0.06', transferGasTon: '0.05' },
   },
   mainnet: {
-    version: '16.1.0',
+    version: '16.2.0',
     network: 'mainnet',
     profile: 'mainnet',
     supply: SHARED_SUPPLY,
@@ -115,7 +113,7 @@ export function loadParams(profileName = 'testnet') {
 }
 
 export function validateParams(p) {
-  if (p.version !== '16.1.0') throw new Error(`unexpected version: ${p.version}`);
+  if (p.version !== '16.2.0') throw new Error(`unexpected version: ${p.version}`);
   if (p.network !== 'testnet' && p.network !== 'mainnet') {
     throw new Error(`network must be testnet or mainnet, got ${p.network}`);
   }
@@ -282,8 +280,8 @@ export function aggregateCandles(roundId, targetPriceUsdE8, candles, expectedCou
   };
 }
 
-// Mirror of RoundController.tolk v15 win settlement math for off-chain verification
-export function previewWinSettlement({ budgetRaw, totalStakeRaw, teamBudgetRaw, nextSuccessCount }) {
+// Mirror of RoundController.tolk v16.2 win settlement math (constant 20% immediate + 80% 40-day linear vesting)
+export function previewWinSettlement({ budgetRaw, totalStakeRaw, teamBudgetRaw, vestingSeconds = 3456000 }) {
   const budget = BigInt(budgetRaw);
   const stake = BigInt(totalStakeRaw);
   const teamBudget = BigInt(teamBudgetRaw);
@@ -292,8 +290,7 @@ export function previewWinSettlement({ budgetRaw, totalStakeRaw, teamBudgetRaw, 
   const carryDelta = budget - distributable;
   const teamReleased = budget > 0n ? (teamBudget * distributable) / budget : 0n;
   const teamCarryAfter = teamBudget - teamReleased;
-  const immediateBps = nextSuccessCount <= 5 ? 2000n : nextSuccessCount <= 10 ? 4000n : 10000n;
-  const lockedSlices = nextSuccessCount <= 5 ? 4 : nextSuccessCount <= 10 ? 2 : 0;
+  const immediateBps = 2000n;
   const immediateTotal = (distributable * immediateBps) / BPS;
   const lockedTotal = distributable - immediateTotal;
   return {
@@ -302,7 +299,7 @@ export function previewWinSettlement({ budgetRaw, totalStakeRaw, teamBudgetRaw, 
     teamReleased,
     teamCarryAfter,
     immediateBps: Number(immediateBps),
-    lockedSlices,
+    vestingSeconds: Number(vestingSeconds),
     immediateTotal,
     lockedTotal,
   };
@@ -494,8 +491,7 @@ export function verifyActonWalletsReadOnly({
     A9_CANDLE_COUNT: String(params.timing.candleCount),
     A9_MIN_QUALIFIED: String(params.timing.minQualifiedCandles),
     A9_ABORT_TIMEOUT_SECONDS: String(params.timing.abortTimeoutSeconds),
-    A9_FALLBACK_UNLOCK_SECONDS: String(params.timing.fallbackUnlockSeconds),
-    A9_INACTIVITY_BURN_SECONDS: String(params.timing.inactivityBurnSeconds),
+    A9_VESTING_SECONDS: String(params.timing.vestingSeconds),
     A9_TON_MASTER: params.deployTon.jettonMaster,
     A9_TON_MINT_TOTAL: params.deployTon.mintTotal,
     A9_TON_MINT_FORWARD: params.deployTon.mintForward,

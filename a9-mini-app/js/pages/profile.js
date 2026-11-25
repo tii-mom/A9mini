@@ -82,7 +82,7 @@ function renderUnifiedVaultHtml({
       </div>
 
       <div class="unified-vault-total">
-        <span class="num-xs text-muted">${L('当前聚合可领总额（轮次已解锁 + 推广余额，含已激活预言）', 'Total Ready to Claim (Round + Promo Balance, incl. activated prediction)')}</span>
+        <span class="num-xs text-muted">${L('可领总额（轮次 + 推广）', 'Total Claimable (Round + Promo)')}</span>
         <div class="num-lg text-green mono" style="font-weight:900;margin-top:3px;">${loading && !hasAnySum ? L('同步中…', 'Syncing…') : (showQuickSlider && roundClaimableA9 > 0 ? `<span id="a9-claim-num">${formatNum(totalReadyA9 ?? 0)}</span> A9` : fmtA9(totalReadyA9))}</div>
       </div>
 
@@ -106,55 +106,49 @@ function renderUnifiedVaultHtml({
       <div class="unified-vault-list">
         <a class="unified-vault-row" href="#/claim">
           <div>
-            <div class="num-sm" style="font-weight:800;">${L('轮次已解锁奖励', 'Unlocked Round Prizes')}</div>
-            <div class="num-xs text-muted">${L('StakeTicket 链上领奖 · 附 0.22 GRAM Gas', 'StakeTicket claim · 0.22 GRAM gas')}</div>
+            <div class="num-sm" style="font-weight:800;">${L('轮次奖励', 'Round Prizes')}</div>
+            <div class="num-xs text-muted">${L('链上领奖 · 0.22 GRAM Gas', 'On-chain · 0.22 GRAM gas')}</div>
           </div>
           <div class="unified-vault-val">
             <b class="mono text-green">${roundValDisplay}</b>
-            <span>${L('去领取', 'Claim')} ›</span>
+            <span>${L('领取', 'Claim')} ›</span>
           </div>
         </a>
 
         <a class="unified-vault-row" href="#/team/invite">
           <div>
-            <div class="num-sm" style="font-weight:800;">${L('推广返佣余额（6%）', 'Referral & Promo Balance (6%)')}</div>
-            <div class="num-xs text-muted">${L('热钱包自动发 A9 · 付 0.06 GRAM Gas', 'Hot wallet A9 payout · 0.06 GRAM gas')}</div>
+            <div class="num-sm" style="font-weight:800;">${L('推广返佣 (6%)', 'Referral (6%)')}</div>
+            <div class="num-xs text-muted">${L('热钱包直发 · 0.06 GRAM Gas', 'Hot wallet · 0.06 GRAM gas')}</div>
           </div>
           <div class="unified-vault-val">
             <b class="mono text-gold">${fmtA9(promoClaimableA9)}</b>
-            <span>${L('去领取', 'Claim')} ›</span>
+            <span>${L('领取', 'Claim')} ›</span>
           </div>
         </a>
 
         <button type="button" class="unified-vault-row unified-vault-btn" id="btn-vault-go-pred">
           <div>
-            <div class="num-sm" style="font-weight:800;">${L('24H 预言金库（已激活 / 待激活）', '24H Prediction Vault (Active / Pending)')}</div>
-            <div class="num-xs text-muted">${hasPendingVault ? L('待激活金库 48H 内购箱/质押/邀 1 友购箱解锁', 'Pending vault unlocks within 48H via chest/stake/1 paid invite') : L('0 GRAM 参战预言 · 激活后合并推广余额领取', '0 GRAM arena · merges into promo balance once activated')}</div>
+            <div class="num-sm" style="font-weight:800;">${L('24H 预言金库', '24H Prediction Vault')}</div>
+            <div class="num-xs text-muted">${hasPendingVault ? L('48H 内购箱 / 质押 / 邀 1 友激活', 'Activate in 48H via chest / stake / 1 invite') : L('0 GRAM 参战 · 激活后合并领取', '0 GRAM arena · merges when active')}</div>
           </div>
           <div class="unified-vault-val">
             <b class="mono">${fmtA9(predActivatedA9)} / <span class="text-gold">${fmtA9(predPendingA9)}</span></b>
-            <span>${hasPendingVault ? L('去激活', 'Activate') : L('去查看', 'View')} ›</span>
+            <span>${hasPendingVault ? L('激活', 'Activate') : L('查看', 'View')} ›</span>
           </div>
         </button>
 
         <a class="unified-vault-row" href="#/rewards">
           <div>
-            <div class="num-sm" style="font-weight:800;">${L('连胜锁仓待解锁份额', 'Vested Locked Shares')}</div>
-            <div class="num-xs text-muted">${L('1–5 胜 20% / 6–10 胜 40% / 11 胜起 100%', '1–5w 20% / 6–10w 40% / 11+w 100%')}</div>
+            <div class="num-sm" style="font-weight:800;">${L('40 天线性待释放', '40d Linear Vesting')}</div>
+            <div class="num-xs text-muted">${L('秒领 20% + 每日 2% × 40 天', '20% instant + 2%/day × 40d')}</div>
           </div>
           <div class="unified-vault-val">
             <b class="mono">${lockedValDisplay}</b>
-            <span>${L('看档位', 'Tiers')} ›</span>
+            <span>${L('节奏', 'Schedule')} ›</span>
           </div>
         </a>
       </div>
-
-      <div class="grid-3" style="gap:6px;margin-top:10px;">
-        <a class="btn btn-nt-green btn-sm" href="#/claim" style="width:100%;min-height:38px;">${L('金库领奖', 'Claim')}</a>
-        <a class="btn btn-secondary btn-sm" href="#/team/invite" style="width:100%;min-height:38px;">${L('推广领奖', 'Promo')}</a>
-        <a class="btn btn-secondary btn-sm" href="#/rewards" style="width:100%;min-height:38px;">${L('解锁档位', 'Vesting')}</a>
-      </div>
-      ${isLive && !hasWallet ? `<div class="row-between" style="margin-top:8px;gap:8px;"><span class="num-xs text-muted">${L('连接并验证 TON 钱包后自动同步链上凭证与余额。', 'Connect & verify your TON wallet to sync live balances.')}</span><button class="btn btn-secondary btn-sm" id="profile-live-connect" type="button">${L('连接钱包', 'Connect')}</button></div>` : ''}
+      ${isLive && !hasWallet ? `<div class="row-between" style="margin-top:8px;gap:8px;"><span class="num-xs text-muted">${L('连接钱包同步链上凭证与余额', 'Connect wallet to sync balances')}</span><button class="btn btn-secondary btn-sm" id="profile-live-connect" type="button">${L('连接钱包', 'Connect')}</button></div>` : ''}
       ${isLive && hasWallet && loadError ? `<div class="row-between" style="margin-top:8px;gap:8px;"><span class="num-xs text-red">${L('部分链上数据同步超时', 'Some on-chain data failed to sync')}</span><button class="btn btn-secondary btn-sm" id="profile-live-retry" type="button">${L('重试', 'Retry')}</button></div>` : ''}
     </section>
   `;
@@ -700,7 +694,7 @@ function renderLiveTicketClaimPage(root) {
                     else if (rState === 'STAKING_OPEN' || rState === 'OBSERVING') statusChip = `<span class="chip chip-gold">${L('观察期 · 暂不可领', 'Observing · Locked')}</span>`;
                     else if (rState === 'ABORTED') statusChip = canClaim ? `<span class="chip chip-green">${L('异常中止 · 可退本金', 'Aborted · Refundable')}</span>` : `<span class="chip chip-muted">${L('已全额退本', 'Refunded')}</span>`;
                     else if (canClaim) statusChip = `<span class="chip chip-green">${L('可领本金/奖励', 'Claimable')}</span>`;
-                    else if (t.principalDone) statusChip = `<span class="chip chip-muted">${lockedRemA9 > 0 ? L('待后续轮次解锁', 'Awaiting Unlock') : L('已全额领完', 'Fully Claimed')}</span>`;
+                    else if (t.principalDone) statusChip = `<span class="chip chip-muted">${lockedRemA9 > 0 ? L('40 天线性释放中', '40d Linear Vesting') : L('已全额领完', 'Fully Claimed')}</span>`;
 
                     let btnLabel = L('发起链上领奖（附 0.22 GRAM Gas）', 'Claim On-Chain (0.22 GRAM Gas)');
                     if (isPending) btnLabel = L('凭证正在链上确认中（防重锁）', 'Claim Pending On-Chain');
@@ -731,7 +725,7 @@ function renderLiveTicketClaimPage(root) {
                         </div>
                         ${lockedRemA9 > 0 ? `
                         <div class="row-between num-xs text-sec" style="margin-top:4px;">
-                          <span>${L('后续待解锁奖励', 'Locked Remaining')}</span>
+                          <span>${Number.isFinite(Number(t.unlockedPctBps)) ? L(`40 天线性待释放（已解锁 ${(Number(t.unlockedPctBps) / 100).toFixed(2)}%）`, `40d Linear Remaining (${(Number(t.unlockedPctBps) / 100).toFixed(2)}% unlocked)`) : L('40 天线性待释放奖励', '40d Linear Remaining')}</span>
                           <b class="mono text-gold">${formatNum(lockedRemA9, 2)} A9</b>
                         </div>` : ''}` : `
                         <div class="row-between num-xs text-sec" style="margin-top:4px;">
@@ -948,7 +942,7 @@ export function renderProofDetail(root, navigate, certId) {
               </div>
             </div>
             <div class="cert-foot">
-              <span class="num-xs text-muted mono">A9 v16.1 · ${isSettled ? L('已结算', 'SETTLED') : L('24H 观察中', 'OBSERVING')}</span>
+              <span class="num-xs text-muted mono">A9 v16.2 · ${isSettled ? L('已结算', 'SETTLED') : L('24H 观察中', 'OBSERVING')}</span>
               ${renderMiniBarcode()}
             </div>
           </div>

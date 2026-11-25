@@ -30,13 +30,13 @@ const RISK_STATES = [
   { id: '01', code: 'ERR_0x1301_TON_REJECTED', cat: 'wallet', titleZh: '钱包未连接 / 签名主动拒绝', titleEn: 'Wallet Not Connected / Signature Rejected', descZh: '用户在 TON Connect 2.0 握手时关闭窗口或拒绝签名。', descEn: 'User closed TON Connect 2.0 modal or rejected transaction signing.', actionZh: '快速重新连接钱包', actionEn: 'Reconnect Wallet' },
   { id: '02', code: 'ERR_0x1302_INSUFFICIENT_GAS', cat: 'wallet', titleZh: '余额不足支付 Gas / 质押本金', titleEn: 'Insufficient Gas or A9 Balance', descZh: '钱包可用 A9 不足质押下限，或 GRAM 不足覆盖 0.30 GRAM 合约调用 Gas。', descEn: 'Available A9 is below stake minimum or GRAM is insufficient for 0.30 GRAM contract gas.', actionZh: '检查钱包余额', actionEn: 'Check Wallet Balance' },
   { id: '03', code: 'ERR_0x1303_MEMPOOL_TIMEOUT', cat: 'wallet', titleZh: '链上 RPC 广播超时 / 拥堵', titleEn: 'On-Chain RPC Broadcast Timeout', descZh: 'Toncenter 节点延迟超过 8000ms，交易滞留 Mempool。', descEn: 'Toncenter RPC latency exceeded 8000ms; tx pending in mempool.', actionZh: '自动切换备用 L1 RPC', actionEn: 'Switch Fallback L1 RPC' },
-  { id: '04', code: 'ERR_0x1304_BELOW_MIN_STAKE', cat: 'wallet', titleZh: '质押金额低于 1,000 A9 最小门槛', titleEn: 'Stake Below 1,000 A9 Minimum', descZh: 'v16.1 合约单次参与需确保至少 1,000 A9 完整单元。', descEn: 'v16.1 contract requires a minimum single stake of 1,000 A9.', actionZh: '一键补齐至 1,000 A9', actionEn: 'Fill to 1,000 A9' },
+  { id: '04', code: 'ERR_0x1304_BELOW_MIN_STAKE', cat: 'wallet', titleZh: '质押金额低于 1,000 A9 最小门槛', titleEn: 'Stake Below 1,000 A9 Minimum', descZh: 'v16.2 合约单次参与需确保至少 1,000 A9 完整单元。', descEn: 'v16.2 contract requires a minimum single stake of 1,000 A9.', actionZh: '一键补齐至 1,000 A9', actionEn: 'Fill to 1,000 A9' },
   { id: '05', code: 'ERR_0x1305_EXCEED_15X_HARDCAP', cat: 'wallet', titleZh: '超过 15x 单人单轮收益硬顶', titleEn: '15x Single-Round Reward Cap Reached', descZh: '复合倍率触达协议硬顶，超额部分滚存至下轮奖池。', descEn: 'Reward reached the 15x principal hard cap; excess rolls into next round.', actionZh: '查看收益上限说明', actionEn: 'View Cap Rules' },
-  { id: '06', code: 'ERR_0x7E4F_QUOTA_EXHAUSTED', cat: 'quota', titleZh: '个人单轮参与额度已达上限', titleEn: 'Per-Round Personal Quota Reached', descZh: '触发防巨鲸限额保护 (Anti-Whale Guard v16.1)。', descEn: 'Triggered Anti-Whale Guard v16.1 per-round limit.', actionZh: '返回轮次闯关', actionEn: 'Back to Quest' },
+  { id: '06', code: 'ERR_0x7E4F_QUOTA_EXHAUSTED', cat: 'quota', titleZh: '个人单轮参与额度已达上限', titleEn: 'Per-Round Personal Quota Reached', descZh: '触发防巨鲸限额保护 (Anti-Whale Guard v16.2)。', descEn: 'Triggered Anti-Whale Guard v16.2 per-round limit.', actionZh: '返回轮次闯关', actionEn: 'Back to Quest' },
   { id: '07', code: 'ERR_0x2207_STAGE_CLOSED_LOCKOUT', cat: 'quota', titleZh: '参与阶段已截单 / 进入观察期', titleEn: 'Entry Window Closed · Observing', descZh: '本轮入场通道关闭，转入连续 24 小时观察结算。', descEn: 'Round entry is closed and now in the 24H observation phase.', actionZh: '追踪当前观察仓位', actionEn: 'Track 24H Observation' },
-  { id: '08', code: 'ERR_0x2208_OBSERVE_FAILED_BURN', cat: 'quota', titleZh: '24小时观察期未达标 (时段 < 16 格)', titleEn: '24H Observation Missed (< 16 Slots)', descZh: '触发 v16.1 对称销毁机制与下轮奖池结转。', descEn: 'Triggers v16.1 symmetric burn and next-round pool rollover.', actionZh: '查看清算存证哈希', actionEn: 'View Burn Proof' },
+  { id: '08', code: 'ERR_0x2208_OBSERVE_FAILED_BURN', cat: 'quota', titleZh: '24小时观察期未达标 (时段 < 16 格)', titleEn: '24H Observation Missed (< 16 Slots)', descZh: '触发 v16.2 销毁机制：销毁本轮质押本金与一半奖池，另一半滚存下轮（历史胜利奖励不受影响）。', descEn: 'Triggers v16.2 burn: burns round principal and half of round pool, rolling the other half forward (past win vesting unaffected).', actionZh: '查看清算存证哈希', actionEn: 'View Burn Proof' },
   { id: '09', code: 'ERR_0x2209_ORACLE_CIRCUIT_BREAK', cat: 'quota', titleZh: '预言机喂价异常熔断 (Pyth/RedStone)', titleEn: 'Oracle Deviation Circuit Breaker', descZh: '跨链报价偏差超阈值，系统自动开启安全隔离并 100% 退还本金。', descEn: 'Oracle price feed deviation triggered safety halt; 100% principal refunded.', actionZh: '查看熔断审计报告', actionEn: 'View Audit Report' },
-  { id: '10', code: 'ERR_0x2210_NO_CLAIMABLE_BAL', cat: 'quota', titleZh: '待领取奖励为空', titleEn: 'No Claimable Rewards', descZh: '当前可提取额度为 0，其余资产仍在阶梯解锁周期中。', descEn: 'Claimable balance is 0; remaining rewards are still vesting.', actionZh: '查看解锁档位', actionEn: 'View Vesting Tiers' },
+  { id: '10', code: 'ERR_0x2210_NO_CLAIMABLE_BAL', cat: 'quota', titleZh: '待领取奖励为空', titleEn: 'No Claimable Rewards', descZh: '当前可提取额度为 0，其余奖励正按 40 天（每日 2%）按秒线性释放中。', descEn: 'Claimable balance is 0; remaining rewards vest per second over 40 days (2%/day).', actionZh: '查看释放节奏', actionEn: 'View Vesting Schedule' },
   { id: '11', code: 'ERR_0x2211_GAS_ESTIMATE_FAIL', cat: 'quota', titleZh: '智能合约领取 Gas 估算失败', titleEn: 'Claim Gas Estimation Failed', descZh: 'TVM 预执行提示 Gas 不足，建议附带 0.22 GRAM Gas（余量原路退回）。', descEn: 'TVM pre-check warned of low gas; attach 0.22 GRAM (excess refunded).', actionZh: '以 0.22 GRAM 重试', actionEn: 'Retry with 0.22 GRAM' },
   { id: '12', code: 'ERR_0x3312_TG_AUTH_REQUIRED', cat: 'market', titleZh: '未绑定 TG 账号阻断宝箱商城操作', titleEn: 'Telegram Binding Required for Chest Mall', descZh: '独立外部钱包缺少 Telegram InitData 签名校验。', descEn: 'External wallet session lacks Telegram InitData verification.', actionZh: '绑定 Telegram 账号', actionEn: 'Bind Telegram Account' },
   { id: '13', code: 'ERR_0x3313_PRESALE_SOLD_OUT', cat: 'market', titleZh: '宝箱商城当期额度已售罄 (Sold Out)', titleEn: 'Chest Mall Round Quota Sold Out', descZh: '当期宝箱库存已抢空，后发交易扣除 0.03 GRAM 链上退款 Gas 后原路退还。', descEn: 'Current chest allocation is sold out; late txs are refunded minus 0.03 GRAM gas.', actionZh: '查询自动退款流水', actionEn: 'Check Refund Log' },
@@ -48,7 +48,7 @@ const RISK_STATES = [
   { id: '19', code: 'ERR_0x4419_INVITE_HARDCAP', cat: 'team', titleZh: '邀友奖励达 320,000 A9 单轮硬顶', titleEn: '320,000 A9 Round Invite Cap Reached', descZh: '单地址单轮邀友奖励封顶，多余积分自动转入社区奖池。', descEn: 'Single-address invite reward capped per round; excess goes to community pool.', actionZh: '查看邀友奖励上限', actionEn: 'View Invite Cap' },
   { id: '20', code: 'ERR_0x5520_TG_BOT_PERM_LOST', cat: 'sys', titleZh: 'TG 群组解绑 / Bot 管理员权限丢失', titleEn: 'TG Group Unlinked / Bot Admin Lost', descZh: '关联群组撤销了官方 Bot (@A9_TonBot) 管理员权限。', descEn: 'Linked group revoked official Bot (@A9_TonBot) admin permissions.', actionZh: '重新授权 Bot Admin', actionEn: 'Re-authorize Bot Admin' },
   { id: '21', code: 'ERR_0x5521_RENEWAL_TIMEOUT', cat: 'sys', titleZh: '连闯策略撤销超时 (<30分钟锁定)', titleEn: 'Auto-Continue Lockout (< 30 Mins)', descZh: '已进入新轮开盘前 30 分钟锁定缓冲期。', descEn: 'Locked within 30 minutes prior to the next round open.', actionZh: '等待下轮开盘后调整', actionEn: 'Adjust After Open' },
-  { id: '22', code: 'ERR_0x5522_API_MAINTENANCE', cat: 'sys', titleZh: '接口只读维护窗口', titleEn: 'API Maintenance Window', descZh: 'v16.1 链上合约已永久弃权不可升级；当前仅维护边缘只读接口，链上资产与领奖不受影响。', descEn: 'v16.1 contracts are permanently renounced and immutable; only edge read APIs are under brief maintenance.', actionZh: '查看链上验真地址', actionEn: 'Verify On-Chain' }
+  { id: '22', code: 'ERR_0x5522_API_MAINTENANCE', cat: 'sys', titleZh: '接口只读维护窗口', titleEn: 'API Maintenance Window', descZh: 'v16.2 链上合约已永久弃权不可升级；当前仅维护边缘只读接口，链上资产与领奖不受影响。', descEn: 'v16.2 contracts are permanently renounced and immutable; only edge read APIs are under brief maintenance.', actionZh: '查看链上验真地址', actionEn: 'Verify On-Chain' }
 ];
 
 export function renderSettingsPage(root) {
@@ -420,8 +420,8 @@ export function renderRiskAudit(root) {
   const invariantsBoardHtml = `
     <section class="card card-hero" id="v16-invariants-board">
       <div class="row-between" style="margin-bottom:8px;">
-        <div class="card-title">${icon('shieldCheck', 16, 'text-green')} ${L('v16.1 链上防 Rug 安全不变量看板', 'v16.1 On-Chain Security Invariants')}</div>
-        <span class="chip chip-green">${config.isDemo ? 'DEMO · v16.1' : 'TVM · v16.1'}</span>
+        <div class="card-title">${icon('shieldCheck', 16, 'text-green')} ${L('v16.2 链上防 Rug 安全不变量看板', 'v16.2 On-Chain Security Invariants')}</div>
+        <span class="chip chip-green">${config.isDemo ? 'DEMO · v16.2' : 'TVM · v16.2'}</span>
       </div>
       <div class="check-list">
         <div class="check-row">
@@ -463,7 +463,7 @@ export function renderRiskAudit(root) {
         ${rcAddr
           ? `<a class="btn btn-primary btn-sm" href="${escapeHtml(buildTonviewerUrl(rcAddr, network))}" target="_blank" rel="noopener noreferrer">${icon('external', 13)} ${L('Tonviewer 查主合约', 'Inspect on Tonviewer')}</a>
              <button class="btn btn-secondary btn-sm" id="btn-audit-copy-rc" type="button">${icon('copy', 13)} ${L('复制合约地址', 'Copy Address')}</button>`
-          : `<a class="btn btn-secondary btn-sm" href="#/rules">${icon('book', 13)} ${L('查看 v16.1 规则', 'View v16.1 Rules')}</a>
+          : `<a class="btn btn-secondary btn-sm" href="#/rules">${icon('book', 13)} ${L('查看 v16.2 规则', 'View v16.2 Rules')}</a>
              <a class="btn btn-secondary btn-sm" href="#/round">${icon('arrowLeft', 13)} ${L('返回广场', 'Back to Plaza')}</a>`}
       </div>
     </section>
@@ -478,7 +478,7 @@ export function renderRiskAudit(root) {
             <div class="card-title">${icon('radar', 15, 'text-cyan')} ${L('动态结算与预言机事件流', 'Live Settlement & Oracle Stream')}</div>
             <span class="chip chip-muted">${L('链上同步中', 'SYNCING')}</span>
           </div>
-          <p class="num-xs text-sec" style="margin:0;line-height:1.5;">${L('每小时 1H TWAP 定盘与轮次结算哈希将在链上出块后自动归档展示；上方 v16.1 合约不可变安全参数已可直接核验。', 'Hourly TWAP seals and round settlement hashes archive here as blocks finalize; the v16.1 immutable invariants above are live-verifiable now.')}</p>
+          <p class="num-xs text-sec" style="margin:0;line-height:1.5;">${L('每小时 1H TWAP 定盘与轮次结算哈希将在链上出块后自动归档展示；上方 v16.2 合约不可变安全参数已可直接核验。', 'Hourly TWAP seals and round settlement hashes archive here as blocks finalize; the v16.2 immutable invariants above are live-verifiable now.')}</p>
         </section>
       </div>`;
     const cp = root.querySelector('#btn-audit-copy-rc');
@@ -489,7 +489,7 @@ export function renderRiskAudit(root) {
   const events = [
     { time: '12:00 UTC', target: L('第 12 时段收盘定盘', 'Slot #12 hourly seal'), detail: 'Pyth + RedStone · 0.12%', result: 'VERIFIED', cls: 'chip-green' },
     { time: '08:00 UTC', target: L('奖池合约余额校验', 'Reward pool balance check'), detail: '700,000,000 A9 · 100%', result: 'PASS', cls: 'chip-green' },
-    { time: '00:00 UTC', target: L('v16.1 结算逻辑验真', 'v16.1 settlement verification'), detail: 'RoundController · TVM · addr_none', result: 'AUDITED', cls: 'chip-blue' },
+    { time: '00:00 UTC', target: L('v16.2 结算逻辑验真', 'v16.2 settlement verification'), detail: 'RoundController · TVM · addr_none', result: 'AUDITED', cls: 'chip-blue' },
   ];
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
@@ -589,7 +589,7 @@ export function renderRulesPage(root) {
             <b id="rule-slot-title" class="text-green">${L('达标胜出 ✓ · 解锁本轮奖池', 'Round Passed ✓ · Pool Unlocked')}</b>
             <span class="mono text-sec" id="rule-slot-sub">16 ≥ 16</span>
           </div>
-          <div class="num-xs text-sec" id="rule-slot-desc">${L('按全网累计胜场阶梯释放：1–5 胜即时 20%，6–10 胜即时 40%，11 胜起 100% 秒领。', 'Vesting by global wins: 1–5 wins 20%, 6–10 wins 40%, 11+ wins 100% instant.')}</div>
+          <div class="num-xs text-sec" id="rule-slot-desc">${L('通关立即退还 100% 本金 + 秒领 20% 奖励；余下 80% 奖励分 40 天按秒线性释放（每日 2%），永久累计不倒扣。', 'Pass refunds 100% principal + 20% instant reward; remaining 80% vests per second over 40 days (2%/day), never forfeited.')}</div>
         </div>
       </section>
 
@@ -609,9 +609,9 @@ export function renderRulesPage(root) {
         </details>
 
         <details class="faq-item">
-          <summary><span>${L('3. 奖励分几档解锁？失败会怎样？', '3. How do vesting tiers and failures work?')}</span><span class="faq-arrow">${icon('chevronDown', 15)}</span></summary>
+          <summary><span>${L('3. 奖励怎么释放？失败轮会怎样？', '3. How do rewards vest and what happens on failure?')}</span><span class="faq-arrow">${icon('chevronDown', 15)}</span></summary>
           <div class="faq-body">
-            ${L('全网第 1–5 胜即时解锁 20%（余下 4×20% 随后续达标轮释放）；第 6–10 胜即时解锁 40%（余下 2×30%）；第 11 胜起新奖励 100% 即时可领（v16.1：零质押达标轮不推进胜场与锁仓解锁）。失败轮销毁该轮质押本金、一半当轮奖池（含团队结转池对称减半销毁）与未解锁份额，直到总奖池耗尽。', 'Wins 1–5 unlock 20% immediately (4×20% vested); wins 6–10 unlock 40% (2×30%); wins 11+ unlock 100% immediately (v16.1: zero-stake passing rounds do not advance global wins or unlock slices). Failed rounds burn round principal, half of the round & team carry pools, and unvested slices.')}
+            ${L('通关即退 100% 本金 + 秒领 20% 奖励；余下 80% 奖励分 40 天按秒连续线性释放（每日 2%），自动累计、永不倒扣，随时可合并一次领完。未达标失败轮仅销毁该轮质押本金与一半当轮奖池（含团队结转池对称减半销毁），另一半滚存下轮，不影响任何历史胜利奖励的线性释放（v16.2：零质押空轮无论胜负均 100% 滚存、零销毁）。', 'Passing rounds refund 100% principal + 20% instant reward; the remaining 80% vests per second over 40 days (2%/day), never forfeited and claimable anytime in one tx. Failed rounds burn only that round\'s staked principal and half of the round & team carry pools (rolling the rest forward) without affecting past vesting rewards (v16.2: zero-stake rounds roll over 100% with zero burn regardless of outcome).')}
           </div>
         </details>
 
@@ -694,8 +694,8 @@ export function renderRulesPage(root) {
       }
       if (slotDesc) {
         slotDesc.textContent = pass
-          ? L('按全网累计胜场阶梯释放：1–5 胜即时 20%，6–10 胜即时 40%，11 胜起 100% 秒领。', 'Vesting by global wins: 1–5 wins 20%, 6–10 wins 40%, 11+ wins 100% instant.')
-          : L('失败轮按 v16.1 规则销毁当轮质押本金、一半当轮奖池与未解锁余量，另一半滚存下轮。', 'Failed rounds burn round principal, half of the round pool, and unvested balances.');
+          ? L('通关立即退还 100% 本金 + 秒领 20% 奖励；余下 80% 奖励分 40 天按秒线性释放（每日 2%），永久累计不倒扣。', 'Pass refunds 100% principal + 20% instant reward; remaining 80% vests per second over 40 days (2%/day), never forfeited.')
+          : L('失败轮按 v16.2 规则仅销毁当轮质押本金与一半当轮奖池，另一半滚存下轮（不影响历史胜利奖励释放）。', 'Failed rounds per v16.2 burn only that round\'s stake and half of the round pool, rolling the other half forward (past win vesting unaffected).');
       }
     };
   }

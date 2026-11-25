@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // A9 Protocol v15 — Minimalist round operations CLI (default dry-run).
-// Actions: open-round | settle-round | abort-round | burn-inactive
+// Actions: open-round | settle-round | abort-round | retry-payouts
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import {
@@ -45,7 +45,7 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2));
 if (!args.action) {
-  console.error('Usage: node scripts/round-ops.mjs --action <open-round|settle-round|abort-round|burn-inactive> [options]');
+  console.error('Usage: node scripts/round-ops.mjs --action <open-round|settle-round|abort-round|retry-payouts> [options]');
   process.exit(1);
 }
 
@@ -121,7 +121,7 @@ if (args.action === 'open-round') {
   env.A9_QUALIFIED_CANDLES = String(qualified);
   env.A9_CANDLE_HASH = candleHashDec;
   env.A9_SIGNER_WALLET = args.signer || process.env.A9_KEEPER_WALLET || 'keeper';
-} else if (args.action === 'abort-round' || args.action === 'burn-inactive') {
+} else if (args.action === 'abort-round' || args.action === 'retry-payouts') {
   env.A9_SIGNER_WALLET = args.signer || process.env.A9_KEEPER_WALLET || 'keeper';
 } else {
   throw new Error(`unknown action: ${args.action}`);

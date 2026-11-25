@@ -2698,10 +2698,10 @@ await test('Batch B: claim preview, payout-daemon budget/rebind, Masterchain & p
   const RC = '0:' + 'f6'.repeat(32);
   const TEST_ONLY_ADDR = formatTonAddress(0, new Uint8Array(32).fill(0x22), { bounceable: true, testOnly: true });
 
-  // 1) computeTicketClaimPreview mirrors RoundController.tolk across ACTIVE / FAILED / SUCCEEDED (20% immediate + unlocked slices) / ABORTED / 30d fallback
-  const rActive = { status: 1, stakeCloseAt: 2000, totalStakeRaw: '1000000000000', totalWeightRaw: '2000000000000', rewardBudgetRaw: '10000000000000', immediateBps: 0, lockedSlices: 0, unlockedSlices: 0, burnedSlices: 0 };
+  // 1) computeTicketClaimPreview mirrors RoundController.tolk v16.2 (20% immediate + 80% 40-day per-second linear vesting)
+  const rActive = { status: 1, stakeCloseAt: 2000, totalStakeRaw: '1000000000000', totalWeightRaw: '2000000000000', rewardBudgetRaw: '10000000000000', immediateBps: 0, vestingSeconds: 3456000 };
   const tBase = { roundId: 1, amountRaw: '1000000000000', weightRaw: '2000000000000', rewardClaimedRaw: '0', principalDone: false, pending: false };
-  const pActive = computeTicketClaimPreview(tBase, rActive, { poolRemainingRaw: '100000000000000', poolExhaustedAt: 0 }, 1500);
+  const pActive = computeTicketClaimPreview(tBase, rActive, { poolRemainingRaw: '100000000000000', endAt: 0 }, 1500);
   assert.equal(pActive.canClaim, false);
   assert.equal(pActive.claimableTotalRaw, '0');
 
@@ -2710,25 +2710,40 @@ await test('Batch B: claim preview, payout-daemon budget/rebind, Masterchain & p
   assert.equal(pFailed.canClaim, false);
   assert.equal(pFailed.roundState, 'FAILED_PERMANENT');
 
-  const rSucc = { ...rActive, status: 2, settledAt: 3000, immediateBps: 2000, lockedSlices: 4, unlockedSlices: 1, burnedSlices: 0 };
-  const pSucc = computeTicketClaimPreview(tBase, rSucc, { poolRemainingRaw: '100000000000000', endAt: 0 }, 3100);
-  // totalReward = 10_000 A9; immediate 20% = 2_000 A9; 1/4 locked = 2_000 A9 -> 4_000 A9 reward + 1_000 A9 principal = 5_000 A9
-  assert.equal(pSucc.canClaim, true);
-  assert.equal(pSucc.claimablePrincipalRaw, '1000000000000');
-  assert.equal(pSucc.claimableRewardRaw, '4000000000000');
-  assert.equal(pSucc.claimableTotalRaw, '5000000000000');
-  assert.equal(pSucc.lockedRemainingRaw, '6000000000000');
+  const rSucc = { ...rActive, status: 2, settledAt: 3000, immediateBps: 2000, vestingSeconds: 40 * 86400 };
+  // Day 10 (10/40 of 8,000 A9 locked = 2,000 A9) + immediate 20% (2,000 A9) = 4,000 A9 reward + 1,000 A9 principal = 5,000 A9
+  const pSuccDay10 = computeTicketClaimPreview(tBase, rSucc, null, 3000 + 10 * 86400);
+  assert.equal(pSuccDay10.canClaim, true);
+  assert.equal(pSuccDay10.claimablePrincipalRaw, '1000000000000');
+  assert.equal(pSuccDay10.claimableRewardRaw, '4000000000000');
+  assert.equal(pSuccDay10.claimableTotalRaw, '5000000000000');
+  assert.equal(pSuccDay10.lockedRemainingRaw, '6000000000000');
+  assert.equal(pSuccDay10.burnedLockedRaw, '0');
+  assert.equal(pSuccDay10.unlockedPctBps, 4000);
 
-  // 30-day fallback unlock after pool exhaustion (endAt = 4000, half elapsed -> 50% of remaining 6_000 A9 = +3_000 A9)
-  const pFallback = computeTicketClaimPreview(
+  // Day 25 after already claiming principal + immediate + Day 10 (2,000 A9 locked) -> +15 days = +3,000 A9 newly unlocked, 3,000 A9 remaining
+  const pSuccDay25 = computeTicketClaimPreview(
     { ...tBase, principalDone: true, immediateClaimed: true, lockedClaimedRaw: '2000000000000' },
     rSucc,
-    { poolRemainingRaw: '0', endAt: 4000 },
-    4000 + 15 * 86400,
+    null,
+    3000 + 25 * 86400,
   );
-  assert.equal(pFallback.canClaim, true);
-  assert.equal(pFallback.claimableRewardRaw, '3000000000000');
-  assert.equal(pFallback.lockedRemainingRaw, '3000000000000');
+  assert.equal(pSuccDay25.canClaim, true);
+  assert.equal(pSuccDay25.claimablePrincipalRaw, '0');
+  assert.equal(pSuccDay25.claimableRewardRaw, '3000000000000');
+  assert.equal(pSuccDay25.lockedRemainingRaw, '3000000000000');
+  assert.equal(pSuccDay25.unlockedPctBps, 7000);
+
+  // Day 40+ -> 100% unlocked, 0 remaining, never expires
+  const pSuccDay60 = computeTicketClaimPreview(
+    { ...tBase, principalDone: true, immediateClaimed: true, lockedClaimedRaw: '2000000000000' },
+    rSucc,
+    null,
+    3000 + 60 * 86400,
+  );
+  assert.equal(pSuccDay60.claimableRewardRaw, '6000000000000');
+  assert.equal(pSuccDay60.lockedRemainingRaw, '0');
+  assert.equal(pSuccDay60.unlockedPctBps, 10000);
 
   const rAborted = { ...rActive, status: 4, settledAt: 3000 };
   const pAborted = computeTicketClaimPreview(tBase, rAborted, { poolRemainingRaw: '100000000000000', poolExhaustedAt: 0 }, 3100);
@@ -2781,8 +2796,8 @@ await test('Batch B: claim preview, payout-daemon budget/rebind, Masterchain & p
     }),
   });
 
-  // /api/user/:wallet returns enriched ticket preview & root claimableRaw/lockedRaw
-  const uRes = await router({ method: 'GET', pathname: `/api/user/${encodeURIComponent(W1)}`, nowSec: 3100 });
+  // /api/user/:wallet returns enriched ticket preview & root claimableRaw/lockedRaw (at Day 10 after settlement)
+  const uRes = await router({ method: 'GET', pathname: `/api/user/${encodeURIComponent(W1)}`, nowSec: 3000 + 10 * 86400 });
   assert.equal(uRes.status, 200);
   assert.equal(uRes.body.data.claimableRaw, '5000000000000');
   assert.equal(uRes.body.data.lockedRaw, '6000000000000');

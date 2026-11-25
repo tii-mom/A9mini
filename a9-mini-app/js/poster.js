@@ -360,7 +360,7 @@ function paintCartridgePoster(canvas, {
   ctx.fillText(L('扫码进入 A9 广场', 'Scan to Enter A9 Plaza'), textX, stubY + 84, stageW - qrSize - 86);
   ctx.fillStyle = '#7B8396';
   ctx.font = '700 17px Rubik, monospace';
-  ctx.fillText('A9 PROTOCOL v16.1 · TON', textX, stubY + 116, stageW - qrSize - 86);
+  ctx.fillText('A9 PROTOCOL v16.2 · TON', textX, stubY + 116, stageW - qrSize - 86);
 
   // 右侧装饰防伪竖条码
   drawVerticalBarcode(ctx, stageX + stageW - 34, stubY + 22, 18, stubH - 44, serialCode || param);
@@ -386,7 +386,7 @@ export function renderReferralPoster(canvas) {
   const teamPrefix = team.id && /^(?:G|T|TM|TEAM)-/i.test(team.id) ? `${team.id}_` : '';
   paintCartridgePoster(canvas, {
     headerTone: 'green',
-    serialTag: 'A9 SQUAD PASS · v16.1',
+    serialTag: 'A9 SQUAD PASS · v16.2',
     title: L('战队邀请函', 'Squad Invitation'),
     subtitle: L('24H 达标闯关 · 宝箱随机暴击 · 链上透明结算', '24H Pass Quest · Random Crit Chests · On-Chain'),
     badgeText: L('直推 6% 返佣', '6% REFERRAL'),
@@ -416,7 +416,7 @@ export function renderProofFlexPoster(canvas, certInput) {
     subtitle: cert
       ? L(`第 ${cert.round} 轮 · ${isSettled ? '已通关结算' : '24H 观察期进行中'}`, `Round #${cert.round} · ${isSettled ? 'Settled' : '24H Observing'}`)
       : L('暂无已核验凭证', 'No verified ticket'),
-    badgeText: cert ? `${(Number(cert.multiplier) || 1).toFixed(1)}× EARLY` : 'A9 v16.1',
+    badgeText: cert ? `${(Number(cert.multiplier) || 1).toFixed(1)}× EARLY` : 'A9 v16.2',
     metrics: cert
       ? [
           { label: L('质押本金', 'Staked'), value: `${fmtPosterNum(cert.stakeTon)} A9`, tone: 'ink' },

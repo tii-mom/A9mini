@@ -3,8 +3,8 @@ import "types"
 
 contract StakeTicket {
     author: "A9 Protocol"
-    version: "16.0.0"
-    description: "Minimalist per-owner, per-round stake receipt for A9 v16."
+    version: "16.2.0"
+    description: "Minimalist per-owner, per-round stake receipt for A9 v16.2."
     storage: TicketStorage
     incomingMessages: TicketMessage
 }
@@ -50,8 +50,11 @@ fun onInternalMessage(in: InMessage) {
         TicketAddStake => {
             var st = lazy TicketStorage.load();
             assert (in.senderAddress == st.rc) throw Errors.NotTicket;
-            st.amountRaw += msg.amountRaw;
-            st.weightRaw += msg.weightRaw;
+            assert (msg.roundId == st.roundId) throw Errors.BadRoundId;
+            val amt: uint128 = msg.amountRaw as uint128;
+            val weight: uint128 = ((amt as int) * (msg.timingBps as int) / (BPS as int)) as uint128;
+            st.amountRaw += amt;
+            st.weightRaw += weight;
             st.save();
             returnExcess(st.owner, msg.queryId);
         }

@@ -49,8 +49,8 @@ npx wrangler secret put TONCENTER_API_KEY --env production
 ```
 4. **前端只读验收**：在移动端 `390×844` 打开正式 Telegram Mini App，确认广场/闯关/宝箱商城（`#/internal/market` 与 `#/market`）/战队/我的零报错、零 Emoji、数字完整不缩写、所有资金按钮只读禁用，且 `tonconnect-manifest.json` 握手正常。
 
-### 1B. 主网 4 合约部署（v16.1）、铸币弃权与 82 亿注资（暂不开轮）
-先验证 `v16/ci/artifacts.sha256`（4/4，已锁定 v16.1：零质押达标不推进胜场/解锁、失败轮对称减半销毁 `teamCarryRaw`）与 Acton 单元测试全部通过，导出主网必填部署变量（`A9_DEPLOY_WALLET`、`A9_TREASURY_WALLET`、`A9_KEEPER_ADDRESS`、`A9_ROUND_OPENER_ADDRESS`、`A9_TEAM_WALLET_ADDRESS`、`A9_METADATA_URI`），先只读干跑预检，再由业主单独书面授权执行：
+### 1B. 主网 4 合约部署（v16.2）、铸币弃权与 82 亿注资（暂不开轮）
+先验证 `v16/ci/artifacts.sha256`（4/4，已锁定 v16.2：通关退 100% 本金 + 秒领 20% 奖励 + 余下 80% 分 40 天按秒线性释放 `A9_VESTING_SECONDS=3456000`；空轮无论胜负 100% 滚存零销毁；失败折半向上取整；完整 `onBouncedMessage` 回滚与 O(1) `retry-payouts` 重试；两段式 `MintOnce -> 验收到账 -> DropMinterAdmin` 弃权）与 Acton 单元测试全部通过，导出主网必填部署变量（`A9_DEPLOY_WALLET`、`A9_TREASURY_WALLET`、`A9_KEEPER_ADDRESS`、`A9_ROUND_OPENER_ADDRESS`、`A9_TEAM_WALLET_ADDRESS`、`A9_METADATA_URI`），先只读干跑预检，再由业主单独书面授权执行：
 ```bash
 cd /Users/yu1/Desktop/A9mini/ops
 export A9_DEPLOY_WALLET="<mainnet_deployer_wallet_name>"
@@ -60,10 +60,10 @@ export A9_ROUND_OPENER_ADDRESS="<mainnet_opener_addr>"
 export A9_TEAM_WALLET_ADDRESS="<mainnet_team_multisig_addr>"
 export A9_METADATA_URI="https://app.a9.lat/a9.json"
 
-# 1) 只读干跑预检（零链上消息，派生并核对合约地址与钱包余额）
+# 1) 只读干跑预检（零链上消息，派生并核对合约地址与钱包余额；主网默认 vestingSeconds=3456000）
 node scripts/deploy-v15.mjs --protocol v16 --profile mainnet --strict --dry-run
 
-# 2) 业主书面授权后执行真实主网铸币、弃权与 82 亿注资（部署后暂不开轮）
+# 2) 业主书面授权后执行真实主网铸币、验明实收 100 亿后再弃权、并注资 82 亿至 RoundController（部署后暂不开轮）
 OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
   node scripts/deploy-v15.mjs --protocol v16 --profile mainnet --strict --execute
 ```
@@ -173,11 +173,15 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
   node scripts/round-ops.mjs --protocol v16 --profile mainnet --action open-round \
     --round 1 --twap 116000 --target 232000 --execute
 
-# 单笔结算（主网强制 --candles-file 与 --stake-close-at，自动与链上 get_round 交叉核验 target/stakeCloseAt；由 A9_KEEPER_WALLET 或 --signer 指定独立结算钱包）
+# 单笔结算（主网强制 --candles-file 与 --stake-close-at，自动与链上 get_round 交叉核验 target/stakeCloseAt；由 A9_KEEPER_WALLET 或 --signer 指定独立结算钱包；附 0.4 TON Gas）
 OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
   node scripts/round-ops.mjs --protocol v16 --profile mainnet --action settle-round \
     --round 1 --target 232000 --candles-file /path/to/r1-candles.json \
     --stake-close-at <unix_sec> --execute
+
+# 若极端拥堵导致结算附带的团队释放/销毁 bounce 积压在 pendingTeamReleaseRaw / pendingBurnRaw，可无许可一键重放（幂等 O(1)）
+OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
+  node scripts/round-ops.mjs --protocol v16 --profile mainnet --action retry-payouts --execute
 ```
 
 ---

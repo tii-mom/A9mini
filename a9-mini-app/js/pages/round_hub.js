@@ -441,16 +441,17 @@ function openTransactionSheet(amount, view, { assetSymbol = 'GRAM', gasNote = ''
   };
 }
 
-/** P1-4：合并精简版质押与回本推演卡（含 PASS/BURN 对称风险、15× 稀释提示、可折叠三档解锁曲线与细粒度 DOM 更新） */
+/** P1-4：合并精简版质押与回本推演卡（v16.2：PASS/BURN 对称风险、15× 稀释提示、40 天按秒线性释放曲线与细粒度 DOM 更新） */
 function computeStakeSummaryMetrics({ amountA9, round, weightMultiplier = 2.0 }) {
   const amt = Math.max(0, Number(amountA9) || 0);
   const mult = [2.0, 1.4, 1.0].includes(Number(weightMultiplier)) ? Number(weightMultiplier) : 2.0;
   const estTotalRaw = amt > 0 ? estimateRewardA9(amt, round, { weightMultiplier: mult }) : null;
   const estTotal = estTotalRaw !== null && Number.isFinite(estTotalRaw) ? Math.round(estTotalRaw) : null;
   const successes = Number.isInteger(round?.successCount) ? round.successCount : 0;
-  const curTierPct = successes < 5 ? 20 : successes < 10 ? 40 : 100;
-  const curInstantReward = estTotal !== null ? Math.round(estTotal * (curTierPct / 100)) : null;
+  const curTierPct = 20;
+  const curInstantReward = estTotal !== null ? Math.round(estTotal * 0.2) : null;
   const curLockedReward = (estTotal !== null && curInstantReward !== null) ? Math.max(0, estTotal - curInstantReward) : null;
+  const dailyUnlockReward = estTotal !== null ? Math.round(estTotal * 0.02) : null;
   const passCashIn = (curInstantReward !== null && amt > 0) ? Math.round(amt + curInstantReward) : null;
   const instantRoiPct = (curInstantReward !== null && amt > 0) ? ((curInstantReward / amt) * 100) : null;
   const capA9 = amt > 0 ? Math.round(amt * 15) : 0;
@@ -464,15 +465,16 @@ function computeStakeSummaryMetrics({ amountA9, round, weightMultiplier = 2.0 })
     curTierPct,
     curInstantReward,
     curLockedReward,
+    dailyUnlockReward,
     passCashIn,
     instantRoiPct,
     capA9,
     hitCap,
     curve: [
-      { key: 'w1', pct: 20, amt: estTotal !== null ? Math.round(estTotal * 0.2) : null },
-      { key: 'w2', pct: 40, amt: estTotal !== null ? Math.round(estTotal * 0.4) : null },
-      { key: 'w3', pct: 60, amt: estTotal !== null ? Math.round(estTotal * 0.6) : null },
-      { key: 'w5', pct: 100, amt: estTotal !== null ? estTotal : null },
+      { key: 'd0', pct: 20, amt: estTotal !== null ? Math.round(estTotal * 0.2) : null },
+      { key: 'd10', pct: 40, amt: estTotal !== null ? Math.round(estTotal * 0.4) : null },
+      { key: 'd20', pct: 60, amt: estTotal !== null ? Math.round(estTotal * 0.6) : null },
+      { key: 'd40', pct: 100, amt: estTotal !== null ? estTotal : null },
     ],
   };
 }
@@ -487,7 +489,7 @@ function renderStakeSummaryCardHtml({ amountA9, round, weightMultiplier = 2.0, p
     <section class="card payback-calc-card" id="${prefix}-stake-summary-card">
       <div class="row-between" style="margin-bottom:8px;">
         <div class="card-title">${icon('radar', 15, 'text-gold')} ${L('收益回本推演 · 入场核对', 'Payback & Entry Summary')}</div>
-        <a class="chip chip-green" href="#/risk/audit" style="text-decoration:none;">${icon('shieldCheck', 11)} ${L('v16.1 已弃权', 'v16.1 Renounced')}</a>
+        <a class="chip chip-green" href="#/risk/audit" style="text-decoration:none;">${icon('shieldCheck', 11)} ${L('v16.2 已弃权', 'v16.2 Renounced')}</a>
       </div>
 
       <div class="payback-weight-tabs" role="group" aria-label="${L('模拟早鸟权重', 'Simulate early weight')}">
@@ -509,8 +511,8 @@ function renderStakeSummaryCardHtml({ amountA9, round, weightMultiplier = 2.0, p
           <div class="payback-outcome-main mono text-green" data-field="pass-cashin">${fmtOrPending(m.passCashIn)}</div>
           <div class="num-xs text-sec" data-field="pass-breakdown">
             ${hasEst
-              ? L(`100% 本金退回 ${formatNum(m.amt)} + 即时 ${m.curTierPct}% 奖励 ${formatNum(m.curInstantReward)} A9`, `100% principal ${formatNum(m.amt)} + ${m.curTierPct}% instant ${formatNum(m.curInstantReward)} A9`)
-              : L(`100% 本金退回 ${formatNum(m.amt)} A9 + 当轮即时奖励`, `100% principal ${formatNum(m.amt)} A9 + instant reward`)}
+              ? L(`100% 本金退回 ${formatNum(m.amt)} + 即时 20% 奖励 ${formatNum(m.curInstantReward)} A9`, `100% principal ${formatNum(m.amt)} + 20% instant ${formatNum(m.curInstantReward)} A9`)
+              : L(`100% 本金退回 ${formatNum(m.amt)} A9 + 即时 20% 奖励`, `100% principal ${formatNum(m.amt)} A9 + 20% instant reward`)}
           </div>
         </div>
 
@@ -530,11 +532,11 @@ function renderStakeSummaryCardHtml({ amountA9, round, weightMultiplier = 2.0, p
           <span class="mono" style="font-weight:700;" data-field="chk-amt">${formatNum(m.amt)} A9 (≥ ${formatNum(minStakeA9)} A9)</span>
         </div>
         <div class="check-row">
-          <span class="text-sec">${L('预估总奖励（含待解锁）', 'Est. Total Reward (incl. locked)')}</span>
+          <span class="text-sec">${L('预估总奖励（含 40 天线性释放）', 'Est. Total Reward (incl. 40d vesting)')}</span>
           <span class="mono text-green" style="font-weight:700;" data-field="est-total">${hasEst ? `~${formatNum(m.estTotal)} A9` : L('待链上奖池同步', 'Awaiting pool')}</span>
         </div>
         <div class="check-row">
-          <span class="text-sec">${L(`预计即时 (${m.curTierPct}%) / 待解锁`, `Est. Instant (${m.curTierPct}%) / Locked`)}</span>
+          <span class="text-sec">${L('通关即时 (20%) / 40 天线性 (80%)', 'Instant (20%) / 40d Linear (80%)')}</span>
           <span class="mono num-xs"><span data-field="est-instant">${hasEst ? `${formatNum(m.curInstantReward)} A9` : '—'}</span> / <span data-field="est-locked">${hasEst ? `${formatNum(m.curLockedReward)} A9` : '—'}</span></span>
         </div>
         <div class="check-row">
@@ -557,19 +559,19 @@ function renderStakeSummaryCardHtml({ amountA9, round, weightMultiplier = 2.0, p
 
       <details class="payback-details" data-field="vesting-details" ${hasEst ? '' : 'hidden'}>
         <summary>
-          <span>${L('查看三档连胜解锁曲线（1–5 胜 / 6–10 胜 / 11+ 胜）', 'View 3-Tier Vesting Curve (1–5w / 6–10w / 11+w)')}</span>
+          <span>${L('查看 40 天线性释放进度（通关 20% + 每日 2%）', 'View 40-Day Linear Vesting (20% Instant + 2%/day)')}</span>
           <span class="faq-arrow">${icon('chevronDown', 13)}</span>
         </summary>
         <div class="payback-curve-box" style="margin-top:8px;">
           <div class="num-xs text-sec" style="margin-bottom:6px;line-height:1.45;">
-            ${L('1–5 胜：20% 即时 + 4×20% · 6–10 胜：40% 即时 + 2×30% · 11 胜起：100% 即时（零质押达标轮不推进胜场）', '1–5w: 20% + 4×20% · 6–10w: 40% + 2×30% · 11+w: 100% instant (zero-stake rounds do not advance wins)')}
+            ${L('通关即退 100% 本金 + 秒领 20% 奖励；余下 80% 分 40 天按秒线性释放（每日 2%），永久累计不倒扣、随时合并一次领完。', 'Pass refunds 100% principal + 20% instant reward; remaining 80% vests per second over 40 days (2%/day), never forfeited and claimable anytime.')}
           </div>
           <div class="payback-curve-list">
             ${[
-              ['w1', L('第 1 轮通关', 'Win 1'), 20],
-              ['w2', L('连胜 2 轮', '2 Wins'), 40],
-              ['w3', L('连胜 3 轮', '3 Wins'), 60],
-              ['w5', L('连胜 5 轮', '5 Wins'), 100],
+              ['d0', L('通关当日', 'Day 0'), 20],
+              ['d10', L('第 10 天', 'Day 10'), 40],
+              ['d20', L('第 20 天', 'Day 20'), 60],
+              ['d40', L('满 40 天', 'Day 40'), 100],
             ].map(([key, label, pct], idx) => `
               <div class="payback-curve-row">
                 <span class="payback-curve-lbl">${label}</span>
@@ -813,7 +815,7 @@ export function renderParticipateConfirm(root, navigate) {
 
 /**
  * Live 实盘 A9 Jetton 质押确认页（仅在 config.liveFundsEnabled === true 时激活）。
- * 严格按 v15/v16.1 合约口径质押 A9 Jetton（附 0.30 GRAM Gas），绝不把 GRAM 当质押本金。
+ * 严格按 v15/v16.2 合约口径质押 A9 Jetton（附 0.30 GRAM Gas），绝不把 GRAM 当质押本金。
  */
 function renderLiveStakeConfirm(root, navigate) {
   const round = store.state.round;

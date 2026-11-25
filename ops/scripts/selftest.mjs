@@ -42,7 +42,7 @@ test('testnet / testnet-fast / mainnet param profiles validate cleanly', () => {
   assert.equal(tf.profile, 'testnet-fast');
   assert.equal(m.network, 'mainnet');
   assert.equal(m.timing.stakeDurationSeconds, 129600);
-  assert.equal(m.timing.inactivityBurnSeconds, 7776000);
+  assert.equal(m.timing.vestingSeconds, 3456000);
 });
 
 test('OpenRound [1.5x, 2.5x] corridor math and bounds check', () => {
@@ -67,28 +67,29 @@ test('24-candle off-chain aggregation produces deterministic candleHash', () => 
   assert.equal(a1.candleHashHex.length, 66);
 });
 
-test('v15 win settlement math matches on-chain 15x cap, team ratio, and 3-tier unlock', () => {
+test('v16.2 win settlement math matches on-chain 15x cap, team ratio, and 20% + 40d linear vesting', () => {
   const A9 = 1_000_000_000n;
   const r1 = previewWinSettlement({
     budgetRaw: 700_000_000n * A9,
     totalStakeRaw: 2_000n * A9,
     teamBudgetRaw: 120_000_000n * A9,
-    nextSuccessCount: 1,
   });
   assert.equal(r1.distributable, 30_000n * A9);
   assert.equal(r1.teamReleased, 5_142_857_142_857n);
   assert.equal(r1.immediateBps, 2000);
-  assert.equal(r1.lockedSlices, 4);
+  assert.equal(r1.vestingSeconds, 3456000);
+  assert.equal(r1.immediateTotal, 6_000n * A9);
+  assert.equal(r1.lockedTotal, 24_000n * A9);
 
   const r11 = previewWinSettlement({
     budgetRaw: 700_000_000n * A9,
     totalStakeRaw: 50_000_000n * A9,
     teamBudgetRaw: 120_000_000n * A9,
-    nextSuccessCount: 11,
   });
   assert.equal(r11.distributable, 700_000_000n * A9);
-  assert.equal(r11.immediateBps, 10000);
-  assert.equal(r11.lockedSlices, 0);
+  assert.equal(r11.immediateBps, 2000);
+  assert.equal(r11.immediateTotal, 140_000_000n * A9);
+  assert.equal(r11.lockedTotal, 560_000_000n * A9);
 });
 
 test('validateDeployPreflight rejects malformed URI, invalid/wrong-network TON addresses, stub/invalid wallet sections, and Acton read-only resolution failures', () => {
@@ -245,7 +246,7 @@ test('W2: round-ops enforces explicit --round on open-round, blocks mainnet cand
 
 test('Mainnet preflight hardening: Acton network API key mapping, ample mainnet deployTon, and Basechain-only role guard', () => {
   const m = loadParams('mainnet').data;
-  assert.equal(m.version, '16.1.0');
+  assert.equal(m.version, '16.2.0');
   assert.ok(BigInt(m.deployTon.jettonMaster) >= 500_000_000n);
   assert.ok(BigInt(m.deployTon.mintTotal) >= BigInt(m.deployTon.mintForward) + 100_000_000n);
   assert.ok(BigInt(m.deployTon.roundController) >= 1_500_000_000n);

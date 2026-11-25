@@ -20,16 +20,16 @@
 </head>
 <body>
   <main>
-    <span class="badge">A9 PROTOCOL v16.1 · TON MAINNET</span>
+    <span class="badge">A9 PROTOCOL v16.2 · TON MAINNET</span>
     <h1>使用条款 / Terms of Use</h1>
-    <p>生效版本：v16.1（适用于 <code>https://app.a9.lat</code> 与 Telegram Mini App <code>@A9_TonBot</code>）</p>
+    <p>生效版本：v16.2（适用于 <code>https://app.a9.lat</code> 与 Telegram Mini App <code>@A9_TonBot</code>）</p>
 
     <h2>1. 非托管协议声明（Non-Custodial Protocol）</h2>
     <p>A9 · 财富大冒险（A9 Wealth Quest）为基于 TON 区块链部署的非托管智能合约前端界面。<code>JettonMaster</code> 100 亿 A9 一次性铸完并永久弃权（<code>admin_address = addr_none</code>），<code>RoundController</code> 无管理员干预资产提取能力。用户通过 TON Connect 2.0 自主掌控私钥并签署每一笔链上交易。</p>
 
     <h2>2. 核心规则与本金风险提示（Risk Disclosure）</h2>
     <ul>
-      <li><strong>轮次质押闯关（唯一锁本金机制）</strong>：用户质押的 A9 本金在当轮 24 小时观察期结算前锁定于链上 <code>RoundController</code> 合约。若 24 个 1H 时段中 ≥ 16 个达标，本金 100% 可领回，奖励按全网累计达标轮数分档解锁（1–5 胜 20% 即时、6–10 胜 40%、11+ 胜 100%）；若未达 16/24 时段，当轮质押本金将按合约规则执行 <strong>100% 链上永久销毁 BURN</strong>；若 7 天超时未结算，任何用户均可无许可触发 <code>AbortRound</code> 全额退还本金。</li>
+      <li><strong>轮次质押闯关（唯一锁本金机制）</strong>：用户质押的 A9 本金在当轮 24 小时观察期结算前锁定于链上 <code>RoundController</code> 合约。若 24 个 1H 时段中 ≥ 16 个达标，本金 100% 即时退还，奖励即时解锁 20%，余下 80% 分 40 天按秒连续线性释放（每日 2%），永久累计不倒扣；若未达 16/24 时段，当轮质押本金将按合约规则执行 <strong>100% 链上永久销毁 BURN</strong>（不影响历史胜利奖励释放）；若 7 天超时未结算，任何用户均可无许可触发 <code>AbortRound</code> 全额退还本金。</li>
       <li><strong>宝箱商城与固定兑换</strong>：所有订单均需通过页面下单生成专属 <code>buy:&lt;orderId&gt;</code> Memo 后签名支付；切勿向热钱包直接转账。错额、错钱包、过期或未下单转账在核验后将扣除 <code>0.03 GRAM</code> 链上退款 Gas 原路退回。</li>
       <li><strong>市场与链上风险</strong>：数字资产价格波动剧烈，参与前请充分理解智能合约不可逆特性，仅投入自身可承受损失的资产。本前端不构成任何投资或收益承诺。</li>
     </ul>
@@ -40,7 +40,7 @@
     <hr />
 
     <h2>English Summary</h2>
-    <p>A9 Wealth Quest (<code>https://app.a9.lat</code>) is a non-custodial interface for the immutable TON v16.1 smart contracts. You retain full custody of your wallet via TON Connect 2.0. On-chain round staking carries full principal burn risk (BURN) if fewer than 16 of 24 hourly price slots qualify; passing rounds unlock principal 100% plus tiered rewards, and a 7-day permissionless <code>AbortRound</code> escape hatch refunds principal if settlement stalls. Nothing on this site constitutes financial advice.</p>
+    <p>A9 Wealth Quest (<code>https://app.a9.lat</code>) is a non-custodial interface for the immutable TON v16.2 smart contracts. You retain full custody of your wallet via TON Connect 2.0. On-chain round staking carries full principal burn risk (BURN) if fewer than 16 of 24 hourly price slots qualify; passing rounds refund 100% principal + 20% instant reward with the remaining 80% vesting linearly per second over 40 days (2%/day, never forfeited), and a 7-day permissionless <code>AbortRound</code> escape hatch refunds principal if settlement stalls. Nothing on this site constitutes financial advice.</p>
     <p><a href="/">← 返回 A9 · 财富大冒险 / Back to App</a> · <a href="/privacy.html">隐私政策 / Privacy Policy</a></p>
   </main>
 </body>

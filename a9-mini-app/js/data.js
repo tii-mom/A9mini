@@ -30,9 +30,9 @@ import {
 } from './demo-data.js';
 import { A9TMA } from './tma.js';
 
-/** v16.1 唯一前端展示口径常量源（Single Source of Truth，严禁各页散落旧口径） */
+/** v16.2 唯一前端展示口径常量源（Single Source of Truth，严禁各页散落旧口径） */
 export const PROTOCOL_SPECS = Object.freeze({
-  version: 'v16.1',
+  version: 'v16.2',
   referralPct: 6,
   chestBoostMinPct: 5,
   chestBoostMaxPct: 30,
@@ -43,6 +43,9 @@ export const PROTOCOL_SPECS = Object.freeze({
   maxRewardMultiplier: 15,
   passRequired: 16,
   passTotal: 24,
+  immediateUnlockPct: 20,
+  linearVestingDays: 40,
+  dailyUnlockPct: 2,
   promoCapA9: 300_000_000,
   totalSupplyA9: 10_000_000_000,
   rewardPoolA9: 7_000_000_000,
@@ -615,7 +618,7 @@ export async function submitStartAppAttribution({ startParam, referrerId = null 
   });
 }
 
-/** 读取用户统一持仓与额度（A9 JettonWallet / 质押凭证 / 推广 / 商行 / 商会），支持可选历史轮次分页。 */
+/** 读取用户统一持仓与额度（A9 JettonWallet / 质押凭证 / 推广 / 商城 / 战队），支持可选历史轮次分页。 */
 export async function fetchUserPortfolio(walletAddress, { fromRound = null, toRound = null } = {}) {
   return request(ENDPOINTS.userProfile(walletAddress, { fromRound, toRound }));
 }

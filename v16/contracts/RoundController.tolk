@@ -1,12 +1,12 @@
-// A9 协议 v16 — 极简协议主控合约（严格 O(1) 状态、零待决字典、32 位无限轮次）
+// A9 协议 v16.2 — 极简协议主控合约（严格 O(1) 状态、零待决字典、32 位无限轮次、40 天按秒线性释放）
 import "@stdlib/gas-payments"
 import "types"
 import "jetton/storage"
 
 contract RoundController {
     author: "A9 Protocol"
-    version: "16.1.0"
-    description: "Minimalist A9 v16 RoundController."
+    version: "16.2.0"
+    description: "Minimalist A9 v16.2 RoundController with 20% immediate + 80% 40-day linear vesting."
     storage: Storage
     incomingMessages: ControllerMessage
 }
@@ -15,7 +15,7 @@ type ControllerMessage =
     | OpenRound
     | SettleRound
     | AbortRound
-    | BurnInactiveLocked
+    | RetrySettlePayouts
     | TransferNotification
     | TicketClaimReq
     | ReturnExcessesIgnore
@@ -88,7 +88,7 @@ fun unwrapPayload(raw: slice): slice {
     return p;
 }
 
-fun timingBps(rd: RoundData, now: uint64): uint128 {
+fun timingBps(rd: RoundData, now: uint64): uint16 {
     val third = (rd.stakeCloseAt - rd.stakeOpenAt) / 3;
     val elapsed = now - rd.stakeOpenAt;
     if (elapsed < third) { return TIMING_BPS_FIRST; }
@@ -96,73 +96,79 @@ fun timingBps(rd: RoundData, now: uint64): uint128 {
     return TIMING_BPS_LAST;
 }
 
-/** 计算指定锁定总额中当前已解锁份额（含胜轮切片解锁与奖池耗尽后 30 天线性兜底）。 */
-fun unlockedLocked(s: Storage, timing: ProtocolTiming, meta: RoundMeta, locked: uint128, now: uint64): uint128 {
-    if (meta.lockedSlices == 0 || locked == 0) { return 0; }
-    val fromWins = mulDiv(locked, meta.unlockedSlices as uint128, meta.lockedSlices as uint128);
-    if (s.endAt > 0 && now > s.endAt) {
-        val remSlices = meta.lockedSlices - meta.unlockedSlices - meta.burnedSlices;
-        if (remSlices > 0) {
-            val remLocked = mulDiv(locked, remSlices as uint128, meta.lockedSlices as uint128);
-            val elapsed = now - s.endAt;
-            val fb = timing.fallbackUnlockSeconds as uint64;
-            val fromFallback = (fb == 0 || elapsed >= fb)
-                ? remLocked
-                : mulDiv(remLocked, elapsed as uint128, fb as uint128);
-            return fromWins + fromFallback;
-        }
-    }
-    return fromWins;
+/** 计算 80% 锁仓奖励在当前时刻的按秒线性解锁额度（主网 40 天匀速释放 = 每日 2%，永久累计不倒扣）。 */
+fun unlockedLocked(timing: ProtocolTiming, rd: RoundData, locked: uint128, now: uint64): uint128 {
+    if (locked == 0 || rd.settledAt == 0 || now <= rd.settledAt) { return 0; }
+    val elapsed = now - rd.settledAt;
+    val dur = timing.vestingSeconds as uint64;
+    if (dur == 0 || elapsed >= dur) { return locked; }
+    return mulDiv(locked, elapsed as uint128, dur as uint128);
 }
 
-/** O(1) 推进最多 4 个前序活跃锁定轮次的解锁或对称销毁切片，返回本轮需销毁的切片总额。 */
-fun advanceLockedRounds(mutate s: Storage, success: bool): uint128 {
-    var packed = s.activeLockedRounds;
-    var nextPacked: uint128 = 0;
-    var nextShift: int = 0;
-    var burnTotal: uint128 = 0;
-
-    var i: int = 0;
-    while (i < 4) {
-        val rId = ((packed >> (i * 32)) & 0xFFFFFFFF) as uint32;
-        if (rId > 0) {
-            val found = s.rounds.get(rId);
-            if (found.isFound) {
-                var rd = found.loadValue();
-                var meta = rd.meta.load();
-                if (meta.unlockedSlices + meta.burnedSlices < meta.lockedSlices) {
-                    if (success) {
-                        meta.unlockedSlices += 1;
-                    } else {
-                        val before = mulDiv(meta.lockedTotalRaw, meta.burnedSlices as uint128, meta.lockedSlices as uint128);
-                        meta.burnedSlices += 1;
-                        val after = mulDiv(meta.lockedTotalRaw, meta.burnedSlices as uint128, meta.lockedSlices as uint128);
-                        burnTotal += (after - before);
-                    }
-                    rd.meta = meta.toCell();
-                    s.rounds.set(rId, rd);
-                    if (meta.unlockedSlices + meta.burnedSlices < meta.lockedSlices) {
-                        nextPacked = nextPacked | ((rId as uint128) << nextShift);
-                        nextShift += 32;
-                    }
-                }
-            }
-        }
-        i += 1;
+// ===========================================================================
+// Bounce 回滚恢复处理器 (P0-2)
+// ===========================================================================
+fun onBouncedMessage(in: InMessageBounced) {
+    in.bouncedBody.skipBouncedPrefix();
+    if (in.bouncedBody.remainingBitsCount() < 32) {
+        return;
     }
-    s.activeLockedRounds = nextPacked;
-    return burnTotal;
-}
+    val op = in.bouncedBody.loadUint(32) as uint32;
 
-fun trackLockedRound(mutate s: Storage, roundId: uint32) {
-    var packed = s.activeLockedRounds;
-    var i: int = 0;
-    while (i < 4) {
-        if (((packed >> (i * 32)) & 0xFFFFFFFF) == 0) {
-            s.activeLockedRounds = packed | ((roundId as uint128) << (i * 32));
+    // 1. TicketAddStake (208 bits <= 256 bits) 发生 bounce：精确回滚当轮总质押、总权重与笔数
+    if (op == OP_TICKET_ADD_STAKE) {
+        if (in.bouncedBody.remainingBitsCount() < 64 + 32 + 64 + 16) {
             return;
         }
-        i += 1;
+        val _qid = in.bouncedBody.loadUint(64) as uint64;
+        val roundId = in.bouncedBody.loadUint(32) as uint32;
+        val amt: uint128 = (in.bouncedBody.loadUint(64) as uint64) as uint128;
+        val tBps = in.bouncedBody.loadUint(16) as uint16;
+        val weight = mulDiv(amt, tBps as uint128, BPS);
+
+        var s = Storage.load();
+        val found = s.rounds.get(roundId);
+        if (!found.isFound) { return; }
+        var rd = found.loadValue();
+        var meta = rd.meta.load();
+        rd.totalStakeRaw = rd.totalStakeRaw >= amt ? (rd.totalStakeRaw - amt) : (0 as uint128);
+        rd.totalWeightRaw = rd.totalWeightRaw >= weight ? (rd.totalWeightRaw - weight) : (0 as uint128);
+        if (meta.stakeCount > 0) { meta.stakeCount -= 1; }
+        rd.meta = meta.toCell();
+        s.rounds.set(roundId, rd);
+        s.save();
+        emitEvent(EvDepositBounced { roundId, amountRaw: amt, weightRaw: weight });
+        return;
+    }
+
+    // 2. 来自主控自身 JettonWallet 的转账/销毁 bounce：记录至 O(1) 待重试余额或发射审计事件
+    var s = Storage.load();
+    val cfg = s.config.load();
+    if (in.senderAddress != ownWallet(cfg)) {
+        return;
+    }
+
+    if (op == OP_JETTON_BURN && in.bouncedBody.remainingBitsCount() >= 68) {
+        val _qid = in.bouncedBody.loadUint(64) as uint64;
+        val amt = in.bouncedBody.loadCoins() as uint128;
+        if (amt > 0) {
+            s.pendingBurnRaw += amt;
+            s.save();
+        }
+        return;
+    }
+
+    if (op == OP_JETTON_TRANSFER && in.bouncedBody.remainingBitsCount() >= 68) {
+        val qid = in.bouncedBody.loadUint(64) as uint64;
+        val amt = in.bouncedBody.loadCoins() as uint128;
+        if (amt > 0) {
+            if ((qid & TEAM_QID_MASK) == TEAM_QID_PREFIX) {
+                s.pendingTeamReleaseRaw += amt;
+                s.save();
+            } else {
+                emitEvent(EvClaimPayoutBounced { queryId: qid, amountRaw: amt });
+            }
+        }
     }
 }
 
@@ -176,7 +182,7 @@ fun onInternalMessage(in: InMessage) {
         OpenRound => handleOpenRound(in.senderAddress, msg),
         SettleRound => handleSettleRound(in.senderAddress, msg, in.valueCoins),
         AbortRound => handleAbortRound(),
-        BurnInactiveLocked => handleBurnInactiveLocked(msg.queryId, in.valueCoins),
+        RetrySettlePayouts => handleRetrySettlePayouts(msg.queryId, in.valueCoins),
         TransferNotification => handleDeposit(in.senderAddress, msg, in.valueCoins),
         TicketClaimReq => handleTicketClaim(in.senderAddress, msg, in.valueCoins),
         ReturnExcessesIgnore => {},
@@ -296,10 +302,13 @@ fun handleDeposit(sender: address, msg: TransferNotification, inboundTon: coins)
     val now = now64();
     val validOwner = payloadValid && owner != null && owner!.getWorkchain() == BASECHAIN;
 
-    if (validOwner && s.currentRoundId > 0 && roundId == s.currentRoundId && amount >= econ.minStakeRaw && inboundTon >= MIN_DEPOSIT_VALUE) {
+    // 单笔入金 <= uint64 最大值（184 亿 A9 > 100 亿总供应量），保障 TicketAddStake bounce 精确回传
+    val fitsU64 = (amount as int) <= 0xFFFFFFFFFFFFFFFF;
+    if (validOwner && fitsU64 && s.currentRoundId > 0 && roundId == s.currentRoundId && amount >= econ.minStakeRaw && inboundTon >= MIN_DEPOSIT_VALUE) {
         var rd = s.rounds.get(roundId).loadValue();
         if (rd.status == STATUS_ACTIVE && now >= rd.stakeOpenAt && now < rd.stakeCloseAt) {
-            val weight = mulDiv(amount, timingBps(rd, now), BPS);
+            val tBps = timingBps(rd, now);
+            val weight = mulDiv(amount, tBps as uint128, BPS);
             var meta = rd.meta.load();
             rd.totalStakeRaw += amount;
             rd.totalWeightRaw += weight;
@@ -314,7 +323,7 @@ fun handleDeposit(sender: address, msg: TransferNotification, inboundTon: coins)
                 bounce: BounceMode.Only256BitsOfBody,
                 value: 0,
                 dest: calcDeployedTicket(contract.getAddress(), owner!, roundId, cfg.codes.load().ticketCode),
-                body: TicketAddStake { queryId: msg.queryId, amountRaw: amount, weightRaw: weight },
+                body: TicketAddStake { queryId: msg.queryId, roundId, amountRaw: amount as uint64, timingBps: tBps },
             }).send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
             return;
         }
@@ -353,7 +362,15 @@ fun handleSettleRound(sender: address, msg: SettleRound, inboundTon: coins) {
     var teamReleased: uint128 = 0;
     var totalBurn: uint128 = 0;
 
-    if (msg.qualifiedCandles >= timing.minQualifiedCandles) {
+    if (rd.totalStakeRaw == 0) {
+        // P1-3 对称规则：无人质押的空轮无论达标与否均视为无效轮，奖池与团队额度 100% 滚存，不销毁、不计胜场
+        s.carryRaw += rd.rewardBudgetRaw;
+        s.teamCarryRaw += teamBase;
+        rd.rewardBudgetRaw = 0;
+        rd.status = msg.qualifiedCandles >= timing.minQualifiedCandles ? STATUS_SUCCEEDED : STATUS_FAILED;
+        rd.meta = meta.toCell();
+        s.rounds.set(msg.roundId, rd);
+    } else if (msg.qualifiedCandles >= timing.minQualifiedCandles) {
         val capRaw: int = (rd.totalStakeRaw as int) * (MAX_REWARD_MULTIPLIER as int);
         val distributable: uint128 = (rd.rewardBudgetRaw as int) < capRaw ? rd.rewardBudgetRaw : (capRaw as uint128);
         s.carryRaw += (rd.rewardBudgetRaw - distributable);
@@ -362,36 +379,25 @@ fun handleSettleRound(sender: address, msg: SettleRound, inboundTon: coins) {
         teamReleased = rd.rewardBudgetRaw > 0 ? mulDiv(teamBudget, distributable, rd.rewardBudgetRaw) : (0 as uint128);
         s.teamCarryRaw = teamBudget - teamReleased;
 
-        var immBps: uint16 = 0;
-        var slices: uint8 = 0;
-        var lockedTotal: uint128 = 0;
-        if (rd.totalStakeRaw > 0) {
-            advanceLockedRounds(mutate s, true);
-            s.successCount += 1;
-            s.lastSuccessAt = now;
+        s.successCount += 1;
+        s.lastSuccessAt = now;
 
-            immBps = s.successCount <= 5 ? (2000 as uint16) : (s.successCount <= 10 ? (4000 as uint16) : (10000 as uint16));
-            slices = s.successCount <= 5 ? (4 as uint8) : (s.successCount <= 10 ? (2 as uint8) : (0 as uint8));
-            lockedTotal = distributable - mulDiv(distributable, immBps as uint128, BPS);
-        }
+        val immTotal = mulDiv(distributable, IMMEDIATE_BPS as uint128, BPS);
+        val lockedTotal = distributable - immTotal;
 
         rd.status = STATUS_SUCCEEDED;
         rd.rewardBudgetRaw = distributable;
-        meta.immediateBps = immBps;
-        meta.lockedSlices = slices;
+        meta.immediateBps = IMMEDIATE_BPS;
         meta.lockedTotalRaw = lockedTotal;
         rd.meta = meta.toCell();
         s.rounds.set(msg.roundId, rd);
-
-        if (slices > 0 && lockedTotal > 0) {
-            trackLockedRound(mutate s, msg.roundId);
-        }
     } else {
-        val rewardBurn = rd.rewardBudgetRaw / 2;
+        // P0-3: 向上取整折半销毁，杜绝最后 1 raw A9 无限死循环永远无法触发 endAt
+        val rewardBurn = (rd.rewardBudgetRaw + 1) / 2;
         s.carryRaw += (rd.rewardBudgetRaw - rewardBurn);
-        val teamCarryBurn = s.teamCarryRaw / 2;
+        val teamCarryBurn = (s.teamCarryRaw + 1) / 2;
         s.teamCarryRaw -= teamCarryBurn;
-        totalBurn = rewardBurn + rd.totalStakeRaw + teamBase + teamCarryBurn + advanceLockedRounds(mutate s, false);
+        totalBurn = rewardBurn + rd.totalStakeRaw + teamBase + teamCarryBurn;
 
         rd.status = STATUS_FAILED;
         rd.meta = meta.toCell();
@@ -408,8 +414,11 @@ fun handleSettleRound(sender: address, msg: SettleRound, inboundTon: coins) {
     s.save();
 
     val wallet = ownWallet(cfg);
+    // P1-2: 保留主控原有 GRAM 与存储欠费，由本次 >= 0.35 TON 入金全额支付出账消息
+    reserveRcBalance(inboundTon);
     if (teamReleased > 0) {
-        sendJettonFromBalance(wallet, buildJettonTransfer(msg.queryId, teamReleased as coins, econ.teamWallet, contract.getAddress()));
+        val teamQid: uint64 = TEAM_QID_PREFIX | (msg.roundId as uint64);
+        sendJettonFromBalance(wallet, buildJettonTransfer(teamQid, teamReleased as coins, econ.teamWallet, contract.getAddress()));
     }
     if (totalBurn > 0) {
         sendJettonFromBalance(wallet, buildJettonBurn(msg.queryId, totalBurn as coins, contract.getAddress()));
@@ -429,7 +438,7 @@ fun handleSettleRound(sender: address, msg: SettleRound, inboundTon: coins) {
 }
 
 // ===========================================================================
-// 4. 超时中止逃生门 (AbortRound) 与 5. 90 天停滞销毁 (BurnInactiveLocked)
+// 4. 超时中止逃生门 (AbortRound) 与 5. O(1) 滞留出账无许可重试 (RetrySettlePayouts)
 // ===========================================================================
 fun handleAbortRound() {
     var s = Storage.load();
@@ -460,50 +469,32 @@ fun handleAbortRound() {
     });
 }
 
-fun handleBurnInactiveLocked(queryId: uint64, inboundTon: coins) {
-    assert (inboundTon >= MIN_CLAIM_VALUE) throw Errors.NotEnoughValue;
+fun handleRetrySettlePayouts(queryId: uint64, inboundTon: coins) {
+    assert (inboundTon >= MIN_SETTLE_VALUE) throw Errors.NotEnoughValue;
     var s = Storage.load();
-    val cfg = s.config.load();
-    val timing = cfg.timing.load();
-    val now = now64();
+    val teamAmt = s.pendingTeamReleaseRaw;
+    val burnAmt = s.pendingBurnRaw;
+    assert (teamAmt > 0 || burnAmt > 0) throw Errors.NothingToRetry;
 
-    assert (s.endAt == 0 && s.lastSuccessAt > 0) throw Errors.TooEarly;
-    assert (now >= s.lastSuccessAt + (timing.inactivityBurnSeconds as uint64)) throw Errors.TooEarly;
-
-    var packed = s.activeLockedRounds;
-    var totalBurn: uint128 = 0;
-    var i: int = 0;
-    while (i < 4) {
-        val rId = ((packed >> (i * 32)) & 0xFFFFFFFF) as uint32;
-        if (rId > 0) {
-            val found = s.rounds.get(rId);
-            if (found.isFound) {
-                var rd = found.loadValue();
-                var meta = rd.meta.load();
-                val rem = meta.lockedSlices - meta.unlockedSlices - meta.burnedSlices;
-                if (rem > 0) {
-                    val before = mulDiv(meta.lockedTotalRaw, meta.burnedSlices as uint128, meta.lockedSlices as uint128);
-                    meta.burnedSlices += rem;
-                    val after = mulDiv(meta.lockedTotalRaw, meta.burnedSlices as uint128, meta.lockedSlices as uint128);
-                    totalBurn += (after - before);
-                    rd.meta = meta.toCell();
-                    s.rounds.set(rId, rd);
-                }
-            }
-        }
-        i += 1;
-    }
-    assert (totalBurn > 0) throw Errors.NothingToBurn;
-
-    s.activeLockedRounds = 0;
+    s.pendingTeamReleaseRaw = 0;
+    s.pendingBurnRaw = 0;
     s.save();
 
-    sendJettonFromBalance(ownWallet(cfg), buildJettonBurn(queryId, totalBurn as coins, contract.getAddress()));
-    emitEvent(EvInactiveLockedBurned { burnedRaw: totalBurn, at: now });
+    val cfg = s.config.load();
+    val econ = cfg.econ.load();
+    val wallet = ownWallet(cfg);
+    reserveRcBalance(inboundTon);
+    if (teamAmt > 0) {
+        val teamQid: uint64 = TEAM_QID_PREFIX | ((queryId as uint32) as uint64);
+        sendJettonFromBalance(wallet, buildJettonTransfer(teamQid, teamAmt as coins, econ.teamWallet, contract.getAddress()));
+    }
+    if (burnAmt > 0) {
+        sendJettonFromBalance(wallet, buildJettonBurn(queryId, burnAmt as coins, contract.getAddress()));
+    }
 }
 
 // ===========================================================================
-// 6. 凭证领奖核销 (TicketClaimReq — 无状态 O(1) 核验发放)
+// 6. 凭证领奖核销 (TicketClaimReq — 无状态 O(1) 核验发放，20% 即时 + 40 天按秒线性)
 // ===========================================================================
 fun handleTicketClaim(sender: address, msg: TicketClaimReq, inboundTon: coins) {
     assert (inboundTon >= MIN_RC_CLAIM_VALUE) throw Errors.NotEnoughValue;
@@ -537,7 +528,7 @@ fun handleTicketClaim(sender: address, msg: TicketClaimReq, inboundTon: coins) {
             payReward += imm;
             newImmClaimed = true;
         }
-        val unlockedNow = unlockedLocked(s, cfg.timing.load(), meta, locked, now64());
+        val unlockedNow = unlockedLocked(cfg.timing.load(), rd, locked, now64());
         if (unlockedNow > msg.lockedClaimedRaw) {
             payReward += (unlockedNow - msg.lockedClaimedRaw);
             newLockedClaimed = unlockedNow;
@@ -546,6 +537,11 @@ fun handleTicketClaim(sender: address, msg: TicketClaimReq, inboundTon: coins) {
 
     val totalPay = payPrincipal + payReward;
     assert (totalPay > 0) throw Errors.NothingToClaim;
+
+    // 剥离 TEAM_QID_PREFIX 防止用户自定义 queryId 与团队释放 bounce 标签冲突
+    val safeClaimQid: uint64 = (msg.queryId & TEAM_QID_MASK) == TEAM_QID_PREFIX
+        ? (msg.queryId ^ TEAM_QID_PREFIX)
+        : msg.queryId;
 
     reserveRcBalance(inboundTon);
     emitEvent(EvClaimed {
@@ -571,7 +567,7 @@ fun handleTicketClaim(sender: address, msg: TicketClaimReq, inboundTon: coins) {
         bounce: BounceMode.Only256BitsOfBody,
         value: 0,
         dest: ownWallet(cfg),
-        body: buildJettonTransfer(msg.queryId, totalPay as coins, msg.owner, msg.owner),
+        body: buildJettonTransfer(safeClaimQid, totalPay as coins, msg.owner, msg.owner),
     }).send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
 }
 
@@ -589,20 +585,22 @@ get fun get_protocol_state(): ProtocolStateView {
         teamCarryRaw: s.teamCarryRaw,
         lastSuccessAt: s.lastSuccessAt,
         endAt: s.endAt,
-        activeLockedRounds: s.activeLockedRounds,
+        pendingTeamReleaseRaw: s.pendingTeamReleaseRaw,
+        pendingBurnRaw: s.pendingBurnRaw,
     };
 }
 
 get fun get_round(roundId: uint32): RoundView {
     val s = Storage.load();
+    val timing = s.config.load().timing.load();
     val found = s.rounds.get(roundId);
     if (!found.isFound) {
         return {
             status: STATUS_UNOPENED,
             targetPriceUsdE8: 0, twap24hUsdE8: 0, stakeOpenAt: 0, stakeCloseAt: 0, settledAt: 0,
             totalStakeRaw: 0, totalWeightRaw: 0, rewardBudgetRaw: 0, qualifiedCandles: 0,
-            candleHash: 0 as uint256, immediateBps: 0, lockedSlices: 0, unlockedSlices: 0,
-            burnedSlices: 0, lockedTotalRaw: 0, stakeCount: 0,
+            candleHash: 0 as uint256, immediateBps: 0, vestingSeconds: timing.vestingSeconds,
+            lockedTotalRaw: 0, stakeCount: 0,
         };
     }
     val rd = found.loadValue();
@@ -620,9 +618,7 @@ get fun get_round(roundId: uint32): RoundView {
         qualifiedCandles: rd.qualifiedCandles,
         candleHash: m.candleHash,
         immediateBps: m.immediateBps,
-        lockedSlices: m.lockedSlices,
-        unlockedSlices: m.unlockedSlices,
-        burnedSlices: m.burnedSlices,
+        vestingSeconds: timing.vestingSeconds,
         lockedTotalRaw: m.lockedTotalRaw,
         stakeCount: m.stakeCount,
     };
@@ -642,9 +638,8 @@ get fun get_reward_preview(roundId: uint32, weightRaw: uint128): RewardPreview {
     val total = mulDiv(rd.rewardBudgetRaw, weightRaw, rd.totalWeightRaw);
     val imm = mulDiv(total, meta.immediateBps as uint128, BPS);
     val locked = total - imm;
-    val unlocked = unlockedLocked(s, s.config.load().timing.load(), meta, locked, now64());
-    val burned: uint128 = meta.lockedSlices > 0 ? mulDiv(locked, meta.burnedSlices as uint128, meta.lockedSlices as uint128) : (0 as uint128);
-    return { totalRewardRaw: total, immediateRaw: imm, lockedRaw: locked, unlockedLockedRaw: unlocked, burnedLockedRaw: burned };
+    val unlocked = unlockedLocked(s.config.load().timing.load(), rd, locked, now64());
+    return { totalRewardRaw: total, immediateRaw: imm, lockedRaw: locked, unlockedLockedRaw: unlocked, burnedLockedRaw: 0 };
 }
 
 get fun get_jetton_wallet_address(): address {
