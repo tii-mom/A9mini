@@ -1027,10 +1027,33 @@
 @keyframes ct-spin-slow { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
 @keyframes ct-num-bump { 0%{transform:scale(1)} 40%{transform:scale(1.20);color:#34D399} 100%{transform:scale(1)} }
 
+@keyframes sw-stamp-press {
+  0%   { transform: translateY(0) scale(1); }
+  45%  { transform: translateY(2px) scale(0.92); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+.anim-stamp-press {
+  animation: sw-stamp-press 260ms var(--ease-spring) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+  .btn:active,
+  .sw-gate-tile:active,
+  .sw-record-tile:active,
+  .sw-menu-row:active,
+  .sw-stamp-cell:active,
+  .candle-cell:active,
+  .stamp-pad:active,
+  .icon-btn:active,
+  .wallet-pill:active,
+  .quick-btn:active,
+  .hero-amt-pill:active {
+    transform: none !important;
   }
 }

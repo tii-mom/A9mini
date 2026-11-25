@@ -186,7 +186,8 @@ function renderHeader(route) {
   syncDocumentLang(isStack ? titleText : '');
   A9TMA.setBackButton(isStack, goBack);
 
-  const nextSig = `${isStack ? '1' : '0'}|${titleText}|${user.connected ? '1' : '0'}|${walletLabel}|${settings?.language || ''}|${config.isDemo ? '1' : '0'}`;
+  const modeBadge = config.isDemo ? 'DEMO' : (!store.fundsEnabled ? L('只读', 'READ-ONLY') : '');
+  const nextSig = `${isStack ? '1' : '0'}|${titleText}|${user.connected ? '1' : '0'}|${walletLabel}|${settings?.language || ''}|${modeBadge}`;
   if (nextSig === lastHeaderSig && headerEl.innerHTML) {
     return;
   }
@@ -196,7 +197,7 @@ function renderHeader(route) {
     <div class="header-left">
       ${isStack ? `<button class="icon-btn" id="hdr-back" type="button" aria-label="${L('返回', 'Back')}">${icon('arrowLeft', 16)}</button>` : ''}
       ${!isStack
-        ? `<div class="header-brand"><span class="brand-mark" aria-label="A9"><img class="brand-logo" src="./assets/brand/apple-touch-icon.png" alt="A9" width="32" height="32" /></span>${config.isDemo ? `<span class="header-demo-dot">DEMO</span>` : ''}</div>`
+        ? `<div class="header-brand"><span class="brand-mark" aria-label="A9"><img class="brand-logo" src="./assets/brand/apple-touch-icon.png" alt="A9" width="32" height="32" /></span>${modeBadge ? `<span class="header-demo-dot">${modeBadge}</span>` : ''}</div>`
         : `<div class="header-title"><span class="header-title-text">${titleText}</span></div>`
       }
     </div>
@@ -515,7 +516,7 @@ function simulateRadarEvent(type) {
 }
 
 function openSimDrawer() {
-  const { round, team } = store.state;
+  const { round, team, user } = store.state;
   simDrawerEl.classList.remove('hidden');
   simDrawerEl.innerHTML = `
     <div class="modal-sheet">
@@ -542,6 +543,12 @@ function openSimDrawer() {
         <button class="quick-btn" data-sim-radar="miss">${L('当前段确认 · 未达标', 'Confirm Slot · Miss')}</button>
         <button class="quick-btn" data-sim-radar="duplicate">${L('重复推送相同数据', 'Duplicate Payload')}</button>
         <button class="quick-btn" data-sim-radar="batch">${L('批量补齐历史时段', 'Batch Backfill')}</button>
+      </div>
+
+      <div class="caps text-muted">${L('我的视图', 'Me View')}</div>
+      <div class="grid-2">
+        <button class="quick-btn ${user.profileMode !== 'empty' ? 'active' : ''}" data-sim-profile-mode="active">${L('持仓', 'Active Vault')}</button>
+        <button class="quick-btn ${user.profileMode === 'empty' ? 'active' : ''}" data-sim-profile-mode="empty">${L('空态', 'Empty State')}</button>
       </div>
 
       <div class="caps text-muted">${L('战队角色', 'Squad Role')}</div>
@@ -594,6 +601,13 @@ function openSimDrawer() {
         navigate('/round');
       }
       setTimeout(() => simulateRadarEvent(b.dataset.simRadar), 40);
+    };
+  });
+  simDrawerEl.querySelectorAll('[data-sim-profile-mode]').forEach(b => {
+    b.onclick = () => {
+      store.update(s => { s.user.profileMode = b.dataset.simProfileMode; });
+      simDrawerEl.classList.add('hidden');
+      renderCurrentRoute();
     };
   });
   simDrawerEl.querySelectorAll('[data-sim-role]').forEach(b => {

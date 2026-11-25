@@ -1,17 +1,15 @@
-import { portfolioPanel, identityStage } from './wealthverse.js';
 /**
  * 我的 / 资产 / 结算 / 凭证 / 账本 / 连闯页
- * 顺序：身份铭牌 → 可领取与资产遥测 → 四宫格功能台 → 凭证收藏册。
- * 严格遵循 Demo / Live 模式隔离，不混用演示数据与真实只读数据。
+ * 任天堂 Switch 菜单化统一升级：资产卡 → 可领取 → 进行中 → 我的记录 → 提醒与设置。
+ * 严格遵循 Demo / Live 模式隔离，绝不把 null 当 0，也不混用演示与真实只读数据。
  */
 
 import { store } from '../store.js';
 import { config } from '../config.js';
-import { uiMemory } from '../app.js';
 import { demoTxHash } from '../demo-data.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
-import { escapeHtml, formatNum, showToast, copyText, mountSlider, renderCorridorRadar, bindCorridorRadarEvents, animateSlotCounter, launchCoinArc, burstParticles, openChoiceSheet, openModal, closeModal } from '../components.js';
+import { escapeHtml, formatNum, showToast, copyText, mountSlider, renderCorridorRadar, bindCorridorRadarEvents, animateSlotCounter, launchCoinArc, burstParticles, openModal, closeModal } from '../components.js';
 import { renderVaultChestSvg, renderNintendoGateIcon } from '../paper-art.js';
 import { renderChestSvg } from '../chest-art.js';
 import { renderProofFlexPoster, renderStoryPoster, downloadPosterPng } from '../poster.js';
@@ -34,108 +32,229 @@ function parseA9Number(str) {
 
 let profileRenderSeq = 0;
 
-/** 统一「金库 / 领奖中心」聚合卡片（消灭双卡重影，兼容 Demo active/empty 与 Live 统一并发读取） */
-function renderUnifiedVaultHtml({
-  availA9 = null,
-  roundClaimableA9 = null,
-  roundLockedA9 = null,
-  promoClaimableA9 = null,
-  predActivatedA9 = null,
-  predPendingA9 = null,
-  activeTicketsCount = null,
-  stakedPrincipalA9 = null,
-  certsCount = null,
-  isLive = false,
+function formatA9Amount(val, { loading = false } = {}) {
+  if (val === null || val === undefined || !Number.isFinite(Number(val))) {
+    return loading ? '…' : '—';
+  }
+  const n = Number(val);
+  return `${formatNum(n, n % 1 === 0 ? 0 : 2)} A9`;
+}
+
+function activePassStageLabel(item, isLive) {
+  if (isLive) {
+    const st = String(item?.roundState || '').toUpperCase();
+    if (st === 'STAKING_OPEN') return L('24H 锁仓中', '24H lock open');
+    if (st === 'OBSERVING') return L('12H 冲价中', '12H push live');
+    if (st.startsWith('SETTLING_') || st === 'STAKING_CLOSED') return L('等待结算', 'Awaiting settlement');
+    return store.state.round?.stage === 'participation'
+      ? L('24H 锁仓中', '24H lock open')
+      : L('12H 冲价中', '12H push live');
+  }
+  return item?.status === 'participation'
+    ? L('24H 锁仓中', '24H lock open')
+    : L('12H 冲价中', '12H push live');
+}
+
+function renderProfileSwitchView({
   hasWallet = false,
+  availA9 = null,
+  gramBalance = null,
+  roundClaimableA9 = null,
+  promoClaimableA9 = null,
+  roundLockedA9 = null,
+  predPendingA9 = null,
+  activePasses = [],
+  certsCount = null,
   loading = false,
-  fundsEnabled = false,
-  loadError = false,
+  claimError = false,
+  predError = false,
+  isLive = false,
+  isDemoEmpty = false,
 } = {}) {
-  const fmtA9 = (val, fallback = L('待核验', 'Pending')) =>
-    (val === null || val === undefined || !Number.isFinite(Number(val)))
-      ? fallback
-      : `${formatNum(Number(val), Number(val) % 1 === 0 ? 0 : 2)} A9`;
+  const gramText = (gramBalance !== null && gramBalance !== undefined && Number.isFinite(Number(gramBalance)))
+    ? `${formatNum(Number(gramBalance), 2)} GRAM`
+    : '— GRAM';
 
-  const hasPendingVault = predPendingA9 !== null && predPendingA9 !== undefined && Number(predPendingA9) > 0;
+  const assetMainHtml = !hasWallet
+    ? `<button type="button" class="sw-asset-connect-btn" id="profile-asset-connect">${L('连接钱包', 'Connect Wallet')} <span class="sw-menu-arrow" style="color:var(--nt-red);">›</span></button>`
+    : (availA9 !== null && availA9 !== undefined && Number.isFinite(Number(availA9)))
+      ? `<div class="sw-asset-main">${formatNum(Number(availA9), Number(availA9) % 1 === 0 ? 0 : 2)}<span class="sw-asset-main-unit">A9</span></div>`
+      : `<div class="sw-asset-main">${loading ? '…' : '—'}</div>`;
 
-  const roundValDisplay = roundClaimableA9 !== null && roundClaimableA9 !== undefined
-    ? fmtA9(roundClaimableA9)
-    : (activeTicketsCount !== null && activeTicketsCount > 0
-      ? L(`${activeTicketsCount} 张凭证可查`, `${activeTicketsCount} ticket(s)`)
-      : fmtA9(null));
+  const bothExplicitZero = hasWallet && !loading && !claimError &&
+    roundClaimableA9 !== null && roundClaimableA9 !== undefined && Number(roundClaimableA9) === 0 &&
+    promoClaimableA9 !== null && promoClaimableA9 !== undefined && Number(promoClaimableA9) === 0;
 
-  const lockedValDisplay = fmtA9(roundLockedA9);
+  const roundAmtText = formatA9Amount(roundClaimableA9, { loading });
+  const promoAmtText = formatA9Amount(promoClaimableA9, { loading });
+  const lockedAmtText = formatA9Amount(roundLockedA9, { loading });
+  const predAmtText = formatA9Amount(predPendingA9, { loading });
+
+  const roundAmtCls = Number(roundClaimableA9) > 0 ? 'is-green' : (roundClaimableA9 == null ? 'is-muted' : '');
+  const promoAmtCls = Number(promoClaimableA9) > 0 ? 'is-green' : (promoClaimableA9 == null ? 'is-muted' : '');
+  const predAmtCls = Number(predPendingA9) > 0 ? 'is-amber' : (predPendingA9 == null ? 'is-muted' : '');
+  const lockedAmtCls = roundLockedA9 == null ? 'is-muted' : '';
+
+  const claimSectionHtml = `
+    <div>
+      <div class="sw-section-label">${L('可领取', 'Claimable')}</div>
+      <div class="sw-menu-group" id="profile-claimable-group">
+        ${bothExplicitZero ? `
+          <div class="sw-menu-row is-static">
+            <div class="sw-menu-left">
+              <span class="sw-menu-title text-muted">${L('暂无可领奖励', 'No claimable rewards')}</span>
+            </div>
+          </div>
+        ` : `
+          <a class="sw-menu-row" href="#/claim">
+            <div class="sw-menu-left">
+              <span class="sw-menu-title">${L('轮次奖励', 'Round Rewards')}</span>
+            </div>
+            <div class="sw-menu-right">
+              <span class="sw-menu-amount ${roundAmtCls}">${roundAmtText}</span>
+              <span class="sw-menu-arrow" aria-hidden="true">›</span>
+            </div>
+          </a>
+          <a class="sw-menu-row" href="#/team/invite">
+            <div class="sw-menu-left">
+              <span class="sw-menu-title">${L('推广奖励', 'Referral Rewards')}</span>
+            </div>
+            <div class="sw-menu-right">
+              <span class="sw-menu-amount ${promoAmtCls}">${promoAmtText}</span>
+              <span class="sw-menu-arrow" aria-hidden="true">›</span>
+            </div>
+          </a>
+        `}
+        ${claimError ? `
+          <div class="sw-menu-error" role="alert">
+            <span>${L('读取失败', 'Read failed')}</span>
+            <button type="button" class="sw-retry-link" data-profile-retry="1">${L('重试', 'Retry')}</button>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
+
+  const activePassRows = activePasses.map((item) => {
+    const roundId = item.roundId ?? item.round ?? '—';
+    const amt = isLive ? rawToA9(item.amountRaw) : Number(item.stakeTon);
+    const amtText = formatA9Amount(amt, { loading: false });
+    const href = isLive
+      ? (item.ticketAddress ? `#/claim?ticket=${encodeURIComponent(item.ticketAddress)}` : '#/claim')
+      : (item.id ? `#/proof/${encodeURIComponent(item.id)}` : '#/proof');
+    const stageSub = activePassStageLabel(item, isLive);
+    return `
+      <a class="sw-menu-row" href="${href}">
+        <div class="sw-menu-left">
+          <span class="sw-menu-title">${L(`第 ${escapeHtml(String(roundId))} 轮锁仓`, `Round ${escapeHtml(String(roundId))} Lock`)}</span>
+          <span class="sw-menu-sub">${stageSub}</span>
+        </div>
+        <div class="sw-menu-right">
+          <span class="sw-menu-amount">${amtText}</span>
+          <span class="sw-menu-arrow" aria-hidden="true">›</span>
+        </div>
+      </a>
+    `;
+  }).join('');
+
+  const inProgressHtml = `
+    <div>
+      <div class="sw-section-label">${L('进行中', 'In Progress')}</div>
+      <div class="sw-menu-group" id="profile-progress-group">
+        ${activePassRows}
+        <a class="sw-menu-row" href="#/rewards">
+          <div class="sw-menu-left">
+            <span class="sw-menu-title">${L('奖金解锁', 'Reward Unlock')}</span>
+            <span class="sw-menu-sub">${L('14 天逐秒解锁', '14D per-second unlock')}</span>
+          </div>
+          <div class="sw-menu-right">
+            <span class="sw-menu-amount ${lockedAmtCls}">${lockedAmtText}</span>
+            <span class="sw-menu-arrow" aria-hidden="true">›</span>
+          </div>
+        </a>
+        <a class="sw-menu-row" href="#/round?panel=prediction">
+          <div class="sw-menu-left">
+            <span class="sw-menu-title">${L('预言奖励', 'Prediction Rewards')}</span>
+            <span class="sw-menu-sub">${L('待激活', 'Pending activation')}</span>
+          </div>
+          <div class="sw-menu-right">
+            <span class="sw-menu-amount ${predAmtCls}">${predAmtText}</span>
+            <span class="sw-menu-arrow" aria-hidden="true">›</span>
+          </div>
+        </a>
+        ${predError ? `
+          <div class="sw-menu-error" role="alert">
+            <span>${L('预言奖励读取失败', 'Prediction read failed')}</span>
+            <button type="button" class="sw-retry-link" data-profile-retry="1">${L('重试', 'Retry')}</button>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
+
+  const emptyGuideHtml = isDemoEmpty ? `
+    <section class="card">
+      <div class="empty-state" style="padding:10px 8px 6px;">
+        <img src="./assets/boxheads/activity/avatars/act-01.png" width="52" height="52" alt="">
+        <div style="font-size:15px;font-weight:900;margin-top:4px;">${L('还没有锁仓持仓', 'No Active Lock Position Yet')}</div>
+        <div class="text-sec" style="font-size:12px;max-width:260px;">${L('最低 100 A9 无门槛锁仓，头矿 6H · 5% 止损，永不爆仓。', 'Lock from 100 A9 — First 6H · 5% Stop-Loss, No Liquidation.')}</div>
+        <div class="grid-2" style="width:100%;margin-top:10px;gap:8px;">
+          <a class="btn btn-primary btn-sm" href="#/challenge/confirm">${icon('bolt', 14)} ${L('立即锁仓', 'Lock Now')}</a>
+          <a class="btn btn-secondary btn-sm" href="#/internal/market">${icon('chest', 14)} ${L('宝箱商城', 'Chest Mall')}</a>
+        </div>
+      </div>
+    </section>
+  ` : '';
+
+  const passCountLabel = (certsCount !== null && certsCount !== undefined && Number.isFinite(Number(certsCount)))
+    ? L(`闯关凭证 · ${certsCount}`, `Passes · ${certsCount}`)
+    : L('闯关凭证', 'Passes');
 
   return `
-    <section class="card card-hero unified-vault-card" id="profile-unified-vault">
-      <div class="row-between" style="margin-bottom:8px;">
-        <div class="card-title">${icon('wallet', 15, 'text-gold')} ${L('可领取与待解锁', 'Claims and Unlocks')}</div>
-        <span class="chip ${isLive ? (fundsEnabled ? 'chip-green' : 'chip-muted') : 'chip-gold'}">${isLive ? (fundsEnabled ? L('链上可领', 'LIVE') : L('只读模式', 'READ-ONLY')) : 'DEMO'}</span>
+    <div class="col-gap anim-page-enter">
+      <section class="sw-asset-card" id="profile-asset-card">
+        <span class="sw-asset-token">
+          <img src="./assets/token/a9-token-2048.png" alt="A9" width="44" height="44" decoding="async" />
+        </span>
+        <div class="sw-asset-body">
+          ${assetMainHtml}
+          <div class="sw-asset-sub">${escapeHtml(gramText)}</div>
+        </div>
+      </section>
+
+      ${claimSectionHtml}
+      ${inProgressHtml}
+      ${emptyGuideHtml}
+
+      <div>
+        <div class="sw-section-label">${L('我的记录', 'My Records')}</div>
+        <nav class="sw-record-grid" aria-label="${L('我的记录', 'My Records')}">
+          <a class="sw-record-tile" href="#/proof">
+            <span class="sw-record-icon">${icon('shieldCheck', 18)}</span>
+            <span class="sw-record-label">${escapeHtml(passCountLabel)}</span>
+          </a>
+          <a class="sw-record-tile" href="#/internal/records">
+            <span class="sw-record-icon">${icon('chest', 18)}</span>
+            <span class="sw-record-label">${L('商城订单', 'Orders')}</span>
+          </a>
+          <a class="sw-record-tile" href="#/ledger">
+            <span class="sw-record-icon">${icon('receipt', 18)}</span>
+            <span class="sw-record-label">${L('收支账本', 'Ledger')}</span>
+          </a>
+        </nav>
       </div>
 
-      <div class="profile-asset-telemetry" style="margin:8px 0 10px;">
-        <div class="profile-telemetry-cell">
-          <small>${L('可用 A9', 'Available')}</small>
-          <strong class="mono">${availA9 !== null && availA9 !== undefined ? formatNum(availA9, availA9 % 1 === 0 ? 0 : 2) : (loading ? '…' : '—')}</strong>
-        </div>
-        <div class="profile-telemetry-cell">
-          <small>${isLive ? L('锁仓本金', 'Locked') : L('待解锁', 'Locked')}</small>
-          <strong class="mono">${isLive ? (stakedPrincipalA9 !== null ? formatNum(stakedPrincipalA9, stakedPrincipalA9 % 1 === 0 ? 0 : 2) : (loading ? '…' : '—')) : formatNum(roundLockedA9 ?? 0)}</strong>
-        </div>
-        <div class="profile-telemetry-cell">
-          <small>${L('凭证数', 'Passes')}</small>
-          <strong class="text-cyan mono">${certsCount !== null && certsCount !== undefined ? `${certsCount} ${L('张', '')}` : (activeTicketsCount !== null ? `${activeTicketsCount} ${L('张', '')}` : (loading ? '…' : '—'))}</strong>
-        </div>
-      </div>
-
-      <div class="unified-vault-list">
-        <a class="unified-vault-row" href="#/claim">
-          <div>
-            <div class="num-sm" style="font-weight:800;">${L('链上轮次领奖', 'On-Chain Round Prizes')}</div>
-            <div class="num-xs text-muted">${L('StakeTicket 链上直领 · 0.22 GRAM Gas', 'StakeTicket claim · 0.22 GRAM gas')}</div>
+      <div class="sw-menu-group">
+        <a class="sw-menu-row" href="#/settings">
+          <div class="sw-menu-left">
+            <span class="sw-menu-title">${L('提醒与设置', 'Alerts & Settings')}</span>
           </div>
-          <div class="unified-vault-val">
-            <b class="mono text-green">${roundValDisplay}</b>
-            <span>${L('领奖', 'Claim')} ›</span>
-          </div>
-        </a>
-
-        <a class="unified-vault-row" href="#/team/invite">
-          <div>
-            <div class="num-sm" style="font-weight:800;">${L('站内赏金余额 · 一键 0.06 GRAM 全提', 'Off-Chain Bounty · 1-Tap 0.06 GRAM Withdraw')}</div>
-            <div class="num-xs text-muted">${L('好友通关 8% 返佣 + 商城直推 6% + 每轮空投合并一笔提现', '8% pass referral + 6% mall + round airdrop in one tx')}</div>
-          </div>
-          <div class="unified-vault-val">
-            <b class="mono text-gold">${fmtA9(promoClaimableA9)}</b>
-            <span>${L('查看推广奖励', 'View rewards')} ›</span>
-          </div>
-        </a>
-
-        <button type="button" class="unified-vault-row unified-vault-btn" id="btn-vault-go-pred">
-          <div>
-            <div class="num-sm" style="font-weight:800;">${L('12H 预言金库', '12H Prediction Vault')}</div>
-            <div class="num-xs text-muted">${hasPendingVault ? L('48H 内购箱 / 锁仓 / 邀 1 友购箱自动激活并入赏金余额', 'Auto-activates in 48H via purchase, lock or an invited friend’s purchase') : L('0 GRAM 参战 · 激活后自动并入站内赏金余额', '0 GRAM arena · auto-merges to bounty balance')}</div>
-          </div>
-          <div class="unified-vault-val">
-            <b class="mono">${fmtA9(predActivatedA9)} / <span class="text-gold">${fmtA9(predPendingA9)}</span></b>
-            <span>${hasPendingVault ? L('待激活', 'Pending') : L('查看', 'View')} ›</span>
-          </div>
-        </button>
-
-        <a class="unified-vault-row" href="${isLive ? '#/claim' : '#/rewards'}">
-          <div>
-            <div class="num-sm" style="font-weight:800;">${L('14 天逐秒待解锁', '14D Per-Second Unlock')}</div>
-            <div class="num-xs text-muted">${L('20% 秒提 + 14 天逐秒解锁（支持 3 折急提，7 折销毁）', '20% Instant + 14D Per-Second Unlock (Instant Cashout 30% Now / 70% Burn)')}</div>
-          </div>
-          <div class="unified-vault-val">
-            <b class="mono">${lockedValDisplay}</b>
-            <span>${L('节奏', 'Schedule')} ›</span>
+          <div class="sw-menu-right">
+            <span class="sw-menu-arrow" aria-hidden="true">›</span>
           </div>
         </a>
       </div>
-      ${isLive && !hasWallet ? `<div class="row-between" style="margin-top:8px;gap:8px;"><span class="num-xs text-muted">${L('连接钱包同步链上凭证与余额', 'Connect wallet to sync balances')}</span><button class="btn btn-secondary btn-sm" id="profile-live-connect" type="button">${L('连接钱包', 'Connect')}</button></div>` : ''}
-      ${isLive && loadError ? `<div class="row-between" style="margin-top:8px;gap:8px;"><span class="num-xs text-red">${L('部分链上数据同步超时', 'Some on-chain data failed to sync')}</span><button class="btn btn-secondary btn-sm" id="profile-live-retry" type="button">${L('重试', 'Retry')}</button></div>` : ''}
-    </section>
+    </div>
   `;
 }
 
@@ -143,68 +262,29 @@ export function renderProfileHome(root, navigate) {
   if (!config.isDemo) {
     const seq = ++profileRenderSeq;
     const u = store.state.user;
-    const addrLabel = u.shortAddress || (u.address ? (u.address.length > 12 ? `${u.address.slice(0, 4)}...${u.address.slice(-4)}` : u.address) : null);
-    const walletAddr = addrLabel || L('未连接钱包', 'Not connected');
-    const gramText = u.tonBalance !== null && u.tonBalance !== undefined ? `${formatNum(u.tonBalance, 2)} GRAM` : '— GRAM';
+    const addr = u.address || null;
+    const uid = getEffectiveUserId(u);
+    const roundId = store.state.round?.currentRound || null;
 
-    root.innerHTML = `
-      <div class="col-gap anim-page-enter">
-        ${identityStage({ walletAddr, gramText })}
-        <div id="profile-unified-vault-mount"></div>
-        <section class="card col-gap" id="profile-positions" hidden></section>
-        <a class="text-link-btn" href="#/internal/records">${L('商城订单', 'Chest Orders')} ›</a>
-        <div class="profile-dock-grid" aria-label="${L('快捷功能', 'Quick Actions')}">
-          <button class="profile-dock-tile" data-nav="/proof" type="button">
-            <span class="profile-dock-icon tone-red">${icon('shieldCheck', 18)}</span>
-            <span class="profile-dock-label">${L('凭证', 'Pass')}</span>
-            <span class="profile-dock-sub" id="live-dock-passes">—</span>
-          </button>
-          <button class="profile-dock-tile" data-nav="/ledger" type="button">
-            <span class="profile-dock-icon tone-green">${icon('receipt', 18)}</span>
-            <span class="profile-dock-label">${L('账本', 'Ledger')}</span>
-            <span class="profile-dock-sub">${L('明细', 'Log')}</span>
-          </button>
-          <button class="profile-dock-tile" data-nav="/renew" type="button">
-            <span class="profile-dock-icon tone-blue">${icon('clock', 18)}</span>
-            <span class="profile-dock-label">${L('提醒', 'Alert')}</span>
-            <span class="profile-dock-sub" style="color:${u.autoRenew ? 'var(--nt-green)' : 'var(--ink-muted)'};">${u.autoRenew ? L('已开', 'ON') : L('已关', 'OFF')}</span>
-          </button>
-          <button class="profile-dock-tile" data-nav="/settings" type="button">
-            <span class="profile-dock-icon tone-slate">${icon('settings', 18)}</span>
-            <span class="profile-dock-label">${L('设置', 'Settings')}</span>
-            <span class="profile-dock-sub">${L('偏好', 'Prefs')}</span>
-          </button>
-        </div>
-      </div>
-    `;
-
-    const vaultMount = root.querySelector('#profile-unified-vault-mount');
-    const paintLiveVault = (opts) => {
-      if (seq !== profileRenderSeq || !vaultMount || !vaultMount.isConnected) return;
-      vaultMount.innerHTML = renderUnifiedVaultHtml({
-        ...opts,
-        isLive: true,
+    const paintLive = (state) => {
+      if (seq !== profileRenderSeq || !root.isConnected) return;
+      root.innerHTML = renderProfileSwitchView({
+        ...state,
         hasWallet: Boolean(store.state.user.address),
-        fundsEnabled: store.fundsEnabled,
+        gramBalance: store.state.user.tonBalance,
+        isLive: true,
       });
-      const predBtn = vaultMount.querySelector('#btn-vault-go-pred');
-      if (predBtn) {
-        predBtn.onclick = () => {
-          A9Haptic.light();
-          store.state.referral.pendingScrollTarget = 'prediction';
-          navigate('/round');
-        };
-      }
-      const connBtn = vaultMount.querySelector('#profile-live-connect');
+      const connBtn = root.querySelector('#profile-asset-connect');
       if (connBtn) connBtn.onclick = () => tonConnect.openConnectModal(() => renderProfileHome(root, navigate));
-      const retryBtn = vaultMount.querySelector('#profile-live-retry');
-      if (retryBtn) retryBtn.onclick = () => renderProfileHome(root, navigate);
+      root.querySelectorAll('[data-profile-retry]').forEach((btn) => {
+        btn.onclick = () => {
+          A9Haptic.light();
+          renderProfileHome(root, navigate);
+        };
+      });
     };
 
-    const addr = store.state.user.address;
-    const uid = getEffectiveUserId(store.state.user);
-    const roundId = store.state.round?.currentRound || null;
-    paintLiveVault({ loading: Boolean(addr || uid) });
+    paintLive({ loading: Boolean(addr || uid) });
 
     if (addr || uid) {
       Promise.allSettled([
@@ -216,250 +296,71 @@ export function renderProfileHome(root, navigate) {
         const portData = portRes.status === 'fulfilled' ? portRes.value : null;
         const promoData = promoRes.status === 'fulfilled' ? promoRes.value : null;
         const predData = predRes.status === 'fulfilled' ? predRes.value : null;
-        const anyErr = (addr && (portRes.status === 'rejected' || promoRes.status === 'rejected' || portData?.ticketsAvailable === false)) || (uid && predRes.status === 'rejected');
+
+        const portErr = Boolean(addr && (portRes.status === 'rejected' || portData?.ticketsAvailable === false));
+        const promoErr = Boolean(addr && promoRes.status === 'rejected');
+        const predErr = Boolean(uid && predRes.status === 'rejected');
 
         const availA9 = (portData && portData.balanceAvailable !== false && portData.a9BalanceRaw !== null && portData.a9BalanceRaw !== undefined)
           ? rawToA9(portData.a9BalanceRaw)
           : null;
         const tickets = Array.isArray(portData?.tickets) ? portData.tickets : [];
-        const activeTickets = tickets.filter((t) => !t?.principalDone && /^\d+$/.test(String(t?.amountRaw || '')));
-        const stakedPrincipalA9 = activeTickets.length
-          ? activeTickets.reduce((sum, t) => sum + (rawToA9(t.amountRaw) || 0), 0)
-          : (portData?.ticketsAvailable ? 0 : null);
+        const activePasses = tickets.filter((t) => t && !t.exited && !t.principalDone && !t.forfeited);
         const roundClaimableA9 = (portData && portData.claimableRaw !== undefined && portData.claimableRaw !== null)
           ? rawToA9(portData.claimableRaw)
           : null;
         const roundLockedA9 = (portData && portData.lockedRaw !== undefined && portData.lockedRaw !== null)
           ? rawToA9(portData.lockedRaw)
           : null;
-        const promoClaimableA9 = promoData && promoData.claimableRaw !== undefined ? rawToA9(promoData.claimableRaw) : null;
-        const predActivatedA9 = predData && predData.activatedRaw !== undefined ? rawToA9(predData.activatedRaw) : null;
-        const predPendingA9 = predData && predData.pendingActivationRaw !== undefined ? rawToA9(predData.pendingActivationRaw) : null;
+        const promoClaimableA9 = (promoData && promoData.claimableRaw !== undefined && promoData.claimableRaw !== null)
+          ? rawToA9(promoData.claimableRaw)
+          : null;
+        const predPendingA9 = (predData && predData.pendingActivationRaw !== undefined && predData.pendingActivationRaw !== null)
+          ? rawToA9(predData.pendingActivationRaw)
+          : null;
 
-        const positions = root.querySelector('#profile-positions');
-        if (positions && activeTickets.length) {
-          positions.hidden = false;
-          positions.innerHTML = `<h2 class="card-title">${L('正在进行', 'Active positions')}</h2>` +
-            activeTickets.map(ticket => `<a class="unified-vault-row" href="#/claim?ticket=${encodeURIComponent(ticket.ticketAddress)}">
-              <strong>${L('轮次', 'Round')} ${escapeHtml(String(ticket.roundId))}</strong>
-              <span>${L('头矿', 'First 6H')} ${formatNum(rawToA9(ticket.earlyAmountRaw))} A9 · ${L('普通', 'Standard')} ${formatNum(rawToA9(ticket.lateAmountRaw))} A9</span></a>`).join('');
-        }
-        const dockPasses = root.querySelector('#live-dock-passes');
-        if (dockPasses) dockPasses.textContent = portData?.ticketsAvailable ? `${tickets.length} ${L('张', 'SBT')}` : '—';
-
-        paintLiveVault({
+        paintLive({
           availA9,
           roundClaimableA9,
-          roundLockedA9,
           promoClaimableA9,
-          predActivatedA9,
+          roundLockedA9,
           predPendingA9,
-          activeTicketsCount: portData?.ticketsAvailable ? tickets.length : null,
-          stakedPrincipalA9,
+          activePasses,
           certsCount: portData?.ticketsAvailable ? tickets.length : null,
           loading: false,
-          loadError: anyErr,
+          claimError: portErr || promoErr,
+          predError: predErr,
         });
       });
     }
-
     return;
   }
 
   const { user, certificates } = store.state;
   const isEmpty = user.profileMode === 'empty';
-  const unknown = !user.connected && !config.isDemo;
-  const modePill = `<button class="pill-trigger neutral" id="btn-profile-mode" type="button">${isEmpty ? L('空态', 'Empty') : L('持仓', 'Vault')} ${icon('chevronDown', 12)}</button>`;
-  const walletAddr = user.shortAddress || (user.address ? (user.address.length > 12 ? `${user.address.slice(0, 4)}...${user.address.slice(-4)}` : user.address) : L('未连接钱包', 'Not connected'));
-  const gramText = user.tonBalance === null || user.tonBalance === undefined ? '— GRAM' : `${formatNum(user.tonBalance, 2)} GRAM`;
+  const activePasses = isEmpty
+    ? []
+    : (certificates || []).filter((c) => c && (c.status === 'observation' || c.status === 'participation'));
 
-  if (isEmpty && !unknown) {
-    const emptyVaultHtml = renderUnifiedVaultHtml({
-      availA9: 0,
-      roundClaimableA9: 0,
-      roundLockedA9: 0,
-      promoClaimableA9: 0,
-      predActivatedA9: 0,
-      predPendingA9: 0,
-      certsCount: 0,
-      isLive: false,
-      hasWallet: Boolean(user.connected),
-      loading: false,
-      fundsEnabled: store.fundsEnabled,
-    });
+  root.innerHTML = renderProfileSwitchView({
+    hasWallet: Boolean(user.connected),
+    availA9: isEmpty ? 0 : (user.a9Available ?? null),
+    gramBalance: isEmpty ? 0 : user.tonBalance,
+    roundClaimableA9: isEmpty ? 0 : (user.a9Claimable ?? 0),
+    promoClaimableA9: isEmpty ? 0 : (user.promoClaimableA9 ?? 0),
+    roundLockedA9: isEmpty ? 0 : (user.a9Locked ?? 0),
+    predPendingA9: isEmpty ? 0 : (rawToA9(store.state.prediction?.pendingActivationRaw) ?? 0),
+    activePasses,
+    certsCount: isEmpty ? 0 : (certificates || []).length,
+    loading: false,
+    claimError: false,
+    predError: false,
+    isLive: false,
+    isDemoEmpty: isEmpty,
+  });
 
-    root.innerHTML = `
-      <div class="col-gap anim-page-enter">
-        ${identityStage({ modePill, walletAddr, gramText })}
-        ${emptyVaultHtml}
-        <div class="card">
-          <div class="empty-state" style="padding:10px 8px 6px;">
-            <img src="./assets/boxheads/activity/avatars/act-01.png" width="52" height="52" alt="">
-            <div style="font-size:15px;font-weight:900;margin-top:4px;">${L('还没有锁仓持仓', 'No Active Lock Position Yet')}</div>
-            <div class="text-sec" style="font-size:12px;max-width:260px;">${L('最低 100 A9 无门槛锁仓，头矿 6H · 5% 止损，永不爆仓。', 'Lock from 100 A9 — First 6H · 5% Stop-Loss, No Liquidation.')}</div>
-            <div class="grid-2" style="width:100%;margin-top:10px;gap:8px;">
-              <button class="btn btn-primary btn-sm" data-nav="/challenge/confirm" type="button">${icon('bolt', 14)} ${L('立即锁仓', 'Lock Now')}</button>
-              <button class="btn btn-secondary btn-sm" data-nav="/internal/market" type="button">${icon('swap', 14)} ${L('宝箱商城', 'Chest Mall')}</button>
-            </div>
-          </div>
-        </div>
-        <div class="profile-dock-grid">
-          <button class="profile-dock-tile" data-nav="/proof" type="button">
-            <span class="profile-dock-icon tone-red">${icon('shieldCheck', 18)}</span>
-            <span class="profile-dock-label">${L('凭证', 'Pass')}</span>
-            <span class="profile-dock-sub">0</span>
-          </button>
-          <button class="profile-dock-tile" data-nav="/ledger" type="button">
-            <span class="profile-dock-icon tone-green">${icon('receipt', 18)}</span>
-            <span class="profile-dock-label">${L('账本', 'Ledger')}</span>
-            <span class="profile-dock-sub">${L('明细', 'Log')}</span>
-          </button>
-          <button class="profile-dock-tile" data-nav="/renew" type="button">
-            <span class="profile-dock-icon tone-blue">${icon('clock', 18)}</span>
-            <span class="profile-dock-label">${L('提醒', 'Alert')}</span>
-            <span class="profile-dock-sub">${user.autoRenew ? 'ON' : 'OFF'}</span>
-          </button>
-          <button class="profile-dock-tile" data-nav="/settings" type="button">
-            <span class="profile-dock-icon tone-slate">${icon('settings', 18)}</span>
-            <span class="profile-dock-label">${L('设置', 'Settings')}</span>
-            <span class="profile-dock-sub">${L('系统', 'Sys')}</span>
-          </button>
-        </div>
-      </div>
-    `;
-    const vaultPredBtn = root.querySelector('#btn-vault-go-pred');
-    if (vaultPredBtn) {
-      vaultPredBtn.onclick = () => {
-        A9Haptic.light();
-        store.state.referral.pendingScrollTarget = 'prediction';
-        navigate('/round');
-      };
-    }
-  } else {
-    const claimable = unknown ? null : (user.a9Claimable || 0);
-    const availA9 = Number(user.a9Available || 0);
-    const lockedA9 = Number(user.a9Locked || 0);
-    const activeFilter = ['all', 'observation', 'settled'].includes(uiMemory.ticketFilter) ? uiMemory.ticketFilter : 'all';
-
-    const promoDemoA9 = Number(store.state.user.promoClaimableA9 ?? 0) || 0;
-    const predActDemoA9 = rawToA9(store.state.prediction?.activatedRaw) || 0;
-    const predPendDemoA9 = rawToA9(store.state.prediction?.pendingActivationRaw) || 0;
-    const unifiedVaultDemoHtml = renderUnifiedVaultHtml({
-      availA9,
-      roundClaimableA9: claimable ?? 0,
-      roundLockedA9: lockedA9,
-      promoClaimableA9: promoDemoA9,
-      predActivatedA9: predActDemoA9,
-      predPendingA9: predPendDemoA9,
-      certsCount: certificates.length,
-      isLive: false,
-      hasWallet: Boolean(user.connected),
-      loading: false,
-      fundsEnabled: store.fundsEnabled,
-    });
-
-    root.innerHTML = `
-      <div class="col-gap anim-page-enter">
-        ${identityStage({ modePill, walletAddr, gramText })}
-
-        ${unifiedVaultDemoHtml}
-        <a class="text-link-btn" href="#/internal/records">${L('商城订单', 'Chest Orders')} ›</a>
-
-        <div class="profile-dock-grid" aria-label="${L('快捷功能', 'Quick Actions')}">
-          <button class="profile-dock-tile" data-nav="/proof" type="button">
-            <span class="profile-dock-icon tone-red">${icon('shieldCheck', 18)}</span>
-            <span class="profile-dock-label">${L('凭证', 'Pass')}</span>
-            <span class="profile-dock-sub">${certificates.length} ${L('张', 'SBT')}</span>
-          </button>
-          <button class="profile-dock-tile" data-nav="/ledger" type="button">
-            <span class="profile-dock-icon tone-green">${icon('receipt', 18)}</span>
-            <span class="profile-dock-label">${L('账本', 'Ledger')}</span>
-            <span class="profile-dock-sub">${store.state.ledger.length} ${L('笔', 'tx')}</span>
-          </button>
-          <button class="profile-dock-tile" data-nav="/renew" type="button">
-            <span class="profile-dock-icon tone-blue">${icon('clock', 18)}</span>
-            <span class="profile-dock-label">${L('提醒', 'Alert')}</span>
-            <span class="profile-dock-sub" style="color:${user.autoRenew ? 'var(--nt-green)' : 'var(--ink-muted)'};">${user.autoRenew ? L('已开', 'ON') : L('已关', 'OFF')}</span>
-          </button>
-          <button class="profile-dock-tile" data-nav="/settings" type="button">
-            <span class="profile-dock-icon tone-slate">${icon('settings', 18)}</span>
-            <span class="profile-dock-label">${L('设置', 'Settings')}</span>
-            <span class="profile-dock-sub">${L('偏好', 'Prefs')}</span>
-          </button>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">${icon('shieldCheck', 16, 'text-green')} ${L('凭证收藏册', 'Ticket Collection')}</div>
-            <span class="chip chip-muted mono">${certificates.length}</span>
-          </div>
-          <nav class="ticket-tabs" id="ticket-filter-tabs" aria-label="${L('筛选凭证', 'Filter tickets')}">${[['all', L('全部', 'All')], ['observation', L('12H 冲价中', '12H Push')], ['settled', L('已结算', 'Settled')]].map(([value, label]) => `<button type="button" data-ticket-filter="${value}" aria-pressed="${value === activeFilter}">${label}</button>`).join('')}</nav>
-          <p class="ticket-empty" hidden>${L('该状态下暂无闯关凭证', 'No quest passes in this state')}</p>
-          ${certificates.length === 0
-            ? `<div class="empty-state" style="padding:14px;"><div class="num-xs text-muted">${L('暂无进行中的闯关凭证', 'No active quest passes')}</div><button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/round">${L('前往轮次闯关', 'Go to Quest')}</button></div>`
-            : certificates.map(c => `
-              <div class="list-row clickable collectible-ticket" role="button" tabindex="0" data-ticket-state="${escapeHtml(c.status)}" data-nav="${c.id ? `/proof/${escapeHtml(c.id)}` : '/proof'}" ${activeFilter !== 'all' && c.status !== activeFilter ? 'hidden' : ''}>
-                <span class="collectible-ticket-badge" aria-hidden="true">${renderNintendoGateIcon('ticket', 24)}</span>
-                <div>
-                  <div class="num-sm" style="font-weight:900;">#${escapeHtml(c.id)}</div>
-                  <div class="num-xs text-muted">${L('第', 'R')}${c.round}${L('轮', '')} · ${formatNum(c.stakeTon)} A9 · ${L('全员 1:1', '1:1 Equal')}</div>
-                </div>
-                <div style="text-align:right;">
-                  <div class="num-sm text-green" style="font-weight:900;">${c.status === 'settled' ? '+' + formatNum(c.estRewardA9) + ' A9' : L('待结算', 'Unsettled')}</div>
-                  <span class="chip ${c.status === 'settled' ? 'chip-green' : 'chip-blue'}" style="min-height:18px;font-size:9.5px;margin-top:3px;">${c.status === 'settled' ? L('已结算', 'Settled') : L('12H 冲价中', '12H Push')}</span>
-                </div>
-              </div>
-            `).join('')}
-        </div>
-      </div>
-    `;
-
-    const applyTicketFilter = (filter) => {
-      uiMemory.ticketFilter = filter;
-      let visible = 0;
-      root.querySelectorAll('[data-ticket-state]').forEach(ticket => {
-        ticket.hidden = filter !== 'all' && ticket.dataset.ticketState !== filter;
-        if (!ticket.hidden) visible++;
-      });
-      root.querySelectorAll('[data-ticket-filter]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ticketFilter === filter)));
-      const emptyEl = root.querySelector('.ticket-empty');
-      if (emptyEl) emptyEl.hidden = visible > 0 || certificates.length === 0;
-    };
-    applyTicketFilter(activeFilter);
-
-    root.querySelector('#ticket-filter-tabs')?.addEventListener('click', e => {
-      const button = e.target.closest('[data-ticket-filter]');
-      if (!button) return;
-      A9Haptic.light();
-      A9Audio.tick();
-      applyTicketFilter(button.dataset.ticketFilter);
-    });
-    const vaultPredBtn = root.querySelector('#btn-vault-go-pred');
-    if (vaultPredBtn) {
-      vaultPredBtn.onclick = () => {
-        A9Haptic.light();
-        store.state.referral.pendingScrollTarget = 'prediction';
-        navigate('/round');
-      };
-    }
-  }
-
-
-  const modeBtn = root.querySelector('#btn-profile-mode');
-  if (modeBtn) {
-    modeBtn.onclick = () => openChoiceSheet({
-      title: L('切换资产视图状态', 'Switch Vault State'),
-      selected: user.profileMode,
-      options: [
-        { value: 'active', label: L('持仓与待领态', 'Active Vault'), sub: L('展示余额、待领与凭证', 'Balance, claimable & proofs') },
-        { value: 'empty',  label: L('新用户空状态', 'Empty State'),  sub: L('展示零门槛新手引导', 'Onboarding state') }
-      ],
-      onSelect: (val) => {
-        store.update(s => { s.user.profileMode = val; });
-        renderProfileHome(root, navigate);
-      }
-    });
-  }
+  const connBtn = root.querySelector('#profile-asset-connect');
+  if (connBtn) connBtn.onclick = () => tonConnect.openConnectModal(() => renderProfileHome(root, navigate));
 }
 
 export function renderClaimPage(root, _navigate, _param, query = {}) {

@@ -37,6 +37,7 @@ import {
   renderSettlementSuccess,
   renderSettlementFailed,
   renderTechnicalHalt,
+  renderSettlementBreakdownRows,
   renderPredictionCard,
   renderEarlyBirdBanner,
   renderSafetyCushionCard,
@@ -105,6 +106,16 @@ async function syncMyRoundPositionCard(root) {
       ? port.tickets.find((t) => Number(t.roundId) === Number(curRoundId))
       : null;
     mount.innerHTML = ticket ? renderMyRoundPositionCard(round, ticket) : '';
+    const settleEl = root.querySelector('#round-settlement-personal');
+    if (settleEl && ticket) {
+      const wrap = document.createElement('div');
+      wrap.innerHTML = renderSettlementBreakdownRows({
+        principalA9: rawToA9(ticket.claimablePrincipalRaw ?? ticket.amountRaw),
+        rewardA9: rawToA9(ticket.claimableRewardRaw),
+        lockedA9: rawToA9(ticket.lockedRemainingRaw),
+      }).trim();
+      if (wrap.firstElementChild) settleEl.replaceWith(wrap.firstElementChild);
+    }
   } catch (_) {
     if (mount.isConnected) mount.innerHTML = '';
   }
@@ -115,7 +126,7 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
   const { round, user } = store.state;
   const stage = round.stage;
   if (!stage) {
-    root.textContent = L('轮次状态等待核验','Round state awaits verification');
+    root.innerHTML = `<div class="col-gap anim-page-enter"><section class="card empty-state"><div class="num-sm text-sec">${L('轮次状态等待核验', 'Round state awaits verification')}</div></section></div>`;
     return;
   }
 
@@ -123,16 +134,6 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
     activeRoundDeckTab = 'pred';
   }
 
-  if (!config.isDemo) {
-    root.innerHTML = `<div class="col-gap anim-page-enter">${renderEarlyBirdBanner(round)}${liveRound(round)}<div id="a9-my-round-position-mount"></div>${stage === 'participation' ? renderSafetyCushionCard(round) : ''}${renderRoundInteractDeck(round, store.state.prediction, user)}</div>`;
-    bindRoundDeckTabs(root);
-    bindPredictionCardEvents(root, navigate);
-    syncPredictionState(root, navigate);
-    syncAirdropDrawsCard(root);
-    syncMyRoundPositionCard(root);
-    handlePendingDeepLinkScroll(root);
-    return;
-  }
   const body = stage === 'warmup'
     ? renderWarmupStage(round, user)
     : stage === 'participation'
@@ -145,7 +146,12 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
             ? renderTechnicalHalt(round)
             : renderSettlementFailed(round);
 
-  root.innerHTML = `<div class="col-gap anim-page-enter">${body}<div id="a9-my-round-position-mount"></div>${stage !== 'warmup' && stage !== 'halted' ? renderRoundInteractDeck(round, store.state.prediction, user) : `<div id="a9-airdrop-draws-mount">${renderAirdropDrawsCard({ loading: true })}</div>`}</div>`;
+  const interactBlock = stage !== 'warmup' && stage !== 'halted'
+    ? renderRoundInteractDeck(round, store.state.prediction, user)
+    : `<div id="a9-airdrop-draws-mount">${renderAirdropDrawsCard({ loading: true })}</div>`;
+
+  // 信息顺序严格统一：1. 当前阶段 → 2. 个人本金 → 3. 预言与空投
+  root.innerHTML = `<div class="col-gap anim-page-enter">${body}<div id="a9-my-round-position-mount"></div>${interactBlock}</div>`;
 
   const stageBtn = config.isDemo ? root.querySelector('#btn-stage-sheet') : null;
   if (stageBtn) {
@@ -174,22 +180,10 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
       store.update(s => { s.round.quickStakeA9 = amt; s.round.quickStakeTon = amt; });
       root.querySelectorAll('[data-hero-amt]').forEach(b => b.classList.toggle('active', Number(b.dataset.heroAmt) === amt));
       const est = estimateRewardA9(amt);
-      const selEl = root.querySelector('#hero-sel-stake');
       const estEl = root.querySelector('#hero-est-a9');
       const ctaEl = root.querySelector('#hero-stake-cta');
-      if (selEl) selEl.textContent = `${formatNum(amt)} A9`;
-      if (estEl) estEl.textContent = est === null ? L('—', '—') : `~${formatNum(Math.round(est))} A9`;
+      if (estEl) estEl.textContent = est === null ? '—' : `~${formatNum(Math.round(est))} A9`;
       if (ctaEl) ctaEl.innerHTML = `${icon('bolt', 16)} ${L(`立即锁仓 ${formatNum(amt)} A9`, `Lock ${formatNum(amt)} A9`)}`;
-    };
-  });
-
-  root.querySelectorAll('[data-step-stage]').forEach(step => {
-    step.onclick = () => {
-      const targetStage = step.dataset.stepStage;
-      if (config.isDemo && targetStage && targetStage !== store.state.round.stage) {
-        store.update(s => { s.round.stage = targetStage; });
-        renderChallengeHome(root, navigate);
-      }
     };
   });
 

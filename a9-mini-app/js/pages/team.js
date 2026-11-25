@@ -1,6 +1,9 @@
 import { portfolioPanel } from './wealthverse.js';
 /**
- * Team & Referral Pages — 99-Point Pure Hero First (Zero Top Debug Tabs, Custom Action Sheet, SVG Progress Ring)
+ * 战队与推广页 — 任天堂 Switch 视觉与交互统一升级
+ * - 统一战队队徽，彻底区分「未加入 / 队员 / 队长」三种首屏
+ * - 队长任务严格拆开「达到条件 / 通过核验 / 奖励到账」三独立状态
+ * - 6% 商城直推与 8% 好友通关返佣分写进各自奖励明细，首页不拼混合比例
  */
 
 import { store } from '../store.js';
@@ -10,6 +13,7 @@ import {
   bindTeamGroupTg,
   verifyTeamGroupTg,
   getEffectiveUserId,
+  fetchUserPortfolio,
   fetchPromoBalance,
   fetchPromoClaim,
   requestPromoClaimIntent,
@@ -26,11 +30,19 @@ function formatExactGramFromNano(nano) {
 }
 import { pendingTxManager } from '../tx-ux.js';
 import { A9Haptic, A9TMA } from '../tma.js';
-import { escapeHtml, formatNum, showToast, copyText, animateSlotCounter, openChoiceSheet, renderProgressRing } from '../components.js';
+import { escapeHtml, formatNum, showToast, copyText, openChoiceSheet } from '../components.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { renderReferralPoster, renderProofFlexPoster, renderStoryPoster, renderScenarioPoster, downloadPosterPng } from '../poster.js';
 import { triggerStoryShare, buildTmaDeepLink, getShareRef } from '../share.js';
+
+function fmtA9OrDash(val, { loading = false } = {}) {
+  if (val === null || val === undefined || !Number.isFinite(Number(val))) {
+    return loading ? '…' : '—';
+  }
+  const n = Number(val);
+  return `${formatNum(n, n % 1 === 0 ? 0 : 2)} A9`;
+}
 
 function renderTeamStakeReferralCardHtml({ loading = false, error = null, data = null } = {}) {
   const totalA9 = data ? (rawToA9(data.totalCommissionRaw) ?? 0) : null;
@@ -43,30 +55,29 @@ function renderTeamStakeReferralCardHtml({ loading = false, error = null, data =
   if (loading) {
     body = `<div class="num-xs text-muted">${L('正在读取好友通关 8% 返佣明细…', 'Loading 8% pass referral credits…')}</div>`;
   } else if (error) {
-    body = `<div class="row-between" style="gap:8px;"><span class="num-xs text-red">${escapeHtml(error)}</span><button class="btn btn-secondary btn-sm" id="btn-retry-team-ref" type="button">${L('重试', 'Retry')}</button></div>`;
+    body = `<div class="row-between" style="gap:8px;"><span class="num-xs text-red">${escapeHtml(error)}</span><button class="sw-retry-link" id="btn-retry-team-ref" type="button">${L('重试', 'Retry')}</button></div>`;
   } else if (!data || unbound) {
-    body = `<div class="num-xs text-muted">${L('在 Telegram 内打开并绑定钱包后，好友通关的 8% 返佣将自动并入站内推广金库，0.06 GRAM 一键一起领。', 'Open in Telegram and bind wallet to accumulate 8% pass referral credits into your promo vault (0.06 GRAM 1-tap claim).')}</div>`;
+    body = `<div class="num-xs text-muted">${L('在 Telegram 内打开并绑定钱包后，好友通关的 8% 返佣将自动计入推广奖励。', 'Open in Telegram and bind wallet to track 8% pass referral credits.')}</div>`;
   } else {
     body = `
       <div class="metric-strip cols-3" style="margin:6px 0 8px;">
-        <div class="metric-cell"><span class="num-xs text-muted">${L('累计 8% 返佣', 'Total 8%')}</span><span class="num-sm text-green mono" style="font-weight:800;">${formatNum(totalA9, 2)} A9</span></div>
-        <div class="metric-cell"><span class="num-xs text-muted">${L('已入推广池', 'Credited')}</span><span class="num-sm mono" style="font-weight:800;">${formatNum(creditedA9, 2)} A9</span></div>
+        <div class="metric-cell"><span class="num-xs text-muted">${L('累计返佣', 'Total')}</span><span class="num-sm text-green mono" style="font-weight:800;">${formatNum(totalA9, 2)} A9</span></div>
+        <div class="metric-cell"><span class="num-xs text-muted">${L('已入账', 'Credited')}</span><span class="num-sm mono" style="font-weight:800;">${formatNum(creditedA9, 2)} A9</span></div>
         <div class="metric-cell"><span class="num-xs text-muted">${L('待入账', 'Pending')}</span><span class="num-sm text-gold mono" style="font-weight:800;">${formatNum(pendingA9, 2)} A9</span></div>
       </div>
       ${items.length === 0
-        ? `<div class="num-xs text-muted">${L('暂无好友通关返佣记录，邀请好友参与涨价解锁即可享通关奖金 8% 返佣。', 'No 8% pass referral credits yet. Invite friends to lock A9 and earn 8% when they pass.')}</div>`
-        : `<div class="col-gap" style="gap:6px;">${items.slice(0, 5).map((it) => {
+        ? `<div class="num-xs text-muted">${L('暂无好友通关返佣记录，好友通关后按奖金 8% 独立计入。', 'No 8% pass referral credits yet. Earned separately when invited friends pass a round.')}</div>`
+        : `<div class="sw-menu-group">${items.slice(0, 5).map((it) => {
             const commA9 = rawToA9(it.commissionRaw) ?? 0;
             const isCred = String(it.status || '').toUpperCase() === 'CREDITED';
             return `
-              <div class="list-row" style="padding:7px 10px;">
-                <div>
-                  <div class="num-sm" style="font-weight:800;">${L(`第 ${it.roundId} 轮`, `Round #${it.roundId}`)} · <span class="mono">${escapeHtml(it.refereeWallet || '—')}</span></div>
-                  <div class="num-xs text-muted">${L('好友通关 8% 返佣', '8% Pass Referral')}</div>
+              <div class="sw-menu-row is-static">
+                <div class="sw-menu-left">
+                  <span class="sw-menu-title">${L(`第 ${it.roundId} 轮`, `Round #${it.roundId}`)} · <span class="mono">${escapeHtml(it.refereeWallet || '—')}</span></span>
+                  <span class="sw-menu-sub">${isCred ? L('已到账', 'Credited') : L('待入账', 'Pending')}</span>
                 </div>
-                <div style="text-align:right;">
-                  <div class="num-sm text-green mono" style="font-weight:900;">+${formatNum(commA9, 2)} A9</div>
-                  <span class="chip ${isCred ? 'chip-green' : 'chip-gold'}" style="min-height:18px;font-size:9.5px;">${isCred ? L('已入赏金', 'Credited') : L('待入账', 'Pending')}</span>
+                <div class="sw-menu-right">
+                  <span class="sw-menu-amount is-green">+${formatNum(commA9, 2)} A9</span>
                 </div>
               </div>
             `;
@@ -77,8 +88,8 @@ function renderTeamStakeReferralCardHtml({ loading = false, error = null, data =
   return `
     <section class="card" id="team-stake-referral-card">
       <div class="row-between" style="margin-bottom:6px;">
-        <span class="card-title">${icon('team', 15, 'text-gold')} ${L('好友通关 8% 返佣明细', '8% Pass Referral Credits')}</span>
-        <a class="text-link-btn" href="#/team/invite">${L('去 0.06 GRAM 领取', 'Claim (0.06 GRAM)')} ›</a>
+        <span class="card-title">${icon('team', 15, 'text-gold')} ${L('好友通关 8% 返佣明细', '8% Pass Referral Details')}</span>
+        <a class="text-link-btn" href="#/team/invite">${L('明细', 'Details')} ›</a>
       </div>
       ${body}
     </section>
@@ -100,292 +111,532 @@ function mountTeamStakeReferrals(root) {
     })
     .catch((e) => {
       if (!mount.isConnected) return;
-      mount.innerHTML = renderTeamStakeReferralCardHtml({ loading: false, error: e?.message || L('返佣明细读取失败', 'Failed to load referral credits') });
+      mount.innerHTML = renderTeamStakeReferralCardHtml({ loading: false, error: e?.message || L('读取失败', 'Read failed') });
       const retryBtn = mount.querySelector('#btn-retry-team-ref');
       if (retryBtn) retryBtn.onclick = () => mountTeamStakeReferrals(root);
     });
 }
 
+function renderMemberRankingBlock(members = []) {
+  const list = Array.isArray(members) ? members : [];
+  return `
+    <div>
+      <div class="row-between" style="margin-bottom:6px;padding:0 2px;">
+        <span class="sw-section-label" style="margin:0;padding:0;">${L('成员排行', 'Member Rankings')}</span>
+        <a class="text-link-btn" href="#/leaderboard">${L('完整榜单', 'Full Board')} ›</a>
+      </div>
+      <div class="sw-menu-group">
+        ${list.length === 0
+          ? `<div class="sw-menu-row is-static"><div class="sw-menu-left"><span class="sw-menu-title text-muted">${L('暂无成员贡献排行', 'No member rankings yet')}</span></div></div>`
+          : list.map((m, i) => `
+            <div class="sw-rank-row">
+              <span class="sw-rank-pos">${escapeHtml(m.rank || `#${String(i + 1).padStart(2, '0')}`)}</span>
+              <span class="sw-rank-id">${escapeHtml(m.addr || m.wallet || '—')}</span>
+              <span class="sw-rank-val">${formatNum(m.ton ?? m.contribution ?? 0)} A9</span>
+            </div>
+          `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderReferralDetailsLinks(promoClaimableA9, { loading = false } = {}) {
+  return `
+    <div>
+      <div class="sw-section-label">${L('推广奖励', 'Referral Rewards')}</div>
+      <div class="sw-menu-group">
+        <a class="sw-menu-row" href="#/team/invite">
+          <div class="sw-menu-left">
+            <span class="sw-menu-title">${L('推广奖励余额', 'Referral Balance')}</span>
+            <span class="sw-menu-sub">${L('查看 6% 商城直推与提现明细', 'View 6% mall referral & claim details')}</span>
+          </div>
+          <div class="sw-menu-right">
+            <span class="sw-menu-amount ${Number(promoClaimableA9) > 0 ? 'is-green' : (promoClaimableA9 == null ? 'is-muted' : '')}">${fmtA9OrDash(promoClaimableA9, { loading })}</span>
+            <span class="sw-menu-arrow" aria-hidden="true">›</span>
+          </div>
+        </a>
+      </div>
+    </div>
+  `;
+}
+
+function computeCaptainTodo({ tgMembers, memberCount, verified, rewardPaid }) {
+  const hasTg = Number.isFinite(tgMembers) && tgMembers >= 50;
+  const hasMembers = Number.isFinite(memberCount) && memberCount >= 3;
+  const conditionMet = hasTg && hasMembers;
+
+  if (!hasTg && !hasMembers) {
+    return {
+      conditionMet,
+      text: L('先绑定 ≥ 50 人 TG 群并招募至 3 名战队成员', 'Bind a 50+ member TG group and reach 3 squad members'),
+      ctaLabel: L('去绑定 TG 群', 'Bind TG Group'),
+      ctaHref: '#/team/bind-tg',
+      done: false,
+    };
+  }
+  if (!hasTg) {
+    const need = Number.isFinite(tgMembers) ? Math.max(1, 50 - tgMembers) : 50;
+    return {
+      conditionMet,
+      text: L(`战队成员已满足，TG 群还差 ${need} 人（需 ≥ 50 人）`, `Squad size met · TG group needs ${need} more members`),
+      ctaLabel: L('管理 TG 群', 'Manage TG Group'),
+      ctaHref: '#/team/bind-tg',
+      done: false,
+    };
+  }
+  if (!hasMembers) {
+    const need = Number.isFinite(memberCount) ? Math.max(1, 3 - memberCount) : 3;
+    return {
+      conditionMet,
+      text: L(`群规模已满足，战队还差 ${need} 名成员`, `Group size met · squad needs ${need} more member(s)`),
+      ctaLabel: L('邀请好友入队', 'Invite Members'),
+      ctaHref: '#/team/invite',
+      done: false,
+    };
+  }
+  if (!verified) {
+    return {
+      conditionMet,
+      text: L('群规模与成员数已满足，立即发起群核验', 'Requirements met · run TG group verification'),
+      ctaLabel: L('发起群核验', 'Verify TG Group'),
+      ctaHref: '#/team/bind-tg',
+      done: false,
+    };
+  }
+  if (!rewardPaid) {
+    return {
+      conditionMet,
+      text: L('核验已通过，5,000 A9 创世金库待发放', 'Verified · 5,000 A9 captain vault pending payout'),
+      ctaLabel: L('查看推广奖励', 'View Referral Rewards'),
+      ctaHref: '#/team/invite',
+      done: false,
+    };
+  }
+  return {
+    conditionMet,
+    text: L('5,000 A9 创世金库已到账，继续招募战队成员', '5,000 A9 captain vault credited · keep recruiting'),
+    ctaLabel: L('邀请好友入队', 'Invite Friends'),
+    ctaHref: '#/team/invite',
+    done: true,
+  };
+}
+
+function renderCaptainHomeHtml({
+  squadName,
+  tgMembers,
+  memberCount,
+  verified,
+  rewardPaid,
+  promoClaimableA9,
+  topMembers = [],
+  rolePill = '',
+  loading = false,
+  broadcastEnabled = false,
+}) {
+  const todo = computeCaptainTodo({ tgMembers, memberCount, verified, rewardPaid });
+  const tgVal = Number.isFinite(tgMembers) ? `${tgMembers} / 50` : '— / 50';
+  const memVal = Number.isFinite(memberCount) ? `${memberCount} / 3` : '— / 3';
+
+  return `
+    <section class="card card-hero col-gap">
+      <div class="row-between">
+        <div class="sw-squad-head">
+          <span class="sw-squad-emblem" aria-hidden="true">${icon('squadEmblem', 24)}</span>
+          <div class="sw-squad-meta">
+            <h2 class="sw-squad-name">${escapeHtml(squadName || L('我的战队', 'My Squad'))}</h2>
+            <div class="num-xs text-muted">${L('队长', 'Captain')}</div>
+          </div>
+        </div>
+        ${rolePill}
+      </div>
+
+      <div class="sw-next-todo ${todo.done ? 'is-done' : ''}">
+        <div class="num-xs text-muted" style="margin-bottom:2px;">${L('下一项待办', 'Next Action')}</div>
+        <div>${todo.text}</div>
+      </div>
+
+      <a class="btn btn-primary" href="${todo.ctaHref}">${todo.ctaLabel} ›</a>
+
+      <div class="sw-menu-group">
+        <a class="sw-menu-row" href="#/team/bind-tg">
+          <div class="sw-menu-left"><span class="sw-menu-title">${L('TG 群人数', 'TG Group Members')}</span></div>
+          <div class="sw-menu-right">
+            <span class="sw-menu-amount ${Number.isFinite(tgMembers) && tgMembers >= 50 ? 'is-green' : ''}">${tgVal}</span>
+            <span class="sw-menu-arrow" aria-hidden="true">›</span>
+          </div>
+        </a>
+        <a class="sw-menu-row" href="#/team/invite">
+          <div class="sw-menu-left"><span class="sw-menu-title">${L('战队成员', 'Squad Members')}</span></div>
+          <div class="sw-menu-right">
+            <span class="sw-menu-amount ${Number.isFinite(memberCount) && memberCount >= 3 ? 'is-green' : ''}">${memVal}</span>
+            <span class="sw-menu-arrow" aria-hidden="true">›</span>
+          </div>
+        </a>
+      </div>
+
+      <div class="sw-status-steps" aria-label="${L('队长奖励核验状态', 'Captain vault status')}">
+        <div class="sw-status-step ${todo.conditionMet ? 'is-done' : 'is-active'}">
+          <small>${L('达到条件', 'Eligible')}</small>
+          <strong>${todo.conditionMet ? L('已达标', 'Met') : L('未达标', 'Pending')}</strong>
+        </div>
+        <div class="sw-status-step ${verified ? 'is-done' : (todo.conditionMet ? 'is-active' : '')}">
+          <small>${L('通过核验', 'Verified')}</small>
+          <strong>${verified ? L('已通过', 'Passed') : L('待核验', 'Pending')}</strong>
+        </div>
+        <div class="sw-status-step ${rewardPaid ? 'is-done' : (verified ? 'is-active' : '')}">
+          <small>${L('奖励到账', 'Credited')}</small>
+          <strong>${rewardPaid ? L('已到账', 'Paid') : L('未到账', 'Pending')}</strong>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid-2">
+      <a class="btn btn-secondary btn-sm" href="#/team/invite" style="width:100%;min-height:42px;">${icon('qr', 14)} ${L('招募入口', 'Recruit')}</a>
+      <button class="btn btn-secondary btn-sm" type="button" style="width:100%;min-height:42px;" ${broadcastEnabled ? '' : 'disabled'}>${icon('bell', 14)} ${broadcastEnabled ? L('发送群广播', 'Broadcast') : L('群广播未开放', 'Broadcast Off')}</button>
+    </div>
+
+    ${renderReferralDetailsLinks(promoClaimableA9, { loading })}
+    <div id="team-stake-referral-mount">${renderTeamStakeReferralCardHtml({ loading: true })}</div>
+    ${renderMemberRankingBlock(topMembers)}
+  `;
+}
+
+function renderMemberHomeHtml({
+  squadName,
+  validInvites,
+  promoClaimableA9,
+  topMembers = [],
+  rolePill = '',
+  loading = false,
+  isDemo = false,
+}) {
+  return `
+    <section class="card card-hero col-gap">
+      <div class="row-between">
+        <div class="sw-squad-head">
+          <span class="sw-squad-emblem" aria-hidden="true">${icon('squadEmblem', 24)}</span>
+          <div class="sw-squad-meta">
+            <h2 class="sw-squad-name">${escapeHtml(squadName || L('我的战队', 'My Squad'))}</h2>
+            <div class="num-xs text-muted">${L('队员', 'Member')}</div>
+          </div>
+        </div>
+        ${rolePill}
+      </div>
+
+      <div class="sw-menu-group">
+        <div class="sw-menu-row is-static">
+          <div class="sw-menu-left"><span class="sw-menu-title">${L('我的有效邀请', 'My Valid Invites')}</span></div>
+          <div class="sw-menu-right"><span class="sw-menu-amount">${validInvites === null || validInvites === undefined ? (loading ? '…' : '—') : formatNum(validInvites)}</span></div>
+        </div>
+        <a class="sw-menu-row" href="#/team/invite">
+          <div class="sw-menu-left">
+            <span class="sw-menu-title">${L('我的推广奖励', 'My Referral Rewards')}</span>
+            <span class="sw-menu-sub">${L('商城直推 6% 等奖励明细', '6% mall referral & details')}</span>
+          </div>
+          <div class="sw-menu-right">
+            <span class="sw-menu-amount ${Number(promoClaimableA9) > 0 ? 'is-green' : (promoClaimableA9 == null ? 'is-muted' : '')}">${fmtA9OrDash(promoClaimableA9, { loading })}</span>
+            <span class="sw-menu-arrow" aria-hidden="true">›</span>
+          </div>
+        </a>
+      </div>
+
+      <a class="btn btn-primary" href="#/team/invite">${icon('qr', 15)} ${L('邀请好友', 'Invite Friends')} ›</a>
+    </section>
+
+    <div id="team-stake-referral-mount">${renderTeamStakeReferralCardHtml({ loading: true })}</div>
+    ${renderMemberRankingBlock(topMembers)}
+
+    ${isDemo ? `
+      <div class="row-between num-xs" style="padding:2px;">
+        <button class="btn btn-sm" id="btn-switch-team" type="button" style="background:transparent;color:var(--ink-soft);padding:0;box-shadow:none;">${L('切换战队', 'Switch Squad')}</button>
+        <button class="btn btn-sm" id="btn-leave-team" type="button" style="background:transparent;color:var(--nt-rose);padding:0;box-shadow:none;">${L('退出战队', 'Leave')}</button>
+      </div>
+    ` : ''}
+  `;
+}
+
+function renderUnjoinedHomeHtml({
+  inviteContext = null,
+  rolePill = '',
+  isLive = false,
+  hasWallet = false,
+  squads = [],
+}) {
+  const inviteBanner = inviteContext ? `
+    <section class="card card-hero col-gap">
+      <div class="row-between">
+        <div class="sw-squad-head">
+          <span class="sw-squad-emblem" aria-hidden="true">${icon('squadEmblem', 24)}</span>
+          <div class="sw-squad-meta">
+            <h2 class="sw-squad-name">${escapeHtml(inviteContext.name || inviteContext.teamId || L('受邀战队', 'Invited Squad'))}</h2>
+            <div class="num-xs text-muted">${L('来自好友邀请', 'From friend invite')}${inviteContext.referrer ? ` · ${escapeHtml(inviteContext.referrer)}` : ''}</div>
+          </div>
+        </div>
+        ${rolePill}
+      </div>
+      <div class="num-xs text-sec">${L('确认后加入该战队，免费入队、无锁仓门槛。', 'Confirm to join this squad for free with no lock requirement.')}</div>
+      ${inviteContext.teamId
+        ? `<button class="btn btn-primary" type="button" data-join-team="${escapeHtml(inviteContext.teamId)}">${L('查看邀请并加入', 'View Invite & Join')}</button>`
+        : `<a class="btn btn-primary" href="#/team/invite">${L('查看邀请', 'View Invite')} ›</a>`}
+    </section>
+  ` : `
+    <section class="card card-hero col-gap">
+      <div class="row-between">
+        <div class="sw-squad-head">
+          <span class="sw-squad-emblem" aria-hidden="true">${icon('squadEmblem', 24)}</span>
+          <div class="sw-squad-meta">
+            <h2 class="sw-squad-name">${L('加入战队', 'Join a Squad')}</h2>
+            <div class="num-xs text-muted">${L('免费入队 · 无锁仓门槛', 'Free to join · no lock required')}</div>
+          </div>
+        </div>
+        ${rolePill}
+      </div>
+      <div class="num-xs text-sec" style="line-height:1.5;">${L('加入战队后可追踪好友邀请、查看成员贡献排行，并分别累计商城直推与好友通关返佣明细。', 'Join a squad to track invites, view member rankings, and earn separate mall & pass referral rewards.')}</div>
+      ${isLive && !hasWallet ? `<button class="btn btn-primary" id="team-live-connect" type="button">${icon('wallet', 15)} ${L('连接钱包加入战队', 'Connect Wallet to Join')}</button>` : ''}
+    </section>
+  `;
+
+  if (isLive) {
+    return `
+      ${inviteBanner}
+      <form class="card col-gap" id="live-join-team-form">
+        <div class="card-title">${icon('team', 15, 'text-gold')} ${L('输入战队编号加入', 'Join by Squad ID')}</div>
+        <label class="num-xs text-sec">${L('战队编号', 'Squad ID')}
+          <input name="guild" class="input-box" style="width:100%;margin-top:4px;padding:8px 10px;" required maxlength="64" placeholder="TM-0001" value="${escapeHtml(inviteContext?.teamId || '')}">
+        </label>
+        <button class="btn btn-primary" type="submit">${L('申请加入', 'Join Squad')}</button>
+        <output class="num-xs text-red"></output>
+      </form>
+      ${renderReferralDetailsLinks(null, { loading: false })}
+    `;
+  }
+
+  return `
+    ${inviteBanner}
+    <div>
+      <div class="row-between" style="margin-bottom:6px;padding:0 2px;">
+        <span class="sw-section-label" style="margin:0;padding:0;">${L('推荐战队', 'Recommended Squads')}</span>
+        <a class="text-link-btn" href="#/leaderboard">${L('排行榜', 'Rankings')} ›</a>
+      </div>
+      <div class="sw-menu-group">
+        ${squads.map((s) => `
+          <div class="sw-menu-row is-static">
+            <div class="sw-menu-left">
+              <span class="sw-menu-title">${escapeHtml(s.name)}</span>
+              <span class="sw-menu-sub">${escapeHtml(s.lv)} · ${escapeHtml(s.members)} ${L('人', 'members')}</span>
+            </div>
+            <div class="sw-menu-right">
+              <button class="btn btn-primary btn-sm" type="button" data-join-team="${escapeHtml(s.id)}">${L('加入', 'Join')}</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+let teamRenderSeq = 0;
+
 export function renderTeamHome(root, navigate) {
   if (!config.isDemo) {
+    const seq = ++teamRenderSeq;
     const addr = store.state.user.address || null;
-    root.innerHTML = `
-      <div class="col-gap anim-page-enter">
-        <section class="card card-hero" id="team-dual-engine-card">
-          <div class="row-between" style="margin-bottom:8px;">
-            <span class="card-title">${icon('wallet', 15, 'text-green')} ${L('双引擎返佣看板 · 8% + 6%', 'Dual-Engine Referral · 8% + 6%')}</span>
-            <span class="chip chip-green mono">0.06 GRAM ${L('全提', '1-Tap')}</span>
-          </div>
-          <div class="metric-strip cols-3" style="margin:6px 0 10px;">
-            <div class="metric-cell">
-              <span class="num-xs text-muted">${L('好友通关返佣', 'Pass Referral')}</span>
-              <span class="num-md text-green mono" style="font-weight:900;">8%</span>
-            </div>
-            <div class="metric-cell">
-              <span class="num-xs text-muted">${L('商城直推返佣', 'Mall Direct')}</span>
-              <span class="num-md text-gold mono" style="font-weight:900;">6%</span>
-            </div>
-            <div class="metric-cell">
-              <span class="num-xs text-muted">${L('可领站内赏金', 'Claimable A9')}</span>
-              <span class="num-sm text-green mono" id="team-live-promo-bal" style="font-weight:900;">${addr ? L('同步中…', 'Syncing…') : L('待连接', 'Connect')}</span>
-            </div>
-          </div>
-          <div class="grid-2" style="gap:8px;">
-            <button class="btn btn-primary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:42px;white-space:nowrap;">${icon('wallet', 13)} ${L('查看推广奖励', 'Referral rewards')}</button>
-            <button class="btn btn-secondary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:42px;white-space:nowrap;">${icon('qr', 13)} ${L('生成招募海报', 'Invite Poster')}</button>
-          </div>
-        </section>
+    const refId = store.state.referral?.referrerId || null;
+    const inviteContext = refId ? { referrer: refId, teamId: refId.startsWith('TM-') ? refId : null } : null;
 
-        <div id="team-stake-referral-mount">${renderTeamStakeReferralCardHtml({ loading: Boolean(A9TMA.getRawInitData()) })}</div>
-
-        <section id="team-captain-task" class="card" hidden style="border-color:var(--gold-border);">
-          <div class="row-between" style="margin-bottom:6px;">
-            <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('战队成长任务 · 群主创世金库', 'Squad Mission · Captain Vault')}</span>
-            <span class="chip chip-gold mono">+5,000 A9</span>
-          </div>
-          <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('绑定 ≥ 50 人真实 Telegram 群且战队满 3 名成员，可核验 5,000 A9 创世金库（并入站内赏金一键领）。', 'Verify a 50+ member Telegram group with ≥ 3 squad members to claim 5,000 A9 into your bounty vault.')}</div>
-          <p class="num-sm mono" data-captain-progress></p>
-          <button class="btn btn-secondary btn-sm" data-nav="/team/bind-tg" type="button" style="width:100%;min-height:38px;">${icon('send', 13)} ${L('查看绑群与发放资格', 'Verify TG Group for 5,000 A9')}</button>
-        </section>
-
-        <form class="card col-gap" id="live-join-team-form" hidden>
-          <div class="card-title">${icon('team', 15, 'text-cyan')} ${L('加入已有战队', 'Join an Existing Squad')}</div>
-          <label class="num-xs text-sec">${L('战队编号', 'Squad ID')} <input name="guild" class="input-box" style="width:100%;margin-top:4px;padding:8px 10px;" required maxlength="64" placeholder="TM-0001"></label>
-          <button class="btn btn-primary">${L('申请加入', 'Join Squad')}</button>
-          <output class="num-xs text-red"></output>
-        </form>
-      </div>
-    `;
-    portfolioPanel(root.firstElementChild, true, data => {
-      const visible = data?.privateDataVisible === true;
-      const task = root.querySelector('#team-captain-task');
-      task.hidden = !(visible && data.team?.role === 'captain');
-      if (!task.hidden) task.querySelector('[data-captain-progress]').textContent =
-        L(`TG 群 ${data.team.tgMemberCount ?? '—'} / 50 人 · 战队 ${data.team.memberCount ?? '—'} / 3 人`,
-          `TG group ${data.team.tgMemberCount ?? '—'} / 50 · Squad ${data.team.memberCount ?? '—'} / 3`);
-      if (!task.hidden) root.firstElementChild.firstElementChild.after(task);
-      root.querySelector('#live-join-team-form').hidden = !(visible && !data.team);
-    });
-    mountTeamStakeReferrals(root);
-    if (addr) {
-      fetchPromoBalance(addr)
-        .then((res) => {
-          const el = root.querySelector('#team-live-promo-bal');
-          if (!el || !el.isConnected || store.state.user.address !== addr) return;
-          const a9 = res?.claimableRaw !== undefined ? rawToA9(res.claimableRaw) : null;
-          el.textContent = a9 !== null ? `${formatNum(a9, a9 % 1 === 0 ? 0 : 2)} A9` : L('待核验', 'Pending');
-        })
-        .catch(() => {
-          const el = root.querySelector('#team-live-promo-bal');
-          if (el && el.isConnected) el.textContent = L('待核验', 'Pending');
+    const paintLive = ({ portfolio = null, promoClaimableA9 = null, loading = false, error = false } = {}) => {
+      if (seq !== teamRenderSeq || !root.isConnected) return;
+      const teamData = portfolio?.team || null;
+      const isCaptain = Boolean(
+        teamData && (
+          teamData.role === 'captain' ||
+          (addr && teamData.captainWallet && canonicalWalletKey(teamData.captainWallet) === canonicalWalletKey(addr))
+        )
+      );
+      let bodyHtml = '';
+      if (!teamData) {
+        bodyHtml = renderUnjoinedHomeHtml({
+          inviteContext,
+          isLive: true,
+          hasWallet: Boolean(addr),
         });
-    }
-    const form = root.querySelector('#live-join-team-form');
-    form.onsubmit = async event => {
-      event.preventDefault();
-      const wallet = store.state.user.address;
-      if (!wallet) { tonConnect.openConnectModal(() => renderTeamHome(root, navigate)); return; }
-      const button = form.querySelector('button');
-      button.disabled = true;
-      try {
-        await joinTeam({ teamId: form.elements.guild.value.trim(), walletAddress: wallet, userId: getEffectiveUserId(store.state.user), referrerId: store.state.referral.referrerId });
-        renderTeamHome(root, navigate);
-      } catch {
-        form.querySelector('output').textContent = L('加入失败，请核对战队编号后重试', 'Join failed. Check the squad ID and retry.');
-        button.disabled = false;
+      } else if (isCaptain) {
+        const tgCount = Number.isFinite(Number(teamData.tgMemberCount)) ? Number(teamData.tgMemberCount) : null;
+        const memCount = Number.isFinite(Number(teamData.memberCount)) ? Number(teamData.memberCount) : null;
+        const verified = teamData.tgBindStatus === 'bound' || teamData.tgGroupVerified === true;
+        const rewardPaid = Boolean(teamData.captainVaultPaid || teamData.foundingBonusPaid);
+        bodyHtml = renderCaptainHomeHtml({
+          squadName: teamData.name,
+          tgMembers: tgCount,
+          memberCount: memCount,
+          verified,
+          rewardPaid,
+          promoClaimableA9,
+          topMembers: Array.isArray(teamData.topMembers) ? teamData.topMembers : [],
+          loading,
+          broadcastEnabled: false,
+        });
+      } else {
+        bodyHtml = renderMemberHomeHtml({
+          squadName: teamData.name,
+          validInvites: teamData.myValidInvites ?? null,
+          promoClaimableA9,
+          topMembers: Array.isArray(teamData.topMembers) ? teamData.topMembers : [],
+          loading,
+          isDemo: false,
+        });
       }
+
+      root.innerHTML = `
+        <div class="col-gap anim-page-enter">
+          ${bodyHtml}
+          ${error ? `
+            <div class="sw-menu-group">
+              <div class="sw-menu-error" role="alert">
+                <span>${L('部分战队数据读取失败', 'Some squad data failed to load')}</span>
+                <button type="button" class="sw-retry-link" id="team-live-retry">${L('重试', 'Retry')}</button>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+
+      const connBtn = root.querySelector('#team-live-connect');
+      if (connBtn) connBtn.onclick = () => tonConnect.openConnectModal(() => renderTeamHome(root, navigate));
+      const retryBtn = root.querySelector('#team-live-retry');
+      if (retryBtn) retryBtn.onclick = () => renderTeamHome(root, navigate);
+
+      const form = root.querySelector('#live-join-team-form');
+      if (form) {
+        form.onsubmit = async (event) => {
+          event.preventDefault();
+          const wallet = store.state.user.address;
+          if (!wallet) {
+            tonConnect.openConnectModal(() => renderTeamHome(root, navigate));
+            return;
+          }
+          const button = form.querySelector('button');
+          button.disabled = true;
+          try {
+            await joinTeam({
+              teamId: form.elements.guild.value.trim(),
+              walletAddress: wallet,
+              userId: getEffectiveUserId(store.state.user),
+              referrerId: store.state.referral.referrerId,
+            });
+            renderTeamHome(root, navigate);
+          } catch {
+            form.querySelector('output').textContent = L('加入失败，请核对战队编号后重试', 'Join failed. Check the squad ID and retry.');
+            button.disabled = false;
+          }
+        };
+      }
+      mountTeamStakeReferrals(root);
     };
+
+    paintLive({ loading: Boolean(addr) });
+
+    if (addr) {
+      Promise.allSettled([
+        fetchUserPortfolio(addr),
+        fetchPromoBalance(addr),
+      ]).then(([portRes, promoRes]) => {
+        if (seq !== teamRenderSeq || !root.isConnected || store.state.user.address !== addr) return;
+        const portfolio = portRes.status === 'fulfilled' ? portRes.value : null;
+        const promoData = promoRes.status === 'fulfilled' ? promoRes.value : null;
+        const promoClaimableA9 = (promoData && promoData.claimableRaw !== undefined && promoData.claimableRaw !== null)
+          ? rawToA9(promoData.claimableRaw)
+          : null;
+        paintLive({
+          portfolio,
+          promoClaimableA9,
+          loading: false,
+          error: portRes.status === 'rejected' || promoRes.status === 'rejected',
+        });
+      });
+    }
     return;
   }
-  const { team } = store.state;
-  const role = team.role;
 
+  const { team } = store.state;
+  const role = team.role || 'captain';
   const roleLabels = {
-    captain: L('队长视图', 'Captain'),
-    member:  L('成员视图', 'Member'),
-    none:    L('团队大厅', 'Lobby')
+    captain: L('队长', 'Captain'),
+    member: L('队员', 'Member'),
+    none: L('未加入', 'Lobby'),
   };
-  const rolePill = `<button class="pill-trigger neutral" id="btn-role-sheet" type="button">${roleLabels[role]} ${icon('chevronDown', 12)}</button>`;
+  const rolePill = `<button class="pill-trigger neutral" id="btn-role-sheet" type="button">${roleLabels[role] || roleLabels.none} ${icon('chevronDown', 12)}</button>`;
+  const promoDemoA9 = Number(store.state.user.promoClaimableA9 ?? 0);
 
   let html = '';
-
   if (role === 'captain') {
-    const target = Number(team.teamStakedTarget) || 1;
-    const progressPct = Math.min(100, Math.round(((Number(team.teamStakedTon) || 0) / target) * 100));
-    html = `
-      <div class="card card-hero guild-board">
-        <div class="row-between" style="margin-bottom:8px;">
-          <div>
-            <div class="row-start" style="font-size:17px;font-weight:900;">${escapeHtml(team.name || L('我的战队', 'My Squad'))} ${icon('shieldCheck', 16, 'text-green')}</div>
-            <div class="row-start" style="margin-top:4px;gap:6px;">
-              <span class="chip chip-green">${L('队长', 'Captain')} · Lv.${team.level || 1}</span>
-              <span class="chip chip-gold">${L('通关 8% + 商城 6%', '8% Pass + 6% Mall')} · DEMO</span>
-            </div>
-          </div>
-          ${rolePill}
-        </div>
-
-        <div class="metric-strip cols-3" style="margin:10px 0;">
-          <div class="metric-cell">
-            <span class="num-xs text-muted">${L('本轮参与', 'Active')}</span>
-            <span class="num-md text-green">${team.membersActive} / ${team.membersTotal}</span>
-          </div>
-          <div class="metric-cell">
-            <span class="num-xs text-muted">${L('有效直邀', 'Invites')}</span>
-            <span class="num-md">${team.directInvites}</span>
-          </div>
-          <div class="metric-cell">
-            <span class="num-xs text-muted">${L('可领赏金', 'Bounty A9')}</span>
-            <span class="num-md text-gold" id="captain-dividend-val">${formatNum(store.state.user.promoClaimableA9)} A9</span>
-          </div>
-        </div>
-
-        <div class="row-between num-xs text-muted" style="margin-bottom:5px;">
-          <span>${L('本轮战队冲刺进度', 'Round Sprint Progress')}</span>
-          <span class="mono" style="color:var(--ink);font-weight:800;">${progressPct}%</span>
-        </div>
-        <div class="progress-track" style="margin-bottom:12px;"><div class="progress-fill" style="width:${progressPct}%"></div></div>
-
-        <div class="grid-2" style="gap:8px;">
-          <button class="btn btn-primary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:42px;">${icon('wallet', 14)} ${L('查看推广奖励', 'Referral rewards')}</button>
-          <button class="btn btn-secondary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:42px;">${icon('qr', 14)} ${L('招募海报', 'Poster')}</button>
-        </div>
-      </div>
-
-      <div class="card" style="border-color:var(--gold-border);">
-        <div class="row-between" style="margin-bottom:4px;">
-          <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('战队成长任务 · 群主创世金库', 'Squad Mission · Captain Vault')}</span>
-          <span class="chip chip-gold">+5,000 A9</span>
-        </div>
-        <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:8px;">${L('绑 ≥ 50 人 TG 群（满 3 成员）领 5,000 A9 · 好友通关 8% + 商城直推 6% 双引擎返佣', 'Verify 50+ member TG group (≥ 3 members) for 5,000 A9 · 8% pass + 6% mall dual-engine referrals')}</div>
-        <button class="btn btn-secondary btn-sm" data-nav="/internal/market?tab=free" type="button" style="width:100%;">${icon('swap', 14)} ${L('前往宝箱商城冲击黄金/白金/钻石免费宝箱', 'Open Chest Mall Free Tiers')}</button>
-      </div>
-
-      <div class="grid-2">
-        <button class="btn btn-secondary" data-nav="/team/bind-tg">${icon('send', 14)} ${L('管理 TG 群', 'TG Group')}</button>
-        <button class="btn btn-secondary" disabled>${icon('bell', 14)} ${L('群广播未开放', 'Broadcast unavailable')}</button>
-      </div>
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">${icon('trophy', 15, 'text-gold')} ${L('本轮主力成员 Top 3', 'Top 3 Members')}</div>
-          <button class="text-link-btn" data-nav="/leaderboard" type="button">${L('完整榜单', 'Full Board')} ${icon('chevronRight', 13)}</button>
-        </div>
-        <div class="guild-roster">
-          ${(team.topMembers || []).length === 0
-            ? `<div class="empty-state" style="padding:14px;grid-column:1/-1;"><div class="num-xs text-muted">${L('暂无成员闯关战绩', 'No active members yet')}</div></div>`
-            : (team.topMembers || []).map((m,i) => `
-            <div class="guild-member"><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
-              <div class="num-xs text-green mono" style="font-weight:800;">${formatNum(m.ton)} A9</div>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-
-    `;
+    const tgMembers = Number.isFinite(Number(team.tgGroupMembers)) ? Number(team.tgGroupMembers) : 0;
+    const memberCount = Number.isFinite(Number(team.membersTotal)) ? Number(team.membersTotal) : 0;
+    html = renderCaptainHomeHtml({
+      squadName: team.name,
+      tgMembers,
+      memberCount,
+      verified: Boolean(team.tgGroupBound),
+      rewardPaid: Boolean(team.tgGroupBound && tgMembers >= 50 && memberCount >= 3),
+      promoClaimableA9: promoDemoA9,
+      topMembers: team.topMembers || [],
+      rolePill,
+      loading: false,
+      broadcastEnabled: false,
+    });
   } else if (role === 'member') {
-    html = `
-      <div class="card card-hero guild-board">
-        <div class="row-between" style="margin-bottom:8px;">
-          <div>
-            <div style="font-size:17px;font-weight:900;">${L('星航冲锋战队', 'Star Voyagers')}</div>
-            <div class="row-start" style="margin-top:4px;gap:6px;">
-              <span class="chip chip-cyan">${L('成员', 'Member')} · Lv.3</span>
-              <span class="chip chip-gold">${L('通关 8% + 商城 6%', '8% Pass + 6% Mall')} · DEMO</span>
-            </div>
-          </div>
-          ${rolePill}
-        </div>
-        <div class="num-xs text-muted" style="margin-bottom:6px;">${L('战队活跃进度 84% · 好友通关 8% + 直推购箱 6% 双引擎返佣（演示样例）', '84% active · 8% pass + 6% direct chest referral (Demo sample)')}</div>
-        <div class="progress-track" style="margin-bottom:10px;"><div class="progress-fill" style="width:84%"></div></div>
-
-        <div class="metric-strip">
-          <div class="metric-cell"><span class="num-xs text-muted">${L('战队累计参与', 'Squad Volume')}</span><span class="num-md text-green">184,200 A9</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('我的 8%+6% 赏金', 'My 8%+6% Bounty')}</span><span class="num-md text-gold">${formatNum(store.state.user.promoClaimableA9)} A9</span></div>
-        </div>
-        <button class="btn btn-primary" data-nav="/team/invite">${icon('qr', 16)} ${L('生成招募海报 · 赚 8% + 6% 返佣', 'Invite Poster · 8% + 6% Referral')}</button>
-      </div>
-
-      <div class="grid-3">
-        <button class="btn btn-secondary btn-sm" data-nav="/leaderboard" style="width:100%;min-height:42px;">${icon('trophy', 14)} ${L('排行榜', 'Ranks')}</button>
-        <button class="btn btn-secondary btn-sm" data-nav="/team/profile/TM-8829" style="width:100%;min-height:42px;">${icon('layers', 14)} ${L('战队名片', 'Squad Card')}</button>
-        <button class="btn btn-secondary btn-sm" id="btn-open-group" style="width:100%;min-height:42px;">${icon('send', 14)} ${L('战队群', 'Chat')}</button>
-      </div>
-      <div class="row-between num-xs" style="padding:4px 2px;">
-        <button class="btn btn-sm" id="btn-switch-team" style="background:transparent;color:var(--text-secondary);padding:0;box-shadow:none;">${L('切换战队（每赛季限 1 次）', 'Switch Squad (1/season)')}</button>
-        <button class="btn btn-sm" id="btn-leave-team" style="background:transparent;color:var(--red);padding:0;box-shadow:none;">${L('退出战队', 'Leave')}</button>
-      </div>
-    `;
+    html = renderMemberHomeHtml({
+      squadName: L('星航冲锋战队', 'Star Voyagers'),
+      validInvites: team.directInvites ?? 16,
+      promoClaimableA9: promoDemoA9,
+      topMembers: team.topMembers || [],
+      rolePill,
+      loading: false,
+      isDemo: true,
+    });
   } else {
     const squads = [
-      { id: 'TM-0001', name: L('A9 冒险战队', 'A9 Quest Squad'), lv: 'Lv.4', tag: L('8% + 6%', '8% + 6%'), members: '412/500' },
-      { id: 'TM-8829', name: L('星航冲锋战队', 'Star Voyagers'), lv: 'Lv.3', tag: L('活跃榜', 'Active'), members: '84/100' },
-      { id: 'TM-3042', name: L('金箔典藏战队', 'Gold Foil Collectors'), lv: 'Lv.3', tag: L('同行队', 'Co-Op'), members: '66/100' }
+      { id: 'TM-0001', name: L('A9 冒险战队', 'A9 Quest Squad'), lv: 'Lv.4', members: '412/500' },
+      { id: 'TM-8829', name: L('星航冲锋战队', 'Star Voyagers'), lv: 'Lv.3', members: '84/100' },
+      { id: 'TM-3042', name: L('金箔典藏战队', 'Gold Foil Collectors'), lv: 'Lv.3', members: '66/100' },
     ];
-    html = `
-      <div class="card card-hero guild-board">
-        <div class="row-between" style="margin-bottom:6px;">
-          <span class="chip chip-gold">${L('v17.0 双引擎战队 · 8% + 6%', 'v17.0 Dual-Engine · 8% + 6%')}</span>
-          ${rolePill}
-        </div>
-        <div style="font-size:17px;font-weight:900;">${L('加入一个活跃战队', 'Join an Active Squad')}</div>
-        <div class="text-sec" style="font-size:12px;margin-top:4px;">${L('免费入队同步 12H 冲价战报；好友通关返佣 8%、直推购箱返佣 6%，群主绑群领 5,000 A9 创世金库。', 'Join free for 12H push alerts; earn 8% pass referral, 6% direct chest referral, and 5,000 A9 captain founding vault.')}</div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">${L('推荐战队', 'Featured Squads')}</div>
-          <button class="text-link-btn" data-nav="/leaderboard" type="button">${L('查看排行', 'Rankings')} ${icon('chevronRight', 13)}</button>
-        </div>
-        <div>
-          ${squads.map(s => `
-            <div class="list-row">
-              <div>
-                <div style="font-weight:800;">${escapeHtml(s.name)}</div>
-                <div class="num-xs text-muted">${escapeHtml(s.lv)} · ${escapeHtml(s.members)} ${L('人', 'members')}</div>
-              </div>
-              <div class="row-start" style="gap:6px;">
-                <span class="chip chip-gold">${escapeHtml(s.tag)}</span>
-                <button class="btn btn-primary btn-sm" data-join-team="${escapeHtml(s.id)}">${L('加入', 'Join')}</button>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
+    const refId = store.state.referral?.referrerId || null;
+    const inviteContext = refId ? { teamId: 'TM-0001', name: L('A9 冒险战队', 'A9 Quest Squad'), referrer: refId } : null;
+    html = renderUnjoinedHomeHtml({
+      inviteContext,
+      rolePill,
+      isLive: false,
+      hasWallet: true,
+      squads,
+    });
   }
 
-  root.innerHTML = `<div class="col-gap anim-page-enter">${html}<div id="team-stake-referral-mount">${renderTeamStakeReferralCardHtml({ loading: true })}</div></div>`;
+  root.innerHTML = `<div class="col-gap anim-page-enter">${html}</div>`;
   mountTeamStakeReferrals(root);
-
-  const divEl = root.querySelector('#captain-dividend-val');
-  if (divEl) animateSlotCounter(divEl, Number(store.state.user.promoClaimableA9) || 0, { duration: 600, decimals: 0, suffix: ' A9' });
 
   const roleBtn = root.querySelector('#btn-role-sheet');
   if (roleBtn) {
     roleBtn.onclick = () => openChoiceSheet({
-      title: L('切换团队角色视角', 'Switch Squad View'),
+      title: L('切换战队身份 (演示)', 'Switch Squad Role (Demo)'),
       selected: role,
       options: [
-        { value: 'captain', label: L('队长指挥中枢', 'Captain Console'), sub: L('查看全队参与、8% + 6% 返佣与 5,000 A9 创世金库', 'Squad volume, 8% + 6% referral & 5,000 A9 vault') },
-        { value: 'member',  label: L('普通成员视图', 'Member View'),     sub: L('查看战队动态与 8% + 6% 邀友返佣', 'Squad activity & 8% + 6% referral') },
-        { value: 'none',    label: L('未加入 · 团队大厅', 'Squad Lobby'), sub: L('浏览并一键加入活跃战队', 'Browse & join active squads') }
+        { value: 'captain', label: L('队长视图', 'Captain'), sub: L('待办置顶、群核验三态与成员排行', 'Next action, 3-state verification & ranks') },
+        { value: 'member', label: L('队员视图', 'Member'), sub: L('有效邀请、推广奖励与贡献排行', 'Valid invites, referral rewards & ranks') },
+        { value: 'none', label: L('未加入视图', 'Not Joined'), sub: L('查看邀请或选择战队加入', 'View invite or join a squad') },
       ],
       onSelect: (val) => {
-        store.update(s => { s.team.role = val; });
+        store.update((s) => { s.team.role = val; });
         renderTeamHome(root, navigate);
-      }
+      },
     });
   }
-
-  const grpBtn = root.querySelector('#btn-open-group');
-  if (grpBtn) grpBtn.onclick = () => showToast(L('正在打开 TG 团队群...', 'Opening TG group...'));
 
   const switchBtn = root.querySelector('#btn-switch-team');
   if (switchBtn) {
     switchBtn.onclick = () => {
       A9Haptic.light();
-      store.update(s => { s.team.role = 'none'; });
-      showToast(L('已进入团队大厅，可选择新团队（下轮生效）', 'Browse squads to switch (effective next round)'));
+      store.update((s) => { s.team.role = 'none'; });
+      showToast(L('已回到未加入视图，可选择新战队', 'Browse squads to switch'));
       renderTeamHome(root, navigate);
     };
   }
@@ -393,44 +644,18 @@ export function renderTeamHome(root, navigate) {
   if (leaveBtn) {
     leaveBtn.onclick = () => {
       A9Haptic.warning();
-      store.update(s => { s.team.role = 'none'; });
-      showToast(L('已退出当前团队', 'Left squad'), 'amber');
+      store.update((s) => { s.team.role = 'none'; });
+      showToast(L('已退出当前战队', 'Left squad'), 'amber');
       renderTeamHome(root, navigate);
     };
   }
 
-  root.querySelectorAll('[data-join-team]').forEach(b => {
-    b.onclick = async () => {
+  root.querySelectorAll('[data-join-team]').forEach((b) => {
+    b.onclick = () => {
       const tid = b.dataset.joinTeam;
-      if (!config.isDemo) {
-        const uid = getEffectiveUserId(store.state.user);
-        if (!uid) {
-          showToast(L('请在 Telegram 内打开或先连接 TON 钱包', 'Open in Telegram or connect TON wallet first'), 'amber');
-          tonConnect.openConnectModal(() => renderTeamHome(root, navigate));
-          return;
-        }
-        b.disabled = true;
-        try {
-          await joinTeam({
-            teamId: tid,
-            walletAddress: store.state.user.address,
-            userId: uid,
-            referrerId: store.state.referral.referrerId
-          });
-          A9Haptic.success();
-          store.update(s => { s.team.role = 'member'; s.team.id = tid; });
-          showToast(L(`已加入团队 #${tid}`, `Joined #${tid}`));
-          renderTeamHome(root, navigate);
-        } catch (e) {
-          A9Haptic.error();
-          showToast(e?.message || L('加入团队失败，请重试', 'Join team failed'), 'error');
-          b.disabled = false;
-        }
-        return;
-      }
       A9Haptic.success();
-      store.update(s => { s.team.role = 'member'; });
-      showToast(L(`已加入团队 #${tid}`, `Joined #${tid}`));
+      store.update((s) => { s.team.role = 'member'; s.team.id = tid; });
+      showToast(L(`已加入战队 #${tid}`, `Joined #${tid}`));
       renderTeamHome(root, navigate);
     };
   });
