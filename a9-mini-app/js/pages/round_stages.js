@@ -2,7 +2,7 @@ import { renderNintendoGateIcon } from '../paper-art.js';
 import { store } from '../store.js';
 import { config } from '../config.js';
 import { uiMemory } from '../app.js';
-import { formatNum, formatTimer, renderCorridorRadar, renderViralStrip, renderLiveSparkline } from '../components.js';
+import { escapeHtml, formatNum, formatTimer, renderCorridorRadar, renderViralStrip, renderLiveSparkline } from '../components.js';
 import { A9Haptic } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { icon } from '../icons.js';
@@ -23,8 +23,118 @@ function stagePillTrigger(stage, roundNum) {
   return `<button class="pill-trigger" id="btn-stage-sheet" type="button">${text} ${icon('chevronDown', 12)}</button>`;
 }
 
+function toFiniteNum(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function priceOrDash(v) {
-  return (v === null || v === undefined || !Number.isFinite(Number(v)) || Number(v) <= 0) ? '—' : `$${Number(v).toFixed(4)}`;
+  const n = toFiniteNum(v);
+  return (n === null || n <= 0) ? '—' : `$${n.toFixed(4)}`;
+}
+
+/**
+ * v17.0 心理安全垫卡片：头矿 6H (5% 止损) vs 普通 (10% 止损) + 24H 锁仓期提前解押 (退 85% / 烧 15%) + 每轮 100,000 A9 等权空投
+ */
+export function renderSafetyCushionCard(round) {
+  const inFirst6h = Boolean(round?.inFirst6h);
+  const isLocking = round?.stage === 'participation';
+  return `
+    <section class="card safety-cushion-card" id="a9-safety-cushion">
+      <div class="row-between" style="margin-bottom:8px;">
+        <span class="card-title">${icon('shieldCheck', 15, 'text-green')} ${L('v17.0 永不爆仓 · 三重安全垫', 'v17.0 No Liquidation · 3 Safety Cushions')}</span>
+        <span class="chip ${inFirst6h && isLocking ? 'chip-red' : 'chip-green'}">${inFirst6h && isLocking ? L('头矿 6H · 5% 止损', 'First 6H · 5% SL') : L('100,000 A9 空投', '100,000 A9 Airdrop')}</span>
+      </div>
+      <div class="metric-strip cols-3" style="margin:0 0 8px;padding:8px 0;border-bottom:1px solid var(--card-border);">
+        <div class="metric-cell">
+          <span class="num-xs text-muted">${L('头矿 6H 止损', 'First 6H SL')}</span>
+          <span class="num-sm text-green mono" style="font-weight:900;white-space:nowrap;font-size:12px;">5% (${L('退95%', '95%')})</span>
+        </div>
+        <div class="metric-cell">
+          <span class="num-xs text-muted">${L('6H–24H 止损', '6H–24H SL')}</span>
+          <span class="num-sm mono" style="font-weight:900;white-space:nowrap;font-size:12px;">10% (${L('退90%', '90%')})</span>
+        </div>
+        <div class="metric-cell">
+          <span class="num-xs text-muted">${L('锁仓提前解押', '24H Early Exit')}</span>
+          <span class="num-sm text-gold mono" style="font-weight:900;white-space:nowrap;font-size:12px;">${L('退85% (-15%)', '85% (-15%)')}</span>
+        </div>
+      </div>
+      <div class="num-xs text-sec" style="line-height:1.5;">
+        ${L('最低锁仓 100 A9 即自动获得本轮 100,000 A9 等权空投抽奖资格；24H 锁仓期内随时可提前解押，进入 12H 冲价后封盘禁进禁出。', 'Locking 100+ A9 automatically enters the 100,000 A9 per-round equal airdrop. Early Exit is open throughout the 24H lock window and locked during the 12H push.')}
+      </div>
+    </section>
+  `;
+}
+
+/**
+ * v17.0「本轮我的仓位卡」：若用户在本轮有 StakeTicket 持仓，拆行展示头矿 6H / 普通本金与直达提前解押 / 领奖 / 3 折急提入口
+ */
+export function renderMyRoundPositionCard(round, ticket) {
+  if (!ticket) return '';
+  const totalA9 = (ticket.amountRaw !== undefined && ticket.amountRaw !== null) ? (rawToA9(ticket.amountRaw) ?? 0) : (toFiniteNum(ticket.stakeTon) ?? 0);
+  if (totalA9 <= 0) return '';
+  const earlyA9 = (ticket.earlyAmountRaw !== undefined && ticket.earlyAmountRaw !== null) ? (rawToA9(ticket.earlyAmountRaw) ?? 0) : (ticket.isFirst6h ? totalA9 : 0);
+  const lateA9 = (ticket.lateAmountRaw !== undefined && ticket.lateAmountRaw !== null) ? (rawToA9(ticket.lateAmountRaw) ?? 0) : Math.max(0, totalA9 - earlyA9);
+  const stage = round?.stage || '';
+  const isLocking = stage === 'participation' || Boolean(ticket.canEarlyExit);
+  const isObserving = stage === 'observation';
+  const isSuccess = stage === 'settlement_success' || Boolean(ticket.canInstantCashout);
+  const isFail = stage === 'settlement_burn';
+
+  let statusChip = `<span class="chip chip-cyan">${L('持仓中', 'Active')}</span>`;
+  if (ticket.exited) statusChip = `<span class="chip chip-muted">${L('已提前解押 (-15%)', 'Early Exited (-15%)')}</span>`;
+  else if (isLocking) statusChip = `<span class="chip chip-gold">${L('24H 锁仓中 · 可提前解押', '24H Lock · Early Exit Open')}</span>`;
+  else if (isObserving) statusChip = `<span class="chip chip-blue">${L('12H 冲价中 · 封盘锁定', '12H Push · Locked')}</span>`;
+  else if (isSuccess) statusChip = `<span class="chip chip-green">${L('已通关 · 可领 / 3 折急提', 'Passed · Claim / Cashout')}</span>`;
+  else if (isFail) statusChip = `<span class="chip chip-red">${L('未通关 · 可领止损退本', 'Auto Stop-Loss Refund')}</span>`;
+
+  const roundNum = ticket.roundId ?? ticket.round ?? round?.currentRound ?? '—';
+  const claimableA9 = ticket.claimableTotalRaw !== undefined ? (rawToA9(ticket.claimableTotalRaw) ?? null) : null;
+
+  return `
+    <section class="card my-round-pos-card" id="a9-my-round-position" style="border-color:var(--green-border);">
+      <div class="row-between" style="margin-bottom:8px;">
+        <span class="card-title">${icon('wallet', 15, 'text-green')} ${L(`本轮我的仓位 · 第 ${escapeHtml(String(roundNum))} 轮`, `My Position · Round #${escapeHtml(String(roundNum))}`)}</span>
+        ${statusChip}
+      </div>
+      <div class="check-list" style="margin-bottom:10px;">
+        <div class="check-row">
+          <span class="text-sec">${L('本轮总锁仓本金', 'Total Locked Principal')}</span>
+          <b class="mono text-green">${formatNum(totalA9, totalA9 % 1 === 0 ? 0 : 2)} A9</b>
+        </div>
+        <div class="check-row">
+          <span class="text-sec">${L('头矿 6H 本金（5% 止损）', 'First 6H Principal (5% SL)')}</span>
+          <span class="mono">${formatNum(earlyA9, earlyA9 % 1 === 0 ? 0 : 2)} A9</span>
+        </div>
+        <div class="check-row">
+          <span class="text-sec">${L('6H–24H 普通本金（10% 止损）', 'Standard Principal (10% SL)')}</span>
+          <span class="mono">${formatNum(lateA9, lateA9 % 1 === 0 ? 0 : 2)} A9</span>
+        </div>
+        ${claimableA9 !== null ? `
+        <div class="check-row">
+          <span class="text-sec">${L('当前可领总额', 'Claimable Now')}</span>
+          <b class="mono text-gold">${formatNum(claimableA9, 2)} A9</b>
+        </div>` : ''}
+      </div>
+      ${isLocking && !ticket.exited ? `
+        <div class="grid-2" style="gap:8px;">
+          <a class="btn btn-primary btn-sm" href="#/challenge/confirm" style="width:100%;min-height:40px;">${icon('bolt', 13)} ${L('追加锁仓', 'Add Lock')}</a>
+          <a class="btn btn-secondary btn-sm" href="#/claim" style="width:100%;min-height:40px;border-color:var(--red-border, #F3B3B8);color:var(--red);">${icon('flame', 13)} ${L('提前解押 (退 85%)', 'Early Exit (85%)')}</a>
+        </div>
+      ` : (isSuccess || isFail) ? `
+        <div class="grid-2" style="gap:8px;">
+          <a class="btn btn-primary btn-sm" href="#/claim" style="width:100%;min-height:40px;">${icon('wallet', 13)} ${isFail ? L('领回止损退本', 'Claim Stop-Loss') : L('领本金 + 20% 秒提', 'Claim 20% Instant')}</a>
+          <a class="btn btn-secondary btn-sm" href="#/claim" style="width:100%;min-height:40px;">${icon('bolt', 13)} ${isFail ? L('查看凭证明细', 'View Ticket') : L('3 折急提通道', 'Instant Cashout')}</a>
+        </div>
+      ` : `
+        <div class="grid-2" style="gap:8px;">
+          <a class="btn btn-secondary btn-sm" href="#/claim" style="width:100%;min-height:38px;">${icon('shieldCheck', 13)} ${L('查看链上凭证', 'View Ticket')}</a>
+          <a class="btn btn-secondary btn-sm" href="#/observation/records" style="width:100%;min-height:38px;">${icon('clock', 13)} ${L('12H 冲价明细', '12H Slots')}</a>
+        </div>
+      `}
+    </section>
+  `;
 }
 
 /**
@@ -53,11 +163,14 @@ export function renderPlazaCompactBanner(pred, round) {
   if (round && round.stage === 'participation') {
     const openAt = toUnixSec(round.stakeOpenAt);
     const closeAt = toUnixSec(round.stakeCloseAt);
+    const explicitEarlyEnd = toUnixSec(round.earlyCloseAt);
     const nowSec = Math.floor(Date.now() / 1000);
     let remSec = null;
-    if (openAt > 0 && closeAt > openAt) {
-      const earlyEnd = openAt + Math.floor((closeAt - openAt) / 3);
-      if (nowSec < earlyEnd) remSec = earlyEnd - nowSec;
+    const earlyEnd = explicitEarlyEnd > 0
+      ? explicitEarlyEnd
+      : (openAt > 0 && closeAt > openAt ? openAt + Number(round.earlyWindowSeconds || 21600) : 0);
+    if (earlyEnd > 0 && nowSec < earlyEnd) {
+      remSec = earlyEnd - nowSec;
     }
     if ((remSec === null || remSec <= 0) && config.isDemo && Number(round.earlyBirdSec) > 0) {
       remSec = Math.floor(Number(round.earlyBirdSec));
@@ -123,8 +236,8 @@ export function renderPendingVaultBanner(pred, round) {
  * 将 Unix 秒或毫秒时间戳统一归一化为秒
  */
 function toUnixSec(v) {
-  const n = Number(v || 0);
-  if (!Number.isFinite(n) || n <= 0) return 0;
+  const n = toFiniteNum(v);
+  if (n === null || n <= 0) return 0;
   return n > 1e12 ? Math.floor(n / 1000) : Math.floor(n);
 }
 
@@ -135,11 +248,14 @@ export function renderEarlyBirdBanner(round) {
   if (!round || round.stage !== 'participation') return '';
   const openAt = toUnixSec(round.stakeOpenAt);
   const closeAt = toUnixSec(round.stakeCloseAt);
+  const explicitEarlyEnd = toUnixSec(round.earlyCloseAt);
   const nowSec = Math.floor(Date.now() / 1000);
   let remSec = null;
-  if (openAt > 0 && closeAt > openAt) {
-    const earlyEnd = openAt + Number(round.earlyWindowSeconds || 21600);
-    if (nowSec < earlyEnd) remSec = earlyEnd - nowSec;
+  const earlyEnd = explicitEarlyEnd > 0
+    ? explicitEarlyEnd
+    : (openAt > 0 && closeAt > openAt ? openAt + Number(round.earlyWindowSeconds || 21600) : 0);
+  if (earlyEnd > 0 && nowSec < earlyEnd) {
+    remSec = earlyEnd - nowSec;
   }
   if ((remSec === null || remSec <= 0) && config.isDemo && Number(round.earlyBirdSec) > 0) {
     remSec = Math.floor(Number(round.earlyBirdSec));
@@ -179,11 +295,12 @@ export function renderPredictionCard(round, pred, user) {
   }
   const p = pred || {};
   const roundNum = round?.currentRound || 1;
-  const hasStaked = Number(round?.myStakeTon) > 0 || store.state.certificates.some(c => Number(c.round) === Number(roundNum));
+  const myStakeNum = toFiniteNum(round?.myStakeTon);
+  const hasStaked = (myStakeNum !== null && myStakeNum > 0) || store.state.certificates.some(c => Number(c.round) === Number(roundNum));
   const isExpanded = p.expanded !== null && p.expanded !== undefined ? Boolean(p.expanded) : !hasStaked;
-  const passPct = Number.isFinite(Number(p.passPct)) ? Number(p.passPct) : 50;
-  const burnPct = Number.isFinite(Number(p.burnPct)) ? Number(p.burnPct) : 50;
-  const total = Number(p.total) || 0;
+  const passPct = toFiniteNum(p.passPct) ?? 50;
+  const burnPct = toFiniteNum(p.burnPct) ?? 50;
+  const total = toFiniteNum(p.total) ?? 0;
   const bet = p.currentBet || null;
   const settled = Boolean(p.settled || round?.stage === 'settlement_success' || round?.stage === 'settlement_burn');
   const winningSide = p.winningSide || (round?.stage === 'settlement_success' ? 'PASS' : round?.stage === 'settlement_burn' ? 'BURN' : null);
@@ -191,17 +308,17 @@ export function renderPredictionCard(round, pred, user) {
   const effectiveUid = getEffectiveUserId(user);
   const needsIdentity = !effectiveUid;
 
-  const refPrice = (round?.priceValid !== false) ? Number(round?.livePrice || round?.twap24h || 0) : 0;
+  const refPrice = (round?.priceValid !== false) ? (toFiniteNum(round?.livePrice ?? round?.twap24h) ?? 0) : 0;
   const usdEst = (pendingA9 > 0 && refPrice > 0) ? pendingA9 * refPrice : null;
-  const expAt = Number(p.pendingExpiresAt);
-  const expRemSec = (Number.isFinite(expAt) && expAt > Date.now()) ? Math.floor((expAt - Date.now()) / 1000) : null;
+  const expAt = toFiniteNum(p.pendingExpiresAt);
+  const expRemSec = (expAt !== null && expAt > Date.now()) ? Math.floor((expAt - Date.now()) / 1000) : null;
 
-  const inviteCnt = Math.max(0, Number(p.inviteBoostCount) || 0);
+  const inviteCnt = Math.max(0, toFiniteNum(p.inviteBoostCount) ?? 0);
   const inviteBonus = Math.min(0.5, inviteCnt * 0.1);
   const hasExactSlot = bet && bet.guessSlots !== null && bet.guessSlots !== undefined;
   const curWeight = Math.min(2.0, 1.0 + (hasExactSlot ? 0.5 : 0) + inviteBonus);
-  const streak = Number(p.streak) || 0;
-  const winRate = p.winRate !== null && p.winRate !== undefined && Number.isFinite(Number(p.winRate)) ? Number(p.winRate) : null;
+  const streak = toFiniteNum(p.streak) ?? 0;
+  const winRate = toFiniteNum(p.winRate);
   const rankMeta = streak >= 2
     ? `${L(`${streak} 连胜`, `${streak}W`)}${winRate !== null ? ` · ${L(`胜率 ${winRate}%`, `${winRate}% WR`)}` : ''}`
     : (winRate !== null ? L(`胜率 ${winRate}%`, `${winRate}% WR`) : '');
@@ -213,9 +330,10 @@ export function renderPredictionCard(round, pred, user) {
     </div>
   `;
 
-  const qualNow = Number(round?.qualifiedCandles);
-  const isSprint4h = round?.stage === 'observation' && Number(round?.countdownSec) > 0 && Number(round?.countdownSec) <= 14400;
-  const isRedAlert = (isSprint4h && Number.isFinite(qualNow) && qualNow >= 6 && qualNow <= 7) || round?.stage === 'settlement_burn';
+  const qualNow = toFiniteNum(round?.qualifiedCandles);
+  const cdSecNow = toFiniteNum(round?.countdownSec);
+  const isSprint4h = round?.stage === 'observation' && cdSecNow !== null && cdSecNow > 0 && cdSecNow <= 14400;
+  const isRedAlert = (isSprint4h && qualNow !== null && qualNow >= 6 && qualNow <= 7) || round?.stage === 'settlement_burn';
   const headerTag = isRedAlert
     ? `<span class="chip chip-red">${round?.stage === 'settlement_burn' ? L('止损警报 FAIL', 'STOP-LOSS ALERT') : L('最后 4H 红警', '4H RED ALERT')}</span>`
     : isSprint4h
@@ -343,7 +461,7 @@ export function renderWarmupStage(round, user) {
       <div class="num-xs text-muted">${L('单人预热宝箱上限（免本金）', 'Per-User Pre-Round Chest Cap')}</div>
       <div class="num-hero" style="margin-top:4px;">300–900 <span class="num-md text-green">A9</span></div>
       <div class="metric-strip cols-3">
-        <div class="metric-cell"><span class="num-xs text-muted">${L('推广总熔断池', 'Promo Cap')}</span><span class="num-sm">300,000,000 A9</span></div>
+        <div class="metric-cell"><span class="num-xs text-muted">${L('推广总熔断池', 'Promo Cap')}</span><span class="num-sm">550,000,000 A9</span></div>
         <div class="metric-cell"><span class="num-xs text-muted">${L('我的有效直邀', 'Valid Invites')}</span><span class="num-sm text-gold">${user.warmupInvites}</span></div>
         <div class="metric-cell"><span class="num-xs text-muted">${L('开箱门槛', 'Unlock Goal')}</span><span class="num-sm">2–5</span></div>
       </div>
@@ -415,17 +533,8 @@ export function renderParticipation(round) {
       <div class="step-item" ${config.isDemo ? 'data-step-stage="settlement_success"' : ''}><span class="step-num">3</span><span>${L('20% 秒提', '20% Instant')}</span></div>
     </div>
 
+    ${renderSafetyCushionCard(round)}
     ${renderVeteranShieldCard(round, store.state.user)}
-    ${renderPredictionCard(round, store.state.prediction, store.state.user)}
-
-    <div class="grid-4">
-      <button class="cmd-tile" data-nav="/warmup"><span class="icon-badge orange">${icon('flame', 16)}</span><span>${L('预热', 'Pre-Round')}</span></button>
-      <button class="cmd-tile" data-nav="/leaderboard"><span class="icon-badge amber">${icon('trophy', 16)}</span><span>${L('财富榜', 'Rich List')}</span></button>
-      <button class="cmd-tile" data-nav="/proof"><span class="icon-badge sky">${icon('shieldCheck', 16)}</span><span>${L('凭证', 'Pass')}</span></button>
-      <button class="cmd-tile" data-nav="/rules"><span class="icon-badge">${icon('book', 16)}</span><span>${L('指南', 'Guide')}</span></button>
-    </div>
-
-    ${renderViralStrip()}
   `;
 }
 
@@ -433,13 +542,16 @@ export function renderParticipation(round) {
  * 挑战页 12H 冲价总览：重心 100% 放在「达标进度 + 剩余时间 → 12H 冲价盘 → 选中时段依据」
  */
 export function renderObservation(round) {
-  const hasQualified = Number.isInteger(round.qualifiedCandles);
-  const passed = hasQualified ? round.qualifiedCandles : 0;
-  const required = round.minQualifiedCandles || 8;
-  const need = !hasQualified ? null : (Number.isFinite(round.needMore) ? round.needMore : Math.max(0, required - passed));
+  const qualVal = toFiniteNum(round.qualifiedCandles);
+  const hasQualified = qualVal !== null && Number.isInteger(qualVal);
+  const passed = hasQualified ? qualVal : null;
+  const required = toFiniteNum(round.minQualifiedCandles) || 8;
+  const needMoreVal = toFiniteNum(round.needMore);
+  const need = !hasQualified ? null : (needMoreVal !== null ? needMoreVal : Math.max(0, required - passed));
   const pct = hasQualified && required ? Math.round(Math.min(100, (passed / required) * 100)) : 0;
-  const est = round.myWeight > 0 ? estimateRewardA9(round.myStakeTon) : null;
-  const isSprint4h = Number(round.countdownSec) > 0 && Number(round.countdownSec) <= 14400;
+  const est = (toFiniteNum(round.myWeight) ?? 0) > 0 ? estimateRewardA9(round.myStakeTon) : null;
+  const cdSecObs = toFiniteNum(round.countdownSec);
+  const isSprint4h = cdSecObs !== null && cdSecObs > 0 && cdSecObs <= 14400;
   const isRedAlert = isSprint4h && hasQualified && passed >= 6 && passed <= 7;
   const isMatchPoint = isSprint4h || (hasQualified && passed >= Math.max(1, required - 2) && passed < required);
 
@@ -452,7 +564,7 @@ export function renderObservation(round) {
       </div>
       <div class="observatory-status">
         <div class="obs-hero-ratio">
-          <span id="obs-passed-num" data-val="${passed}"><span class="ratio-cur">${passed}</span><span class="ratio-sep">/</span><span class="ratio-req">${required}</span></span>
+          <span id="obs-passed-num" data-val="${passed ?? ''}"><span class="ratio-cur">${passed ?? '—'}</span><span class="ratio-sep">/</span><span class="ratio-req">${required}</span></span>
           <span>${L('个达标时段', 'qualified slots')}</span>
           ${isRedAlert
             ? `<span class="chip chip-red" style="min-height:19px;font-size:10px;padding:0 7px;margin-left:auto;">${L('最后 4H 红警', '4H Red Alert')}</span>`
@@ -462,7 +574,7 @@ export function renderObservation(round) {
         </div>
         <div class="progress-track"><div class="progress-fill" id="obs-progress-fill" style="width:${pct}%"></div></div>
         <div class="row-between obs-sub-row">
-          <span id="obs-need-text">${need === 0 ? L('已达门槛，等待结算', 'Threshold met · awaiting settle') : L(`还差 ${need} 个达标时段`, `${need} more needed`)}</span>
+          <span id="obs-need-text">${need === null ? L('冲价数据待核验', 'Push data pending') : need === 0 ? L('已达门槛，等待结算', 'Threshold met · awaiting settle') : L(`还差 ${need} 个达标时段`, `${need} more needed`)}</span>
           ${est !== null ? `<span class="mono text-sec">${L('预估', 'Est.')} ~${formatNum(est)} A9</span>` : ''}
         </div>
       </div>
@@ -471,19 +583,12 @@ export function renderObservation(round) {
     ${renderVeteranShieldCard(round, store.state.user)}
 
     ${renderCorridorRadar(round.candles || [], round.targetPrice, round.activeCandleSec || 0, round.livePrice, {
-      qualified: passed,
+      qualified: passed ?? 0,
       minQualified: required,
       seen: round.candlesSeen || 0,
       stale: round.stale,
       sprint4h: isSprint4h
     })}
-
-    ${renderPredictionCard(round, store.state.prediction, store.state.user)}
-
-    <div class="grid-2 realm-actions">
-      <button class="btn btn-secondary" data-nav="/proof">${renderNintendoGateIcon('ticket', 20)} ${L('闯关凭证', 'Quest Pass')}</button>
-      <button class="btn btn-secondary" data-nav="/team/invite">${renderNintendoGateIcon('guild', 20)} ${L('邀请海报', 'Poster')}</button>
-    </div>
   `;
 }
 
@@ -628,39 +733,36 @@ export function renderObservationRecords(root) {
 }
 
 export function renderSettlementSuccess(round, user) {
+  const qual = toFiniteNum(round.qualifiedCandles);
+  const req = toFiniteNum(round.minQualifiedCandles) || 8;
   return `
     <div class="card card-hero">
       <div class="row-between" style="margin-bottom:10px;">
         ${stagePillTrigger('settlement_success', round.currentRound)}
-        <span class="chip chip-green">${icon('checkCircle', 11)} ${round.qualifiedCandles}/${round.minQualifiedCandles || 8}</span>
+        <span class="chip chip-green">${icon('checkCircle', 11)} ${qual ?? '—'}/${req}</span>
       </div>
       <div class="num-xs text-muted">${L('实际可领奖励（已结算）', 'Actual claimable (settled)')}</div>
       <div class="num-hero" style="margin-top:4px;">${formatNum(user.a9Claimable)} <span class="num-md text-green">A9</span></div>
       <div class="metric-strip">
-        <div class="metric-cell"><span class="num-xs text-muted">${L('达标时段', 'Qualified slots')}</span><span class="num-md">${round.qualifiedCandles}/${round.minQualifiedCandles || 8}</span></div>
+        <div class="metric-cell"><span class="num-xs text-muted">${L('达标时段', 'Qualified slots')}</span><span class="num-md">${qual ?? '—'}/${req}</span></div>
         <div class="metric-cell"><span class="num-xs text-muted">${L('待解锁奖励', 'Locked')}</span><span class="num-md text-sec">${formatNum(user.a9Locked)} A9</span></div>
       </div>
-      <button class="btn btn-primary" data-nav="/claim">${icon('bolt', 16)} ${L('前往金库领奖', 'Claim Prizes')}</button>
+      <button class="btn btn-primary" data-nav="/claim">${icon('bolt', 16)} ${L('前往领奖 / 3 折急提', 'Claim / Instant Cashout')}</button>
     </div>
-    ${renderPredictionCard(round, store.state.prediction, user)}
-    <div class="grid-2">
-      <button class="btn btn-secondary" data-nav="/records">${icon('clock', 15)} ${L('闯关战绩', 'Quest History')}</button>
-      <button class="btn btn-secondary" data-nav="/team/invite">${icon('qr', 15)} ${L('邀请海报', 'Poster')}</button>
-    </div>
-    ${renderViralStrip()}
   `;
 }
 
 export function renderSettlementFailed(round) {
-  const hasQ = Number.isInteger(round.qualifiedCandles);
-  const reqQ = round.minQualifiedCandles || 8;
-  const failPct = hasQ ? Math.round((round.qualifiedCandles / reqQ) * 100) : 0;
+  const qual = toFiniteNum(round.qualifiedCandles);
+  const hasQ = qual !== null && Number.isInteger(qual);
+  const reqQ = toFiniteNum(round.minQualifiedCandles) || 8;
+  const failPct = hasQ ? Math.round((qual / reqQ) * 100) : 0;
   return `
     ${renderPendingVaultBanner(store.state.prediction, round)}
     <div class="card card-glow-red alert-red-mode" id="burn-monument-card">
       <div class="row-between" style="margin-bottom:10px;">
         ${stagePillTrigger('settlement_burn', round?.currentRound || 1)}
-        <span class="chip chip-red">${L('未通关 · 自动止损', 'Auto Stop-Loss')} ${hasQ ? round.qualifiedCandles : '—'}/${reqQ}</span>
+        <span class="chip chip-red">${L('未通关 · 自动止损', 'Auto Stop-Loss')} ${hasQ ? qual : '—'}/${reqQ}</span>
       </div>
       <div class="progress-track" style="margin-bottom:10px;"><div class="progress-fill red no-anim" style="width:${failPct}%"></div></div>
       <div>
@@ -670,13 +772,51 @@ export function renderSettlementFailed(round) {
       <div class="sub-tile" style="margin-top:10px;">
         <div class="num-xs text-sec" style="line-height:1.5;">${L('分享本轮自动止损与半池通缩战报，下轮宝箱商城享优先通道。', 'Share this Auto Stop-Loss & half-pool burn proof for next-round Chest Mall access.')}</div>
       </div>
-      <button class="btn btn-secondary" data-x-share="burn" type="button" style="margin-top:10px;">${icon('xBrand', 15)} ${L('分享本轮自动止损战报', 'Share Stop-Loss Proof')}</button>
+      <a class="btn btn-primary" href="#/claim" style="margin-top:12px;">${icon('wallet', 15)} ${L('领回 95% / 90% 止损退本', 'Claim 95% / 90% Stop-Loss Refund')}</a>
+      <button class="btn btn-secondary" data-x-share="burn" type="button" style="margin-top:8px;">${icon('xBrand', 15)} ${L('分享本轮自动止损战报', 'Share Stop-Loss Proof')}</button>
     </div>
-    ${renderPredictionCard(round, store.state.prediction, store.state.user)}
-    <div class="grid-2">
-      <button class="btn btn-primary" data-nav="/internal/market">${icon('swap', 15)} ${L('前往宝箱商城', 'Chest Mall')}</button>
-      <button class="btn btn-secondary" data-nav="/warmup">${icon('flame', 15)} ${L('下轮预热', 'Next Pre-Round')}</button>
-    </div>
+  `;
+}
+
+/**
+ * v17.0 每轮等权空投抽奖公示卡片（Demo 展示演示数据，Live 严格展示服务端结果）
+ */
+export function renderAirdropDrawsCard({ loading = false, error = null, items = [], bucketRemainingRaw = null } = {}) {
+  const remA9 = bucketRemainingRaw !== null && bucketRemainingRaw !== undefined ? rawToA9(bucketRemainingRaw) : null;
+  const list = Array.isArray(items) ? items : [];
+  const bodyHtml = loading
+    ? `<div class="num-xs text-muted" style="padding:6px 0;">${L('正在读取每轮空投公示…', 'Loading round airdrop draws…')}</div>`
+    : error
+      ? `<div class="row-between" style="gap:8px;"><span class="num-xs text-red">${escapeHtml(error)}</span><button class="btn btn-secondary btn-sm" id="btn-retry-airdrop-draws" type="button">${L('重试', 'Retry')}</button></div>`
+      : list.length === 0
+        ? `<div class="num-xs text-muted" style="padding:4px 0;">${L('暂无已开奖的每轮空投记录，轮次结算后将自动公示中奖地址与可验证 Seed。', 'No round airdrop draws yet. Winners and verifiable seeds are published upon settlement.')}</div>`
+        : `<div class="col-gap" style="gap:6px;">${list.map((d) => {
+            const prizeA9 = rawToA9(d.prizeRaw) ?? 0;
+            const seedStr = String(d.seedHash || '');
+            const seedShort = seedStr.length > 18 ? `${seedStr.slice(0, 10)}…${seedStr.slice(-6)}` : seedStr;
+            const isCredited = String(d.status || '').toUpperCase() === 'CREDITED';
+            return `
+              <div class="list-row" style="padding:8px 10px;">
+                <div style="min-width:0;">
+                  <div class="num-sm" style="font-weight:800;">${L(`第 ${d.roundId} 轮`, `Round #${d.roundId}`)} · <span class="mono">${escapeHtml(d.winnerWallet || '—')}</span></div>
+                  <div class="num-xs text-muted mono" style="margin-top:2px;">Seed: ${escapeHtml(seedShort || '—')}</div>
+                </div>
+                <div style="text-align:right;flex-shrink:0;">
+                  <div class="num-sm text-green mono" style="font-weight:900;">+${formatNum(Math.round(prizeA9), 0)} A9</div>
+                  <span class="chip ${isCredited ? 'chip-green' : 'chip-gold'}" style="min-height:18px;font-size:9.5px;margin-top:2px;">${isCredited ? L('已入推广金库', 'Credited') : L('待入账', 'Pending')}</span>
+                </div>
+              </div>
+            `;
+          }).join('')}</div>`;
+
+  return `
+    <section class="card" id="a9-airdrop-draws-card">
+      <div class="row-between" style="margin-bottom:8px;">
+        <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('每轮等权空投公示', 'Per-Round Equal Airdrop')}</span>
+        <span class="chip chip-muted mono">${remA9 !== null ? L(`池余 ${formatNum(Math.round(remA9), 0)} A9`, `${formatNum(Math.round(remA9), 0)} A9 Left`) : L('50,000,000 A9 池', '50,000,000 A9 Pool')}</span>
+      </div>
+      ${bodyHtml}
+    </section>
   `;
 }
 

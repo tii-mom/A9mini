@@ -21,6 +21,7 @@ import {
 import { GrowthError, renderOgCardPng, renderOgCardSvg, renderOgLandingHtml } from './growth-engine.mjs';
 import { SocialError, parseStartAppParam, createTelegramBotGroupVerifier } from './social-store.mjs';
 import { AuthError, MemoryIdentityStore, allowedProofDomains, createRequestAuth, expectedChainId, verifyTonProof } from './auth.mjs';
+import { V17RewardError } from './v17-rewards.mjs';
 import { TelegramBroadcaster } from './tg-broadcaster.mjs';
 import { addressKey, normalizeTonAddress } from './ton-address.mjs';
 
@@ -218,6 +219,7 @@ export function createApiRouter({
   progressionEngine = null,
   chestEngine = null,
   budgetLedger = null,
+  v17RewardEngine = null,
   userReader = null,
   identityStore = new MemoryIdentityStore(),
   publicKeyResolver = null,
@@ -294,6 +296,7 @@ export function createApiRouter({
           : { enabled: false, address: null, rateA9PerTon: null, rateA9PerGram: null, open: false };
         base.chestMall = {
           enabled: Boolean(chestEngine),
+          openEnabled: env.A9_CHEST_OPEN_ENABLED === '1',
           skus: Object.values(CHEST_MALL_CATALOG),
           critTiers: PAID_CHEST_CRIT_TIERS,
           deliveryFeeGram: CHEST_DELIVERY_GAS_GRAM,
@@ -636,14 +639,22 @@ export function createApiRouter({
         } catch (_) {
           owner = false;
         }
-        // 链上已有锁仓凭证时，静默自动激活待激活金库到站内可提余额（幂等防重）
+        // 链上已有锁仓凭证时，静默自动激活待激活金库到站内可提余额（按最新轮次与当前过期时间戳构造幂等键，支持跨轮次与新开箱二次激活）
         if (owner && viewerTgUid && enrichedTickets.length > 0 && predictionEngine && promoEngine && typeof predictionEngine.activateToPromo === 'function') {
           try {
-            await predictionEngine.activateToPromo(viewerTgUid, wallet, promoEngine, {
-              qualified: true,
-              nowMs: nowSec * 1000,
-              activationId: `auto:stake:${viewerTgUid}:${enrichedTickets[0].roundId || 0}`,
-            });
+            const predSummary = typeof predictionEngine.getUserSummary === 'function'
+              ? await predictionEngine.getUserSummary(viewerTgUid)
+              : null;
+            const pendingRaw = BigInt(predSummary?.pendingActivationRaw || '0');
+            if (pendingRaw > 0n) {
+              const latestRoundId = enrichedTickets.reduce((max, t) => Math.max(max, Number(t?.roundId || 0)), 0);
+              const expTag = Number(predSummary?.pendingExpiresAt || 0);
+              await predictionEngine.activateToPromo(viewerTgUid, wallet, promoEngine, {
+                qualified: true,
+                nowMs: nowSec * 1000,
+                activationId: `auto:stake:${viewerTgUid}:${latestRoundId}:${expTag}`,
+              });
+            }
           } catch (_) {
             // 无待激活余额或已过期时静默跳过
           }
@@ -937,19 +948,23 @@ export function createApiRouter({
         );
         const view = sanitizeTeamView(team, binding.walletKey);
         if (chestEngine) {
-          view.captainBonus = await chestEngine.grantCaptainFoundingBonus(
-            {
-              teamId: team.teamId,
-              tgChatId: team.tgChatId || null,
-              captainUserId: identity.telegramUserId,
-              captainWallet: walletAddress,
-              tgMemberCount: team.tgMemberCount,
-              teamMemberCount: Number(team.memberCount || 0),
-              predictionEngine,
-              budgetLedger,
-            },
-            nowSec,
-          );
+          if (env.A9_CHEST_OPEN_ENABLED === '1') {
+            view.captainBonus = await chestEngine.grantCaptainFoundingBonus(
+              {
+                teamId: team.teamId,
+                tgChatId: team.tgChatId || null,
+                captainUserId: identity.telegramUserId,
+                captainWallet: walletAddress,
+                tgMemberCount: team.tgMemberCount,
+                teamMemberCount: Number(team.memberCount || 0),
+                predictionEngine,
+                budgetLedger,
+              },
+              nowSec,
+            );
+          } else {
+            view.captainBonus = { granted: false, reason: 'CHEST_OPEN_DISABLED', amountRaw: '0' };
+          }
         }
         return ok(view);
       }
@@ -1078,8 +1093,12 @@ export function createApiRouter({
         const hasCompletedPresale = presaleEngine ? await presaleEngine.hasCompletedPurchase(walletAddress) : false;
         let hasStakeTicket = false;
         if (!hasCompletedPresale && userReader) {
-          const portfolio = await userReader(walletAddress);
-          hasStakeTicket = Array.isArray(portfolio?.tickets) && portfolio.tickets.length > 0;
+          try {
+            const portfolio = await userReader(walletAddress);
+            hasStakeTicket = Array.isArray(portfolio?.tickets) && portfolio.tickets.length > 0;
+          } catch (_) {
+            hasStakeTicket = false;
+          }
         }
         const idemKey = String(body?.activationId || headers['x-idempotency-key'] || headers['X-Idempotency-Key'] || '').trim() || null;
         let hasDirectPaidInvitee = false;
@@ -1363,6 +1382,108 @@ export function createApiRouter({
         );
       }
 
+      // ---------------------------------------------------------------------
+      // v17.0: 8% Pass-Round Stake Referral Credits & Per-Round Equal Airdrop Draws
+      // ---------------------------------------------------------------------
+      if (method === 'GET' && pathname === '/api/v17/stake-referral/me') {
+        if (!v17RewardEngine) return err('V17_REWARD_DISABLED', 'v17 reward engine not configured', 503);
+        const id = await auth.telegram();
+        const binding = await identityStore.getBinding(id.telegramUserId, nowSec);
+        if (!binding?.walletAddress) {
+          return ok({
+            bound: false,
+            walletAddress: null,
+            totalCommissionRaw: '0',
+            creditedRaw: '0',
+            pendingRaw: '0',
+            count: 0,
+            items: [],
+          });
+        }
+        const limit = query.limit ? Number(query.limit) : 50;
+        const data = await v17RewardEngine.getUserStakeReferrals(binding.walletAddress, { limit });
+        return ok({ bound: true, ...data });
+      }
+
+      if (method === 'GET' && pathname === '/api/v17/airdrop/draws') {
+        if (!v17RewardEngine) return err('V17_REWARD_DISABLED', 'v17 reward engine not configured', 503);
+        const roundId = query.roundId !== undefined && query.roundId !== '' ? Number(query.roundId) : null;
+        if (roundId !== null && (!Number.isInteger(roundId) || roundId < 1)) {
+          return err('BAD_REQUEST', 'roundId must be a positive integer', 400);
+        }
+        const limit = query.limit ? Number(query.limit) : 20;
+        return ok(await v17RewardEngine.listAirdropDraws({ roundId, limit, budgetLedger }));
+      }
+
+      if (method === 'POST' && pathname === '/api/admin/v17/stake-referral/settle') {
+        const expectedToken = String(env.A9_ADMIN_TOKEN || '').trim();
+        const providedToken = extractAdminToken(headers);
+        if (!timingSafeEqualStr(providedToken, expectedToken)) {
+          return err('UNAUTHORIZED', 'invalid or missing admin token', 401);
+        }
+        if (!v17RewardEngine) return err('V17_REWARD_DISABLED', 'v17 reward engine not configured', 503);
+        if (!promoEngine) return err('PROMO_DISABLED', 'promo hot wallet not configured', 503);
+        const roundId = Number(body?.roundId);
+        if (!Number.isInteger(roundId) || roundId < 1) {
+          return err('BAD_REQUEST', 'roundId (>=1) is required', 400);
+        }
+        if (Array.isArray(body?.entries)) {
+          const results = [];
+          for (const entry of body.entries) {
+            results.push(
+              await v17RewardEngine.settleStakeReferral(
+                {
+                  roundId,
+                  referrerWallet: entry?.referrerWallet,
+                  refereeWallet: entry?.refereeWallet,
+                  refereeRewardRaw: entry?.refereeRewardRaw,
+                  promoEngine,
+                  budgetLedger,
+                },
+                nowSec,
+              ),
+            );
+          }
+          return ok({ roundId, count: results.length, results });
+        }
+        return ok(
+          await v17RewardEngine.settleStakeReferral(
+            {
+              roundId,
+              referrerWallet: body?.referrerWallet,
+              refereeWallet: body?.refereeWallet,
+              refereeRewardRaw: body?.refereeRewardRaw,
+              promoEngine,
+              budgetLedger,
+            },
+            nowSec,
+          ),
+        );
+      }
+
+      if (method === 'POST' && pathname === '/api/admin/v17/airdrop/draw') {
+        const expectedToken = String(env.A9_ADMIN_TOKEN || '').trim();
+        const providedToken = extractAdminToken(headers);
+        if (!timingSafeEqualStr(providedToken, expectedToken)) {
+          return err('UNAUTHORIZED', 'invalid or missing admin token', 401);
+        }
+        if (!v17RewardEngine) return err('V17_REWARD_DISABLED', 'v17 reward engine not configured', 503);
+        if (!promoEngine) return err('PROMO_DISABLED', 'promo hot wallet not configured', 503);
+        return ok(
+          await v17RewardEngine.drawRoundAirdrop(
+            {
+              roundId: body?.roundId,
+              participants: body?.participants,
+              seedHash: body?.seedHash,
+              prizeRaw: body?.prizeRaw,
+              promoEngine,
+              budgetLedger,
+            },
+            nowSec,
+          ),
+        );
+      }
+
       // Admin: anomalous inbound transfers (no valid order / wrong sender / amount mismatch ...)
       if (pathname === '/api/admin/presale/anomalies' || pathname.startsWith('/api/admin/presale/anomalies/')) {
         const expectedToken = String(env.A9_ADMIN_TOKEN || '').trim();
@@ -1465,8 +1586,8 @@ export function createApiRouter({
           return err('BAD_REQUEST', 'roundId must be a positive integer', 400);
         }
         const rawCandles = Array.isArray(body?.candles) ? body.candles : null;
-        if (!rawCandles || rawCandles.length < 1 || rawCandles.length > 24) {
-          return err('BAD_REQUEST', 'candles array (1..24 items) is required', 400);
+        if (!rawCandles || rawCandles.length < 1 || rawCandles.length > 12) {
+          return err('BAD_REQUEST', 'candles array (1..12 items) is required', 400);
         }
         const seenIdx = new Set();
         const normalized = [];
@@ -1478,14 +1599,14 @@ export function createApiRouter({
           const qualRaw = item?.qualified;
           const qualValid = typeof qualRaw === 'boolean' || qualRaw === 0 || qualRaw === 1;
           if (
-            !Number.isInteger(idx) || idx < 0 || idx > 23 ||
+            !Number.isInteger(idx) || idx < 0 || idx > 11 ||
             seenIdx.has(idx) ||
             !Number.isInteger(pStart) || pStart <= 0 ||
             !Number.isInteger(pEnd) || pEnd <= pStart ||
             !/^\d+$/.test(twapStr) ||
             !qualValid
           ) {
-            return err('BAD_REQUEST', 'invalid candle item (require unique candleIndex 0..23, periodEnd > periodStart > 0, integer twapPriceUsdE8, boolean qualified)', 400);
+            return err('BAD_REQUEST', 'invalid candle item (require unique candleIndex 0..11, periodEnd > periodStart > 0, integer twapPriceUsdE8, boolean qualified)', 400);
           }
           seenIdx.add(idx);
           normalized.push({
@@ -1634,7 +1755,7 @@ export function createApiRouter({
       if (e instanceof BudgetError) return err(e.code, e.message, e.code === 'PROMO_BUDGET_EXHAUSTED' ? 503 : 400);
       if (e instanceof SocialError) return err(e.code, e.message, e.code === 'NOT_CAPTAIN' ? 403 : 400);
       if (e instanceof ChestError) return err(e.code, e.message, e.code === 'FORBIDDEN' ? 403 : 400);
-      if (e instanceof PromoError || e instanceof PresaleError || e instanceof GrowthError) {
+      if (e instanceof PromoError || e instanceof PresaleError || e instanceof GrowthError || e instanceof V17RewardError) {
         return err(e.code, e.message, 400);
       }
       console.error('[a9-api] unhandled internal error:', e?.stack || e?.message || e);

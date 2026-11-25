@@ -17,7 +17,7 @@ function parseArgs(argv) {
     execute: false,
     offline: false,
     strict: false,
-    protocol: process.env.A9_PROTOCOL_VERSION || 'v16',
+    protocol: process.env.A9_PROTOCOL_VERSION || 'v17',
     profile: process.env.A9_PROFILE || process.env.A9_NETWORK || 'testnet',
     queryId: String(Date.now()),
   };
@@ -83,7 +83,7 @@ if (args.action === 'open-round') {
   if (args.candlesFile) {
     if (!args.target) throw new Error('--target <usd_e8> is required with --candles-file');
     if (p.network === 'mainnet' && (!Number.isInteger(args.stakeCloseAt) || args.stakeCloseAt <= 0)) {
-      throw new Error('mainnet settle-round requires --stake-close-at <unix_sec> to verify 24h observation window alignment');
+      throw new Error('mainnet settle-round requires --stake-close-at <unix_sec> to verify 12h observation window alignment');
     }
     const candles = JSON.parse(readFileSync(args.candlesFile, 'utf8'));
     const canEnforceObs = p.timing.observationSeconds % p.timing.candleCount === 0;

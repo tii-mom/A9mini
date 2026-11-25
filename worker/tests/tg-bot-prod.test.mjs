@@ -186,7 +186,7 @@ await test('Webhook commands (/start, /status, /help) reply even when A9_BROADCA
   assert.ok(resStatusEmpty.body.data.replyText.includes('待核验'));
   assert.ok(!resStatusEmpty.body.data.replyText.includes('700,000,000'));
 
-  // 4) /status with real active round (14 qualified candles out of 16 seen)
+  // 4) /status with real active round (7 qualified candles out of 10 seen in 12H push)
   const activeRound = {
     roundId: 3,
     round: {
@@ -208,10 +208,10 @@ await test('Webhook commands (/start, /status, /help) reply even when A9_BROADCA
       lockedTotalRaw: '0',
       stakeCount: 12,
     },
-    candles: Array.from({ length: 16 }, (_, idx) => ({
+    candles: Array.from({ length: 10 }, (_, idx) => ({
       candleIndex: idx,
-      qualified: idx < 14,
-      twapPriceUsdE8: idx < 14 ? '24000000' : '21000000',
+      qualified: idx < 7,
+      twapPriceUsdE8: idx < 7 ? '24000000' : '21000000',
     })),
   };
   const routerLive = createApiRouter({
@@ -231,7 +231,7 @@ await test('Webhook commands (/start, /status, /help) reply even when A9_BROADCA
   assert.ok(resStatusLive.body.data.replyText.includes('#3'));
   assert.ok(resStatusLive.body.data.replyText.includes('$0.2320'));
   assert.ok(resStatusLive.body.data.replyText.includes('700,000,000 A9'));
-  assert.ok(resStatusLive.body.data.replyText.includes('14/12') || resStatusLive.body.data.replyText.includes('/12 时段'));
+  assert.ok(resStatusLive.body.data.replyText.includes('7/12 时段'));
 
   // 5) /help mentions 0.06 GRAM, 0.03 GRAM, AbortRound
   const resHelp = await routerLive({
@@ -352,7 +352,7 @@ await test('TelegramBroadcaster uses apiOrigin for /c/img/*.png and 6% referral 
   await broadcaster.broadcastLast4hAlert({
     roundId: 5,
     round: { targetPriceUsdE8: '15000000' },
-    qualifiedCandles: 13,
+    qualifiedCandles: 6,
     secondsLeft: 7200,
     nowSec: 201,
   });
@@ -360,7 +360,7 @@ await test('TelegramBroadcaster uses apiOrigin for /c/img/*.png and 6% referral 
     roundId: 5,
     round: { rewardBudgetRaw: '700000000000000000' },
     passed: false,
-    qualifiedCandles: 10,
+    qualifiedCandles: 5,
     nowSec: 202,
   });
   await broadcaster.broadcastWhaleExchange({
@@ -372,6 +372,9 @@ await test('TelegramBroadcaster uses apiOrigin for /c/img/*.png and 6% referral 
     },
     nowSec: 203,
   });
+  const whaleCall = calls.find((c) => String(c.body?.text || c.body?.caption || '').includes('战队大额开箱捷报'));
+  assert.ok(whaleCall, 'whale broadcast should be emitted');
+  assert.ok(!String(whaleCall.body?.text || whaleCall.body?.caption || '').includes('2,002'), 'whale broadcast must not include stale fixed quote 2,002');
   await broadcaster.notifyReferralCommission({
     order: { orderId: 'ord_comm_1', tonNano: '10000000000', skuId: 'chest_silver' },
     credit: { orderId: 'ord_comm_1', referrer: '888999', amountRaw: '1201200000000' },

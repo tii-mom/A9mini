@@ -48,6 +48,7 @@ function openChestCelebrationModal(opts = {}) {
 }
 
 const WARMUP_INTENT_OPTIONS = [
+  { key: '100',        zh: '100 A9',     en: '100 A9' },
   { key: '1000',       zh: '1,000 A9',   en: '1,000 A9' },
   { key: '5000',       zh: '5,000 A9',   en: '5,000 A9' },
   { key: '20000_plus', zh: '20,000+ A9', en: '20,000+ A9' },
@@ -549,8 +550,9 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
   let openAllBusy = false;
 
   const isPresaleServerOpen = () => Boolean(store.state.round?.protocolConfig?.presaleHotWallet?.open);
+  const isChestOpenServerEnabled = () => store.state.round?.chestMall?.openEnabled !== false;
   const canPurchaseNow = () => config.isDemo || (store.fundsEnabled && isPresaleServerOpen());
-  const canOpenChestNow = () => config.isDemo || store.fundsEnabled;
+  const canOpenChestNow = () => config.isDemo || (store.fundsEnabled && isChestOpenServerEnabled());
 
   const formatGramFromNano = (nanoStr) => {
     try {
@@ -770,13 +772,13 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
 
           ${!isLocked && !isOpened ? (
             isReady ? `
-              <button class="btn ${canOpenChestNow() ? 'btn-primary' : 'btn-secondary'}" data-open-chest="${c.chestId}" type="button" ${!canOpenChestNow() ? 'disabled' : ''}>
+              <button class="btn ${canOpenChestNow() ? 'btn-primary' : 'btn-secondary'}" data-open-chest="${escapeHtml(c.chestId)}" type="button" ${!canOpenChestNow() ? 'disabled' : ''}>
                 ${icon(canOpenChestNow() ? 'unlock' : 'lock', 15)} ${canOpenChestNow() ? L(`立即开箱领 ${formatNum(Math.round(rewardA9), 0)} A9`, `Open Chest (+${formatNum(Math.round(rewardA9), 0)} A9)`) : L('真实只读模式 · 暂未开放开箱', 'Read-Only Mode')}
               </button>
             ` : `
               <div class="free-action-row">
-                <button class="btn btn-primary btn-sm" data-share-tg="${c.chestId}" type="button" style="width:100%;min-height:42px;">${icon('send', 14)} ${L('TG 邀同行礼', 'Co-Op on TG')}</button>
-                <button class="btn btn-secondary btn-sm" data-share-x="${c.chestId}" type="button" style="width:100%;min-height:42px;">${icon('xBrand', 13)} X</button>
+                <button class="btn btn-primary btn-sm" data-share-tg="${escapeHtml(c.chestId)}" type="button" style="width:100%;min-height:42px;">${icon('send', 14)} ${L('TG 邀同行礼', 'Co-Op on TG')}</button>
+                <button class="btn btn-secondary btn-sm" data-share-x="${escapeHtml(c.chestId)}" type="button" style="width:100%;min-height:42px;">${icon('xBrand', 13)} X</button>
               </div>
             `
           ) : ''}
@@ -821,7 +823,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
               </div>
               <div class="chest-stage-meta">
                 <div class="chest-stage-head">
-                  <h2 class="chest-stage-name">${L(sel.zh, sel.en)}</h2>
+                  <h2 class="chest-stage-name">${escapeHtml(L(sel.zh, sel.en))}</h2>
                   <span class="chip chip-green">${L('合并直发钱包', 'Direct Payout')}</span>
                 </div>
                 <div class="chest-stage-total">${formatNum(sel.baseA9, 0)}–${formatNum(displayTotalA9, 0)} A9</div>
@@ -838,7 +840,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                 const meta = CHEST_TIER_META[tier];
                 const active = sku.skuId === sel.skuId;
                 return `
-                  <button type="button" class="chest-shelf-item ${active ? 'is-selected' : ''}" data-pick-sku="${sku.skuId}" aria-checked="${active}" role="radio">
+                  <button type="button" class="chest-shelf-item ${active ? 'is-selected' : ''}" data-pick-sku="${escapeHtml(sku.skuId)}" aria-checked="${active}" role="radio">
                     ${meta?.hot ? `<span class="chest-hot-tag">${L('热门', 'HOT')}</span>` : ''}
                     ${renderChestSvg(tier, { size: 46 })}
                     <span class="chest-shelf-name">${L(meta.shortZh, meta.shortEn)}</span>
@@ -1071,7 +1073,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
             bonusA9: res.bonusA9,
             totalA9: res.totalA9,
             openedCount: 1,
-            critCount: res.isCrit ? 1 : 0,
+            critCount: (res.isCrit || res.critTier === 'bonus' || res.critTier === 'high' || res.critTier === 'lucky' || res.critTier === 'jackpot' || res.critTier === 'legendary') ? 1 : 0,
             legendaryCount: (res.critTier === 'jackpot' || res.critTier === 'legendary') ? 1 : 0,
           });
           loadChests();
@@ -1122,7 +1124,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
           let insufficientReason = '';
           try {
             const availNanoStr = liveQuota?.availQuotaNano ?? liveQuota?.remainingNano;
-            if (availNanoStr !== undefined && availNanoStr !== null && order?.tonNano) {
+            if (!liveQuota?.unlimitedQuota && availNanoStr !== undefined && availNanoStr !== null && order?.tonNano) {
               if (BigInt(String(order.tonNano)) > BigInt(String(availNanoStr))) {
                 insufficientReason = L('当前剩余购箱额度不足，请降低档位或检查订单', 'Insufficient remaining purchase quota');
               }
@@ -1183,9 +1185,13 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
               const finBase = rawToA9(finOrd?.baseA9Raw ?? finOrd?.a9AmountRaw) ?? orderA9;
               const finBonus = rawToA9(finOrd?.bonusA9Raw) ?? 0;
               const finTotal = rawToA9(finOrd?.totalA9Raw) ?? (finBase + finBonus);
-              const finCritTier = finOrd?.critTier || '';
+              let finCritTier = finOrd?.critTier || '';
+              if (!finCritTier && finBonus > 0 && Number(sel?.maxBoostA9) > 0) {
+                const ratio = finBonus / Number(sel.maxBoostA9);
+                finCritTier = ratio >= 0.45 ? 'jackpot' : (ratio >= 0.15 ? 'lucky' : 'normal');
+              }
               const isFinTop = finCritTier === 'jackpot' || finCritTier === 'legendary';
-              const isFinHigh = isFinTop || finCritTier === 'high' || finCritTier === 'lucky';
+              const isFinHigh = isFinTop || finCritTier === 'high' || finCritTier === 'lucky' || finCritTier === 'bonus';
               openChestCelebrationModal({
                 tier: resolveChestTier(sel || selectedSkuId),
                 title: L(sel?.zh || '宝箱', sel?.en || 'Chest'),

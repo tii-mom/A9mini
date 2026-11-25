@@ -20,7 +20,7 @@ import { TonCenterClient } from './toncenter.mjs';
 import { D1PromoStore } from './d1-promo-store.mjs';
 import { D1PromoBudgetLedger } from './promo-budget.mjs';
 import { D1IdentityStore } from './auth.mjs';
-import { D1SocialStore, D1PresaleStore } from './d1-growth-store.mjs';
+import { D1SocialStore, D1PredictionEngine, D1PresaleStore } from './d1-growth-store.mjs';
 import { D1ChestEngine } from './d1-chest-store.mjs';
 import { TelegramBroadcaster, D1BroadcastLog } from './tg-broadcaster.mjs';
 import { PresalePayoutRunner } from './presale-runner.mjs';
@@ -197,13 +197,19 @@ export function createPayoutDaemon({
     dedupLog: new D1BroadcastLog({ db: ledger }),
   });
 
+  const predictionEngine = new D1PredictionEngine({
+    db: ledger,
+    defaultPoolA9Raw: env.A9_PREDICTION_POOL_A9_RAW || '25000000000000',
+    budgetLedger,
+  });
+
   const presaleEngine = cfg.presaleAddr
     ? new D1PresaleStore({
         db: ledger,
         hotWalletAddress: cfg.presaleAddr,
         rateA9PerTon: BigInt(env.A9_PRESALE_RATE_A9_PER_TON || '2002'),
         minOrderTon: BigInt(env.A9_PRESALE_MIN_ORDER_TON || '5'),
-        maxOrderTon: BigInt(env.A9_PRESALE_MAX_ORDER_TON || '200'),
+        maxOrderTon: BigInt(env.A9_PRESALE_MAX_ORDER_TON || '500'),
         open: env.A9_PRESALE_OPEN === '1',
         deliveryFeeNano: env.A9_PRESALE_DELIVERY_FEE_NANO || undefined,
         refundFeeNano: env.A9_PRESALE_REFUND_FEE_NANO || undefined,
@@ -211,6 +217,7 @@ export function createPayoutDaemon({
         promoEngine,
         socialStore,
         identityStore,
+        predictionEngine,
         chestEngine,
         budgetLedger,
         broadcaster,

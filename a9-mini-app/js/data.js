@@ -26,7 +26,9 @@ import {
   demoWarmupCurrent,
   demoWarmupRegister,
   demoWarmupCancel,
-  demoOpenWarmupChest
+  demoOpenWarmupChest,
+  demoStakeReferralsMe,
+  demoRoundAirdropDraws
 } from './demo-data.js';
 import { A9TMA } from './tma.js';
 import { L } from './i18n.js';
@@ -36,8 +38,8 @@ export const PROTOCOL_SPECS = Object.freeze({
   version: 'v17.0',
   referralPct: 6,
   stakeReferralPct: 8,
-  chestBoostMinPct: 5,
-  chestBoostMaxPct: 30,
+  chestBoostMinPct: 0,
+  chestBoostMaxPct: 66.7,
   deliveryFeeGram: 0.06,
   refundGasGram: 0.03,
   stakeGasGram: 0.30,
@@ -60,7 +62,7 @@ export const PROTOCOL_SPECS = Object.freeze({
   earlyExitBurnPct: 15,
   instantCashoutPct: 30,
   instantCashoutBurnPct: 70,
-  promoCapA9: 300_000_000,
+  promoCapA9: 550_000_000,
   totalSupplyA9: 10_000_000_000,
   rewardPoolA9: 7_000_000_000,
   abortTimeoutDays: 7,
@@ -106,6 +108,14 @@ export const ENDPOINTS = Object.freeze({
   chestOpen: (id) => `/api/chests/${encodeURIComponent(id)}/open`,
   chestsOpenAll: '/api/chests/open-all',
   chestsCritFeed: (limit = 12) => `/api/chests/crit-feed?limit=${encodeURIComponent(limit)}`,
+  v17StakeReferralMe: (limit = 50) => `/api/v17/stake-referral/me?limit=${encodeURIComponent(limit)}`,
+  v17AirdropDraws: ({ roundId = null, limit = 10 } = {}) => {
+    const qs = new URLSearchParams();
+    if (roundId !== null && roundId !== undefined) qs.set('roundId', String(roundId));
+    if (limit !== null && limit !== undefined) qs.set('limit', String(limit));
+    const q = qs.toString();
+    return `/api/v17/airdrop/draws${q ? `?${q}` : ''}`;
+  },
   me: '/api/me',
   meNotifications: '/api/me/notifications',
   tonProofPayload: '/api/auth/ton-proof/payload',
@@ -425,20 +435,20 @@ export async function submitTonProof({ address, network, publicKey, walletStateI
   return request(ENDPOINTS.tonProofVerify, { method: 'POST', body: { address, network, publicKey, walletStateInit, proof, purpose } });
 }
 
-/** 24H 生死预言局：读取本轮多空实时比例 */
+/** 12H 预言擂台：读取本轮多空实时比例 */
 export async function fetchPredictionRound(roundId, stage = 'observation') {
   if (config.isDemo) return demoPredictionRound(roundId, stage);
   return request(ENDPOINTS.predictionRound(roundId));
 }
 
-/** 24H 生死预言局：读取当前用户本轮下注与待激活奖励 */
+/** 12H 预言擂台：读取当前用户本轮下注与待激活奖励 */
 export async function fetchPredictionUser(userId, roundId) {
   if (!userId) return { userId: null, pendingActivationRaw: '0', activatedRaw: '0', currentBet: null };
   if (config.isDemo) return demoPredictionUser(userId, roundId);
   return request(ENDPOINTS.predictionUser(userId, roundId));
 }
 
-/** 24H 生死预言局：提交单轮多空预言（0 TON 参战） */
+/** 12H 预言擂台：提交单轮多空预言（0 GRAM 参战） */
 export async function submitPredictionBet({ roundId, userId, side, guessSlots, referrerId }) {
   if (!userId) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 内打开或先连接 TON 钱包后再提交预言', 'Open inside Telegram or connect a TON wallet before predicting'));
   if (config.isDemo) {
@@ -450,13 +460,13 @@ export async function submitPredictionBet({ roundId, userId, side, guessSlots, r
   }
   const payload = { roundId: Number(roundId), userId: String(userId), side };
   if (guessSlots !== null && guessSlots !== undefined && guessSlots !== '') {
-    payload.guessSlots = Math.max(0, Math.min(24, Math.floor(Number(guessSlots))));
+    payload.guessSlots = Math.max(0, Math.min(12, Math.floor(Number(guessSlots))));
   }
   if (referrerId) payload.referrerId = String(referrerId);
   return request(ENDPOINTS.predictionBet, { method: 'POST', body: payload });
 }
 
-/** 24H 生死预言局：激活待激活预言奖励到 promo_balances（live 只读阶段拦截，实盘态附带幂等键） */
+/** 12H 预言擂台：激活待激活预言奖励到 promo_balances（live 只读阶段拦截，实盘态附带幂等键） */
 export async function activatePredictionReward(userId, walletAddress, activationId = null) {
   if (!userId) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 内打开或先连接 TON 钱包', 'Open inside Telegram or connect a TON wallet'));
   if (!walletAddress) throw new ApiError('WALLET_REQUIRED', L('请先连接 TON 钱包以激活奖励', 'Connect a TON wallet to activate rewards'));
@@ -774,4 +784,17 @@ export async function updateNotificationPrefs({ settlementPush }) {
     method: 'POST',
     body: { settlementPush: Boolean(settlementPush) },
   });
+}
+
+/** v17.0 好友通关 8% 返佣明细（Demo 返回演示数据；Live 严格读取服务端真实数据，无 initData 返回 null） */
+export async function fetchMyStakeReferrals(limit = 50) {
+  if (config.isDemo) return demoStakeReferralsMe(limit);
+  if (!A9TMA.getRawInitData()) return null;
+  return request(ENDPOINTS.v17StakeReferralMe(limit));
+}
+
+/** v17.0 每轮等权空投抽奖公示（公开只读；Live 空态返回空数组，绝不回退演示数据） */
+export async function fetchRoundAirdropDraws({ roundId = null, limit = 10 } = {}) {
+  if (config.isDemo) return demoRoundAirdropDraws(limit);
+  return request(ENDPOINTS.v17AirdropDraws({ roundId, limit }));
 }

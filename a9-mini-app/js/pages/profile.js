@@ -19,7 +19,7 @@ import { openXShareSheet, triggerStoryShare } from '../share.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
-import { fetchUserPortfolio, fetchPromoBalance, fetchPredictionUser, fetchNotificationPrefs, updateNotificationPrefs, getEffectiveUserId, rawToA9 } from '../data.js';
+import { fetchUserPortfolio, fetchPromoBalance, fetchPredictionUser, fetchNotificationPrefs, updateNotificationPrefs, fetchMyStakeReferrals, getEffectiveUserId, rawToA9 } from '../data.js';
 import { pendingTxManager } from '../tx-ux.js';
 
 function renderMiniBarcode() {
@@ -86,6 +86,8 @@ function renderUnifiedVaultHtml({
         <div class="num-lg text-green mono" style="font-weight:900;margin-top:3px;">${loading && !hasAnySum ? L('同步中…', 'Syncing…') : (showQuickSlider && roundClaimableA9 > 0 ? `<span id="a9-claim-num">${formatNum(totalReadyA9 ?? 0)}</span> A9` : fmtA9(totalReadyA9))}</div>
       </div>
 
+      <a class="btn btn-primary btn-sm" href="#/claim" style="width:100%;min-height:42px;margin:8px 0 6px;">${icon('bolt', 14)} ${L('前往领奖 / 3 折急提 / 提前解押', 'Claim / Instant Cashout / Early Exit')} ›</a>
+
       ${showQuickSlider && fundsEnabled && roundClaimableA9 > 0 ? `<div id="profile-quick-slider" style="margin:8px 0;"></div>` : ''}
 
       <div class="profile-asset-telemetry" style="margin:8px 0 10px;">
@@ -118,7 +120,7 @@ function renderUnifiedVaultHtml({
         <a class="unified-vault-row" href="#/team/invite">
           <div>
             <div class="num-sm" style="font-weight:800;">${L('站内赏金余额 · 一键 0.06 GRAM 全提', 'Off-Chain Bounty · 1-Tap 0.06 GRAM Withdraw')}</div>
-            <div class="num-xs text-muted">${L('6% 返佣 + 预言激活 + 免费箱奖励合并一笔提现', '6% referral + prediction + free chests in one tx')}</div>
+            <div class="num-xs text-muted">${L('好友通关 8% 返佣 + 商城直推 6% + 每轮空投合并一笔提现', '8% pass referral + 6% mall + round airdrop in one tx')}</div>
           </div>
           <div class="unified-vault-val">
             <b class="mono text-gold">${fmtA9(promoClaimableA9)}</b>
@@ -154,6 +156,59 @@ function renderUnifiedVaultHtml({
   `;
 }
 
+function renderStakeReferralCardHtml({ loading = false, error = null, data = null } = {}) {
+  const totalA9 = data ? (rawToA9(data.totalCommissionRaw) ?? 0) : null;
+  const creditedA9 = data ? (rawToA9(data.creditedRaw) ?? 0) : null;
+  const pendingA9 = data ? (rawToA9(data.pendingRaw) ?? 0) : null;
+  const items = Array.isArray(data?.items) ? data.items : [];
+  const unbound = data && data.bound === false;
+
+  let body = '';
+  if (loading) {
+    body = `<div class="num-xs text-muted">${L('正在读取好友通关 8% 返佣明细…', 'Loading 8% pass referral credits…')}</div>`;
+  } else if (error) {
+    body = `<div class="row-between" style="gap:8px;"><span class="num-xs text-red">${escapeHtml(error)}</span><button class="btn btn-secondary btn-sm" id="btn-retry-profile-ref" type="button">${L('重试', 'Retry')}</button></div>`;
+  } else if (!data || unbound) {
+    body = `<div class="num-xs text-muted">${L('在 Telegram 内打开并绑定钱包后，好友通关的 8% 返佣将自动计入站内赏金，可合并 0.06 GRAM 一键提现。', 'Open in Telegram and bind your wallet to earn 8% pass referral credits, claimable together via 0.06 GRAM gas.')}</div>`;
+  } else {
+    body = `
+      <div class="metric-strip cols-3" style="margin:6px 0 8px;">
+        <div class="metric-cell"><span class="num-xs text-muted">${L('累计 8% 返佣', 'Total 8%')}</span><span class="num-sm text-green mono" style="font-weight:800;">${formatNum(totalA9, 2)} A9</span></div>
+        <div class="metric-cell"><span class="num-xs text-muted">${L('已入赏金池', 'Credited')}</span><span class="num-sm mono" style="font-weight:800;">${formatNum(creditedA9, 2)} A9</span></div>
+        <div class="metric-cell"><span class="num-xs text-muted">${L('待入账', 'Pending')}</span><span class="num-sm text-gold mono" style="font-weight:800;">${formatNum(pendingA9, 2)} A9</span></div>
+      </div>
+      ${items.length === 0
+        ? `<div class="num-xs text-muted">${L('暂无好友通关返佣记录，分享邀请链接即可享好友通关奖金 8% 返佣。', 'No 8% pass referral credits yet. Share your invite link to earn 8% when friends pass a round.')}</div>`
+        : `<div class="col-gap" style="gap:6px;">${items.slice(0, 5).map((it) => {
+            const commA9 = rawToA9(it.commissionRaw) ?? 0;
+            const isCred = String(it.status || '').toUpperCase() === 'CREDITED';
+            return `
+              <div class="list-row" style="padding:7px 10px;">
+                <div>
+                  <div class="num-sm" style="font-weight:800;">${L(`第 ${it.roundId} 轮`, `Round #${it.roundId}`)} · <span class="mono">${escapeHtml(it.refereeWallet || '—')}</span></div>
+                  <div class="num-xs text-muted">${L('好友通关 8% 返佣', '8% Pass Referral')}</div>
+                </div>
+                <div style="text-align:right;">
+                  <div class="num-sm text-green mono" style="font-weight:900;">+${formatNum(commA9, 2)} A9</div>
+                  <span class="chip ${isCred ? 'chip-green' : 'chip-gold'}" style="min-height:18px;font-size:9.5px;">${isCred ? L('已入赏金', 'Credited') : L('待入账', 'Pending')}</span>
+                </div>
+              </div>
+            `;
+          }).join('')}</div>`}
+    `;
+  }
+
+  return `
+    <section class="card" id="profile-stake-referral-card">
+      <div class="row-between" style="margin-bottom:6px;">
+        <div class="card-title">${icon('team', 15, 'text-gold')} ${L('好友通关 8% 返佣明细', '8% Pass Referral Credits')}</div>
+        <a class="text-link-btn" href="#/team/invite">${L('合并 0.06 GRAM 领', 'Claim (0.06 GRAM)')} ›</a>
+      </div>
+      ${body}
+    </section>
+  `;
+}
+
 export function renderProfileHome(root, navigate) {
   if (!config.isDemo) {
     const seq = ++profileRenderSeq;
@@ -166,6 +221,7 @@ export function renderProfileHome(root, navigate) {
       <div class="col-gap anim-page-enter">
         ${identityStage({ walletAddr, gramText })}
         <div id="profile-unified-vault-mount"></div>
+        <div id="profile-stake-referral-mount">${renderStakeReferralCardHtml({ loading: Boolean(A9TMA.getRawInitData()) })}</div>
         <div class="profile-dock-grid" aria-label="${L('快捷功能', 'Quick Actions')}">
           <button class="profile-dock-tile" data-nav="/proof" type="button">
             <span class="profile-dock-icon tone-red">${icon('shieldCheck', 18)}</span>
@@ -267,6 +323,28 @@ export function renderProfileHome(root, navigate) {
         });
       });
     }
+
+    const loadProfileStakeRefs = () => {
+      const refMount = root.querySelector('#profile-stake-referral-mount');
+      if (!refMount) return;
+      if (!A9TMA.getRawInitData()) {
+        refMount.innerHTML = renderStakeReferralCardHtml({ loading: false, data: null });
+        return;
+      }
+      refMount.innerHTML = renderStakeReferralCardHtml({ loading: true });
+      fetchMyStakeReferrals(20)
+        .then((res) => {
+          if (seq !== profileRenderSeq || !refMount.isConnected) return;
+          refMount.innerHTML = renderStakeReferralCardHtml({ loading: false, data: res });
+        })
+        .catch((e) => {
+          if (seq !== profileRenderSeq || !refMount.isConnected) return;
+          refMount.innerHTML = renderStakeReferralCardHtml({ loading: false, error: e?.message || L('返佣明细读取失败', 'Failed to load referral credits') });
+          const retryBtn = refMount.querySelector('#btn-retry-profile-ref');
+          if (retryBtn) retryBtn.onclick = () => loadProfileStakeRefs();
+        });
+    };
+    loadProfileStakeRefs();
     return;
   }
 
@@ -370,6 +448,7 @@ export function renderProfileHome(root, navigate) {
         ${identityStage({ modePill, walletAddr, gramText })}
 
         ${unifiedVaultDemoHtml}
+        <div id="profile-stake-referral-mount">${renderStakeReferralCardHtml({ loading: true })}</div>
 
         <div class="profile-dock-grid" aria-label="${L('快捷功能', 'Quick Actions')}">
           <button class="profile-dock-tile" data-nav="/proof" type="button">
@@ -465,6 +544,12 @@ export function renderProfileHome(root, navigate) {
   }
 
   bindIdentityStage(root, () => renderProfileHome(root, navigate));
+  const demoRefMount = root.querySelector('#profile-stake-referral-mount');
+  if (demoRefMount) {
+    fetchMyStakeReferrals(20)
+      .then((res) => { if (demoRefMount.isConnected) demoRefMount.innerHTML = renderStakeReferralCardHtml({ loading: false, data: res }); })
+      .catch(() => {});
+  }
 
   const modeBtn = root.querySelector('#btn-profile-mode');
   if (modeBtn) {
@@ -675,6 +760,9 @@ function renderLiveTicketClaimPage(root) {
               : `<div class="col-gap">
                   ${tickets.map((t) => {
                     const amtA9 = rawToA9(t.amountRaw) ?? 0;
+                    const earlyAmtA9 = rawToA9(t.earlyAmountRaw) ?? 0;
+                    const lateAmtA9 = rawToA9(t.lateAmountRaw) ?? 0;
+                    const hasSplitPrincipal = earlyAmtA9 > 0 || lateAmtA9 > 0;
                     const lockedClaimedA9 = rawToA9(t.lockedClaimedRaw ?? t.rewardClaimedRaw) ?? 0;
                     const immLabel = t.immediateClaimed ? L('已领', 'Claimed') : L('待领', 'Unclaimed');
                     const isPending = Boolean(t.pending);
@@ -737,6 +825,11 @@ function renderLiveTicketClaimPage(root) {
                           <span>${L('凭证本金', 'Principal')}</span>
                           <b class="mono">${formatNum(amtA9, 2)} A9</b>
                         </div>
+                        ${hasSplitPrincipal ? `
+                        <div class="row-between num-xs text-muted" style="margin-top:3px;">
+                          <span>${L('头矿 6H（5% 止损）/ 普通（10% 止损）', 'First 6H (5% SL) / Std (10% SL)')}</span>
+                          <span class="mono">${formatNum(earlyAmtA9, 2)} / ${formatNum(lateAmtA9, 2)} A9</span>
+                        </div>` : ''}
                         ${hasPreview ? `
                         <div class="row-between num-xs text-sec" style="margin-top:4px;">
                           <span>${(rState === 'FAILED_PERMANENT' || rState === 'FAILED') ? L('可领止损退本 / 已销毁止损', 'Stop-Loss Refund / Burned') : L('当前可领（本金 + 奖金）', 'Claimable Now')}</span>
@@ -744,7 +837,7 @@ function renderLiveTicketClaimPage(root) {
                         </div>
                         ${lockedRemA9 > 0 ? `
                         <div class="row-between num-xs text-sec" style="margin-top:4px;">
-                          <span>${Number.isFinite(Number(t.unlockedPctBps)) ? L(`14 天逐秒待解锁（已解锁 ${(Number(t.unlockedPctBps) / 100).toFixed(2)}%）`, `14D Unlock Remaining (${(Number(t.unlockedPctBps) / 100).toFixed(2)}% unlocked)`) : L('14 天逐秒待解锁奖金', '14D Unlock Remaining')}</span>
+                          <span>${(t.unlockedPctBps !== null && t.unlockedPctBps !== undefined && Number.isFinite(Number(t.unlockedPctBps))) ? L(`14 天逐秒待解锁（已解锁 ${(Number(t.unlockedPctBps) / 100).toFixed(2)}%）`, `14D Unlock Remaining (${(Number(t.unlockedPctBps) / 100).toFixed(2)}% unlocked)`) : L('14 天逐秒待解锁奖金', '14D Unlock Remaining')}</span>
                           <b class="mono text-gold">${formatNum(lockedRemA9, 2)} A9</b>
                         </div>` : ''}` : `
                         <div class="row-between num-xs text-sec" style="margin-top:4px;">
@@ -824,7 +917,8 @@ function renderLiveTicketClaimPage(root) {
               lockedClaimedRaw: String(ticket.lockedClaimedRaw ?? ticket.rewardClaimedRaw ?? '0'),
             }
           : null;
-        const prevBalanceRaw = portfolio?.a9BalanceRaw !== null && portfolio?.a9BalanceRaw !== undefined ? BigInt(portfolio.a9BalanceRaw) : null;
+        const safeRawBigInt = (val) => (typeof val === 'string' && /^\d+$/.test(val.trim()) ? BigInt(val.trim()) : null);
+        const prevBalanceRaw = safeRawBigInt(portfolio?.a9BalanceRaw);
 
         claimingAddr = ticketAddr;
         paint();
@@ -859,7 +953,8 @@ function renderLiveTicketClaimPage(root) {
                   String(nextTicket.lockedClaimedRaw ?? nextTicket.rewardClaimedRaw ?? '0') !== prevSnap.lockedClaimedRaw
                 ),
               );
-              const balIncreased = prevBalanceRaw !== null && next.a9BalanceRaw !== null && BigInt(next.a9BalanceRaw) > prevBalanceRaw;
+              const nextBalRaw = safeRawBigInt(next.a9BalanceRaw);
+              const balIncreased = prevBalanceRaw !== null && nextBalRaw !== null && nextBalRaw > prevBalanceRaw;
               if (ticketUpdated || balIncreased) {
                 portfolio = next;
                 return {
@@ -917,12 +1012,62 @@ function renderLiveTicketClaimPage(root) {
           confirmText: L('确认并签名 3 折急提', 'Confirm & Sign Instant Cashout'),
         });
         if (!ok) return;
+        const safeRawBigInt = (val) => (typeof val === 'string' && /^\d+$/.test(val.trim()) ? BigInt(val.trim()) : null);
+        const prevBalanceRaw = safeRawBigInt(portfolio?.a9BalanceRaw);
         claimingAddr = ticketAddr;
         paint();
         try {
           await tonConnect.sendV15TicketClaim(ticketAddr, BigInt(Date.now()), { instantDiscount: true });
           A9Haptic.success();
-          showToast(L('已提交 3 折急提交易，等待链上确认…', 'Instant Cashout sent, awaiting confirmation…'));
+          A9Audio.confirm();
+          showToast(L('已提交 3 折急提交易，正在核验链上到账…', 'Instant Cashout sent, awaiting on-chain finality…'));
+          const pendingTx = pendingTxManager.start({
+            kind: 'claim',
+            title: `第 ${ticket?.roundId ?? '—'} 轮 3 折急提`,
+            titleEn: `Round #${ticket?.roundId ?? '—'} Instant Cashout`,
+            amountText: '0.34 GRAM Gas',
+            explorerAddress: ticketAddr,
+            targetRoute: '/claim',
+            maxAttempts: 12,
+          });
+          pendingTxManager.pollUntilConfirmed({
+            txId: pendingTx?.id,
+            intervalMs: 4000,
+            maxAttempts: 12,
+            checkFn: async () => {
+              const addr = store.state.user.address;
+              if (!addr) return false;
+              const next = await fetchUserPortfolio(addr);
+              if (!next) return false;
+              const nextTicket = next.tickets?.find((item) => item.ticketAddress === ticketAddr);
+              const nextBalRaw = safeRawBigInt(next.a9BalanceRaw);
+              const balIncreased = prevBalanceRaw !== null && nextBalRaw !== null && nextBalRaw > prevBalanceRaw;
+              // 仅当字段为明确字符串 '0'（非 null/undefined 缺值）或 forfeited=true 时判结清，避免索引器缺值误报确认
+              const ticketSettled = Boolean(
+                nextTicket && !nextTicket.pending && (
+                  Boolean(nextTicket.forfeited) ||
+                  (typeof nextTicket.lockedRemainingRaw === 'string' && nextTicket.lockedRemainingRaw.trim() === '0')
+                ),
+              );
+              if (ticketSettled || balIncreased) {
+                portfolio = next;
+                return {
+                  confirmed: true,
+                  detail: '3 折急提已上链确认，余额与凭证状态已更新。',
+                  detailEn: 'Instant Cashout confirmed on-chain; balance and ticket updated.',
+                };
+              }
+              return false;
+            },
+            onConfirmed: () => {
+              showToast(L('3 折急提已确认到账！', 'Instant Cashout confirmed on-chain!'));
+              if (root.isConnected) paint();
+            },
+            onTimeout: () => {
+              showToast(L('区块确认耗时较长，可点击顶部状态条前往 Tonviewer 核验', 'Confirmation taking longer; check Tonviewer via top bar'), 'amber');
+              if (root.isConnected) paint();
+            },
+          });
           await loadTickets();
         } catch (e) {
           A9Haptic.error();
@@ -961,12 +1106,61 @@ function renderLiveTicketClaimPage(root) {
           confirmText: L('确认并签名提前解押', 'Confirm & Sign Early Exit'),
         });
         if (!ok) return;
+        const safeRawBigInt = (val) => (typeof val === 'string' && /^\d+$/.test(val.trim()) ? BigInt(val.trim()) : null);
+        const prevBalanceRaw = safeRawBigInt(portfolio?.a9BalanceRaw);
         claimingAddr = ticketAddr;
         paint();
         try {
           await tonConnect.sendV17TicketEarlyExit(ticketAddr);
           A9Haptic.success();
-          showToast(L('已提交提前解押交易，等待链上确认…', 'Early Exit sent, awaiting confirmation…'));
+          A9Audio.confirm();
+          showToast(L('已提交提前解押交易，正在核验链上到账…', 'Early Exit sent, awaiting on-chain finality…'));
+          const pendingTx = pendingTxManager.start({
+            kind: 'claim',
+            title: `第 ${ticket?.roundId ?? '—'} 轮提前解押`,
+            titleEn: `Round #${ticket?.roundId ?? '—'} Early Exit`,
+            amountText: '0.34 GRAM Gas',
+            explorerAddress: ticketAddr,
+            targetRoute: '/claim',
+            maxAttempts: 12,
+          });
+          pendingTxManager.pollUntilConfirmed({
+            txId: pendingTx?.id,
+            intervalMs: 4000,
+            maxAttempts: 12,
+            checkFn: async () => {
+              const addr = store.state.user.address;
+              if (!addr) return false;
+              const next = await fetchUserPortfolio(addr);
+              if (!next) return false;
+              const nextTicket = next.tickets?.find((item) => item.ticketAddress === ticketAddr);
+              const nextBalRaw = safeRawBigInt(next.a9BalanceRaw);
+              const balIncreased = prevBalanceRaw !== null && nextBalRaw !== null && nextBalRaw > prevBalanceRaw;
+              const ticketExited = Boolean(
+                nextTicket && !nextTicket.pending && (
+                  Boolean(nextTicket.exited) ||
+                  (typeof nextTicket.amountRaw === 'string' && nextTicket.amountRaw.trim() === '0')
+                ),
+              );
+              if (ticketExited || balIncreased) {
+                portfolio = next;
+                return {
+                  confirmed: true,
+                  detail: '提前解押已上链确认，85% 本金已退回钱包。',
+                  detailEn: 'Early Exit confirmed on-chain; 85% principal refunded.',
+                };
+              }
+              return false;
+            },
+            onConfirmed: () => {
+              showToast(L('提前解押已确认到账！', 'Early Exit confirmed on-chain!'));
+              if (root.isConnected) paint();
+            },
+            onTimeout: () => {
+              showToast(L('区块确认耗时较长，可点击顶部状态条前往 Tonviewer 核验', 'Confirmation taking longer; check Tonviewer via top bar'), 'amber');
+              if (root.isConnected) paint();
+            },
+          });
           await loadTickets();
         } catch (e) {
           A9Haptic.error();

@@ -33,12 +33,12 @@
 > **生产写操作红线**：本步中的**远程生产 D1 迁移（`--remote`）**与**生产 Worker Secrets 注入（`wrangler secret put`）**均直接写入生产 Cloudflare 环境，**必须由业主单独书面授权后方可执行**；未获单独授权前仅可进行本地只读预演与静态资产核对。
 
 1. **发布静态前端与元数据（含官网分域对齐）**：若独立官网（`a9-official-web/`）占根域 `https://a9.lat`，推荐 Mini App 部署至 `https://app.a9.lat` 并同步更新 `tonconnect-manifest.json` 的 `url`、`A9_PUBLIC_ORIGIN` 与 `A9_TON_PROOF_DOMAINS`，同时确保根域或静态域上的 `a9.json`、`tonconnect-manifest.json` 与 `assets/token/a9-token-2048.png` 返回 `HTTP 200` 且带 `Access-Control-Allow-Origin: *`（`a9-mini-app/_headers` 已内置）；确认 `window.__A9_CONFIG__.liveFundsEnabled = false`；
-2. **生产 D1 迁移（0001..0013，写生产库 · 须单独授权）**：
+2. **生产 D1 迁移（0001..0015，写生产库 · 须单独授权）**：
 ```bash
 cd /Users/yu1/Desktop/A9mini/worker
 npx wrangler d1 migrations apply a9mini-v15-prod --remote --env production
 ```
-   验收项：先备份存量库再按序执行 13 份迁移（含 `0011_warmup_reservations_v2.sql`、`0012_actuarial_hardening.sql` 与 `0013_user_notification_prefs.sql`），确认 `promo_budget_ledger`（3 亿 A9 4 槽位）、`captain_founding_bonuses` 唯一索引、`user_notification_prefs` 及所有表索引就绪、`PRAGMA integrity_check = ok`。
+   验收项：先备份存量库再按序执行 15 份迁移（含 `0011_warmup_reservations_v2.sql`、`0012_actuarial_hardening.sql`、`0013_user_notification_prefs.sql`、`0014_v17_price_unlock.sql` 与 `0015_v17_1_chest_direct_payout.sql`），确认 `promo_budget_ledger`（550,000,000 A9 6 槽位）、`stake_referral_credits`、`round_jackpot_draws`、`captain_founding_bonuses` 唯一索引、`user_notification_prefs` 及所有表索引就绪、`PRAGMA integrity_check = ok`。
 3. **注入生产 Worker Secrets（写生产环境 · 须单独授权，严禁写入 wrangler.toml）**：
 ```bash
 cd /Users/yu1/Desktop/A9mini/worker
@@ -49,8 +49,8 @@ npx wrangler secret put TONCENTER_API_KEY --env production
 ```
 4. **前端只读验收**：在移动端 `390×844` 打开正式 Telegram Mini App，确认广场/闯关/宝箱商城（`#/internal/market` 与 `#/market`）/战队/我的零报错、零 Emoji、数字完整不缩写、所有资金按钮只读禁用，且 `tonconnect-manifest.json` 握手正常。
 
-### 1B. 主网 4 合约部署（v16.2）、铸币弃权与 82 亿注资（暂不开轮）
-先验证 `v16/ci/artifacts.sha256`（4/4，已锁定 v16.2：通关退 100% 本金 + 秒领 20% 奖励 + 余下 80% 分 40 天按秒线性释放 `A9_VESTING_SECONDS=3456000`；空轮无论胜负 100% 滚存零销毁；失败折半向上取整；完整 `onBouncedMessage` 回滚与 O(1) `retry-payouts` 重试；两段式 `MintOnce -> 验收到账 -> DropMinterAdmin` 弃权）与 Acton 单元测试全部通过，导出主网必填部署变量（`A9_DEPLOY_WALLET`、`A9_TREASURY_WALLET`、`A9_KEEPER_ADDRESS`、`A9_ROUND_OPENER_ADDRESS`、`A9_TEAM_WALLET_ADDRESS`、`A9_METADATA_URI`），先只读干跑预检，再由业主单独书面授权执行：
+### 1B. 主网 4 合约部署（v17.0 涨价解锁）、铸币弃权与 82 亿注资（暂不开轮）
+先验证 `v17/ci/artifacts.sha256`（4/4，已锁定 v17.0 涨价解锁：24H 锁仓（头矿 6H `A9_EARLY_WINDOW_SECONDS=21600` 享 5% 轻止损 / 之后 10% 止损，锁仓期可提前解押退 85% / 烧 15%）→ 封盘 12H 冲价 `A9_OBS_SECONDS=43200`（>= 8/12 通关）；通关退 100% 本金 + 秒领 20% 奖励 + 余下 80% 分 14 天逐秒线性解锁 `A9_VESTING_SECONDS=1209600`，支持随时对未解锁余额 3 折急提 / 7 折销毁；空轮无论胜负 100% 滚存零销毁；未通关自动退本 95%/90% 且奖池与团队结转向上取整折半；两段式 `MintOnce -> 验收到账 -> DropMinterAdmin` 弃权）与 Acton 单元测试全部通过，导出主网必填部署变量（`A9_DEPLOY_WALLET`、`A9_TREASURY_WALLET`、`A9_KEEPER_ADDRESS`、`A9_ROUND_OPENER_ADDRESS`、`A9_TEAM_WALLET_ADDRESS`、`A9_METADATA_URI`），先只读干跑预检，再由业主单独书面授权执行：
 ```bash
 cd /Users/yu1/Desktop/A9mini/ops
 export A9_DEPLOY_WALLET="<mainnet_deployer_wallet_name>"
@@ -60,12 +60,12 @@ export A9_ROUND_OPENER_ADDRESS="<mainnet_opener_addr>"
 export A9_TEAM_WALLET_ADDRESS="<mainnet_team_multisig_addr>"
 export A9_METADATA_URI="https://app.a9.lat/a9.json"
 
-# 1) 只读干跑预检（零链上消息，派生并核对合约地址与钱包余额；主网默认 vestingSeconds=3456000）
-node scripts/deploy-v15.mjs --protocol v16 --profile mainnet --strict --dry-run
+# 1) 只读干跑预检（零链上消息，派生并核对合约地址与钱包余额；主网默认 earlyWindowSeconds=21600 / obsSeconds=43200 / vestingSeconds=1209600）
+node scripts/deploy-v15.mjs --protocol v17 --profile mainnet --strict --dry-run
 
-# 2) 业主书面授权后执行真实主网铸币、验明实收 100 亿后再弃权、并注资 82 亿至 RoundController（部署后暂不开轮）
+# 2) 业主书面授权后执行真实主网铸币、验明实收 10,000,000,000 A9 后再弃权、并注资 8,200,000,000 A9 至 RoundController（部署后暂不开轮）
 OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
-  node scripts/deploy-v15.mjs --protocol v16 --profile mainnet --strict --execute
+  node scripts/deploy-v15.mjs --protocol v17 --profile mainnet --strict --execute
 ```
 核验输出：
 - `JettonMaster` `totalSupply === 10,000,000,000 A9` 且 `mintable === false`（永久弃权）；
@@ -75,7 +75,8 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
 ### 1C. 回填主网合约地址并部署只读 Worker（三开关保持 `"0"`）
 确认 `[env.production.vars]` 全部必填变量非空（尤其 `A9_TON_PROOF_DOMAINS` 与两枚独立热钱包地址，缺任一项均触发 fail-closed 503）：
 - `A9_NETWORK = "mainnet"`
-- `A9_PROTOCOL_VERSION = "v16"`
+- `A9_PROTOCOL_VERSION = "v17"`
+- `A9_OBS_SECONDS = "43200"`、`A9_VESTING_SECONDS = "1209600"`、`A9_EARLY_WINDOW_SECONDS = "21600"`
 - `TONCENTER_API_BASE = "https://toncenter.com/api/v2"`
 - `A9_PUBLIC_ORIGIN = "https://app.a9.lat"`
 - `A9_API_ORIGIN = "https://api.a9.lat"`（Telegram 战报卡片 `/c/img/*.png` 必须走 Worker API 域，绝不可误拼静态前端域）
@@ -94,7 +95,7 @@ npx wrangler deploy --env production
 
 ### 1D. 波次 1 必过验收项
 1. `GET https://api.<domain>/api/health` 返回 `200`，`checks.db.ok === true`；
-2. `GET https://api.<domain>/api/config` 返回 `network: "mainnet"`、`protocolVersion: "v16"`、`presaleHotWallet.open: false`、6 档宝箱纯整数 SKU（含 500 GRAM 传说宝箱、不限个人购箱上限）、无伪造数据；
+2. `GET https://api.<domain>/api/config` 返回 `network: "mainnet"`、`protocolVersion: "v17"`、`presaleHotWallet.open: false`、`chestMall.openEnabled: false`、6 档宝箱纯整数 SKU（含 500 GRAM 传说宝箱、不限个人购箱上限）、无伪造数据；
 3. 使用已鉴权且已绑定钱包的会话调用 `POST /api/presale/intent`（带 `skuId: "chest_bronze"`）返回 `400 PRESALE_CLOSED`（匿名请求先返回 `401`）；调用 `POST /api/chests/:id/open` 返回 `403 CHEST_OPEN_DISABLED`；
 4. 移动端 `390×844` 打开正式 Telegram Mini App，完成 Telegram `initData` 与 `ton_proof` 验签绑定，全站只读无报错。
 
@@ -106,7 +107,7 @@ npx wrangler deploy --env production
 - `presaleHotWallet` 与 `promoHotWallet` 相互完全独立且均已从 `treasury` 划入当批 A9 库存与 GRAM 启动储备；
 - 独立签名主机已创建权限 `chmod 600` 的 `~/.config/a9-mainnet/daemon.env`，包含完整必填项：
   - `A9_NETWORK=mainnet`
-  - `A9_PROTOCOL_VERSION=v16`
+  - `A9_PROTOCOL_VERSION=v17`
   - `CLOUDFLARE_ACCOUNT_ID=<account_id>`
   - `CLOUDFLARE_D1_DATABASE_ID=<prod_d1_id>`
   - `CLOUDFLARE_API_TOKEN=<d1_edit_token>`
@@ -157,31 +158,31 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES node scripts/setup-tg-bot.mjs --execute \
 
 ---
 
-## 3. 波次 3：开启 `v16` 主网阶段 C 闯关质押
+## 3. 波次 3：开启 `v17` 主网阶段 C 闯关锁仓
 
 **前置门禁**：
 - STON.fi 主网 A9/GRAM 初始流动性池已建立并产生稳定 24H TWAP 行情；
 - 再次核对 `RoundController` JettonWallet 余额精确为 `8,200,000,000 A9` 且 `teamWallet` 为正确多签/硬件地址；
 
-### 3.1 轮次日常运维（主网强制严格 K 线对齐）
+### 3.1 轮次日常运维（主网强制严格 12 根 1H K 线对齐）
 ```bash
 cd /Users/yu1/Desktop/A9mini/ops
-export A9_ROUND_CONTROLLER_ADDRESS="<mainnet_v16_rc_addr>"
+export A9_ROUND_CONTROLLER_ADDRESS="<mainnet_v17_rc_addr>"
 
-# 开轮（必须显式指定 --round，目标价须严格落在 [1.50x, 2.50x] 走廊内；由 A9_OPENER_WALLET 或 --signer 指定独立开轮钱包）
+# 开轮（必须显式指定 --round，目标价须严格落在 [1.30x, 2.00x] 走廊内；由 A9_OPENER_WALLET 或 --signer 指定独立开轮钱包）
 OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
-  node scripts/round-ops.mjs --protocol v16 --profile mainnet --action open-round \
-    --round 1 --twap 116000 --target 232000 --execute
+  node scripts/round-ops.mjs --protocol v17 --profile mainnet --action open-round \
+    --round 1 --twap 116000 --target 174000 --execute
 
-# 单笔结算（主网强制 --candles-file 与 --stake-close-at，自动与链上 get_round 交叉核验 target/stakeCloseAt；由 A9_KEEPER_WALLET 或 --signer 指定独立结算钱包；附 0.4 TON Gas）
+# 单笔结算（主网强制 12 根 --candles-file 与 --stake-close-at，自动与链上 get_round 交叉核验 target/stakeCloseAt；由 A9_KEEPER_WALLET 或 --signer 指定独立结算钱包；附 0.4 TON Gas）
 OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
-  node scripts/round-ops.mjs --protocol v16 --profile mainnet --action settle-round \
-    --round 1 --target 232000 --candles-file /path/to/r1-candles.json \
+  node scripts/round-ops.mjs --protocol v17 --profile mainnet --action settle-round \
+    --round 1 --target 174000 --candles-file /path/to/r1-candles.json \
     --stake-close-at <unix_sec> --execute
 
 # 若极端拥堵导致结算附带的团队释放/销毁 bounce 积压在 pendingTeamReleaseRaw / pendingBurnRaw，可无许可一键重放（幂等 O(1)）
 OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
-  node scripts/round-ops.mjs --protocol v16 --profile mainnet --action retry-payouts --execute
+  node scripts/round-ops.mjs --protocol v17 --profile mainnet --action retry-payouts --execute
 ```
 
 ---

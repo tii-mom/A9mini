@@ -273,7 +273,7 @@ export class TelegramBroadcaster {
     round,
     candles = [],
     nowSec = Math.floor(Date.now() / 1000),
-    observationSeconds = 86400,
+    observationSeconds = 43200,
     dmLimit = 25,
   }) {
     if (!this._canSend() || !roundId || !round) return [];
@@ -281,7 +281,7 @@ export class TelegramBroadcaster {
     const rId = Number(roundId);
     const status = Number(round.status);
     const stakeCloseAt = Number(round.stakeCloseAt || 0);
-    const obsEnd = stakeCloseAt > 0 ? stakeCloseAt + Number(observationSeconds || 86400) : 0;
+    const obsEnd = stakeCloseAt > 0 ? stakeCloseAt + Number(observationSeconds || 43200) : 0;
 
     // 事件 ①：新轮开启（头矿 6H · 5% 轻止损窗口）
     if (status === 1 && stakeCloseAt > nowSec) {
@@ -289,11 +289,11 @@ export class TelegramBroadcaster {
       results.push(await this.sendWarmupOpeningReminders({ roundId: rId, round, limit: dmLimit, nowSec }));
     }
 
-    // 事件 ③：12H 冲价期最后 4 小时冲刺/焦灼警报
+    // 事件 ③：12H 冲价期最后 4 小时冲刺/焦灼警报（6..7 格距 8 格仅一步之遥）
     if (status === 1 && stakeCloseAt > 0 && nowSec >= stakeCloseAt && obsEnd > nowSec && (obsEnd - nowSec) <= 14400) {
       const candlesSeen = Array.isArray(candles) ? candles.length : 0;
       const qualFromCandles = candlesSeen > 0 ? candles.filter((c) => Boolean(c.qualified)).length : null;
-      const shouldFire = qualFromCandles === null || (qualFromCandles >= 12 && qualFromCandles <= 15);
+      const shouldFire = qualFromCandles === null || (qualFromCandles >= 6 && qualFromCandles <= 7);
       if (shouldFire) {
         results.push(await this.broadcastLast4hAlert({
           roundId: rId,
@@ -401,7 +401,7 @@ export class TelegramBroadcaster {
           text: [
             `战队大额开箱捷报 · ${t.name}`,
             `成员 ${maskWallet(order.walletAddress)} 刚在宝箱商城购入【${chestLabel}】：`,
-            `实付 ${gramText} GRAM → 本金已确认入账 ${a9Text} A9（固定报价 1 GRAM = 2,002 A9）`,
+            `实付 ${gramText} GRAM → 已确认合并直发 ${a9Text} A9（保底 + 随机区间加赠直发钱包）`,
             `链上成交可查，本队同步享有 6% 邀友奖励归因。`,
           ].join('\n'),
           buttonText: '前往宝箱商城查看档位',

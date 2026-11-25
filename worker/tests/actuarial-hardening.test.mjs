@@ -253,12 +253,21 @@ for (const backend of ['memory', 'd1']) {
     assert.equal(vRebindGroup.body.data.captainBonus.granted, false);
     assert.equal((await predictionEngine.getUserSummary('202')).pendingActivationRaw, '0');
 
-    // 4) Same captain 201 creates TM-C3 with a BRAND NEW group (-100999) -> blocked by captain_user_id/wallet dedup!
+    // 4a) Same captain 201 trying to create a new team within 7-day cooldown must be blocked (cannot bypass joinTeam cooldown via bind-tg)
     verifierResp = { botInGroup: true, operatorIsAdmin: true, chatId: '-100999', groupHandle: '@g999', tgMemberCount: 90 };
-    await router({ method: 'POST', pathname: '/api/team/bind-tg', headers: await tgHeaders(201, { nowSec: 1035 }), body: { teamId: 'TM-C3', name: 'C3', tgGroupHandle: '@g999' }, nowSec: 1035 });
-    await socialStore.joinTeam({ teamId: 'TM-C3', walletAddress: W('e7') }, 1036);
-    await socialStore.joinTeam({ teamId: 'TM-C3', walletAddress: W('e8') }, 1037);
-    const vSameCap = await router({ method: 'POST', pathname: '/api/team/verify-tg', headers: await tgHeaders(201, { nowSec: 1040 }), body: { teamId: 'TM-C3' }, nowSec: 1040 });
+    if (backend === 'd1') {
+      const rCooldown = await router({ method: 'POST', pathname: '/api/team/bind-tg', headers: await tgHeaders(201, { nowSec: 1035 }), body: { teamId: 'TM-C3', name: 'C3', tgGroupHandle: '@g999' }, nowSec: 1035 });
+      assert.equal(rCooldown.status, 400);
+      assert.equal(rCooldown.body.error.code, 'TEAM_SWITCH_COOLDOWN');
+    }
+
+    // 4b) After 7-day cooldown, captain 201 creates TM-C3 with a BRAND NEW group (-100999) -> still blocked by captain_user_id/wallet dedup!
+    const afterCooldownSec = 1000 + 7 * 86400 + 60;
+    const rBindC3 = await router({ method: 'POST', pathname: '/api/team/bind-tg', headers: await tgHeaders(201, { nowSec: afterCooldownSec }), body: { teamId: 'TM-C3', name: 'C3', tgGroupHandle: '@g999' }, nowSec: afterCooldownSec });
+    assert.equal(rBindC3.status, 200);
+    await socialStore.joinTeam({ teamId: 'TM-C3', walletAddress: W('e7') }, afterCooldownSec + 1);
+    await socialStore.joinTeam({ teamId: 'TM-C3', walletAddress: W('e8') }, afterCooldownSec + 2);
+    const vSameCap = await router({ method: 'POST', pathname: '/api/team/verify-tg', headers: await tgHeaders(201, { nowSec: afterCooldownSec + 5 }), body: { teamId: 'TM-C3' }, nowSec: afterCooldownSec + 5 });
     assert.equal(vSameCap.status, 200);
     assert.equal(vSameCap.body.data.captainBonus.granted, false);
     assert.equal((await predictionEngine.getUserSummary('201')).pendingActivationRaw, String(5_000n * A9));

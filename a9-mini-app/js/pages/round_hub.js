@@ -8,6 +8,7 @@ import {
   submitPredictionBet,
   activatePredictionReward,
   fetchUserPortfolio,
+  fetchRoundAirdropDraws,
   getEffectiveUserId,
   rawToA9,
   serverNowMs,
@@ -38,8 +39,77 @@ import {
   renderTechnicalHalt,
   renderPredictionCard,
   renderPendingVaultBanner,
-  renderEarlyBirdBanner
+  renderEarlyBirdBanner,
+  renderSafetyCushionCard,
+  renderMyRoundPositionCard,
+  renderAirdropDrawsCard
 } from './round_stages.js';
+
+let activeRoundDeckTab = 'pred';
+
+function renderRoundInteractDeck(round, prediction, user) {
+  return `
+    <section class="round-interact-deck" id="a9-round-interact-deck">
+      <div class="seg-tabs" id="round-deck-tabs">
+        <button type="button" class="seg-tab ${activeRoundDeckTab === 'pred' ? 'active' : ''}" data-round-tab="pred">${L('12H 预言擂台', '12H Arena')}</button>
+        <button type="button" class="seg-tab ${activeRoundDeckTab === 'airdrop' ? 'active' : ''}" data-round-tab="airdrop">${L('每轮 100,000 A9 空投', '100,000 A9 Airdrop')}</button>
+      </div>
+      <div id="round-pane-pred" ${activeRoundDeckTab === 'pred' ? '' : 'hidden'}>
+        ${renderPredictionCard(round, prediction, user)}
+      </div>
+      <div id="round-pane-airdrop" ${activeRoundDeckTab === 'airdrop' ? '' : 'hidden'}>
+        <div id="a9-airdrop-draws-mount">${renderAirdropDrawsCard({ loading: true })}</div>
+      </div>
+    </section>
+  `;
+}
+
+function bindRoundDeckTabs(root) {
+  root.querySelectorAll('[data-round-tab]').forEach((btn) => {
+    btn.onclick = () => {
+      const next = btn.dataset.roundTab === 'airdrop' ? 'airdrop' : 'pred';
+      if (next === activeRoundDeckTab) return;
+      A9Haptic.light();
+      A9Audio.tick();
+      activeRoundDeckTab = next;
+      root.querySelectorAll('[data-round-tab]').forEach((b) => b.classList.toggle('active', b.dataset.roundTab === activeRoundDeckTab));
+      const predPane = root.querySelector('#round-pane-pred');
+      const airPane = root.querySelector('#round-pane-airdrop');
+      if (predPane) predPane.hidden = activeRoundDeckTab !== 'pred';
+      if (airPane) airPane.hidden = activeRoundDeckTab !== 'airdrop';
+    };
+  });
+}
+
+async function syncMyRoundPositionCard(root) {
+  const mount = root.querySelector('#a9-my-round-position-mount');
+  if (!mount) return;
+  const { round, user, certificates } = store.state;
+  const curRoundId = round?.currentRound;
+  if (curRoundId === null || curRoundId === undefined) {
+    mount.innerHTML = '';
+    return;
+  }
+  if (config.isDemo) {
+    const cert = (certificates || []).find((c) => Number(c.round) === Number(curRoundId)) || null;
+    mount.innerHTML = cert ? renderMyRoundPositionCard(round, { ...cert, isFirst6h: Boolean(round?.inFirst6h) }) : '';
+    return;
+  }
+  if (!user?.address) {
+    mount.innerHTML = '';
+    return;
+  }
+  try {
+    const port = await fetchUserPortfolio(user.address);
+    if (!mount.isConnected || store.state.user.address !== user.address) return;
+    const ticket = Array.isArray(port?.tickets)
+      ? port.tickets.find((t) => Number(t.roundId) === Number(curRoundId))
+      : null;
+    mount.innerHTML = ticket ? renderMyRoundPositionCard(round, ticket) : '';
+  } catch (_) {
+    if (mount.isConnected) mount.innerHTML = '';
+  }
+}
 
 export function renderChallengeHome(root, navigate) {
   const { round, user } = store.state;
@@ -49,10 +119,17 @@ export function renderChallengeHome(root, navigate) {
     return;
   }
 
+  if (store.state.referral.pendingScrollTarget === 'prediction') {
+    activeRoundDeckTab = 'pred';
+  }
+
   if (!config.isDemo) {
-    root.innerHTML = `<div class="col-gap anim-page-enter">${renderPendingVaultBanner(store.state.prediction, round)}${renderEarlyBirdBanner(round)}${liveRound(round)}${renderPredictionCard(round, store.state.prediction, user)}</div>`;
+    root.innerHTML = `<div class="col-gap anim-page-enter">${renderPendingVaultBanner(store.state.prediction, round)}${renderEarlyBirdBanner(round)}${liveRound(round)}<div id="a9-my-round-position-mount"></div>${stage === 'participation' ? renderSafetyCushionCard(round) : ''}${renderRoundInteractDeck(round, store.state.prediction, user)}</div>`;
+    bindRoundDeckTabs(root);
     bindPredictionCardEvents(root, navigate);
     syncPredictionState(root, navigate);
+    syncAirdropDrawsCard(root);
+    syncMyRoundPositionCard(root);
     handlePendingDeepLinkScroll(root);
     return;
   }
@@ -68,7 +145,7 @@ export function renderChallengeHome(root, navigate) {
             ? renderTechnicalHalt(round)
             : renderSettlementFailed(round);
 
-  root.innerHTML = `<div class="col-gap anim-page-enter">${body}</div>`;
+  root.innerHTML = `<div class="col-gap anim-page-enter">${body}<div id="a9-my-round-position-mount"></div>${stage !== 'warmup' && stage !== 'halted' ? renderRoundInteractDeck(round, store.state.prediction, user) : `<div id="a9-airdrop-draws-mount">${renderAirdropDrawsCard({ loading: true })}</div>`}</div>`;
 
   const stageBtn = config.isDemo ? root.querySelector('#btn-stage-sheet') : null;
   if (stageBtn) {
@@ -116,11 +193,36 @@ export function renderChallengeHome(root, navigate) {
     };
   });
 
+  bindRoundDeckTabs(root);
   bindCorridorRadarEvents(root);
   bindXShareTriggers(root);
   bindPredictionCardEvents(root, navigate);
   syncPredictionState(root, navigate);
+  syncAirdropDrawsCard(root);
+  syncMyRoundPositionCard(root);
   handlePendingDeepLinkScroll(root);
+}
+
+async function syncAirdropDrawsCard(root) {
+  const mount = root.querySelector('#a9-airdrop-draws-mount');
+  if (!mount) return;
+  try {
+    const data = await fetchRoundAirdropDraws({ limit: 5 });
+    if (!mount.isConnected) return;
+    mount.innerHTML = renderAirdropDrawsCard({
+      loading: false,
+      items: Array.isArray(data?.items) ? data.items : [],
+      bucketRemainingRaw: data?.bucketRemainingRaw ?? null,
+    });
+  } catch (e) {
+    if (!mount.isConnected) return;
+    mount.innerHTML = renderAirdropDrawsCard({
+      loading: false,
+      error: e?.message || L('每轮空投公示暂不可读取', 'Airdrop draws unavailable'),
+    });
+    const retryBtn = mount.querySelector('#btn-retry-airdrop-draws');
+    if (retryBtn) retryBtn.onclick = () => syncAirdropDrawsCard(root);
+  }
 }
 
 function bindXShareTriggers(root) {
@@ -657,7 +759,6 @@ export function renderParticipateConfirm(root, navigate) {
       ? Math.max(100, Math.min(amtParam, availFloor))
       : Math.max(100, amtParam);
   }
-  let calcWeight = [2.0, 1.4, 1.0].includes(Number(round.myEarlyTier)) ? Number(round.myEarlyTier) : 2.0;
   let riskAgreed = false;
   let submitting = false;
 
@@ -710,14 +811,6 @@ export function renderParticipateConfirm(root, navigate) {
   const riskRow = root.querySelector('#risk-consent-row');
   const riskBox = root.querySelector('#risk-box-ic');
 
-  summaryCard?.querySelectorAll('[data-calc-weight]').forEach((b) => {
-    b.onclick = () => {
-      A9Haptic.tick();
-      calcWeight = Number(b.dataset.calcWeight) || 2.0;
-      updateStakeSummaryCardDom(summaryCard, { amountA9: amount, round, weightMultiplier: calcWeight, minStakeA9: 100 });
-    };
-  });
-
   const toggleRisk = () => {
     A9Haptic.tick();
     riskAgreed = !riskAgreed;
@@ -730,7 +823,7 @@ export function renderParticipateConfirm(root, navigate) {
 
   const syncAll = (val) => {
     amount = Math.max(0, Number(val) || 0);
-    updateStakeSummaryCardDom(summaryCard, { amountA9: amount, round, weightMultiplier: calcWeight, minStakeA9: 100 });
+    updateStakeSummaryCardDom(summaryCard, { amountA9: amount, round, minStakeA9: 100 });
     if (accLbl && store.fundsEnabled) accLbl.textContent = L(`无法滑动？点此无障碍确认锁仓 ${formatNum(amount)} A9`, `Can’t slide? Tap to confirm lock ${formatNum(amount)} A9`);
     const maxBal = user.a9Available !== null && user.a9Available !== undefined ? Math.floor(Number(user.a9Available) || 0) : 0;
     root.querySelectorAll('[data-amt]').forEach(b => {
@@ -853,7 +946,6 @@ function renderLiveStakeConfirm(root, navigate) {
   let portfolio = null;
   let loadError = null;
   let amountA9 = amtParam !== null ? Math.max(minStakeA9, amtParam) : minStakeA9;
-  let calcWeight = 2.0;
   let riskAgreed = false;
   let submitting = false;
 
@@ -927,19 +1019,11 @@ function renderLiveStakeConfirm(root, navigate) {
     `;
 
     const summaryCard = root.querySelector('#live-stake-summary-card');
-    summaryCard?.querySelectorAll('[data-calc-weight]').forEach((b) => {
-      b.onclick = () => {
-        A9Haptic.tick();
-        calcWeight = Number(b.dataset.calcWeight) || 2.0;
-        updateStakeSummaryCardDom(summaryCard, { amountA9, round, weightMultiplier: calcWeight, minStakeA9 });
-      };
-    });
-
     const inputEl = root.querySelector('#live-stake-a9-input');
     if (inputEl) {
       inputEl.oninput = (e) => {
         amountA9 = Math.max(0, Number(e.target.value) || 0);
-        updateStakeSummaryCardDom(summaryCard, { amountA9, round, weightMultiplier: calcWeight, minStakeA9 });
+        updateStakeSummaryCardDom(summaryCard, { amountA9, round, minStakeA9 });
         const btn = root.querySelector('#btn-live-stake-submit');
         if (btn && !submitting && !pendingTxManager.isLocked('stake')) {
           btn.innerHTML = `${icon('bolt', 16)} ${L(`签名锁仓 ${formatNum(amountA9)} A9（+ 0.30 GRAM Gas）`, `Sign & Lock ${formatNum(amountA9)} A9 (+ 0.30 GRAM Gas)`)}`;
@@ -954,7 +1038,7 @@ function renderLiveStakeConfirm(root, navigate) {
           : Number(b.dataset.liveAmt);
         amountA9 = Math.max(minStakeA9, v);
         if (inputEl) inputEl.value = amountA9;
-        updateStakeSummaryCardDom(summaryCard, { amountA9, round, weightMultiplier: calcWeight, minStakeA9 });
+        updateStakeSummaryCardDom(summaryCard, { amountA9, round, minStakeA9 });
         const btn = root.querySelector('#btn-live-stake-submit');
         if (btn && !submitting && !pendingTxManager.isLocked('stake')) {
           btn.innerHTML = `${icon('bolt', 16)} ${L(`签名锁仓 ${formatNum(amountA9)} A9（+ 0.30 GRAM Gas）`, `Sign & Lock ${formatNum(amountA9)} A9 (+ 0.30 GRAM Gas)`)}`;
@@ -1121,7 +1205,14 @@ export function renderParticipateSuccess(root, navigate, certId) {
 
   const bars = [2, 1, 3, 1, 2, 2, 1, 3, 1, 2];
   const miniBarcode = `<span class="receipt-barcode" aria-hidden="true">${bars.map((w) => `<i style="width:${w}px;"></i>`).join('')}</span>`;
-  const estReward = Number(cert.estRewardA9) || Math.round((Number(cert.stakeTon) || 0) * (Number(cert.multiplier) || 1) * 7.5);
+  const estRaw = estimateRewardA9(cert.stakeTon, store.state.round);
+  const estReward = estRaw !== null && Number.isFinite(estRaw)
+    ? Math.round(estRaw)
+    : (Number(cert.estRewardA9) || Math.round((Number(cert.stakeTon) || 0) * 5));
+  const isFirst6h = Boolean(store.state.round?.inFirst6h);
+  const slTag = isFirst6h
+    ? L('头矿 6H · 5% 止损', 'First 6H · 5% Stop-Loss')
+    : L('普通窗口 · 10% 止损', 'Standard · 10% Stop-Loss');
 
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
@@ -1143,7 +1234,8 @@ export function renderParticipateSuccess(root, navigate, certId) {
           <div style="text-align:center;padding:4px 0 2px;">
             <div class="icon-badge neon" style="width:44px;height:44px;margin:0 auto 8px;border-radius:13px;">${icon('checkCircle', 22)}</div>
             <div style="font-size:17.5px;font-weight:900;color:var(--ink);">${L('入场成功 · 凭证已盖章出征', 'Quest Entry Sealed')}</div>
-            <div class="num-lg text-green mono" style="margin:5px 0 6px;font-weight:900;">${formatNum(cert.stakeTon)} A9 · ${(Number(cert.multiplier) || 1).toFixed(1)}×</div>
+            <div class="num-lg text-green mono" style="margin:5px 0 4px;font-weight:900;">${formatNum(cert.stakeTon)} A9 · ${L('全员 1:1 · 封顶 5×', '1:1 Fair · 5× Cap')}</div>
+            <div class="num-xs text-gold" style="margin-bottom:6px;font-weight:700;">${slTag}</div>
             <button type="button" class="cert-hash-copy-btn" id="copy-tx" style="margin:0 auto;">
               <span class="mono">#${escapeHtml(cert.id)}</span>
               ${icon('copy', 11)}
@@ -1162,8 +1254,8 @@ export function renderParticipateSuccess(root, navigate, certId) {
               <strong>8 / 12</strong>
             </div>
             <div class="cert-metric-tile is-gold">
-              <small>${L('12H 冲价', '12H Push')}</small>
-              <strong class="text-gold">${L('已启动', 'LIVE')}</strong>
+              <small>${L('单轮封顶', 'Round Cap')}</small>
+              <strong class="text-gold">5×</strong>
             </div>
           </div>
         </div>
@@ -1185,7 +1277,7 @@ export function renderParticipateSuccess(root, navigate, certId) {
         </div>
       </section>
 
-      <button class="btn btn-nt-green" id="share-cert-btn">${icon('send', 15)} ${L('分享战绩 · 邀友奖励 6%', 'Share · 6% Invite')}</button>
+      <button class="btn btn-nt-green" id="share-cert-btn">${icon('send', 15)} ${L('分享战绩 · 通关 8% + 商城 6% 返佣', 'Share · 8% Pass + 6% Mall')}</button>
       <div class="grid-2">
         <button class="btn btn-secondary" data-nav="${cert?.id ? `/proof/${escapeHtml(cert.id)}` : '/proof'}">${icon('shieldCheck', 15)} ${L('闯关凭证', 'Quest Pass')}</button>
         <button class="btn btn-secondary" data-nav="/round">${icon('radar', 15)} ${L('查看冲价盘', '12H Board')}</button>

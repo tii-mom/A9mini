@@ -210,6 +210,8 @@ test('Live mode blocks all wallet sends and fund order requests even with connec
         roundId: 1,
       }));
       await tryCall('sendV15TicketClaim', () => tonConnect.sendV15TicketClaim('EQ_TICKET'));
+      await tryCall('sendV15TicketClaimInstant', () => tonConnect.sendV15TicketClaim('EQ_TICKET', 99n, { instantDiscount: true }));
+      await tryCall('sendV17TicketEarlyExit', () => tonConnect.sendV17TicketEarlyExit('EQ_TICKET'));
       await tryCall('sendV15PromoFee', () => tonConnect.sendV15PromoFee({ payTo: 'EQ_PROMO', feeRequiredNano: '60000000', memo: 'claim:abc123' }));
       await tryCall('requestPromoClaimIntent', () => requestPromoClaimIntent('0:' + '11'.repeat(32)));
       await tryCall('requestPresaleIntent', () => requestPresaleIntent('0:' + '11'.repeat(32), 10));
@@ -303,7 +305,7 @@ test('Live mode allows Plaza & Chest Mall read-only view when /api/config is hea
               return {
                 ok: true,
                 data: {
-                  protocolVersion: 'v16',
+                  protocolVersion: 'v17',
                   network: 'mainnet',
                   presaleHotWallet: { enabled: true, open: false },
                   poolState: { dataAvailable: false, currentRoundId: null, poolRemainingRaw: null },
@@ -419,7 +421,7 @@ test('W2: URL parameter cannot enable liveFundsEnabled; only explicit injected c
   assert.equal(blocked.code, 'LIVE_FUNDS_DISABLED');
   assert.equal(blocked.txCount, 0);
 
-  // 2) Explicit injected liveFundsEnabled: true enables all 4 real TON Connect wallet flows (and follows server v16 stake version)
+  // 2) Explicit injected liveFundsEnabled: true enables all real TON Connect wallet flows (including v17 EarlyExit & Instant Cashout)
   const enabled = runScenario(
     {
       href: 'https://a9.lat/?mode=live',
@@ -434,9 +436,29 @@ test('W2: URL parameter cannot enable liveFundsEnabled; only explicit injected c
       const { requestChestPurchaseIntent, openChestById } = await import(JS_URL + '/data.js');
 
       store.update((s) => {
-        s.round.protocolConfig = { protocolVersion: 'v16', stakeProtocolVersion: 'v16' };
+        s.round.protocolConfig = { protocolVersion: 'v17', stakeProtocolVersion: 'v17' };
       });
       tonConnect.init();
+      // 等待 init() 触发的异步 _verifyOwnership 微任务完成，避免后续与测试状态设置产生竞态
+      await new Promise((r) => setTimeout(r, 10));
+
+      // 未完成 ton_proof 归属验证时，_dispatch 必须直接拦截（防 TOCTOU 绕过）
+      let unverifiedCode = null;
+      try {
+        await tonConnect.sendV15PresaleTx({
+          payTo: 'kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18',
+          tonNano: '990000000',
+          memo: 'buy:ord_unverified',
+        });
+      } catch (e) { unverifiedCode = e?.code || null; }
+      if (unverifiedCode !== 'WALLET_NOT_VERIFIED') {
+        throw new Error('Expected WALLET_NOT_VERIFIED before ton_proof, got: ' + unverifiedCode);
+      }
+
+      store.update((s) => {
+        s.user.walletVerified = true;
+        s.user.walletVerificationState = 'fresh_proof';
+      });
 
       const txs = [];
       const origSend = tonConnect.ui.sendTransaction.bind(tonConnect.ui);
@@ -460,6 +482,8 @@ test('W2: URL parameter cannot enable liveFundsEnabled; only explicit injected c
         roundId: 256,
       });
       const rClaim = await tonConnect.sendV15TicketClaim('kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18');
+      const rInstant = await tonConnect.sendV15TicketClaim('kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18', 101n, { instantDiscount: true });
+      const rEarlyExit = await tonConnect.sendV17TicketEarlyExit('kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18', 102n);
 
       await requestChestPurchaseIntent({ walletAddress: '0:' + '11'.repeat(32), skuId: 'chest_bronze', openMode: 'BOOST' });
       await openChestById('ch_live_1', null, '0:' + '11'.repeat(32));
@@ -468,7 +492,7 @@ test('W2: URL parameter cannot enable liveFundsEnabled; only explicit injected c
         liveFundsEnabled: config.liveFundsEnabled,
         fundsEnabled: store.fundsEnabled,
         txCount: sdkCalls.sendTransaction,
-        simulatedFlags: [rPresale.simulated, rPromo.simulated, rStake.simulated, rClaim.simulated],
+        simulatedFlags: [rPresale.simulated, rPromo.simulated, rStake.simulated, rClaim.simulated, rInstant.simulated, rEarlyExit.simulated],
         amounts: txs.map((t) => t.messages[0].amount),
         fetchUrls: fetchCalls.map((f) => f.url),
       }));
@@ -477,9 +501,9 @@ test('W2: URL parameter cannot enable liveFundsEnabled; only explicit injected c
 
   assert.equal(enabled.liveFundsEnabled, true);
   assert.equal(enabled.fundsEnabled, true);
-  assert.equal(enabled.txCount, 4);
-  assert.deepEqual(enabled.simulatedFlags, [false, false, false, false]);
-  assert.deepEqual(enabled.amounts, ['990000000', '60000000', '300000000', '220000000']);
+  assert.equal(enabled.txCount, 6);
+  assert.deepEqual(enabled.simulatedFlags, [false, false, false, false, false, false]);
+  assert.deepEqual(enabled.amounts, ['990000000', '60000000', '300000000', '220000000', '340000000', '340000000']);
   assert.ok(enabled.fetchUrls.some((u) => u.endsWith('/api/presale/intent')));
   assert.ok(enabled.fetchUrls.some((u) => u.endsWith('/api/chests/ch_live_1/open')));
 });
@@ -577,7 +601,7 @@ test('Phase 0: liveRound(/round) preserves staking gate across read-only, closed
   assert.equal(liveEnabled.obsHasDisabledBtn, true);
 });
 
-test('P0-1 / P0-4 / P0-5: default v16 config, live Chest Mall never falls back to DEMO_CHEST_SKUS, and stake unit is A9', () => {
+test('P0-1 / P0-4 / P0-5: default v17 config, live Chest Mall never falls back to DEMO_CHEST_SKUS, and stake unit is A9', () => {
   const out = runScenario(
     {
       href: 'https://a9.lat/?mode=live',
@@ -881,7 +905,7 @@ test('PROTOCOL_SPECS single source of truth & Live renderRiskAudit invariants ch
       globalThis.fetch = async (target) => {
         const u = String(target);
         if (u.endsWith('/api/config')) {
-          return { ok: true, status: 200, async json() { return { ok: true, data: { protocolVersion: 'v16', network: 'mainnet', poolState: { dataAvailable: true, currentRoundId: 1, poolRemainingRaw: '7000000000000000000' } }, ts: Date.now() }; } };
+          return { ok: true, status: 200, async json() { return { ok: true, data: { protocolVersion: 'v17', network: 'mainnet', poolState: { dataAvailable: true, currentRoundId: 1, poolRemainingRaw: '7000000000000000000' } }, ts: Date.now() }; } };
         }
         return { ok: true, status: 200, async json() { return { ok: true, data: [], ts: Date.now() }; } };
       };
@@ -913,7 +937,7 @@ test('PROTOCOL_SPECS single source of truth & Live renderRiskAudit invariants ch
 
       console.log(JSON.stringify({
         missingKeys,
-        hasCap: auditRoot.innerHTML.includes('300,000,000 A9'),
+        hasCap: auditRoot.innerHTML.includes('550,000,000 A9'),
         hasRules: auditRoot.innerHTML.includes('8/12 · 5× · 6%'),
         hasUndefined: /\\bundefined\\b/.test(auditRoot.innerHTML),
         compactExact: compactBanner.includes('1,800 A9'),
@@ -1342,6 +1366,7 @@ test('Global v17.1 terminology guardrail across Mini App, Bot, Official Web, and
     'worker/src/growth-engine.mjs',
     'worker/src/d1-growth-store.mjs',
     'worker/src/api.mjs',
+    'ops/scripts/setup-tg-bot.mjs',
   ];
   const forbiddenPatterns = [
     /24H\s*(观测盘|印章簿|预言|观察|考核|闯关中|竞猜|巡视|达标竞猜|Observe|Stamp Log|Observation Board|Prediction Stamp|Logbook Stamp|Guess|Inspect|Quest)/,
@@ -1356,6 +1381,8 @@ test('Global v17.1 terminology guardrail across Mini App, Bot, Official Web, and
     /Auto-Continue/,
     /Early Bird/,
     /\b700M\b/,
+    /\b200M\b/,
+    /1 GRAM = 2,002 A9/,
     /链上质押/,
     /暴击/,
     /早鸟/,

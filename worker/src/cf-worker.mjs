@@ -11,6 +11,7 @@ import { D1ChestEngine } from './d1-chest-store.mjs';
 import { D1PromoStore } from './d1-promo-store.mjs';
 import { D1SocialStore, D1PredictionEngine, D1ProgressionEngine, D1PresaleStore } from './d1-growth-store.mjs';
 import { D1PromoBudgetLedger, MemoryPromoBudgetLedger } from './promo-budget.mjs';
+import { D1V17RewardEngine, V17RewardEngine } from './v17-rewards.mjs';
 import { D1IdentityStore, MemoryIdentityStore } from './auth.mjs';
 import { TelegramBroadcaster, D1BroadcastLog, MemoryBroadcastLog } from './tg-broadcaster.mjs';
 import { addressKey, parseTonAddress } from './ton-address.mjs';
@@ -272,6 +273,7 @@ const memSocialStore = new SocialStore();
 const memChestEngine = new ChestEngine({ budgetLedger: memBudgetLedger });
 const memPredictionEngine = new PredictionEngine({ budgetLedger: memBudgetLedger });
 const memProgressionEngine = new ProgressionEngine();
+const memV17RewardEngine = new V17RewardEngine();
 const memIdentityStore = new MemoryIdentityStore();
 const memBroadcastLog = new MemoryBroadcastLog();
 // 按 `${apiBase}:${rcAddr}` 分桶存储链上缓存，防止同 isolate 多环境配置串数据
@@ -408,6 +410,7 @@ const RATE_LIMIT_RULES = Object.freeze([
   { method: 'POST', prefix: '/api/chests/starter', limit: 30, windowSec: 60 },
   { method: 'POST', prefix: '/api/chests/open-all', limit: 10, windowSec: 60 },
   { method: 'POST', prefix: '/api/chests/', limit: 30, windowSec: 60 },
+  { method: 'GET', prefix: '/api/v17/', limit: 60, windowSec: 60 },
   { method: 'GET', prefix: '/api/user/', limit: 30, windowSec: 60 },
   { method: 'GET', prefix: '/c/img/', limit: 60, windowSec: 60 },
 ]);
@@ -599,6 +602,7 @@ export default {
     const predictionEngine = hasD1 ? new D1PredictionEngine({ db: env.DB, ...predOpts }) : memPredictionEngine;
     const progressionEngine = hasD1 ? new D1ProgressionEngine({ db: env.DB }) : memProgressionEngine;
     const chestEngine = hasD1 ? new D1ChestEngine({ db: env.DB, budgetLedger }) : memChestEngine;
+    const v17RewardEngine = hasD1 ? new D1V17RewardEngine({ db: env.DB }) : memV17RewardEngine;
     const broadcaster = buildBroadcaster(env, { socialStore, identityStore, hasD1 });
 
     // 兑换业务必须显式配置独立热钱包，不再静默回退到推广热钱包；默认关闭，须显式设置 A9_PRESALE_OPEN=1 才开启。
@@ -716,6 +720,7 @@ export default {
       progressionEngine,
       chestEngine,
       budgetLedger,
+      v17RewardEngine,
       userReader,
       identityStore,
       publicKeyResolver: tc ? (addr) => tc.fetchWalletPublicKey(addr) : null,
@@ -776,7 +781,7 @@ export default {
       : memPredictionEngine;
     const broadcaster = buildBroadcaster(env, { socialStore, identityStore, hasD1 });
 
-    const obsSec = Number(env.A9_OBS_SECONDS || 86400);
+    const obsSec = Number(env.A9_OBS_SECONDS || 43200);
     const nowSec = Math.floor(Date.now() / 1000);
     try {
       const ps = await tc.fetchProtocolState(env.A9_ROUND_CONTROLLER_ADDRESS);
@@ -790,19 +795,27 @@ export default {
         synced.push({ roundId: rId, round: rd, candles: roundCandles });
         if (rId >= Math.max(1, ps.currentRoundId - 1)) {
           if (rd.status === 2 || rd.status === 3) {
-            const stats = await predictionEngine.getRoundStats(rId);
-            if (!stats.settled) {
-              await predictionEngine.settleRoundBets(rId, rd.status === 2, Number(rd.qualifiedCandles || 0));
+            try {
+              const stats = await predictionEngine.getRoundStats(rId);
+              if (!stats.settled) {
+                await predictionEngine.settleRoundBets(rId, rd.status === 2, Number(rd.qualifiedCandles || 0));
+              }
+            } catch (settleErr) {
+              console.error(`[a9mini-v15-worker] round #${rId} prediction settle error:`, settleErr?.message || settleErr);
             }
           }
-          await broadcaster.processRoundSnapshot({
-            roundId: rId,
-            round: rd,
-            candles: roundCandles,
-            nowSec,
-            observationSeconds: obsSec,
-            dmLimit: 10,
-          });
+          try {
+            await broadcaster.processRoundSnapshot({
+              roundId: rId,
+              round: rd,
+              candles: roundCandles,
+              nowSec,
+              observationSeconds: obsSec,
+              dmLimit: 10,
+            });
+          } catch (bcErr) {
+            console.error(`[a9mini-v15-worker] round #${rId} broadcast error:`, bcErr?.message || bcErr);
+          }
         }
       }
       if (hasD1) await writeRoundsCacheToD1(env.DB, synced, nowSec);

@@ -271,7 +271,7 @@ test('Mainnet preflight hardening: Acton network API key mapping, ample mainnet 
 
   // Mainnet strict mode must reject missing TONCENTER_MAINNET_API_KEY / TONCENTER_API_KEY
   assert.throws(() => validateDeployPreflight({
-    protocol: 'v16',
+    protocol: 'v17',
     profile: 'mainnet',
     env: {
       A9_METADATA_URI: 'https://app.a9.lat/a9.json',
@@ -284,9 +284,9 @@ test('Mainnet preflight hardening: Acton network API key mapping, ample mainnet 
     spawnImpl: okSpawn,
   }), /TONCENTER_MAINNET_API_KEY/);
 
-  // Masterchain (-1) role address must be rejected
+  // Masterchain (-1) role address must be rejected on v17
   assert.throws(() => validateDeployPreflight({
-    protocol: 'v16',
+    protocol: 'v17',
     profile: 'mainnet',
     env: {
       A9_METADATA_URI: 'https://app.a9.lat/a9.json',
@@ -299,6 +299,28 @@ test('Mainnet preflight hardening: Acton network API key mapping, ample mainnet 
     strict: true,
     spawnImpl: okSpawn,
   }), /Basechain workchain=0/);
+
+  // Valid v17 mainnet preflight must invoke deploy_v17.tolk
+  let invokedScript = '';
+  const okV17 = validateDeployPreflight({
+    protocol: 'v17',
+    profile: 'mainnet',
+    env: {
+      A9_METADATA_URI: 'https://app.a9.lat/a9.json',
+      A9_DEPLOY_WALLET: 'deployer',
+      A9_TREASURY_WALLET: 'treasury',
+      A9_KEEPER_ADDRESS: MAINNET_ADDR,
+      A9_TEAM_WALLET_ADDRESS: MAINNET_ADDR,
+      TONCENTER_API_KEY: 'key_main_123',
+    },
+    strict: true,
+    spawnImpl: (_cmd, args) => {
+      invokedScript = (args || []).join(' ');
+      return okSpawn();
+    },
+  });
+  assert.ok(okV17 && okV17.protocol === 'v17');
+  assert.match(invokedScript, /deploy_v17\.tolk/);
 });
 
 console.log(`All ${passed} v15 ops self-tests passed.`);

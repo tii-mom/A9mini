@@ -9,6 +9,7 @@ import { SocialStore } from './social-store.mjs';
 import { PredictionEngine, ProgressionEngine } from './growth-engine.mjs';
 import { ChestEngine } from './chest-engine.mjs';
 import { MemoryPromoBudgetLedger } from './promo-budget.mjs';
+import { V17RewardEngine } from './v17-rewards.mjs';
 import { TonCenterClient } from './toncenter.mjs';
 import { PromoPayoutRunner } from './promo-runner.mjs';
 import { PresalePayoutRunner } from './presale-runner.mjs';
@@ -35,7 +36,11 @@ let liveState = {
 };
 
 const stateStore = {
-  getTiming: () => ({ observationSeconds: Number(process.env.A9_OBS_SECONDS || 86400) }),
+  getTiming: () => ({
+    observationSeconds: Number(process.env.A9_OBS_SECONDS || 43200),
+    vestingSeconds: Number(process.env.A9_VESTING_SECONDS || 1209600),
+    earlyWindowSeconds: Number(process.env.A9_EARLY_WINDOW_SECONDS || 21600),
+  }),
   getProtocolState: () => liveState.protocolState,
   listRounds: () => Array.from(liveState.rounds.values()).sort((a, b) => a.roundId - b.roundId),
   getRound: (id) => liveState.rounds.get(Number(id)) || null,
@@ -63,6 +68,7 @@ const predictionEngine = new PredictionEngine({
 });
 const progressionEngine = new ProgressionEngine();
 const chestEngine = new ChestEngine({ budgetLedger });
+const v17RewardEngine = new V17RewardEngine();
 const broadcaster = new TelegramBroadcaster({
   enabled: process.env.A9_BROADCAST_ENABLED === '1',
   botToken: process.env.A9_BOT_TOKEN || '',
@@ -83,7 +89,7 @@ const presaleEngine = presaleHotAddr
       hotWalletAddress: presaleHotAddr,
       rateA9PerTon: BigInt(process.env.A9_PRESALE_RATE_A9_PER_TON || '2002'),
       minOrderTon: BigInt(process.env.A9_PRESALE_MIN_ORDER_TON || '5'),
-      maxOrderTon: BigInt(process.env.A9_PRESALE_MAX_ORDER_TON || '200'),
+      maxOrderTon: BigInt(process.env.A9_PRESALE_MAX_ORDER_TON || '500'),
       open: process.env.A9_PRESALE_OPEN === '1',
       deliveryFeeNano: process.env.A9_PRESALE_DELIVERY_FEE_NANO || undefined,
       refundFeeNano: process.env.A9_PRESALE_REFUND_FEE_NANO || undefined,
@@ -213,7 +219,7 @@ if (process.env.TONCENTER_API_BASE && process.env.A9_ROUND_CONTROLLER_ADDRESS) {
   }
 }
 
-const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, chestEngine, budgetLedger, userReader, identityStore, publicKeyResolver, walletStateResolver, broadcaster });
+const router = createApiRouter({ env: process.env, stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, progressionEngine, chestEngine, budgetLedger, v17RewardEngine, userReader, identityStore, publicKeyResolver, walletStateResolver, broadcaster });
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${host}:${port}`);

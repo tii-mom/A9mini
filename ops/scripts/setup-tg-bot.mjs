@@ -70,7 +70,7 @@ export function buildBotSetupPlan({
     body: {
       commands: [
         { command: 'start', description: '打开 A9 财富大冒险 · 领青铜箱与绑归因' },
-        { command: 'status', description: '查看链上当前轮次与 24H 达标战况' },
+        { command: 'status', description: '查看链上当前轮次与 12H 冲价战况' },
         { command: 'help', description: '查看玩法规则、+0.06/0.03 GRAM Gas 与安全提示' },
       ],
     },

@@ -7,9 +7,15 @@ import qrcode from './vendor/qrcode.js';
 import { config } from './config.js';
 import { buildTmaDeepLink, getShareRef } from './share.js';
 
-function fmtPosterNum(val) {
+function finiteNumOrNull(val) {
+  if (val === null || val === undefined || val === '') return null;
   const n = Number(val);
-  if (!Number.isFinite(n)) return '—';
+  return Number.isFinite(n) ? n : null;
+}
+
+function fmtPosterNum(val) {
+  const n = finiteNumOrNull(val);
+  if (n === null) return '—';
   return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
@@ -405,8 +411,8 @@ export function renderProofFlexPoster(canvas, certInput) {
   const cert = certInput || store.state.certificates[0];
   const r = store.state.round || {};
   const isSettled = cert?.status === 'settled';
-  const passed = Number.isFinite(Number(r.qualifiedCandles)) ? Number(r.qualifiedCandles) : 0;
-  const confirmed = Number.isFinite(Number(r.candlesSeen)) ? Number(r.candlesSeen) : passed;
+  const passed = finiteNumOrNull(r.qualifiedCandles) ?? 0;
+  const confirmed = finiteNumOrNull(r.candlesSeen) ?? passed;
   const required = Number(r.minQualifiedCandles) || 8;
   const totalSlots = Number(r.protocolConfig?.candleCount) || 12;
 
@@ -444,8 +450,8 @@ export function renderStoryPoster(canvas, payload = {}) {
   const cert = store.state.certificates.find((c) => c.id === payload.certId) || store.state.certificates[0] || null;
   const id = payload.roundId ?? cert?.round ?? r.currentRound;
   const same = Boolean(id) && id === r.currentRound;
-  const passed = same && Number.isFinite(Number(r.qualifiedCandles)) ? Number(r.qualifiedCandles) : 0;
-  const confirmed = same && Number.isFinite(Number(r.candlesSeen)) ? Number(r.candlesSeen) : passed;
+  const passed = same ? (finiteNumOrNull(r.qualifiedCandles) ?? 0) : 0;
+  const confirmed = same ? (finiteNumOrNull(r.candlesSeen) ?? passed) : 0;
   const required = Number(r.minQualifiedCandles) || 8;
   const totalSlots = Number(r.protocolConfig?.candleCount) || 12;
 
@@ -492,16 +498,14 @@ export function renderScenarioPoster(canvas, scenario = 'push', extra = {}) {
   const roundNum = r.currentRound ?? null;
   const required = Number(r.minQualifiedCandles) || 8;
   const totalSlots = Number(r.protocolConfig?.candleCount ?? r.candleCount) || 12;
-  const passed = Number.isFinite(Number(r.qualifiedCandles)) ? Number(r.qualifiedCandles) : null;
-  const confirmed = Number.isFinite(Number(r.candlesSeen)) ? Number(r.candlesSeen) : passed;
+  const passed = finiteNumOrNull(r.qualifiedCandles);
+  const confirmed = finiteNumOrNull(r.candlesSeen) ?? passed;
 
-  const targetPrice = (r.targetPrice !== null && r.targetPrice !== undefined && Number.isFinite(Number(r.targetPrice)) && Number(r.targetPrice) > 0)
-    ? Number(r.targetPrice)
-    : null;
+  const targetPriceRaw = finiteNumOrNull(r.targetPrice);
+  const targetPrice = targetPriceRaw !== null && targetPriceRaw > 0 ? targetPriceRaw : null;
   const rawCurPrice = r.priceValid !== false ? (r.livePrice ?? r.twap24h) : null;
-  const curPrice = (rawCurPrice !== null && rawCurPrice !== undefined && Number.isFinite(Number(rawCurPrice)) && Number(rawCurPrice) > 0)
-    ? Number(rawCurPrice)
-    : null;
+  const curPriceRaw = finiteNumOrNull(rawCurPrice);
+  const curPrice = curPriceRaw !== null && curPriceRaw > 0 ? curPriceRaw : null;
   const gapPct = (targetPrice !== null && curPrice !== null)
     ? (((targetPrice - curPrice) / curPrice) * 100)
     : null;
@@ -542,8 +546,8 @@ export function renderScenarioPoster(canvas, scenario = 'push', extra = {}) {
 
   if (scenario === 'win') {
     const cert = extra.cert || store.state.certificates?.[0] || null;
-    const hasCert = Boolean(cert && Number.isFinite(Number(cert.stakeTon)));
-    const estVal = hasCert && Number.isFinite(Number(cert.estRewardA9)) ? `+${fmtPosterNum(cert.estRewardA9)} A9` : pendingTxt;
+    const hasCert = Boolean(cert && finiteNumOrNull(cert.stakeTon) !== null);
+    const estVal = hasCert && finiteNumOrNull(cert.estRewardA9) !== null ? `+${fmtPosterNum(cert.estRewardA9)} A9` : pendingTxt;
     paintCartridgePoster(canvas, {
       headerTone: 'green',
       serialTag: roundNum ? `A9 PASS · R${String(roundNum).padStart(2, '0')}` : 'A9 PASS',

@@ -8,17 +8,16 @@
  * 严禁把本文件的任何数值写入真实模式的 localStorage / 路由 / 缓存。
  */
 
-/** 取自 BAM demo 真实接口样本（R3），改造成观察期场景：12 根已收盘 / 8 根达标，第 13 根进行中。 */
+/** v17.0 12H 冲价演示样本（R3）：8 根已收盘（6 根达标），第 9 根（索引 8）进行中，严格落在 0..11 合法范围。 */
 const FIXTURE_CANDLE_ROWS = [
   ['480704', true], ['475321', true], ['469892', true], ['438156', false],
-  ['465345', true], ['444234', false], ['476806', true], ['480008', true],
-  ['477641', true], ['460474', false], ['465902', true], ['454396', false]
+  ['465345', true], ['444234', false], ['476806', true], ['480008', true]
 ];
 
 export function demoFixture() {
   const now = Date.now();
   const candleMs = 3600 * 1000;
-  const observationStart = now - 12 * candleMs;
+  const observationStart = now - 8 * candleMs;
   const detail = {
     roundId: 3,
     state: 'OBSERVING',
@@ -26,12 +25,13 @@ export function demoFixture() {
     targetPriceUsdE8: '464000',
     targetLocked: true,
     rewardBudgetRaw: '700000000000000000',
-    stakeOpenAt: observationStart - 3 * 24 * candleMs,
+    stakeOpenAt: observationStart - 24 * candleMs,
     stakeCloseAt: observationStart,
+    earlyCloseAt: observationStart - 18 * candleMs,
     observationStart,
-    observationEnd: now + 12 * candleMs,
-    candlesSeen: 12,
-    qualifiedCandles: 8,
+    observationEnd: observationStart + 12 * candleMs,
+    candlesSeen: 8,
+    qualifiedCandles: 6,
     totalAcceptedStakeRaw: '386200000000000000',
     totalWeightRaw: '386200000000000000',
     candleHash: null,
@@ -61,14 +61,14 @@ export function demoFixture() {
       dataDigest: `fixture-${i}`
     })),
     live: {
-      candleIndex: 12,
+      candleIndex: 8,
       twapPriceUsdE8: '479544',
       progressBps: 4200,
       qualifiedTentative: true
     },
     priceUsdE8: '479544',
     priceValid: true,
-    secondsRemaining: 12 * 3600,
+    secondsRemaining: 4 * 3600,
     nextState: null,
     updatedAt: now
   };
@@ -83,15 +83,18 @@ export function demoFixture() {
     candleCount: 12,
     minQualifiedCandles: 8,
     candleSeconds: 3600,
+    earlyWindowSeconds: 21600,
+    observationSeconds: 43200,
+    vestingSeconds: 1209600,
     roundRewardRaw: '700000000000000000',
-    minStakeRaw: '1000000000000',
+    minStakeRaw: '100000000000',
     network: 'demo',
     dataSource: 'demo',
     tonUsdE8: '300000000',
-    maxRewardCapMultiplier: 15,
-    earlyBirdWeightsBps: { first: 20000, second: 14000, last: 10000 },
-    corridorMinBps: 15000,
-    corridorMaxBps: 25000,
+    maxRewardCapMultiplier: 5,
+    earlyBirdWeightsBps: { first: 10000, second: 10000, last: 10000 },
+    corridorMinBps: 13000,
+    corridorMaxBps: 20000,
     contracts: { stakingEnabled: false }
   };
 
@@ -142,16 +145,15 @@ export function demoFundsClaimPromo(state) {
 
 export function demoFundsStake(state, amount) {
   const amt = Number(amount);
-  if (!amt || amt < 1000 || amt > state.user.a9Available) return null;
+  if (!amt || amt < 100 || amt > state.user.a9Available) return null;
   const certId = `A9-STAKE-R0${state.round.currentRound}-${Math.floor(100000 + Math.random() * 899999)}`;
-  const mult = state.round.myEarlyTier || 2;
   const cert = {
     id: certId,
     round: state.round.currentRound,
     stakeTon: amt,
-    multiplier: mult,
-    weight: amt * mult,
-    estRewardA9: Math.round(amt * mult * 7.5),
+    multiplier: 1,
+    weight: amt,
+    estRewardA9: Math.round(amt * 3.5),
     status: 'observation',
     autoRenew: state.user.autoRenew,
     txHash: demoTxHash(),
@@ -215,7 +217,7 @@ export const DEMO_SOCIAL_FEEDS = [
 
 /** 仅在 config.isDemo === true 时用于初始化可体验的演示持仓、凭证与收益记录（绝不落盘、绝不进入真实模式） */
 function createInitialCandles() {
-  // 演示模式初始雷达（真实模式由 data.js 的服务端快照覆盖）
+  // v17.0 12H 冲价演示雷达（8 根已收盘、6 根达标，第 9 根进行中）
   const pattern = [
     { h: 24, bull: true,  p: 0.1868 },
     { h: 28, bull: true,  p: 0.1892 },
@@ -225,19 +227,12 @@ function createInitialCandles() {
     { h: 30, bull: true,  p: 0.1912 },
     { h: 20, bull: false, p: 0.1835 },
     { h: 25, bull: true,  p: 0.1888 },
-    { h: 21, bull: true,  p: 0.1869 },
-    { h: 29, bull: true,  p: 0.1904 },
-    { h: 17, bull: false, p: 0.1819 },
-    { h: 26, bull: true,  p: 0.1891 },
-    { h: 24, bull: true,  p: 0.1886 },
-    { h: 27, bull: true,  p: 0.1901 },
-    { h: 23, bull: true,  p: 0.1895 },
     { h: 26, bull: true,  p: 0.1910, active: true }
   ];
   const candles = [];
-  for (let i = 1; i <= 24; i++) {
-    if (i <= 16) {
-      candles.push({ index: i, status: i === 16 ? 'active' : 'closed', confirmed: i < 16, ...pattern[i - 1] });
+  for (let i = 1; i <= 12; i++) {
+    if (i <= 9) {
+      candles.push({ index: i, status: i === 9 ? 'active' : 'closed', confirmed: i < 9, ...pattern[i - 1] });
     } else {
       candles.push({ index: i, status: 'pending', confirmed: false, h: 12, bull: true, p: null });
     }
@@ -248,9 +243,9 @@ function createInitialCandles() {
 export function applyDemoInitialState(state) {
   state.round.currentRound = 3;
   state.round.stage = 'observation';
-  state.round.qualifiedCandles = 8;
-  state.round.candlesConfirmed = 12;
-  state.round.needMore = 8;
+  state.round.qualifiedCandles = 6;
+  state.round.candlesConfirmed = 8;
+  state.round.needMore = 2;
   state.round.candles = createInitialCandles();
   state.round.quickStakeTon = 100;
   state.round.tonUsd = 3.00;
@@ -353,8 +348,9 @@ export function applyDemoInitialState(state) {
 
   const nowSec = Math.floor(Date.now() / 1000);
   state.round.stakeOpenAt = nowSec - 7200;
-  state.round.stakeCloseAt = nowSec + 36 * 3600 - 7200;
-  state.round.earlyBirdSec = 10 * 3600 + 18 * 60 + 42;
+  state.round.stakeCloseAt = nowSec + 24 * 3600 - 7200;
+  state.round.earlyWindowSeconds = 21600;
+  state.round.earlyBirdSec = 4 * 3600;
   state.round.unlock = {
     immediateBps: 2000,
     lockedSlices: 4,
@@ -578,7 +574,7 @@ export function demoPredictionBet({ roundId, userId, side, guessSlots, referrerI
   const cleanSide = side === 'BURN' ? 'BURN' : 'PASS';
   const cleanSlots = (guessSlots === null || guessSlots === undefined || guessSlots === '')
     ? null
-    : Math.max(0, Math.min(24, Math.floor(Number(guessSlots))));
+    : Math.max(0, Math.min(12, Math.floor(Number(guessSlots))));
   if (cleanSide === 'PASS') r.passCount += 1;
   else r.burnCount += 1;
 
@@ -616,9 +612,9 @@ export function demoPredictionActivate(userId, walletAddress) {
 }
 
 export const ROUND_META = {
-  R3: { zh: '第 3 轮 · 12H 冲价中', en: 'Round #3 · 12H Push', target: '$0.1850', est: '$0.1895', bars: '7/12', pct: 88 },
-  R2: { zh: '第 2 轮 · 已清算', en: 'Round #2 · Paid', target: '$0.1420', est: '$0.1618', bars: '19/16', pct: 100 },
-  R1: { zh: '第 1 轮 · 创世轮', en: 'Round #1 · Genesis', target: '$0.1100', est: '$0.1325', bars: '21/16', pct: 100 }
+  R3: { zh: '第 3 轮 · 12H 冲价中', en: 'Round #3 · 12H Push', target: '$0.1850', est: '$0.1895', bars: '6/12', pct: 75 },
+  R2: { zh: '第 2 轮 · 已清算', en: 'Round #2 · Paid', target: '$0.1420', est: '$0.1618', bars: '10/12', pct: 100 },
+  R1: { zh: '第 1 轮 · 创世轮', en: 'Round #1 · Genesis', target: '$0.1100', est: '$0.1325', bars: '11/12', pct: 100 }
 };
 
 export const DEMO_RANKS = {
@@ -753,9 +749,9 @@ function ensureDemoChests() {
       labelZh: '黄金宝箱',
       labelEn: 'Gold Chest',
       orderId: 'IM-DEMO-1',
-      baseA9Raw: '18000000000000',
+      baseA9Raw: '17500000000000',
       boostA9Raw: '0',
-      maxBoostA9Raw: '4000000000000',
+      maxBoostA9Raw: '7500000000000',
       requiredAssists: 0,
       currentAssists: 0,
       status: 'READY',
@@ -1119,4 +1115,70 @@ export function demoOpenWarmupChest(state, chestId) {
     state.prediction.pendingActivationRaw = (cur + BigInt(totalRaw)).toString();
   }
   return { chest: { ...demoWarmupState.chest }, rewardA9Raw: totalRaw, destination: 'PENDING_VAULT', nextUnlocked: null };
+}
+
+/* ---------------- 演示模式：v17 好友通关 8% 返佣与每轮等权空投（DEMO ONLY） ---------------- */
+
+export function demoStakeReferralsMe(limit = 50) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const items = [
+    {
+      creditId: 'stake_ref:2:demo_ref_1',
+      roundId: 2,
+      referrerWallet: 'UQ...489f',
+      refereeWallet: 'UQ9F...8821',
+      refereeRewardRaw: '125000000000000',
+      commissionRaw: '10000000000000',
+      status: 'CREDITED',
+      createdAt: nowSec - 86400
+    },
+    {
+      creditId: 'stake_ref:2:demo_ref_2',
+      roundId: 2,
+      referrerWallet: 'UQ...489f',
+      refereeWallet: 'EQ3A...410C',
+      refereeRewardRaw: '60000000000000',
+      commissionRaw: '4800000000000',
+      status: 'CREDITED',
+      createdAt: nowSec - 90000
+    }
+  ];
+  const lim = Math.max(1, Math.min(100, Math.floor(Number(limit) || 50)));
+  return {
+    bound: true,
+    walletAddress: 'UQ...489f',
+    totalCommissionRaw: '14800000000000',
+    creditedRaw: '14800000000000',
+    pendingRaw: '0',
+    count: items.length,
+    items: items.slice(0, lim)
+  };
+}
+
+export function demoRoundAirdropDraws(limit = 10) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const items = [
+    {
+      roundId: 2,
+      seedHash: '0x7a9e4c1b8f20d6e5a391c8b4f02d17e9a54c3b81f26d90e4a1c7b38f5d20e6a1',
+      winnerWallet: 'UQ7B...19E4',
+      prizeRaw: '100000000000000',
+      status: 'CREDITED',
+      createdAt: nowSec - 86400
+    },
+    {
+      roundId: 1,
+      seedHash: '0x3f81d4c9a27e60b5f19c83d2a4e70b61c9f25a84e3d71b90c6a42f85e1b93d72',
+      winnerWallet: 'EQ5C...72A9',
+      prizeRaw: '100000000000000',
+      status: 'CREDITED',
+      createdAt: nowSec - 259200
+    }
+  ];
+  const lim = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
+  return {
+    items: items.slice(0, lim),
+    bucketCapRaw: '50000000000000000',
+    bucketRemainingRaw: '49800000000000000'
+  };
 }

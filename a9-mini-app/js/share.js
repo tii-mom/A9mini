@@ -164,8 +164,8 @@ function buildAngles(type, id, ctx = {}) {
         label: L('链上规则透明', 'Transparent'),
         text: isBoost
           ? L(
-              `A9 宝箱商城透明规则：6 档纯区间随机开箱，保底 + 随机加赠（最高 +275,000 A9）合并一笔直发钱包，只收一次 0.06 GRAM Gas，全网 2 亿 A9 硬顶公开可查。`,
-              `A9 Chest Mall rules: 6 random-range tiers sending base + random bonus (up to +275,000 A9) directly to your wallet in one tx (0.06 GRAM gas once), 200M A9 Phase 1 cap.`
+              `A9 宝箱商城透明规则：6 档纯区间随机开箱，保底 + 随机加赠（最高 +275,000 A9）合并一笔直发钱包，只收一次 0.06 GRAM Gas，全网 200,000,000 A9 阶段硬顶公开可查。`,
+              `A9 Chest Mall rules: 6 random-range tiers sending base + random bonus (up to +275,000 A9) directly to your wallet in one tx (0.06 GRAM gas once), 200,000,000 A9 Phase 1 cap.`
             )
           : L(
               `A9 协议双向开箱礼：仅需连接链上活跃 TON 钱包校验（0 扣款、防女巫公开可查），同行推进【${label}】并立得可秒开的 200 A9 青铜新手箱。`,
@@ -230,7 +230,7 @@ function buildAngles(type, id, ctx = {}) {
       key: 'casual',
       label: L('吃瓜自嘲派', 'Banter'),
       text: L(
-        `12H 冲价，是冲关 8/12 分 7 亿还是自动止损烧半池？A9 第 ${roundNum} 轮目前 ${passed}/${required} 段拉满悬念，0 GRAM 免费进 12H 预言擂台先站队！`,
+        `12H 冲价，是冲关 8/12 分 700,000,000 A9 还是自动止损烧半池？A9 第 ${roundNum} 轮目前 ${passed}/${required} 段拉满悬念，0 GRAM 免费进 12H 预言擂台先站队！`,
         `12H Push: pass 8/12 to split 700,000,000 A9 or trigger auto stop-loss? A9 Round #${roundNum} sits at ${passed}/${required} slots—pick a side for 0 GRAM in the 12H Prediction Arena.`
       )
     }

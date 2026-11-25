@@ -222,14 +222,16 @@ function renderHeader(route) {
 
 function renderTicker(show) {
   const r = store.state.round;
-  if (!show || r.source !== 'api' || !r.livePrice) {
+  const hasLivePrice = r.livePrice !== null && r.livePrice !== undefined && Number.isFinite(Number(r.livePrice)) && Number(r.livePrice) > 0;
+  if (!show || r.source !== 'api' || !hasLivePrice) {
     tickerEl.classList.add('hidden');
     return;
   }
+  const hasTwap = r.twap24h !== null && r.twap24h !== undefined && Number.isFinite(Number(r.twap24h)) && Number(r.twap24h) > 0;
   tickerEl.classList.remove('hidden');
   tickerEl.innerHTML = `
-    <div><b>A9</b> <span class="text-green">$${r.livePrice.toFixed(4)}</span></div>
-    <div><span class="text-muted">TWAP</span> <span class="text-cyan">$${r.twap24h !== null ? r.twap24h.toFixed(4) : '—'}</span></div>
+    <div><b>A9</b> <span class="text-green">$${Number(r.livePrice).toFixed(4)}</span></div>
+    <div><span class="text-muted">TWAP</span> <span class="text-cyan">${hasTwap ? `$${Number(r.twap24h).toFixed(4)}` : '—'}</span></div>
   `;
 }
 
@@ -324,6 +326,10 @@ let lastFullHash = '';
 export function renderCurrentRoute() {
   pendingDeferredRender = false;
   if (lastFullHash) scrollMemory.set(lastFullHash, window.scrollY || 0);
+  // 切换路由时收拢残留弹层与模拟抽屉，防止跨页残留遮罩
+  const modalRoot = document.getElementById('modal-root');
+  if (modalRoot && typeof modalRoot.classList?.contains === 'function' && !modalRoot.classList.contains('hidden')) closeModal();
+  if (simDrawerEl && typeof simDrawerEl.classList?.contains === 'function' && !simDrawerEl.classList.contains('hidden')) simDrawerEl.classList.add('hidden');
   cleanupActiveInteractions();
   cleanupKineticSurfaces();
   const currentHash = window.location.hash || '#/challenge';
@@ -448,19 +454,21 @@ async function syncData({ forceRender = false } = {}) {
 /** Demo-only helper to simulate single slot confirmation / duplicate / batch backfill */
 function simulateRadarEvent(type) {
   const r = store.state.round;
-  if (!Array.isArray(r.candles) || r.candles.length < 24) return;
+  if (!Array.isArray(r.candles) || r.candles.length < 1) return;
   if (type === 'duplicate') {
     syncRadarInPlace(r);
     showToast(L('已重放相同数据（无多余动效）', 'Duplicate payload synced (no anim)'));
     return;
   }
   if (type === 'batch') {
+    const total = r.candles.length || 12;
+    const target = Math.max(1, Math.min(total - 2, 10));
     r.candles.forEach(c => {
-      if (c.index <= 18) {
+      if (c.index <= target) {
         c.status = 'closed';
         c.bull = c.index % 4 !== 0;
         c.p = c.bull ? 0.0068 : 0.0049;
-      } else if (c.index === 19) {
+      } else if (c.index === target + 1) {
         c.status = 'active';
         c.bull = true;
         c.p = 0.0066;
@@ -470,10 +478,10 @@ function simulateRadarEvent(type) {
       }
     });
     r.qualifiedCandles = r.candles.filter(c => c.status === 'closed' && c.bull).length;
-    r.candlesSeen = 18;
+    r.candlesSeen = target;
     r.needMore = Math.max(0, (r.minQualifiedCandles || 8) - r.qualifiedCandles);
     syncRadarInPlace(r, { batch: true });
-    showToast(L('已批量补齐至第 18 段（直接同步）', 'Batch backfilled to slot #18'));
+    showToast(L(`已批量补齐至第 ${target} 段（直接同步）`, `Batch backfilled to slot #${target}`));
     return;
   }
   const activeIdx = r.candles.findIndex(c => c.status === 'active');
@@ -553,8 +561,12 @@ function openSimDrawer() {
     b.onclick = () => {
       store.update(s => {
         s.round.stage = b.dataset.simStage;
-        if (b.dataset.simStage === 'participation' && !(Number(s.round.earlyBirdSec) > 0)) {
-          s.round.earlyBirdSec = 10 * 3600 + 18 * 60 + 42;
+        if (b.dataset.simStage === 'participation') {
+          const nowSec = Math.floor(Date.now() / 1000);
+          s.round.stakeOpenAt = nowSec - 7200;
+          s.round.stakeCloseAt = nowSec + 22 * 3600;
+          s.round.earlyWindowSeconds = 21600;
+          s.round.earlyBirdSec = 4 * 3600;
         }
       });
       simDrawerEl.classList.add('hidden');
@@ -601,17 +613,23 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+  if (e.defaultPrevented) return;
   if (e.key === 'Escape' && simDrawerEl && !simDrawerEl.classList.contains('hidden')) {
     simDrawerEl.classList.add('hidden');
     flushDeferredRender();
     return;
   }
   if (e.key !== 'Enter' && e.key !== ' ') return;
-  const target = e.target?.closest?.('[data-nav]:not(button):not(a)');
-  if (target) {
+  const navTarget = e.target?.closest?.('[data-nav]:not(button):not(a)');
+  if (navTarget) {
     e.preventDefault();
-    navigate(target.dataset.nav);
+    navigate(navTarget.dataset.nav);
+    return;
   }
+  const btnTarget = e.target?.closest?.('[role="button"][tabindex="0"]');
+  if (!btnTarget || btnTarget.tagName === 'BUTTON' || btnTarget.tagName === 'A' || btnTarget.tagName === 'INPUT' || btnTarget.tagName === 'TEXTAREA') return;
+  e.preventDefault();
+  btnTarget.click();
 });
 
 function startDisplayLoop() {
@@ -635,9 +653,12 @@ function startDisplayLoop() {
       };
       const openAt = normSec(r.stakeOpenAt);
       const closeAt = normSec(r.stakeCloseAt);
+      const explicitEarlyEnd = normSec(r.earlyCloseAt);
       let left = null;
-      if (openAt > 0 && closeAt > openAt) {
-        const earlyEnd = openAt + Math.floor((closeAt - openAt) / 3);
+      const earlyEnd = explicitEarlyEnd > 0
+        ? explicitEarlyEnd
+        : (openAt > 0 && closeAt > openAt ? openAt + Number(r.earlyWindowSeconds || 21600) : 0);
+      if (earlyEnd > 0) {
         const diff = earlyEnd - Math.floor(serverNowMs() / 1000);
         if (diff > 0) left = diff;
       }
@@ -690,15 +711,6 @@ function startDisplayLoop() {
 window.addEventListener('scroll', () => {
   headerEl.classList.toggle('scrolled', window.scrollY > 6);
 }, { passive: true });
-
-// Keyboard accessibility delegation for clickable non-button elements with role="button"
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
-  const el = e.target?.closest?.('[role="button"][tabindex="0"]');
-  if (!el || el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return;
-  e.preventDefault();
-  el.click();
-});
 
 // Bootstrap — 默认任天堂雪白亮色主题（尊重用户已保存于 a9_ui_prefs_v1 的 Switch 暗夜偏好）
 initAutoLanguage();

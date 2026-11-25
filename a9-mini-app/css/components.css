@@ -1159,7 +1159,7 @@ img {
 .legend-dot.active { background: var(--nt-blue); border-radius: 3px; }
 .legend-dot.pending { background: var(--paper-tray-deep); border: 1px dashed var(--ink-muted); }
 
-/* 24H 预言局 */
+/* 12H 预言局 */
 .pred-card-head {
   display: flex;
   align-items: center;
@@ -1662,3 +1662,59 @@ img {
 [data-theme="dark"] .nt-art-badge.tone-gold  { background: rgba(245, 190, 58, 0.20); border-color: rgba(245, 190, 58, 0.38); }
 [data-theme="dark"] .nt-art-badge.tone-blue  { background: rgba(88, 164, 245, 0.20); border-color: rgba(88, 164, 245, 0.38); }
 [data-theme="dark"] .nt-art-badge.tone-green { background: rgba(34, 199, 118, 0.20); border-color: rgba(34, 199, 118, 0.38); }
+
+/* v17.0 广场微标签、紧凑轻卡切换与安全垫样式（复用 tokens.css 单源真值） */
+.plaza-pill-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.plaza-micro-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--paper-tray);
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.plaza-micro-tag.is-red {
+  background: var(--nt-rose-soft);
+  color: var(--nt-rose);
+}
+
+.plaza-micro-tag.is-gold {
+  background: var(--nt-gold-soft);
+  color: var(--nt-gold-ink);
+}
+
+.plaza-live-deck,
+.round-interact-deck {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.plaza-referral-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--surface-shadow);
+  text-decoration: none;
+}
+
+.plaza-referral-strip:active {
+  transform: translateY(1px);
+}
+

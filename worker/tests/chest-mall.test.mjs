@@ -301,11 +301,31 @@ await test('Direct paid invitee (TG-only ref) unlocks vault, Captain >=50 gets 5
   assert.equal(actRes.status, 200);
   assert.equal(actRes.body.data.activatedRaw, '500000000000');
 
-  // Captain verifies TG group with 88 members + >=3 bound squad members (M-2) -> 5,000 A9 founding bonus
+  // Captain verifies TG group with 88 members + >=3 bound squad members (M-2):
+  // First verify A9_CHEST_OPEN_ENABLED gate blocks 5,000 A9 founding bonus when switch is off
   await router({ method: 'POST', pathname: '/api/team/bind-tg', headers: hdrOwner, body: { teamId: 'TM-88', name: 'Alpha', tgGroupHandle: '@a9squad' }, nowSec: 1035 });
   await social.joinTeam({ teamId: 'TM-88', walletAddress: W_H1 }, 1036);
   await social.joinTeam({ teamId: 'TM-88', walletAddress: W_H2 }, 1037);
-  const verRes = await router({ method: 'POST', pathname: '/api/team/verify-tg', headers: hdrOwner, body: { teamId: 'TM-88' }, nowSec: 1040 });
+  const verBlocked = await router({ method: 'POST', pathname: '/api/team/verify-tg', headers: hdrOwner, body: { teamId: 'TM-88' }, nowSec: 1039 });
+  assert.equal(verBlocked.status, 200);
+  assert.equal(verBlocked.body.data.tgMemberCount, 88);
+  assert.equal(verBlocked.body.data.captainBonus.granted, false);
+  assert.equal(verBlocked.body.data.captainBonus.reason, 'CHEST_OPEN_DISABLED');
+
+  // With A9_CHEST_OPEN_ENABLED='1', captain receives the 5,000 A9 founding bonus
+  const routerBonusOpen = createApiRouter({
+    env: { A9_BOT_TOKEN: BOT_TOKEN, A9_CHEST_OPEN_ENABLED: '1' },
+    stateStore: emptyStateStore,
+    promoEngine: promo,
+    presaleEngine: presale,
+    socialStore: social,
+    predictionEngine: pred,
+    chestEngine: chest,
+    identityStore,
+    walletStateResolver: async () => ({ state: 'active', codeBoc: 'te6c' }),
+    telegramGroupVerifier: async () => ({ botInGroup: true, operatorIsAdmin: true, chatId: '-100999', groupHandle: '@a9squad', tgMemberCount: 88 }),
+  });
+  const verRes = await routerBonusOpen({ method: 'POST', pathname: '/api/team/verify-tg', headers: hdrOwner, body: { teamId: 'TM-88' }, nowSec: 1040 });
   assert.equal(verRes.status, 200);
   assert.equal(verRes.body.data.tgMemberCount, 88);
   assert.equal(verRes.body.data.captainBonus.granted, true);

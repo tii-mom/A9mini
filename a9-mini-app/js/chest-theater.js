@@ -1064,6 +1064,7 @@ export function openChestUnboxingTheater({
   function startHold(e) {
     if (phase !== 'idle') return;
     if (e.type === 'mousedown' && e.button !== 0) return;
+    if (holdRaf) { cancelAnimationFrame(holdRaf); holdRaf = 0; }
     holdStart = performance.now();
     let promoted = false;
     const basePct = taps / spec.tapsNeeded;
@@ -1112,20 +1113,23 @@ export function openChestUnboxingTheater({
     }
   }
 
-  // 绑定交互事件
+  // 绑定交互事件（含 touchcancel 与主按钮键盘支持，避免来电/手势中断卡死蓄力态）
   [elRig, elBtnOpen].forEach((el) => {
     el.addEventListener('mousedown', startHold);
     el.addEventListener('mouseup', () => endHold(true));
     el.addEventListener('mouseleave', () => endHold(false));
     el.addEventListener('touchstart', (e) => { e.preventDefault(); startHold(e); }, { passive: false });
     el.addEventListener('touchend', (e) => { e.preventDefault(); endHold(true); }, { passive: false });
+    el.addEventListener('touchcancel', () => endHold(false));
   });
-  elRig.onkeydown = (e) => {
+  const onStrikeKeydown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       handleTapStrike();
     }
   };
+  elRig.onkeydown = onStrikeKeydown;
+  elBtnOpen.onkeydown = onStrikeKeydown;
 
   elSoundBtn.onclick = () => {
     const on = A9Audio.toggle();

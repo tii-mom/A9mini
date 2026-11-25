@@ -221,6 +221,20 @@ export class D1SocialStore {
     if (cur && addressKey(cur.captain_wallet) !== addressKey(captainWallet)) {
       throw new SocialError('NOT_CAPTAIN', 'only captain can bind TG group');
     }
+    // 校验队长是否已归属他队及 7 天换队冷却，防止通过新建战队绕过 joinTeam 冷却并造成旧队人数虚高
+    const capAliases = addressAliases(captainWallet);
+    const capPh = capAliases.map(() => '?').join(', ');
+    const prevRow = capAliases.length
+      ? await this.db
+          .prepare(`SELECT wallet_address, team_id, joined_at FROM team_members WHERE wallet_address IN (${capPh}) LIMIT 1`)
+          .bind(...capAliases)
+          .first()
+      : null;
+    const prevTeamId = prevRow?.team_id ? String(prevRow.team_id) : null;
+    const prevJoinedAt = prevRow?.joined_at ? Number(prevRow.joined_at) : 0;
+    if (prevTeamId && prevTeamId !== teamId && prevJoinedAt > 0 && nowSec < prevJoinedAt + TEAM_SWITCH_COOLDOWN_SEC) {
+      throw new SocialError('TEAM_SWITCH_COOLDOWN', '更换战队需间隔 7 天冷却期');
+    }
     const nextName = name || cur?.name || teamId;
     const nextHandle = tgGroupHandle || cur?.tg_group_handle || null;
     const nextChatId = tgGroupHandle ? tgChatId : (cur?.tg_chat_id || null);
@@ -244,10 +258,25 @@ export class D1SocialStore {
       .bind(teamId, nextName, captainWallet, nextHandle, nextChatId, nextStatus, memberCount, createdAt, nowSec)
       .run();
 
+    const effectiveJoinedAt = prevTeamId === teamId && prevJoinedAt > 0 ? prevJoinedAt : nowSec;
+    if (prevRow && prevRow.wallet_address !== captainWallet) {
+      await this.db.prepare('DELETE FROM team_members WHERE wallet_address = ?').bind(prevRow.wallet_address).run();
+    }
     await this.db
-      .prepare('INSERT OR IGNORE INTO team_members (wallet_address, team_id, joined_at) VALUES (?, ?, ?)')
-      .bind(captainWallet, teamId, nowSec)
+      .prepare('INSERT OR REPLACE INTO team_members (wallet_address, team_id, joined_at) VALUES (?, ?, ?)')
+      .bind(captainWallet, teamId, effectiveJoinedAt)
       .run();
+
+    if (prevTeamId && prevTeamId !== teamId) {
+      const prevCntRow = await this.db
+        .prepare('SELECT COUNT(*) AS cnt FROM team_members WHERE team_id = ?')
+        .bind(prevTeamId)
+        .first();
+      await this.db
+        .prepare('UPDATE team_groups SET member_count = ?, updated_at = ? WHERE team_id = ?')
+        .bind(Number(prevCntRow?.cnt || 0), nowSec, prevTeamId)
+        .run();
+    }
 
     return {
       teamId,
@@ -817,7 +846,7 @@ export class D1SocialStore {
       .bind(rId)
       .all();
     const rows = res?.results || [];
-    const intentBreakdown = { '1000': 0, '5000': 0, '20000_plus': 0, watching: 0, unset: 0 };
+    const intentBreakdown = { '100': 0, '1000': 0, '5000': 0, '20000_plus': 0, watching: 0, unset: 0 };
     let totalActive = 0;
     let totalCancelled = 0;
     let walletBoundCount = 0;
@@ -1226,10 +1255,25 @@ export class D1PredictionEngine {
     let firstLossBonusCount = 0;
     let firstLossBonusDistributed = 0n;
 
+    // 一次聚合查询获取全轮邀请加成，消除每个 winner 的 N+1 查询
+    const inviteRowsRes = await this.db
+      .prepare(
+        `SELECT referrer_id, COUNT(DISTINCT user_id) AS cnt
+         FROM prediction_bets
+         WHERE round_id = ? AND referrer_id IS NOT NULL
+         GROUP BY referrer_id`,
+      )
+      .bind(rId)
+      .all();
+    const inviteBoostMap = new Map();
+    for (const row of inviteRowsRes?.results || []) {
+      inviteBoostMap.set(String(row.referrer_id), Math.min(5, Number(row.cnt || 0)));
+    }
+
     for (const b of bets) {
       if (b.side === winSide) {
         const exactBoost = b.guess_slots !== null && Number(b.guess_slots) === Number(actualQualified) ? 5n : 0n;
-        const inviteBoost = BigInt(await this.getInviteBoostCount(rId, b.user_id));
+        const inviteBoost = BigInt(inviteBoostMap.get(String(b.user_id)) || 0);
         const rawW = 10n + exactBoost + inviteBoost;
         const weight = rawW > 20n ? 20n : rawW;
         winners.push({ bet: b, weight });
@@ -1291,56 +1335,74 @@ export class D1PredictionEngine {
       }
     }
 
-    // 先在 prediction_rounds 原子占坑，阻止并发重入同时双扣 prediction 预算；若预算扣减失败则回滚删除占位
-    const claimRoundRes = await this.db
+    // 预算熔断检查在任何用户账本落库前原子扣减，预算不足直接抛 PROMO_BUDGET_EXHAUSTED（零写入）
+    let reservedBudget = 0n;
+    if (openBudgetNeed > 0n && budgetLedger && typeof budgetLedger.reserve === 'function') {
+      await budgetLedger.reserve('prediction', openBudgetNeed, nowSec);
+      reservedBudget = openBudgetNeed;
+    }
+
+    // 第二阶段：分批（每批 <= 25 人 / <= 50 条语句）原子 CAS 落库；支持部分失败退还剩余预算并可续跑，不在结算完成前写 prediction_rounds
+    let settledBudget = 0n;
+    try {
+      for (let i = 0; i < pendingItems.length; i += chunkSize) {
+        const slice = pendingItems.slice(i, i + chunkSize);
+        const ensureStmts = slice.map((item) =>
+          this.db
+            .prepare(
+              `INSERT OR IGNORE INTO prediction_rewards
+               (user_id, pending_activation_raw, activated_raw, pending_expires_at, total_settled, total_won, streak, updated_at)
+               VALUES (?, '0', '0', NULL, 0, 0, 0, ?)`,
+            )
+            .bind(item.userId, nowSec),
+        );
+        if (ensureStmts.length) await this.db.batch(ensureStmts);
+
+        const batchStmts = [];
+        for (const item of slice) {
+          const st = await this._getUserStatsRow(item.userId);
+          const pair = this._buildAtomicSettlePair(rId, item, st, nowMs, nowSec);
+          batchStmts.push(...pair);
+        }
+
+        try {
+          await this.db.batch(batchStmts);
+          for (const item of slice) settledBudget += item.deltaPending;
+        } catch (e) {
+          const msg = String(e?.message || e);
+          if (!/NOT NULL|UNIQUE|constraint/i.test(msg)) throw e;
+          for (const item of slice) {
+            const changed = await this._settleSingleUserWithCas(rId, item, nowMs, nowSec);
+            if (changed) settledBudget += item.deltaPending;
+          }
+        }
+      }
+    } catch (e) {
+      const unspent = reservedBudget > settledBudget ? reservedBudget - settledBudget : 0n;
+      if (unspent > 0n && budgetLedger && typeof budgetLedger.release === 'function') {
+        await budgetLedger.release('prediction', unspent, nowSec).catch(() => {});
+      }
+      throw e;
+    }
+
+    // 若并发执行使部分注单已由其他协程结清，退还多预留的预算差额
+    const excessBudget = reservedBudget > settledBudget ? reservedBudget - settledBudget : 0n;
+    if (excessBudget > 0n && budgetLedger && typeof budgetLedger.release === 'function') {
+      await budgetLedger.release('prediction', excessBudget, nowSec).catch(() => {});
+    }
+
+    // 全部注单结清后才落库 prediction_rounds 终态标记，确保半途失败可安全续跑
+    const remainOpenRow = await this.db
+      .prepare("SELECT COUNT(*) AS cnt FROM prediction_bets WHERE round_id = ? AND status = 'OPEN'")
+      .bind(rId)
+      .first();
+    if (Number(remainOpenRow?.cnt || 0) > 0) {
+      throw new GrowthError('SETTLE_INCOMPLETE', `round ${rId} still has unsettled OPEN bets`);
+    }
+    await this.db
       .prepare('INSERT OR IGNORE INTO prediction_rounds (round_id, winning_side, actual_qualified, settled_at) VALUES (?, ?, ?, ?)')
       .bind(rId, winSide, Number(actualQualified), nowSec)
       .run();
-    if (Number(claimRoundRes?.meta?.changes || 0) === 0) {
-      throw new GrowthError('ROUND_SETTLED', `round ${rId} already settled`);
-    }
-
-    // 预算熔断检查在任何用户账本落库前原子扣减，预算不足直接回滚占位并抛 PROMO_BUDGET_EXHAUSTED（零写入）
-    if (openBudgetNeed > 0n && budgetLedger && typeof budgetLedger.reserve === 'function') {
-      try {
-        await budgetLedger.reserve('prediction', openBudgetNeed, nowSec);
-      } catch (e) {
-        await this.db.prepare('DELETE FROM prediction_rounds WHERE round_id = ?').bind(rId).run().catch(() => {});
-        throw e;
-      }
-    }
-
-    // 第二阶段：分批（每批 <= 25 人 / <= 50 条语句）原子 CAS 落库；若批内发生并发冲突则自动降级为单人 CAS 重试
-    for (let i = 0; i < pendingItems.length; i += chunkSize) {
-      const slice = pendingItems.slice(i, i + chunkSize);
-      const ensureStmts = slice.map((item) =>
-        this.db
-          .prepare(
-            `INSERT OR IGNORE INTO prediction_rewards
-             (user_id, pending_activation_raw, activated_raw, pending_expires_at, total_settled, total_won, streak, updated_at)
-             VALUES (?, '0', '0', NULL, 0, 0, 0, ?)`,
-          )
-          .bind(item.userId, nowSec),
-      );
-      if (ensureStmts.length) await this.db.batch(ensureStmts);
-
-      const batchStmts = [];
-      for (const item of slice) {
-        const st = await this._getUserStatsRow(item.userId);
-        const pair = this._buildAtomicSettlePair(rId, item, st, nowMs, nowSec);
-        batchStmts.push(...pair);
-      }
-
-      try {
-        await this.db.batch(batchStmts);
-      } catch (e) {
-        const msg = String(e?.message || e);
-        if (!/NOT NULL|UNIQUE|constraint/i.test(msg)) throw e;
-        for (const item of slice) {
-          await this._settleSingleUserWithCas(rId, item, nowMs, nowSec);
-        }
-      }
-    }
 
     return {
       roundId: rId,

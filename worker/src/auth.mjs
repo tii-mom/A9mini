@@ -592,6 +592,23 @@ export class D1IdentityStore {
           return viewBinding(b);
         }
       }
+      // 先检测目标钱包是否已被其他账号绑定，再优先合并旧钱包推广余额，合并成功后再切换绑定，彻底杜绝换绑后余额孤立
+      const targetKey = b.pending_wallet_key;
+      const conflictRow = targetKey
+        ? await this.db
+            .prepare('SELECT tg_user_id FROM wallet_bindings WHERE wallet_key = ? AND tg_user_id != ? LIMIT 1')
+            .bind(targetKey, String(tg))
+            .first()
+        : null;
+      if (conflictRow) {
+        await this.cancelPendingRebind(tg);
+        return viewBinding(await this._row(tg));
+      }
+      if (prevWalletAddress && targetWalletAddress && addressKey(prevWalletAddress) !== addressKey(targetWalletAddress)) {
+        if (typeof onWalletRebound === 'function') {
+          await onWalletRebound({ tgUserId: String(tg), fromWalletAddress: prevWalletAddress, toWalletAddress: targetWalletAddress, nowSec });
+        }
+      }
       let promoted = false;
       try {
         // wallet_key is UNIQUE: promotion fails (and the pending switch is dropped) if the
@@ -611,9 +628,6 @@ export class D1IdentityStore {
       }
       const fresh = viewBinding(await this._row(tg));
       if (promoted && prevWalletAddress && fresh?.walletAddress && addressKey(prevWalletAddress) !== addressKey(fresh.walletAddress)) {
-        if (typeof onWalletRebound === 'function') {
-          await onWalletRebound({ tgUserId: String(tg), fromWalletAddress: prevWalletAddress, toWalletAddress: fresh.walletAddress, nowSec });
-        }
         fresh.reboundFrom = prevWalletAddress;
       }
       return fresh;

@@ -982,9 +982,13 @@ export class PresaleEngine {
       s.review += 1;
     }
     if (!promoEngine || typeof promoEngine.creditReward !== 'function') return s;
+    const strictTonAddr = Boolean(normalizeTonAddress(this.hotWalletAddress));
+    const isUsableWallet = (addr) => Boolean(
+      normalizeTonAddress(addr) || (!strictTonAddr && /^(?:EQ|UQ|kQ|0Q)[A-Za-z0-9_-]{4,}$/.test(String(addr || '').trim())),
+    );
     for (const c of await this.repo.listCredits('PENDING')) {
       let targetWallet = c.referrer;
-      if (!normalizeTonAddress(targetWallet)) {
+      if (!isUsableWallet(targetWallet)) {
         if (/^\d{1,20}$/.test(String(targetWallet || '').trim())) {
           if (!identityStore || typeof identityStore.getBinding !== 'function') {
             // 纯数字 Telegram ID 缺少 identityStore 解析器时延迟记账，绝不误当作钱包地址入账
@@ -997,22 +1001,42 @@ export class PresaleEngine {
             continue;
           }
           targetWallet = binding.walletAddress;
+        } else {
+          // 非合法 TON 地址且非纯数字 TG ID：拦截进入人工复核，严禁消耗真实预算记入黑洞地址
+          await this.repo.patchCredit(c.orderId, { status: 'NEEDS_REVIEW', updatedAt: nowSec });
+          s.review += 1;
+          continue;
         }
       }
       if (!(await this.repo.claimCredit(c.orderId, 'PENDING', 'CREDITING', nowSec))) continue;
+      let reservedBudget = false;
       if (budgetLedger && typeof budgetLedger.reserve === 'function') {
         try {
-          await budgetLedger.reserve('presale_promo', BigInt(c.amountRaw), nowSec);
+          const rsv = await budgetLedger.reserve('presale_promo', BigInt(c.amountRaw), nowSec);
+          reservedBudget = !rsv?.legacySkipped;
         } catch (e) {
+          await this.repo.patchCredit(c.orderId, { status: 'PENDING', updatedAt: nowSec });
           if (e?.code === 'PROMO_BUDGET_EXHAUSTED') {
-            await this.repo.patchCredit(c.orderId, { status: 'PENDING', updatedAt: nowSec });
             s.budgetExhausted += 1;
             continue;
           }
-          throw e;
+          s.review += 1;
+          continue;
         }
       }
-      await promoEngine.creditReward(targetWallet, BigInt(c.amountRaw), nowSec);
+      try {
+        await promoEngine.creditReward(targetWallet, BigInt(c.amountRaw), nowSec);
+      } catch (e) {
+        const deterministicFail = e?.code === 'CONFLICT' || e?.code === 'BAD_WALLET' || e?.code === 'BAD_AMOUNT';
+        if (deterministicFail) {
+          if (reservedBudget && budgetLedger && typeof budgetLedger.release === 'function') {
+            await budgetLedger.release('presale_promo', BigInt(c.amountRaw), nowSec).catch(() => {});
+          }
+          await this.repo.patchCredit(c.orderId, { status: e?.code === 'CONFLICT' ? 'PENDING' : 'NEEDS_REVIEW', updatedAt: nowSec });
+        }
+        s.review += 1;
+        continue;
+      }
       await this.repo.patchCredit(c.orderId, { status: 'CREDITED', updatedAt: nowSec });
       s.credited += 1;
       if (this.broadcaster && typeof this.broadcaster.notifyReferralCommission === 'function') {

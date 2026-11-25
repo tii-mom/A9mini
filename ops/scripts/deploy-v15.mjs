@@ -9,7 +9,7 @@ function parseArgs(argv) {
     execute: false,
     strict: false,
     skipMetadataProbe: false,
-    protocol: process.env.A9_PROTOCOL_VERSION || 'v16',
+    protocol: process.env.A9_PROTOCOL_VERSION || 'v17',
   };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--profile' || argv[i] === '--network') out.profile = argv[++i];
@@ -104,6 +104,7 @@ const env = {
   A9_TEAM_ROUND_RAW: p.econ.teamRoundRaw,
   A9_MIN_STAKE_RAW: p.econ.minStakeRaw,
   A9_STAKE_SECONDS: String(p.timing.stakeDurationSeconds),
+  A9_EARLY_WINDOW_SECONDS: String(p.timing.earlyWindowSeconds || 21600),
   A9_OBS_SECONDS: String(p.timing.observationSeconds),
   A9_CANDLE_COUNT: String(p.timing.candleCount),
   A9_MIN_QUALIFIED: String(p.timing.minQualifiedCandles),
@@ -117,7 +118,7 @@ const env = {
   OPS_EXECUTE: 'true',
 };
 
-const deployScript = '../ops/tolk/deploy_v16.tolk';
+const deployScript = args.protocol === 'v16' ? '../ops/tolk/deploy_v16.tolk' : '../ops/tolk/deploy_v17.tolk';
 const res = spawnSync('acton', ['script', '--net', p.network, deployScript], {
   cwd: protocolRoot,
   env,

@@ -83,9 +83,30 @@ class TestA9BotRoundStates(unittest.TestCase):
                 self.assertEqual(summary["status"], "active")
                 self.assertEqual(summary["round"], f"#{round_id}")
                 self.assertEqual(summary["qualified"], "8/12")
+                self.assertEqual(summary["twap_label"], "24H 参考均价")
                 self.assertIn(f"#{round_id}", start_text)
+                self.assertIn("24H 参考均价", start_text)
                 self.assertIn("$0.2000", start_text)
                 self.assertIn("8/12", round_text)
+
+    def test_1h_price_preferred_over_24h_twap(self):
+        payload = [
+            {
+                "roundId": 4,
+                "state": "OBSERVING",
+                "targetPriceUsdE8": "30000000",
+                "priceUsdE8": "31500000",
+                "priceValid": True,
+                "twap24hUsdE8": "25000000",
+                "qualifiedCandles": 9,
+            }
+        ]
+        summary, start_text, round_text = self._run_case(payload)
+        self.assertEqual(summary["twap_label"], "1H 均价")
+        self.assertEqual(summary["twap"], "$0.3150")
+        self.assertIn("1H 均价", start_text)
+        self.assertIn("$0.3150", start_text)
+        self.assertIn("9/12", round_text)
 
 
 if __name__ == "__main__":

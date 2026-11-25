@@ -132,6 +132,12 @@ export function copyText(text, label) {
 export function openModal(html) {
   const root = document.getElementById('modal-root');
   if (!root) return;
+  // 若上一个弹层尚未关闭就被新弹层覆写，先触发 idle 信号，防止 openTxRiskConfirmModal 等等待弹层关闭的 Promise 永久悬挂
+  if (typeof root.classList?.contains === 'function' && !root.classList.contains('hidden') && root.innerHTML) {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('a9:interaction-idle'));
+    }
+  }
   root.innerHTML = `<div class="modal-sheet">${html}</div>`;
   root.classList.remove('hidden');
   root.onclick = (e) => {
@@ -608,10 +614,12 @@ export function syncRadarInPlace(round, { batch = false } = {}) {
   if (!grid || !Array.isArray(round.candles)) return;
 
   const required = round.minQualifiedCandles || 8;
-  const passed = round.qualifiedCandles || 0;
-  const need = Math.max(0, required - passed);
+  const passed = (round.qualifiedCandles !== null && round.qualifiedCandles !== undefined && Number.isFinite(Number(round.qualifiedCandles)))
+    ? Number(round.qualifiedCandles)
+    : null;
+  const need = passed === null ? null : Math.max(0, required - passed);
   const confirmedSlots = round.candles.filter(c => c.status === 'closed').length;
-  const priceText = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)))
+  const priceText = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)))
     ? L('待核验', 'Pending') : `$${Number(v).toFixed(4)}`;
 
   const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -642,6 +650,7 @@ export function syncRadarInPlace(round, { batch = false } = {}) {
     }
   });
 
+  const passedDisplay = passed === null ? '—' : String(passed);
   const countsEl = document.getElementById('radar-counts');
   if (countsEl) {
     countsEl.innerHTML = `
@@ -651,21 +660,21 @@ export function syncRadarInPlace(round, { batch = false } = {}) {
       </div>
       <div class="radar-count-box pass">
         <small>${L('已达标门槛', 'Qualified')}</small>
-        <b>${passed} / ${required}</b>
+        <b>${passedDisplay} / ${required}</b>
       </div>
     `;
   }
 
   const heroNum = document.getElementById('obs-passed-num');
-  const prevPassed = heroNum ? Number(heroNum.dataset.val) : passed;
-  if (heroNum && prevPassed !== passed) {
-    heroNum.dataset.val = String(passed);
-    heroNum.innerHTML = `<span class="ratio-cur">${passed}</span><span class="ratio-sep">/</span><span class="ratio-req">${required}</span>`;
+  const prevPassed = heroNum && heroNum.dataset.val !== '' && heroNum.dataset.val !== '—' ? Number(heroNum.dataset.val) : passed;
+  if (heroNum && String(heroNum.dataset.val ?? '') !== passedDisplay) {
+    heroNum.dataset.val = passedDisplay;
+    heroNum.innerHTML = `<span class="ratio-cur">${passedDisplay}</span><span class="ratio-sep">/</span><span class="ratio-req">${required}</span>`;
   }
 
   const fillEl = document.getElementById('obs-progress-fill');
   if (fillEl) {
-    const pct = Math.round(Math.min(100, (passed / required) * 100));
+    const pct = passed === null ? 0 : Math.round(Math.min(100, (passed / required) * 100));
     if (batch || prevPassed === passed) {
       fillEl.classList.add('no-anim');
       fillEl.style.width = `${pct}%`;
@@ -679,9 +688,11 @@ export function syncRadarInPlace(round, { batch = false } = {}) {
 
   const needEl = document.getElementById('obs-need-text');
   if (needEl) {
-    needEl.textContent = need === 0
-      ? L('已达本轮达标门槛，等待结算确认', 'Threshold met, awaiting settlement')
-      : L(`还差 ${need} 个达标时段`, `${need} more qualified slots needed`);
+    needEl.textContent = need === null
+      ? L('链上达标进度同步中…', 'Syncing qualified slots…')
+      : (need === 0
+        ? L('已达本轮达标门槛，等待结算确认', 'Threshold met, awaiting settlement')
+        : L(`还差 ${need} 个达标时段`, `${need} more qualified slots needed`));
   }
 }
 

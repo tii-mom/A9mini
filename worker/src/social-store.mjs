@@ -10,8 +10,8 @@ export const WARMUP_TIERS = Object.freeze([
   { minRank: 26, maxRank: 50, rewardA9: 64000 },
 ]);
 
-export const WARMUP_INTENT_TIERS = Object.freeze(['1000', '5000', '20000_plus', 'watching']);
-export const WARMUP_INTENT_A9_ESTIMATE = Object.freeze({ '1000': 1000, '5000': 5000, '20000_plus': 20000, watching: 0 });
+export const WARMUP_INTENT_TIERS = Object.freeze(['100', '1000', '5000', '20000_plus', 'watching']);
+export const WARMUP_INTENT_A9_ESTIMATE = Object.freeze({ '100': 100, '1000': 1000, '5000': 5000, '20000_plus': 20000, watching: 0 });
 export const DEFAULT_WARMUP_ROUND_CONFIG = Object.freeze({
   status: 'OPEN',
   plannedOpenAt: null,
@@ -789,7 +789,7 @@ export class SocialStore {
   getWarmupAdminSummary(roundId, { readyWalletSet = null, actualOnchainStakers = null } = {}) {
     const rId = Number(roundId);
     const config = this.getWarmupRoundConfig(rId);
-    const intentBreakdown = { '1000': 0, '5000': 0, '20000_plus': 0, watching: 0, unset: 0 };
+    const intentBreakdown = { '100': 0, '1000': 0, '5000': 0, '20000_plus': 0, watching: 0, unset: 0 };
     let totalActive = 0;
     let totalCancelled = 0;
     let walletBoundCount = 0;

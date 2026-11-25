@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_PROTOCOL_ROOT = resolve(__dirname, '../../v16');
+const DEFAULT_PROTOCOL_ROOT = resolve(__dirname, '../../v17');
 
 function withActonNetworkKeyEnv(network, baseEnv = process.env) {
   const fallback = String(baseEnv?.TONCENTER_API_KEY || '').trim();

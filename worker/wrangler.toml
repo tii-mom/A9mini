@@ -16,9 +16,11 @@ A9_PROMO_TRANSFER_GAS_NANO = "50000000"
 crons = ["*/1 * * * *"]
 
 [env.testnet.vars]
-A9_PROTOCOL_VERSION = "v16"
+A9_PROTOCOL_VERSION = "v17"
 A9_NETWORK = "testnet"
 A9_OBS_SECONDS = "60"
+A9_EARLY_WINDOW_SECONDS = "30"
+A9_VESTING_SECONDS = "600"
 A9_JETTON_MASTER_ADDRESS = "kQAUb5IE_8UdFGElDOAP3T8cEqFOUGzRLhb_gS_LeYcNpxIX"
 A9_ROUND_CONTROLLER_ADDRESS = "kQC6r-aA3gUf0v3LshgTUg4idr1jsYl7K92xr6hNLXB12u4K"
 A9_PROMO_HOT_WALLET_ADDRESS = "kQDNHik_ofaZns7ki5yuMYHMHODiRSs_lcTG9R5p2iyJwt4X"
@@ -70,13 +72,13 @@ A9_PROMO_HOT_WALLET_ADDRESS = ""
 A9_PRESALE_HOT_WALLET_ADDRESS = ""
 
 # ---------------------------------------------------------------------------
-# v16 隔离候选测试网环境（显式配置 v16，现役环境默认保持 v15）
+# v17 隔离候选测试网环境（现役生产与默认环境均已统一为 v17.0 涨价解锁）
 # ---------------------------------------------------------------------------
 [[env.candidate.d1_databases]]
 binding = "DB"
-database_name = "a9mini-v16-candidate"
+database_name = "a9mini-v17-candidate"
 # 部署前替换为独立的候选测试网 D1 ID，禁止复用生产库 ID。
-database_id = "REPLACE_WITH_ISOLATED_V16_CANDIDATE_D1_ID"
+database_id = "REPLACE_WITH_ISOLATED_V17_CANDIDATE_D1_ID"
 
 [env.candidate.triggers]
 crons = ["*/1 * * * *"]

@@ -192,10 +192,10 @@ async function queryLiveDeployStatusOnce() {
   const rcBi = BigInt(rcA9Raw);
 
   const step1Done = masterActive;
-  const step2Done = step1Done && supBi === TEN_B && (twBi === TEN_B || rcBi === EIGHT_TWO_B);
+  const step2Done = step1Done && supBi === TEN_B && (twBi === TEN_B || rcBi >= EIGHT_TWO_B);
   const step3Done = step2Done && adminRenounced;
   const step4Done = rcActive;
-  const step5Done = step4Done && rcBi === EIGHT_TWO_B;
+  const step5Done = step4Done && rcBi >= EIGHT_TWO_B;
 
   const data = {
     checkedAt: now,

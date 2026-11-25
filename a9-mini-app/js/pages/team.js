@@ -13,6 +13,7 @@ import {
   fetchPromoBalance,
   fetchPromoClaim,
   requestPromoClaimIntent,
+  fetchMyStakeReferrals,
   rawToA9,
 } from '../data.js';
 import { tonConnect, canonicalWalletKey } from '../tonconnect.js';
@@ -31,25 +32,144 @@ import { L } from '../i18n.js';
 import { renderReferralPoster, renderProofFlexPoster, renderStoryPoster, renderScenarioPoster, downloadPosterPng } from '../poster.js';
 import { triggerStoryShare, buildTmaDeepLink, getShareRef } from '../share.js';
 
+function renderTeamStakeReferralCardHtml({ loading = false, error = null, data = null } = {}) {
+  const totalA9 = data ? (rawToA9(data.totalCommissionRaw) ?? 0) : null;
+  const creditedA9 = data ? (rawToA9(data.creditedRaw) ?? 0) : null;
+  const pendingA9 = data ? (rawToA9(data.pendingRaw) ?? 0) : null;
+  const items = Array.isArray(data?.items) ? data.items : [];
+  const unbound = data && data.bound === false;
+
+  let body = '';
+  if (loading) {
+    body = `<div class="num-xs text-muted">${L('正在读取好友通关 8% 返佣明细…', 'Loading 8% pass referral credits…')}</div>`;
+  } else if (error) {
+    body = `<div class="row-between" style="gap:8px;"><span class="num-xs text-red">${escapeHtml(error)}</span><button class="btn btn-secondary btn-sm" id="btn-retry-team-ref" type="button">${L('重试', 'Retry')}</button></div>`;
+  } else if (!data || unbound) {
+    body = `<div class="num-xs text-muted">${L('在 Telegram 内打开并绑定钱包后，好友通关的 8% 返佣将自动并入站内推广金库，0.06 GRAM 一键一起领。', 'Open in Telegram and bind wallet to accumulate 8% pass referral credits into your promo vault (0.06 GRAM 1-tap claim).')}</div>`;
+  } else {
+    body = `
+      <div class="metric-strip cols-3" style="margin:6px 0 8px;">
+        <div class="metric-cell"><span class="num-xs text-muted">${L('累计 8% 返佣', 'Total 8%')}</span><span class="num-sm text-green mono" style="font-weight:800;">${formatNum(totalA9, 2)} A9</span></div>
+        <div class="metric-cell"><span class="num-xs text-muted">${L('已入推广池', 'Credited')}</span><span class="num-sm mono" style="font-weight:800;">${formatNum(creditedA9, 2)} A9</span></div>
+        <div class="metric-cell"><span class="num-xs text-muted">${L('待入账', 'Pending')}</span><span class="num-sm text-gold mono" style="font-weight:800;">${formatNum(pendingA9, 2)} A9</span></div>
+      </div>
+      ${items.length === 0
+        ? `<div class="num-xs text-muted">${L('暂无好友通关返佣记录，邀请好友参与涨价解锁即可享通关奖金 8% 返佣。', 'No 8% pass referral credits yet. Invite friends to lock A9 and earn 8% when they pass.')}</div>`
+        : `<div class="col-gap" style="gap:6px;">${items.slice(0, 5).map((it) => {
+            const commA9 = rawToA9(it.commissionRaw) ?? 0;
+            const isCred = String(it.status || '').toUpperCase() === 'CREDITED';
+            return `
+              <div class="list-row" style="padding:7px 10px;">
+                <div>
+                  <div class="num-sm" style="font-weight:800;">${L(`第 ${it.roundId} 轮`, `Round #${it.roundId}`)} · <span class="mono">${escapeHtml(it.refereeWallet || '—')}</span></div>
+                  <div class="num-xs text-muted">${L('好友通关 8% 返佣', '8% Pass Referral')}</div>
+                </div>
+                <div style="text-align:right;">
+                  <div class="num-sm text-green mono" style="font-weight:900;">+${formatNum(commA9, 2)} A9</div>
+                  <span class="chip ${isCred ? 'chip-green' : 'chip-gold'}" style="min-height:18px;font-size:9.5px;">${isCred ? L('已入赏金', 'Credited') : L('待入账', 'Pending')}</span>
+                </div>
+              </div>
+            `;
+          }).join('')}</div>`}
+    `;
+  }
+
+  return `
+    <section class="card" id="team-stake-referral-card">
+      <div class="row-between" style="margin-bottom:6px;">
+        <span class="card-title">${icon('team', 15, 'text-gold')} ${L('好友通关 8% 返佣明细', '8% Pass Referral Credits')}</span>
+        <a class="text-link-btn" href="#/team/invite">${L('去 0.06 GRAM 领取', 'Claim (0.06 GRAM)')} ›</a>
+      </div>
+      ${body}
+    </section>
+  `;
+}
+
+function mountTeamStakeReferrals(root) {
+  const mount = root.querySelector('#team-stake-referral-mount');
+  if (!mount) return;
+  if (!config.isDemo && !A9TMA.getRawInitData()) {
+    mount.innerHTML = renderTeamStakeReferralCardHtml({ loading: false, data: null });
+    return;
+  }
+  mount.innerHTML = renderTeamStakeReferralCardHtml({ loading: true });
+  fetchMyStakeReferrals(20)
+    .then((res) => {
+      if (!mount.isConnected) return;
+      mount.innerHTML = renderTeamStakeReferralCardHtml({ loading: false, data: res });
+    })
+    .catch((e) => {
+      if (!mount.isConnected) return;
+      mount.innerHTML = renderTeamStakeReferralCardHtml({ loading: false, error: e?.message || L('返佣明细读取失败', 'Failed to load referral credits') });
+      const retryBtn = mount.querySelector('#btn-retry-team-ref');
+      if (retryBtn) retryBtn.onclick = () => mountTeamStakeReferrals(root);
+    });
+}
+
 export function renderTeamHome(root, navigate) {
   if (!config.isDemo) {
+    const addr = store.state.user.address || null;
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
-        <div class="card card-hero" style="border-color:var(--gold-border);">
-          <div class="row-between" style="margin-bottom:6px;">
-            <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('群主创世金库 & 6% 永久返佣', 'Captain Vault & 6% Referral')}</span>
-            <span class="chip chip-gold">+5,000 A9</span>
+        <section class="card card-hero" id="team-dual-engine-card">
+          <div class="row-between" style="margin-bottom:8px;">
+            <span class="card-title">${icon('wallet', 15, 'text-green')} ${L('双引擎返佣看板 · 8% + 6%', 'Dual-Engine Referral · 8% + 6%')}</span>
+            <span class="chip chip-green mono">0.06 GRAM ${L('全提', '1-Tap')}</span>
           </div>
-          <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('绑 ≥50 人 TG 群（满 3 成员）领 5,000 A9 · 直推购箱实时返佣 6%', 'Verify 50+ member TG group (≥3 members) for 5,000 A9 · 6% live chest referral')}</div>
+          <div class="metric-strip cols-3" style="margin:6px 0 10px;">
+            <div class="metric-cell">
+              <span class="num-xs text-muted">${L('好友通关返佣', 'Pass Referral')}</span>
+              <span class="num-md text-green mono" style="font-weight:900;">8%</span>
+            </div>
+            <div class="metric-cell">
+              <span class="num-xs text-muted">${L('商城直推返佣', 'Mall Direct')}</span>
+              <span class="num-md text-gold mono" style="font-weight:900;">6%</span>
+            </div>
+            <div class="metric-cell">
+              <span class="num-xs text-muted">${L('可领站内赏金', 'Claimable A9')}</span>
+              <span class="num-sm text-green mono" id="team-live-promo-bal" style="font-weight:900;">${addr ? L('同步中…', 'Syncing…') : L('待连接', 'Connect')}</span>
+            </div>
+          </div>
           <div class="grid-2" style="gap:8px;">
-            <button class="btn btn-primary btn-sm" data-nav="/team/bind-tg" type="button" style="width:100%;min-height:40px;">${icon('send', 13)} ${L('绑群领 5,000 A9', 'Link TG Group')}</button>
-            <button class="btn btn-secondary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:40px;">${icon('qr', 13)} ${L('生成招募海报', 'Invite Poster')}</button>
+            <button class="btn btn-primary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:42px;white-space:nowrap;">${icon('wallet', 13)} ${L('0.06 GRAM 领币', '0.06 GRAM Claim')}</button>
+            <button class="btn btn-secondary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:42px;white-space:nowrap;">${icon('qr', 13)} ${L('生成招募海报', 'Invite Poster')}</button>
           </div>
-        </div>
-        <form class="card col-gap" id="live-join-team-form"><label>${L('战队编号','Squad ID')} <input name="guild" required maxlength="64"></label><button class="btn btn-primary">${L('申请加入','Join squad')}</button><output></output></form>
+        </section>
+
+        <div id="team-stake-referral-mount">${renderTeamStakeReferralCardHtml({ loading: Boolean(A9TMA.getRawInitData()) })}</div>
+
+        <section class="card" style="border-color:var(--gold-border);">
+          <div class="row-between" style="margin-bottom:6px;">
+            <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('战队成长任务 · 群主创世金库', 'Squad Mission · Captain Vault')}</span>
+            <span class="chip chip-gold mono">+5,000 A9</span>
+          </div>
+          <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('绑定 ≥ 50 人真实 Telegram 群且战队满 3 名成员，即领 5,000 A9 创世金库（并入站内赏金一键领）。', 'Verify a 50+ member Telegram group with ≥ 3 squad members to claim 5,000 A9 into your bounty vault.')}</div>
+          <button class="btn btn-secondary btn-sm" data-nav="/team/bind-tg" type="button" style="width:100%;min-height:38px;">${icon('send', 13)} ${L('前往绑群核验领 5,000 A9', 'Verify TG Group for 5,000 A9')}</button>
+        </section>
+
+        <form class="card col-gap" id="live-join-team-form">
+          <div class="card-title">${icon('team', 15, 'text-cyan')} ${L('加入已有战队', 'Join an Existing Squad')}</div>
+          <label class="num-xs text-sec">${L('战队编号', 'Squad ID')} <input name="guild" class="input-box" style="width:100%;margin-top:4px;padding:8px 10px;" required maxlength="64" placeholder="TM-0001"></label>
+          <button class="btn btn-primary">${L('申请加入', 'Join Squad')}</button>
+          <output class="num-xs text-red"></output>
+        </form>
       </div>
     `;
     portfolioPanel(root.firstElementChild, true);
+    mountTeamStakeReferrals(root);
+    if (addr) {
+      fetchPromoBalance(addr)
+        .then((res) => {
+          const el = root.querySelector('#team-live-promo-bal');
+          if (!el || !el.isConnected || store.state.user.address !== addr) return;
+          const a9 = res?.claimableRaw !== undefined ? rawToA9(res.claimableRaw) : null;
+          el.textContent = a9 !== null ? `${formatNum(a9, a9 % 1 === 0 ? 0 : 2)} A9` : L('待核验', 'Pending');
+        })
+        .catch(() => {
+          const el = root.querySelector('#team-live-promo-bal');
+          if (el && el.isConnected) el.textContent = L('待核验', 'Pending');
+        });
+    }
     const form = root.querySelector('#live-join-team-form');
     form.onsubmit = async event => {
       event.preventDefault();
@@ -89,7 +209,7 @@ export function renderTeamHome(root, navigate) {
             <div class="row-start" style="font-size:17px;font-weight:900;">${escapeHtml(team.name || L('我的战队', 'My Squad'))} ${icon('shieldCheck', 16, 'text-green')}</div>
             <div class="row-start" style="margin-top:4px;gap:6px;">
               <span class="chip chip-green">${L('队长', 'Captain')} · Lv.${team.level || 1}</span>
-              <span class="chip chip-gold">${L('直推返佣 6%', '6% Referral')} · DEMO</span>
+              <span class="chip chip-gold">${L('通关 8% + 商城 6%', '8% Pass + 6% Mall')} · DEMO</span>
             </div>
           </div>
           ${rolePill}
@@ -105,7 +225,7 @@ export function renderTeamHome(root, navigate) {
             <span class="num-md">${team.directInvites}</span>
           </div>
           <div class="metric-cell">
-            <span class="num-xs text-muted">${L('累计推广', 'Promo A9')}</span>
+            <span class="num-xs text-muted">${L('可领赏金', 'Bounty A9')}</span>
             <span class="num-md text-gold" id="captain-dividend-val">${formatNum(team.captainHistoryA9 || 5000)} A9</span>
           </div>
         </div>
@@ -116,7 +236,10 @@ export function renderTeamHome(root, navigate) {
         </div>
         <div class="progress-track" style="margin-bottom:12px;"><div class="progress-fill" style="width:${progressPct}%"></div></div>
 
-        <button class="btn btn-primary" data-nav="/team/invite">${icon('qr', 16)} ${L('生成招募海报 · 6% 邀请奖励', 'Invite Poster · 6% Bonus')}</button>
+        <div class="grid-2" style="gap:8px;">
+          <button class="btn btn-primary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:42px;">${icon('wallet', 14)} ${L('0.06 GRAM 领币', '0.06 GRAM Claim')}</button>
+          <button class="btn btn-secondary btn-sm" data-nav="/team/invite" type="button" style="width:100%;min-height:42px;">${icon('qr', 14)} ${L('招募海报', 'Poster')}</button>
+        </div>
       </div>
 
       <div class="card">
@@ -137,10 +260,10 @@ export function renderTeamHome(root, navigate) {
 
       <div class="card" style="border-color:var(--gold-border);">
         <div class="row-between" style="margin-bottom:4px;">
-          <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('群主创世金库 & 返佣叮咚提醒', 'Captain Bonus & Live DM Alerts')}</span>
+          <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('战队成长任务 · 群主创世金库', 'Squad Mission · Captain Vault')}</span>
           <span class="chip chip-gold">+5,000 A9</span>
         </div>
-        <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:8px;">${L('绑 ≥50 人 TG 群（满 3 成员）领 5,000 A9 · 直推购箱实时返佣 6%', 'Verify 50+ member TG group (≥3 members) for 5,000 A9 · 6% live chest referral')}</div>
+        <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:8px;">${L('绑 ≥ 50 人 TG 群（满 3 成员）领 5,000 A9 · 好友通关 8% + 商城直推 6% 双引擎返佣', 'Verify 50+ member TG group (≥ 3 members) for 5,000 A9 · 8% pass + 6% mall dual-engine referrals')}</div>
         <button class="btn btn-secondary btn-sm" data-nav="/internal/market?tab=free" type="button" style="width:100%;">${icon('swap', 14)} ${L('前往宝箱商城冲击黄金/白金/钻石免费宝箱', 'Open Chest Mall Free Tiers')}</button>
       </div>
 
@@ -157,19 +280,19 @@ export function renderTeamHome(root, navigate) {
             <div style="font-size:17px;font-weight:900;">${L('星航冲锋战队', 'Star Voyagers')}</div>
             <div class="row-start" style="margin-top:4px;gap:6px;">
               <span class="chip chip-cyan">${L('成员', 'Member')} · Lv.3</span>
-              <span class="chip chip-gold">${L('直推返佣 6%', '6% Referral')} · DEMO</span>
+              <span class="chip chip-gold">${L('通关 8% + 商城 6%', '8% Pass + 6% Mall')} · DEMO</span>
             </div>
           </div>
           ${rolePill}
         </div>
-        <div class="num-xs text-muted" style="margin-bottom:6px;">${L('战队活跃进度 84% · 直推购箱享 6% 实时返佣（演示样例）', '84% active · 6% direct chest referral (Demo sample)')}</div>
+        <div class="num-xs text-muted" style="margin-bottom:6px;">${L('战队活跃进度 84% · 好友通关 8% + 直推购箱 6% 双引擎返佣（演示样例）', '84% active · 8% pass + 6% direct chest referral (Demo sample)')}</div>
         <div class="progress-track" style="margin-bottom:10px;"><div class="progress-fill" style="width:84%"></div></div>
 
         <div class="metric-strip">
           <div class="metric-cell"><span class="num-xs text-muted">${L('战队累计参与', 'Squad Volume')}</span><span class="num-md text-green">184,200 A9</span></div>
-          <div class="metric-cell"><span class="num-xs text-muted">${L('我的 6% 邀友返佣', 'My 6% Referral')}</span><span class="num-md text-gold">+96,500 A9</span></div>
+          <div class="metric-cell"><span class="num-xs text-muted">${L('我的 8%+6% 赏金', 'My 8%+6% Bounty')}</span><span class="num-md text-gold">+96,500 A9</span></div>
         </div>
-        <button class="btn btn-primary" data-nav="/team/invite">${icon('qr', 16)} ${L('生成招募海报 · 享 6% 直推返佣', 'Invite Poster · 6% Referral')}</button>
+        <button class="btn btn-primary" data-nav="/team/invite">${icon('qr', 16)} ${L('生成招募海报 · 赚 8% + 6% 返佣', 'Invite Poster · 8% + 6% Referral')}</button>
       </div>
 
       <div class="grid-3">
@@ -184,18 +307,18 @@ export function renderTeamHome(root, navigate) {
     `;
   } else {
     const squads = [
-      { id: 'TM-0001', name: L('A9 冒险战队', 'A9 Quest Squad'), lv: 'Lv.4', tag: L('6% 返佣', '6% Ref'), members: '412/500' },
+      { id: 'TM-0001', name: L('A9 冒险战队', 'A9 Quest Squad'), lv: 'Lv.4', tag: L('8% + 6%', '8% + 6%'), members: '412/500' },
       { id: 'TM-8829', name: L('星航冲锋战队', 'Star Voyagers'), lv: 'Lv.3', tag: L('活跃榜', 'Active'), members: '84/100' },
       { id: 'TM-3042', name: L('金箔典藏战队', 'Gold Foil Collectors'), lv: 'Lv.3', tag: L('同行队', 'Co-Op'), members: '66/100' }
     ];
     html = `
       <div class="card card-hero guild-board">
         <div class="row-between" style="margin-bottom:6px;">
-          <span class="chip chip-gold">${L('v17.0 战队 · 6% 直推返佣', 'v17.0 Squad · 6% Referral')}</span>
+          <span class="chip chip-gold">${L('v17.0 双引擎战队 · 8% + 6%', 'v17.0 Dual-Engine · 8% + 6%')}</span>
           ${rolePill}
         </div>
         <div style="font-size:17px;font-weight:900;">${L('加入一个活跃战队', 'Join an Active Squad')}</div>
-        <div class="text-sec" style="font-size:12px;margin-top:4px;">${L('免费入队同步 24H 赛点战报；直推好友购箱享 6% 返佣，群主绑群领 5,000 A9 创世金库。', 'Join free for 24H squad alerts; earn 6% direct chest referral and 5,000 A9 captain founding vault.')}</div>
+        <div class="text-sec" style="font-size:12px;margin-top:4px;">${L('免费入队同步 12H 冲价战报；好友通关返佣 8%、直推购箱返佣 6%，群主绑群领 5,000 A9 创世金库。', 'Join free for 12H push alerts; earn 8% pass referral, 6% direct chest referral, and 5,000 A9 captain founding vault.')}</div>
       </div>
 
       <div class="card">
@@ -207,12 +330,12 @@ export function renderTeamHome(root, navigate) {
           ${squads.map(s => `
             <div class="list-row">
               <div>
-                <div style="font-weight:800;">${s.name}</div>
-                <div class="num-xs text-muted">${s.lv} · ${s.members} ${L('人', 'members')}</div>
+                <div style="font-weight:800;">${escapeHtml(s.name)}</div>
+                <div class="num-xs text-muted">${escapeHtml(s.lv)} · ${escapeHtml(s.members)} ${L('人', 'members')}</div>
               </div>
               <div class="row-start" style="gap:6px;">
-                <span class="chip chip-gold">${s.tag}</span>
-                <button class="btn btn-primary btn-sm" data-join-team="${s.id}">${L('加入', 'Join')}</button>
+                <span class="chip chip-gold">${escapeHtml(s.tag)}</span>
+                <button class="btn btn-primary btn-sm" data-join-team="${escapeHtml(s.id)}">${L('加入', 'Join')}</button>
               </div>
             </div>
           `).join('')}
@@ -221,7 +344,8 @@ export function renderTeamHome(root, navigate) {
     `;
   }
 
-  root.innerHTML = `<div class="col-gap anim-page-enter">${html}</div>`;
+  root.innerHTML = `<div class="col-gap anim-page-enter">${html}<div id="team-stake-referral-mount">${renderTeamStakeReferralCardHtml({ loading: true })}</div></div>`;
+  mountTeamStakeReferrals(root);
 
   const divEl = root.querySelector('#captain-dividend-val');
   if (divEl) animateSlotCounter(divEl, Number(team.captainHistoryA9) || 5000, { duration: 600, decimals: 0, suffix: ' A9' });
@@ -232,8 +356,8 @@ export function renderTeamHome(root, navigate) {
       title: L('切换团队角色视角', 'Switch Squad View'),
       selected: role,
       options: [
-        { value: 'captain', label: L('队长指挥中枢', 'Captain Console'), sub: L('查看全队参与、6% 返佣与 5,000 A9 创世金库', 'Squad volume, 6% referral & 5,000 A9 vault') },
-        { value: 'member',  label: L('普通成员视图', 'Member View'),     sub: L('查看战队动态与 6% 邀友返佣', 'Squad activity & 6% referral') },
+        { value: 'captain', label: L('队长指挥中枢', 'Captain Console'), sub: L('查看全队参与、8% + 6% 返佣与 5,000 A9 创世金库', 'Squad volume, 8% + 6% referral & 5,000 A9 vault') },
+        { value: 'member',  label: L('普通成员视图', 'Member View'),     sub: L('查看战队动态与 8% + 6% 邀友返佣', 'Squad activity & 8% + 6% referral') },
         { value: 'none',    label: L('未加入 · 团队大厅', 'Squad Lobby'), sub: L('浏览并一键加入活跃战队', 'Browse & join active squads') }
       ],
       onSelect: (val) => {
@@ -481,7 +605,7 @@ export function renderInviteShare(root) {
       : (targetStr ? `target ${targetStr}` : 'on-chain target syncing');
     const poolStr = (r.rewardBudgetA9 !== null && r.rewardBudgetA9 !== undefined && Number.isFinite(Number(r.rewardBudgetA9)))
       ? `${formatNum(r.rewardBudgetA9)} A9`
-      : L('7 亿奖池（链上实时核验）', '700,000,000 A9 pool (on-chain verified)');
+      : L('700,000,000 A9 奖池（链上实时核验）', '700,000,000 A9 pool (on-chain verified)');
     if (tpl === 'chest') {
       return L(
         `A9 宝箱商城升级「纯随机合并直发钱包」：0.99 GRAM 起保底 1,500 A9、最高开出 2,500 A9（传说箱最高 1,300,000 A9），只收一次 0.06 GRAM Gas，买完直接进头矿 6H（未通关仅 5% 止损）。直推好友购箱实时返佣 6%：${inviteLink}`,

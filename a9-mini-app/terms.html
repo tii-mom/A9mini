@@ -25,12 +25,12 @@
     <p>生效版本：v17.0 涨价解锁（适用于 <code>https://app.a9.lat</code> 与 Telegram Mini App <code>@A9_TonBot</code>）</p>
 
     <h2>1. 非托管协议声明（Non-Custodial Protocol）</h2>
-    <p>A9 · 财富大冒险（A9 Wealth Quest）为基于 TON 区块链部署的非托管智能合约前端界面。<code>JettonMaster</code> 100 亿 A9 一次性铸完并永久弃权（<code>admin_address = addr_none</code>），<code>RoundController</code> 无管理员干预资产提取能力。用户通过 TON Connect 2.0 自主掌控私钥并签署每一笔链上交易。</p>
+    <p>A9 · 财富大冒险（A9 Wealth Quest）为基于 TON 区块链部署的非托管智能合约前端界面。<code>JettonMaster</code> 10,000,000,000 A9 一次性铸完并永久弃权（<code>admin_address = addr_none</code>），<code>RoundController</code> 无管理员干预资产提取能力。用户通过 TON Connect 2.0 自主掌控私钥并签署每一笔链上交易。</p>
 
     <h2>2. 核心规则与本金风险提示（Risk Disclosure）</h2>
     <ul>
       <li><strong>轮次涨价解锁（永不爆仓 · 自动止损）</strong>：用户锁仓的 A9 本金（最低 100 A9，全员 1:1 公平分奖，封顶 5×）在 24H 锁仓期内随时支持<strong>提前解押（退 85% 本金 / 扣 15% 销毁）</strong>；进入 12H 冲价期后封盘禁进禁出。若 12 个 1H 时段中 ≥ 8 个达标，本金 100% 即时退还 + 奖金 20% 秒提，余下 80% 分 <strong>14 天</strong>按秒连续线性解锁（每日 5.71%，永久累计不倒扣），并支持对未解锁余额走<strong>3 折急提（7 折销毁）</strong>；若未达 8/12 时段，<strong>永不爆仓</strong>——头矿前 6H 锁仓退 95%（扣 5% 止损销毁）、6H 后锁仓退 90%（扣 10% 止损销毁），另销毁半数奖池与团队额度；若 7 天超时未结算，任何用户均可无许可触发 <code>AbortRound</code> 100% 退还本金。</li>
-      <li><strong>宝箱商城与固定兑换</strong>：所有订单均需通过页面下单生成专属 <code>buy:&lt;orderId&gt;</code> Memo 后签名支付；切勿向热钱包直接转账。错额、错钱包、过期或未下单转账在核验后将扣除 <code>0.03 GRAM</code> 链上退款 Gas 原路退回。</li>
+      <li><strong>宝箱商城与直发配送</strong>：所有订单均需通过页面下单生成专属 <code>buy:&lt;orderId&gt;</code> Memo 后签名支付（含 <code>+0.06 GRAM</code> 链上单次发币 Gas，保底与随机加赠合并一笔直发钱包）；切勿向热钱包直接转账。错额、错钱包、过期或未下单转账在核验后将扣除 <code>0.03 GRAM</code> 链上退款 Gas 原路退回。</li>
       <li><strong>市场与链上风险</strong>：数字资产价格波动剧烈，参与前请充分理解智能合约不可逆特性，仅投入自身可承受损失的资产。本前端不构成任何投资或收益承诺。</li>
     </ul>
 

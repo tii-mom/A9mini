@@ -6,8 +6,8 @@
       "unlockType": "platform_interaction",
       "labelZh": "互动解锁系列",
       "labelEn": "Activity Series",
-      "descZh": "通过平台打卡、集章手账、12H 竞猜与邀请互动解锁，每阶均配专属精装卡背。",
-      "descEn": "Unlocked via platform interactions, daily stamps, 12H predictions, and invites. Each tier pairs with a collectible backing card.",
+      "descZh": "通过平台宝箱收集、12H 竞猜与邀请互动解锁，每阶均配专属精装卡背。",
+      "descEn": "Unlocked via chest collection, 12H predictions, and invite interactions. Each tier pairs with a collectible backing card.",
       "items": [
         { "id": "act-01", "tier": 1, "rarity": "COMMON", "nameZh": "经典牛皮纸箱", "nameEn": "Kraft Classic", "avatar": "./assets/boxheads/activity/avatars/act-01.png", "card": "./assets/boxheads/activity/cards/act-01-card.png" },
         { "id": "act-02", "tier": 2, "rarity": "UNCOMMON", "nameZh": "纯白耳机纸箱", "nameEn": "Mono Beats", "avatar": "./assets/boxheads/activity/avatars/act-02.png", "card": "./assets/boxheads/activity/cards/act-02-card.png" },

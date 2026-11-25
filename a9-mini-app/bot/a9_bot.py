@@ -175,15 +175,20 @@ async def current_round_summary():
     if round_id is None or not isinstance(raw_state, str) or not raw_state.strip():
         return unavailable
     q = r.get("qualifiedCandles")
-    raw_twap = r.get("priceUsdE8") if r.get("priceValid") is not False else None
-    if raw_twap is None:
+    raw_1h = r.get("priceUsdE8") if r.get("priceValid") is not False else None
+    if raw_1h is not None:
+        raw_twap = raw_1h
+        twap_label = "1H 均价"
+    else:
         raw_twap = r.get("twap24hUsdE8")
+        twap_label = "24H 参考均价" if raw_twap is not None else "1H 均价"
     return {
         "status": "active",
         "round": f"#{round_id}",
         "state": STATE_LABELS.get(raw_state, raw_state),
         "target": usd_e8(r.get("targetPriceUsdE8")),
         "twap": usd_e8(raw_twap),
+        "twap_label": twap_label,
         "qualified": f"{q}/12" if isinstance(q, int) and not isinstance(q, bool) else PENDING,
     }
 
@@ -214,7 +219,7 @@ async def render_start():
         "基于 TON 区块链智能合约（v17.0 涨价解锁）。以下数据来自协议接口，缺失时显示“待核验”。\n\n"
         f"• 当前轮次：<code>{_esc(s['round'])}</code>（{_esc(s['state'])}）\n"
         f"• 目标价：<code>{_esc(s['target'])}</code>\n"
-        f"• 1H 均价：<code>{_esc(s['twap'])}</code>\n\n"
+        f"• {_esc(s.get('twap_label', '1H 均价'))}：<code>{_esc(s['twap'])}</code>\n\n"
         "进入小程序查看实时详情。参与有风险，结果以链上结算为准。"
     )
 
@@ -284,7 +289,7 @@ def build_bot():
         msg = update.effective_message
         if msg is None:
             return
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("查看实时轮次", web_app=WebAppInfo(url=build_mini_app_url()))]])
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("查看实时轮次", web_app=WebAppInfo(url=build_mini_app_url("round")))]])
         await msg.reply_text(await render_round(), parse_mode="HTML", reply_markup=kb)
 
     async def cmd_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -298,8 +303,9 @@ def build_bot():
         msg = update.effective_message
         if msg is None:
             return
-        raw_token = (msg.text or "").split()[0].lstrip("/")
-        cmd = raw_token.split("@")[0].lower()
+        parts = (msg.text or "").split()
+        raw_token = parts[0].lstrip("/") if parts else ""
+        cmd = raw_token.split("@")[0].lower() or "start"
         param = ROUTE_MAP.get(cmd, "")
         url = build_mini_app_url(param or None)
         kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"打开 A9 /{cmd}", web_app=WebAppInfo(url=url))]])

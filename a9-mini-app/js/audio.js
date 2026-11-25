@@ -152,13 +152,13 @@ export const A9Audio = {
     playTone(780, 0.058, 0.11, 'sine', 0.045, 980);
   },
 
-  /** 任天堂升调五声音阶（按已达标时段数递增音阶，≥16 奏三音达标琶音） */
+  /** 任天堂升调五声音阶（按已达标时段数递增音阶，≥8 奏三音达标琶音） */
   scaleChime(passedCount = 1) {
     const n = Math.max(0, Number(passedCount) || 0);
     const note = PENTA_SCALE[Math.min(PENTA_SCALE.length - 1, Math.floor(n / 2))];
     playTone(170, 0, 0.055, 'sine', 0.06, 86);
     playTone(note, 0.03, 0.13, 'triangle', 0.058);
-    if (n >= 16) {
+    if (n >= 8) {
       playTone(1046.5, 0.09, 0.14, 'triangle', 0.055);
       playTone(1318.51, 0.16, 0.22, 'triangle', 0.065);
     }

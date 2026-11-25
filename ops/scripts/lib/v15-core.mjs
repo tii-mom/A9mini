@@ -506,7 +506,7 @@ export function verifyActonWalletsReadOnly({
     OPS_CONFIRM: '',
     OPS_CONFIRM_MAINNET: '',
   };
-  const deployScript = '../ops/tolk/deploy_v16.tolk';
+  const deployScript = protocol === 'v16' ? '../ops/tolk/deploy_v16.tolk' : '../ops/tolk/deploy_v17.tolk';
   const res = spawnImpl('acton', ['script', '--net', params.network, deployScript], {
     cwd: protocolRoot,
     env: dryEnv,

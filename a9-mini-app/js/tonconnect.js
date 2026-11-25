@@ -432,27 +432,9 @@ class A9TonConnect {
     if (config.isDemo) {
       return demoWalletSendResult(action);
     }
-    if (!liveFundsReady()) {
-      throw createFundsDisabledError();
-    }
-    if (!this.sdkReady || !this.ui || typeof this.ui.sendTransaction !== 'function') {
-      const err = new Error(L('TON Connect SDK 尚未就绪，请先刷新或重试加载钱包组件', 'TON Connect SDK is not ready; please refresh and retry'));
-      err.code = 'WALLET_SDK_NOT_READY';
-      throw err;
-    }
-    if (!store.state.user.connected) {
-      const err = new Error(L('请先连接非托管 TON 钱包后再发起交易签名', 'Please connect a non-custodial TON wallet before signing'));
-      err.code = 'WALLET_NOT_CONNECTED';
-      throw err;
-    }
+    // 实盘签发瞬间复验总闸、SDK、网络、ton_proof 与绑定钱包一致性，消除确认卡停留期间的 TOCTOU 窗口
+    this.assertWalletReadyForLiveTx();
     const expectedChain = this.getExpectedChainId();
-    const walletChain = String(this.ui?.wallet?.account?.chain || store.state.user.walletChain || '').trim();
-    if (expectedChain && walletChain && walletChain !== expectedChain) {
-      const wantLabel = expectedChain === '-239' ? L('TON 主网 (-239)', 'TON Mainnet (-239)') : L('TON 测试网 (-3)', 'TON Testnet (-3)');
-      const err = new Error(L(`当前钱包网络 (${walletChain}) 与协议网络不匹配，请切换至 ${wantLabel} 后重试`, `Wallet network (${walletChain}) mismatches protocol; switch to ${wantLabel} and retry`));
-      err.code = 'WRONG_WALLET_NETWORK';
-      throw err;
-    }
     const fromAddr = this.ui?.wallet?.account?.address || store.state.user.address || undefined;
     const outboundTx = {
       ...tx,

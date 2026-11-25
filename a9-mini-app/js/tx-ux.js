@@ -239,12 +239,14 @@ export class PendingTxManager {
     return this._tx ? { ...this._tx } : null;
   }
 
-  /** 若同类型（或全局）存在已签名/链上确认中的未完结交易，返回 true 防止重复连点。 */
-  isLocked(kind = null) {
+  /**
+   * 任意在途链上交易（signed / confirming）存在时即全局锁定，防止不同类型交易互相覆盖并中断前序轮询。
+   * 保留 kind 入参签名以兼容既有调用方。
+   */
+  isLocked(_kind = null) {
     const tx = this.getActive();
     if (!tx) return false;
-    if (tx.status !== 'signed' && tx.status !== 'confirming') return false;
-    return kind ? tx.kind === kind : true;
+    return tx.status === 'signed' || tx.status === 'confirming';
   }
 
   start({

@@ -1,5 +1,5 @@
-import { fetchUserPortfolio, fetchProgressionUser, claimProgressionTask, fetchWarmupCurrent, fetchMyChests, getEffectiveUserId, submitPredictionBet, rawToA9, PROTOCOL_SPECS } from '../data.js';
-import { renderPlazaCompactBanner } from './round_stages.js';
+import { fetchUserPortfolio, fetchProgressionUser, claimProgressionTask, fetchWarmupCurrent, fetchMyChests, fetchRoundAirdropDraws, getEffectiveUserId, submitPredictionBet, rawToA9, PROTOCOL_SPECS } from '../data.js';
+import { renderPlazaCompactBanner, renderAirdropDrawsCard } from './round_stages.js';
 import { L } from '../i18n.js';
 import { config } from '../config.js';
 import { store } from '../store.js';
@@ -66,17 +66,15 @@ export function stageLabel(stage) {
   return stages[stage] ? L(...stages[stage]) : waiting();
 }
 
-function priceOrDash(v) {
-  return v === null || v === undefined || !Number.isFinite(Number(v)) || Number(v) <= 0
-    ? '—'
-    : `$${Number(v).toFixed(4)}`;
+function toFiniteNum(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
-function unlockPctByWins(n) {
-  if (!Number.isFinite(Number(n)) || Number(n) <= 0) return null;
-  if (n <= 5) return '20%';
-  if (n <= 10) return '40%';
-  return '100%';
+function priceOrDash(v) {
+  const n = toFiniteNum(v);
+  return n === null || n <= 0 ? '—' : `$${n.toFixed(4)}`;
 }
 
 function handbookLevelTitle(lv) {
@@ -288,50 +286,43 @@ export function bindIdentityStage(root, onRerender) {
 }
 
 /**
- * 广场首屏（#/challenge）：重心看「轮次进展」
- * 第一张主卡随阶段动态切换唯一视觉大数字焦点，奖池/权重/上限收为轻摘要；
- * 中层 4 枚任天堂服务入口；第二层为 12H 预言、全局解锁与返佣。
+ * 广场首屏（#/challenge）：聚焦 v17.0「涨价解锁」核心漏斗
+ * 顶部状态条 → 本轮动态主战卡（单一主 CTA）→ 高转化 4 宫格 → 12H 预言 / 每轮空投紧凑轻卡
  */
+let activePlazaTab = 'pred';
+
 export function city() {
   const r = store.state.round;
   const pred = store.state.prediction;
-  const totalSlots = Number(r.candleCount) || 12;
-  const required = Number(r.minQualifiedCandles) || 8;
-  const passed = r.qualifiedCandles ?? null;
+  const totalSlots = toFiniteNum(r.candleCount) || 12;
+  const required = toFiniteNum(r.minQualifiedCandles) || 8;
+  const passed = toFiniteNum(r.qualifiedCandles);
   const confirmed = Array.isArray(r.candles)
     ? r.candles.filter((c) => c.confirmed || c.status === 'closed').length
-    : (r.candlesSeen ?? null);
+    : toFiniteNum(r.candlesSeen);
   const need = passed === null ? null : Math.max(0, required - passed);
   const awaitingSettle = r.stage === 'observation' && ((passed !== null && passed >= required) || r.nextState === 'AWAITING_SETTLE');
-  const wins = r.successCount;
-  const unlockPct = unlockPctByWins(wins);
-  const candleSeries = Array.isArray(r.candles)
-    ? r.candles.map((c) => Number(c?.p)).filter((v) => Number.isFinite(v) && v > 0)
-    : [];
-  const history = Array.isArray(r.priceHistory) && r.priceHistory.length > 1
-    ? r.priceHistory
-    : (candleSeries.length > 1 ? candleSeries.slice(-12) : []);
 
-  const cdText = r.countdownSec === null || r.countdownSec === undefined
-    ? '—'
-    : formatTimer(r.countdownSec);
+  const cdSec = toFiniteNum(r.countdownSec);
+  const cdText = cdSec === null ? '—' : formatTimer(cdSec);
 
-  const hasPoolBudget = r.rewardBudgetA9 !== null && r.rewardBudgetA9 !== undefined && Number.isFinite(Number(r.rewardBudgetA9));
+  const rewardBudgetNum = toFiniteNum(r.rewardBudgetA9);
+  const hasPoolBudget = rewardBudgetNum !== null;
   const rawRefPrice = r.priceValid !== false ? (r.livePrice ?? r.twap24h) : null;
-  const curPriceNum = (rawRefPrice !== null && rawRefPrice !== undefined && Number.isFinite(Number(rawRefPrice)) && Number(rawRefPrice) > 0) ? Number(rawRefPrice) : null;
-  const targetPriceNum = (r.targetPrice !== null && r.targetPrice !== undefined && Number.isFinite(Number(r.targetPrice)) && Number(r.targetPrice) > 0) ? Number(r.targetPrice) : null;
-  const gapPct = (curPriceNum !== null && targetPriceNum !== null) ? (((targetPriceNum - curPriceNum) / curPriceNum) * 100) : null;
+  const curPriceNum = toFiniteNum(rawRefPrice);
+  const targetPriceNum = toFiniteNum(r.targetPrice);
+  const validCurPrice = curPriceNum !== null && curPriceNum > 0 ? curPriceNum : null;
+  const validTargetPrice = targetPriceNum !== null && targetPriceNum > 0 ? targetPriceNum : null;
+  const gapPct = (validCurPrice !== null && validTargetPrice !== null)
+    ? (((validTargetPrice - validCurPrice) / validCurPrice) * 100)
+    : null;
   const gapChipText = gapPct === null
     ? L('距目标价待核验', 'Target gap pending')
     : gapPct <= 0
       ? L(`已站上目标价 +${Math.abs(gapPct).toFixed(1)}%`, `Above target +${Math.abs(gapPct).toFixed(1)}%`)
       : L(`距目标价还差 +${gapPct.toFixed(1)}%`, `+${gapPct.toFixed(1)}% to target`);
-  const poolUsdEst = hasPoolBudget && curPriceNum !== null ? Number(r.rewardBudgetA9) * curPriceNum : null;
-  const hpPct = passed !== null && required > 0
-    ? Math.max(0, Math.min(100, Math.round((passed / required) * 100)))
-    : 0;
+  const poolUsdEst = hasPoolBudget && validCurPrice !== null ? rewardBudgetNum * validCurPrice : null;
 
-  // 12 颗微型实体进度点 + 外露 8px 迷你冲价条（观察与结算态展示）
   const slotStates = Array.from({ length: totalSlots }, (_, i) => {
     const c = Array.isArray(r.candles) ? r.candles.find((x) => x.index === i + 1) || r.candles[i] : null;
     return c?.confirmed
@@ -343,105 +334,108 @@ export function city() {
           : 'unknown';
   });
   const thresholdIdx = Math.max(0, required - 1);
-  const slotDots = slotStates.map((state, i) => `<i class="slot-dot ${state}${i === thresholdIdx ? ' threshold' : ''}" aria-hidden="true"></i>`).join('');
   const miniStripCells = slotStates.map((state, i) => `<i class="plaza-mini-cell ${state}${i === thresholdIdx ? ' threshold' : ''}" aria-hidden="true"></i>`).join('');
 
-  // 首屏主卡聚焦 3 大核心焦点：1) 本轮奖池  2) 涨价解锁目标距差 + 12H 冲价 8/12 血条  3) 唯一主行动按钮
-  let poolKicker = L('涨价解锁 · 本轮奖池（全员 1:1 · 5× 封顶）', 'PRICE-UNLOCK POOL (1:1 · 5× CAP)');
+  let poolKicker = L('涨价解锁 · 本轮奖池', 'PRICE-UNLOCK · ROUND POOL');
   let poolMainHtml = hasPoolBudget
-    ? `${formatNum(r.rewardBudgetA9)} <span class="focus-unit">A9</span>`
+    ? `${formatNum(rewardBudgetNum)} <span class="focus-unit">A9</span>`
     : `<span>${waiting()}</span>`;
-  let poolSubHtml = poolUsdEst !== null
-    ? `${L('70% 奖池 + 12% 团队全锁涨价解锁 · 永不爆仓 · 自动止损（头矿 6H 仅 5%）', '70% Pool + 12% Team Price-Unlock · No Liquidation · Auto Stop-Loss (First 6H 5%)')} · <b class="mono">$${formatNum(poolUsdEst, 2)}</b>`
-    : L('70% 奖池 + 12% 团队全锁涨价解锁 · 永不爆仓 · 自动止损（头矿 6H 仅 5%）', '70% Pool + 12% Team Price-Unlock · No Liquidation · Auto Stop-Loss (First 6H 5%)');
-  let hpLabel = L('12H 冲价血条（≥ 8/12 达标）', '12H PUSH BAR (8/12 GOAL)');
+  let hpLabel = L('12H 冲价进度（≥ 8/12 通关）', '12H PUSH (≥ 8/12 TO PASS)');
   let hpBadge = passed !== null ? `${passed} / ${required}` : L('待核验', 'Pending');
   let hpHint = '';
   let hpTone = '';
   let ctaHref = '#/round';
-  let ctaText = L('查看本轮进度', 'View round progress');
+  let ctaText = L('查看本轮闯关', 'Open Round Quest');
   let dotTone = '';
   let showSlotTrack = false;
 
   if (r.stage === 'participation') {
     poolKicker = r.inFirst6h
-      ? L('头矿 6H · 5% 轻止损窗口（全员 1:1 分奖）', 'FIRST 6H · 5% STOP-LOSS (1:1 SPLIT)')
+      ? L('头矿 6H · 5% 轻止损窗口开放中', 'FIRST 6H · 5% STOP-LOSS OPEN')
       : L('24H 锁仓开放 · 永不爆仓（10% 止损）', '24H LOCK OPEN · 10% STOP-LOSS');
-    hpLabel = L('24H 锁仓窗口 · 封盘后 12H 冲价 8/12', '24H LOCK → 12H PUSH (8/12 GOAL)');
-    hpBadge = r.inFirst6h ? L('头矿 6H · 5% 止损', 'FIRST 6H · 5% SL') : L('10% 止损 · 永不爆仓', '10% SL · NO LIQ');
-    hpHint = L('100 A9 起锁仓 · 涨到目标价稳住 8 小时分 7 亿 · 没过退 95%/90%', 'From 100 A9 · hold 8/12h at target to split 700,000,000 A9 · 95%/90% refund on fail');
+    hpLabel = L('24H 锁仓 → 封盘后 12H 冲价 8/12', '24H LOCK → 12H PUSH (8/12)');
+    hpBadge = r.inFirst6h ? L('头矿 6H · 5% 止损', 'FIRST 6H · 5% SL') : L('10% 自动止损', '10% STOP-LOSS');
+    hpHint = L('最低 100 A9 起锁仓 · 锁仓期可随时提前解押（退 85% / 烧 15%）', 'Lock from 100 A9 · Early Exit anytime during 24H lock (85% refund / 15% burn)');
     hpTone = 'gold';
+    ctaHref = '#/round';
     ctaText = L('100 A9 起锁仓上车', 'Lock from 100 A9');
     dotTone = 'gold';
   } else if (r.stage === 'warmup') {
-    poolKicker = L('开局倒计时 · 本轮预热池', 'PRE-ROUND · WARM-UP POOL');
+    poolKicker = L('开局倒计时 · 下轮预热池', 'PRE-ROUND · WARM-UP');
     if (!hasPoolBudget && config.isDemo) {
-      poolMainHtml = `8,000,000 <span class="focus-unit">A9</span>`;
+      poolMainHtml = `700,000,000 <span class="focus-unit">A9</span>`;
     }
-    hpLabel = L('下轮开局预热中', 'NEXT ROUND WARM-UP');
+    hpLabel = L('下轮开局预约中', 'NEXT ROUND RESERVE');
     hpBadge = L('0 成本预约', '0-COST');
-    hpHint = L('提前预约锁定开盘头矿 6H 提醒与专属预热宝箱', 'Reserve for First 6H opening alert & Warm-Up Chest');
+    hpHint = L('提前预约领预热宝箱，开盘第一时间推送头矿 6H 入口', 'Reserve for Warm-Up Chest & First 6H opening alert');
     hpTone = 'gold';
     ctaHref = '#/warmup';
-    ctaText = L('前往开局预热', 'Open Warm-Up');
+    ctaText = L('一键预约下轮', 'Reserve Next Round');
     dotTone = 'gold';
   } else if (awaitingSettle) {
     hpBadge = `${passed ?? required} / ${required}`;
-    hpHint = L(`已达 ${required} 格通关线（已确认 ${confirmed ?? '—'}/${totalSlots}），等待链上结算`, `${required}-slot threshold met (${confirmed ?? '—'}/${totalSlots} confirmed), awaiting settle`);
+    hpHint = L(`已达 ${required} 格通关线（已确认 ${confirmed ?? '—'}/${totalSlots}），等待链上结算`, `${required}-slot goal met (${confirmed ?? '—'}/${totalSlots} confirmed), awaiting settle`);
     hpTone = 'pass';
-    ctaText = L('查看结算进度', 'View settlement');
+    ctaHref = '#/round';
+    ctaText = L('查看结算进度', 'View Settlement');
     showSlotTrack = true;
   } else if (r.stage === 'observation') {
     hpBadge = passed !== null ? `${passed} / ${required}` : L('待核验', 'Pending');
-    const remSlots = confirmed !== null && Number.isFinite(Number(confirmed)) ? Math.max(0, totalSlots - Number(confirmed)) : null;
+    const remSlots = confirmed !== null ? Math.max(0, totalSlots - confirmed) : null;
     hpHint = need === null
       ? L('12H 冲价数据待核验 · 点击下方查看明细', '12H push slot data pending verification')
       : remSlots !== null && remSlots < need
-        ? L(`剩 ${remSlots} 格（差 ${need} 格达标）· 未达标自动止损退本 95%/90%`, `${remSlots} slot(s) left (need ${need}) · auto 95%/90% refund on fail`)
+        ? L(`剩 ${remSlots} 格（差 ${need} 格达标）· 未达标自动退本 95%/90%`, `${remSlots} left (need ${need}) · auto 95%/90% refund on fail`)
         : remSlots !== null
           ? L(`12H 冲价剩 ${remSlots} 格 · 再过 ${need} 格即通关分奖`, `${remSlots} left · need ${need} more to pass`)
-          : L(`距通关还差 ${need} 格 · 已确认 ${confirmed ?? '—'}/${totalSlots} 段`, `${need} more slot(s) to pass · ${confirmed ?? '—'}/${totalSlots} confirmed`);
+          : L(`距通关还差 ${need} 格 · 已确认 ${confirmed ?? '—'}/${totalSlots} 段`, `${need} more to pass · ${confirmed ?? '—'}/${totalSlots} confirmed`);
+    ctaHref = '#/round';
     ctaText = L('进入 12H 冲价盘', 'Open 12H Push Board');
     dotTone = 'cyan';
     showSlotTrack = true;
   } else if (r.stage === 'settlement_success') {
     hpBadge = `${passed ?? required} / ${required}`;
-    hpHint = L('冲价通关 · 100% 本金 + 20% 秒提已开放（支持 3 折急提，7 折销毁）', 'Passed · 100% principal + 20% Instant ready (Instant Cashout 30% Now / 70% Burn)');
+    hpHint = L('冲价通关 · 100% 退本 + 20% 秒提（支持 3 折急提，7 折销毁）', 'Passed · 100% principal + 20% Instant (Instant Cashout 30% Now / 70% Burn)');
     hpTone = 'pass';
+    ctaHref = '#/claim';
     ctaText = L('前往领奖 / 3 折急提', 'Claim / Instant Cashout');
     showSlotTrack = true;
   } else if (r.stage === 'settlement_burn') {
-    hpBadge = `${passed ?? 0} / ${required}`;
-    hpHint = L('未达 8/12 达标线 · 永不爆仓：前往领回 95%（头矿）/ 90%（普通）本金', 'Below 8/12 · No liquidation: claim your 95% (First 6H) / 90% refund');
+    hpBadge = passed !== null ? `${passed} / ${required}` : L('待核验', 'Pending');
+    hpHint = L('未通关 · 自动止损：前往领回 95%（头矿 6H）/ 90%（普通）本金', 'Auto Stop-Loss: claim your 95% (First 6H) / 90% principal refund');
     hpTone = 'burn';
+    ctaHref = '#/claim';
     ctaText = L('领回止损退本', 'Claim Stop-Loss Refund');
     dotTone = 'red';
     showSlotTrack = true;
   } else if (r.stage === 'halted') {
     hpBadge = L('安全中止', 'ABORTED');
-    hpHint = L('触发预言机/超时安全保护 · 参与本金原路退回', 'Safety halt triggered · staked principal refunded');
+    hpHint = L('触发安全保护 · 参与本金 100% 原路退回', 'Safety halt triggered · 100% principal refunded');
     hpTone = 'gold';
+    ctaHref = '#/risk/audit';
     ctaText = L('查看退款存证', 'View Refund Proof');
     dotTone = 'gold';
   } else {
     hpBadge = waiting();
-    hpHint = L('正在同步链上轮次状态', 'Syncing on-chain round status');
+    hpHint = L('新轮尚未开启 · 可先 0 元领青铜箱或预约下轮头矿 6H', 'No active round yet · claim Free Bronze Chest or reserve next First 6H');
+    ctaHref = '#/internal/market?tab=free';
+    ctaText = L('0 元秒领 200 A9 新手箱', 'Claim Free 200 A9 Chest');
   }
 
   const gates = [
-    ['/internal/market',          'market', L('宝箱商城', 'Chest Mall'),  L('0.99 GRAM起', 'From 0.99 GRAM')],
-    ['/internal/market?tab=free', 'trophy', L('免费宝箱', 'Free Chests'), L('同行领 A9', 'Co-Op A9')],
-    ['/rewards',                  'vault',  L('奖金金库', 'Vault'),       L('14天解锁', '14d Unlock')],
-    ['/rules',                    'rules',  L('闯关指南', 'Guide'),       L('常见问题', 'FAQ Guide')],
+    ['/internal/market',          'market', L('宝箱商城', 'Chest Mall'),  L('0.99起·直发A9', 'From 0.99 GRAM'), 'gate-mall'],
+    ['/internal/market?tab=free', 'trophy', L('免费领箱', 'Free Chests'), L('0元秒领200 A9', 'Free 200 A9'),   'gate-free'],
+    ['/claim',                    'vault',  L('领奖·急提', 'Claim'),      L('20%秒提·3折急提', 'Instant·Cashout'), 'gate-claim'],
+    ['/warmup',                   'rules',  L('下轮预热', 'Warm-Up'),     L('0元预约领箱', '0-Cost Reserve'),  'gate-warmup'],
   ];
 
-  const showPredRatio = config.isDemo || (pred?.loaded && Number(pred.total) > 0);
-  const passPct = Number.isFinite(Number(pred?.passPct)) ? Number(pred.passPct) : 61;
-  const burnPct = Number.isFinite(Number(pred?.burnPct)) ? Number(pred.burnPct) : 39;
+  const showPredRatio = config.isDemo || (pred?.loaded && (toFiniteNum(pred.total) || 0) > 0);
+  const passPct = toFiniteNum(pred?.passPct) ?? 61;
+  const burnPct = toFiniteNum(pred?.burnPct) ?? 39;
 
-  // 按真实轮次状态与赛点驱动广场动态沙盘情绪
-  const isSprint4h = r.stage === 'observation' && Number(r.countdownSec) > 0 && Number(r.countdownSec) <= 14400;
-  const isRedAlert = (isSprint4h && passed !== null && passed >= 12 && passed <= 15) || r.stage === 'settlement_burn';
+  // 按 v17 12 格体制驱动广场动态情绪（6..7 格且剩 ≤4H 触发红警；严格保留 passed === null 不转 0）
+  const isSprint4h = r.stage === 'observation' && cdSec !== null && cdSec > 0 && cdSec <= 14400;
+  const isRedAlert = (isSprint4h && passed !== null && passed >= 6 && passed <= 7) || r.stage === 'settlement_burn';
   const isMatchPoint = r.stage === 'observation' && !awaitingSettle && (isSprint4h || (passed !== null && passed >= Math.max(1, required - 2) && passed < required));
   const sandtableMood = r.stage === 'warmup'
     ? 'warmup'
@@ -455,9 +449,11 @@ export function city() {
             ? 'matchpoint'
             : 'observation';
 
-  const prog = store.state.progression || {};
   const curBet = pred?.currentBet || null;
   const predSettled = Boolean(pred?.settled || r.stage === 'settlement_success' || r.stage === 'settlement_burn');
+  const roundLabelText = r.currentRound !== null && r.currentRound !== undefined
+    ? `${L('第', 'R')} ${escapeHtml(String(r.currentRound))} ${L('轮', '')}`
+    : L('待开轮', 'Standby');
 
   const compactBannerHtml = renderPlazaCompactBanner(pred, r);
   const onboardHtml = compactBannerHtml ? '' : renderPlazaOnboardingStrip(pred, r);
@@ -471,146 +467,132 @@ export function city() {
       <div class="city-hub-top">
         <div class="city-round-pill">
           <span class="live-dot ${dotTone}"></span>
-          <span>${L('第', 'R')} ${r.currentRound ?? '—'} ${L('轮', '')} · ${stageLabel(r.stage)}</span>
+          <span>${roundLabelText} · ${escapeHtml(stageLabel(r.stage))}</span>
           ${isMatchPoint ? `<span class="chip chip-gold" style="min-height:18px;font-size:9.5px;padding:0 6px;">${L('赛点', 'MATCH PT')}</span>` : ''}
         </div>
-        <div class="row-start" style="gap:5px;">
-          <button type="button" class="plaza-trust-capsule" id="btn-plaza-trust-badge" title="${L('v17.0 合约已弃权 · 奖池链上可查', 'v17.0 Renounced · On-Chain Verified')}">
-            ${icon('shieldCheck', 12, 'text-green')}
-            <span>${L('已弃权', 'v17.0')}</span>
-          </button>
-          <div class="city-cd-badge" title="${L('当前阶段剩余时间', 'Time remaining')}">
-            ${icon('clock', 12)}
-            <span id="round-cd" class="mono">${cdText}</span>
-          </div>
+        <div class="city-cd-badge" style="flex-shrink:0;" title="${L('当前阶段剩余时间', 'Time remaining')}">
+          ${icon('clock', 12)}
+          <span id="round-cd" class="mono">${escapeHtml(cdText)}</span>
         </div>
       </div>
 
       <div class="plaza-pool-hero">
-        <span class="diorama-kicker">${poolKicker}</span>
+        <div class="row-between" style="gap:6px;align-items:center;">
+          <span class="diorama-kicker">${poolKicker}</span>
+          <div class="row-start" style="gap:5px;flex-shrink:0;">
+            <button type="button" class="plaza-trust-capsule" id="btn-plaza-trust-badge" title="${L('v17.0 合约已弃权 · 奖池链上可查', 'v17.0 Renounced · On-Chain Verified')}">
+              ${icon('shieldCheck', 11, 'text-green')}
+              <span>${L('已弃权', 'v17.0')}</span>
+            </button>
+            <a class="plaza-trust-capsule" href="#/rules" style="text-decoration:none;" title="${L('闯关指南与常见问题', 'How to Play & FAQ')}">
+              ${icon('book', 11)}
+              <span>${L('指南', 'FAQ')}</span>
+            </a>
+          </div>
+        </div>
         <div class="city-focus-val">${poolMainHtml}</div>
-        <p class="city-focus-sub">${poolSubHtml}</p>
+        <div class="plaza-pill-tags" aria-label="${L('v17.0 核心规则亮点', 'v17.0 Highlights')}">
+          <span class="plaza-micro-tag">${L('全员 1:1', '1:1 Equal')}</span>
+          <span class="plaza-micro-tag is-red">${L('头矿 6H · 5% 止损', 'First 6H · 5% SL')}</span>
+          <span class="plaza-micro-tag is-gold">${L('5× 封顶', '5× Cap')}</span>
+          ${poolUsdEst !== null ? `<span class="plaza-micro-tag mono">~$${formatNum(poolUsdEst, 0)}</span>` : ''}
+        </div>
       </div>
 
       <div class="plaza-hp-card${isMatchPoint ? ' is-matchpoint' : ''}${hpTone ? ` tone-${hpTone}` : ''}">
         <div class="row-between" style="margin-bottom:6px;">
           <span class="num-xs" style="font-weight:800;color:var(--ink);">${hpLabel}</span>
-          <span class="chip ${hpTone === 'burn' ? 'chip-red' : hpTone === 'gold' ? 'chip-gold' : 'chip-green'} mono">${hpBadge}</span>
+          <span class="chip ${hpTone === 'burn' ? 'chip-red' : hpTone === 'gold' ? 'chip-gold' : 'chip-green'} mono">${escapeHtml(hpBadge)}</span>
         </div>
         ${showSlotTrack ? `
           <a href="#/observation/records" class="plaza-mini-strip" id="plaza-mini-strip" style="text-decoration:none;" title="${L('查看 12H 冲价簿（第 8 格为通关线）', 'View 12H Push Log (Slot 8 = Goal)')}">${miniStripCells}</a>
           <div class="row-between num-xs text-sec" style="margin:6px 0 0;font-weight:700;gap:6px;">
-            <span>${hpHint}</span>
+            <span>${escapeHtml(hpHint)}</span>
             <span class="mono text-green" id="live-twap-val">${priceOrDash(r.twap24h ?? r.livePrice)}</span>
           </div>
           <div class="row-between num-xs text-muted" style="margin-top:4px;">
-            <span>${L('目标', 'Target')} <b class="mono" style="color:var(--ink);">${priceOrDash(r.targetPrice)}</b> · <b class="mono ${gapPct !== null && gapPct <= 0 ? 'text-green' : 'text-gold'}">${gapChipText}</b></span>
+            <span>${L('目标', 'Target')} <b class="mono" style="color:var(--ink);">${priceOrDash(r.targetPrice)}</b> · <b class="mono ${gapPct !== null && gapPct <= 0 ? 'text-green' : 'text-gold'}">${escapeHtml(gapChipText)}</b></span>
             <a href="#/observation/records" style="color:var(--nt-blue);font-weight:800;text-decoration:none;">${L('12H 冲价簿', '12H Log')} ›</a>
           </div>
         ` : `
-          <div class="num-xs text-sec" style="margin-bottom:6px;font-weight:700;">${hpHint}</div>
+          <div class="num-xs text-sec" style="margin-bottom:6px;font-weight:700;">${escapeHtml(hpHint)}</div>
           <div class="row-between num-xs" style="padding:6px 9px;border-radius:10px;background:var(--paper-tray);gap:6px;flex-wrap:wrap;">
             <span>${L('目标底价', 'Target')} <b class="mono">${priceOrDash(r.targetPrice)}</b></span>
             <span>${L('现价', 'Now')} <b class="mono text-green" id="live-twap-val">${priceOrDash(r.twap24h ?? r.livePrice)}</b></span>
-            <span class="mono ${gapPct !== null && gapPct <= 0 ? 'text-green' : 'text-gold'}" style="font-weight:800;">${gapChipText}</span>
+            <span class="mono ${gapPct !== null && gapPct <= 0 ? 'text-green' : 'text-gold'}" style="font-weight:800;">${escapeHtml(gapChipText)}</span>
           </div>
         `}
       </div>
 
-      <a class="game-play" href="${ctaHref}">${ctaText} ›</a>
-      <div class="row-between num-xs" style="margin-top:8px;padding:0 2px;gap:8px;">
-        <a href="#/internal/market" style="color:var(--nt-green);font-weight:800;text-decoration:none;">${L('无币新人：0.99 GRAM 开箱 / 免费领 200 A9', 'New? 0.99 GRAM Chest / Free 200 A9')} ›</a>
-        <a href="#/challenge/confirm" style="color:var(--nt-blue);font-weight:800;text-decoration:none;">${L('100 A9 起锁仓', 'Lock 100+ A9')} ›</a>
-      </div>
+      <a class="game-play" href="${ctaHref}">${escapeHtml(ctaText)} ›</a>
     </div>
 
-    <nav class="game-gates">
-      ${gates.map(([path, asset, label, sub]) => `
-        <a href="#${path}">
+    <nav class="game-gates" aria-label="${L('快捷功能入口', 'Quick Access')}">
+      ${gates.map(([path, asset, label, sub, id]) => `
+        <a href="#${path}" id="${id}">
           <span class="nt-gate-icon-wrap" aria-hidden="true">${renderNintendoGateIcon(asset, 30)}</span>
           <span>${label}</span>
-          <small>${sub}</small>
+          <small data-gate-sub="${id}">${sub}</small>
         </a>
       `).join('')}
     </nav>
 
-    <div class="card clickable city-pred-card${isRedAlert ? ' alert-red-mode' : ''}" id="city-pred-jump" role="button" tabindex="0">
-      <div class="row-between">
-        <div class="row-start">
-          <span class="chip ${isRedAlert ? 'chip-red' : 'chip-green'}">${isRedAlert ? L('最后 4H 红警', '4H RED ALERT') : L('0 GRAM 免费猜', '0 GRAM Free')}</span>
-          <strong class="city-pred-title">${L('12H 预言擂台', '12H Prediction Arena')}</strong>
-        </div>
-        <span class="city-pred-go" id="city-pred-status">${curBet ? (curBet.side === 'BURN' ? L('已押未通关 FAIL', 'Locked FAIL') : L('已押通关 PASS', 'Locked PASS')) : L('进擂台', 'Arena')} ›</span>
+    <section class="plaza-live-deck">
+      <div class="seg-tabs plaza-deck-tabs" id="plaza-deck-tabs">
+        <button type="button" class="seg-tab ${activePlazaTab === 'pred' ? 'active' : ''}" data-plaza-tab="pred">${L('12H 预言擂台', '12H Arena')}</button>
+        <button type="button" class="seg-tab ${activePlazaTab === 'airdrop' ? 'active' : ''}" data-plaza-tab="airdrop">${L('每轮 100,000 A9 空投', '100,000 A9 Airdrop')}</button>
       </div>
-      <p class="city-pred-desc">${L('0 GRAM 免费猜 · 首轮保底 500 A9 · 48H 内购箱/锁仓自动激活', '0 GRAM Free · 500 A9 rookie floor · auto-activates in 48H')}</p>
-      ${showPredRatio ? `
-        <div class="city-pred-bar-wrap">
-          <div class="row-between num-xs">
-            <span class="text-green" style="font-weight:800;">${L('通关多军 PASS', 'PASS')} ${passPct}%</span>
-            <span class="text-red" style="font-weight:800;">${L('未通关空军 FAIL', 'FAIL')} ${burnPct}%</span>
-          </div>
-          <div class="pred-split-bar pred-versus-bar" style="height:8px;margin-top:4px;">
-            <div class="pred-split-pass" style="width:${passPct}%;"></div>
-            <div class="pred-split-burn" style="width:${burnPct}%;"></div>
-          </div>
-        </div>
-      ` : ''}
-      <div id="plaza-pred-action-slot">
-        ${!predSettled && !curBet ? `
-          <div class="grid-2 plaza-quick-pred" style="gap:8px;margin-top:10px;">
-            <button type="button" class="pred-side-btn pass" data-plaza-pred-side="PASS" style="min-height:38px;font-size:12.5px;">${icon('checkCircle', 14)} ${L('0 GRAM 猜通关 PASS', '0 GRAM PASS')}</button>
-            <button type="button" class="pred-side-btn burn" data-plaza-pred-side="BURN" style="min-height:38px;font-size:12.5px;">${icon('flame', 14)} ${L('0 GRAM 猜未通关 FAIL', '0 GRAM FAIL')}</button>
-          </div>
-        ` : (!predSettled && curBet ? `
-          <div class="plaza-pred-followup">
-            <button type="button" class="btn btn-secondary btn-sm" data-plaza-pred-share="${curBet.side}" style="width:100%;min-height:36px;">${icon('send', 13)} ${L('发群战报', 'Share Call')}</button>
-            <a class="btn btn-primary btn-sm" href="#/internal/market" data-plaza-stop="1" style="width:100%;min-height:36px;">${icon('bolt', 13)} ${L('0.99 开箱直发', '0.99 Direct Chest')}</a>
-          </div>
-        ` : '')}
-      </div>
-    </div>
 
-    <a class="card clickable" id="city-warmup-card" href="#/warmup" style="display:block;text-decoration:none;color:inherit;">
-      <div class="row-between" style="margin-bottom:6px;">
-        <div class="row-start" style="gap:6px;">
-          <span class="chip chip-gold" id="city-warmup-round">${L(`第 ${(Number(r.currentRound) || 0) + 1} 轮预热`, `R${(Number(r.currentRound) || 0) + 1} Warm-Up`)}</span>
-          <strong style="font-size:14px;">${L('下一轮开局预约 · 领预热宝箱', 'Next Round Reserve · Free Chest')}</strong>
+      <div id="plaza-pane-pred" ${activePlazaTab === 'pred' ? '' : 'hidden'}>
+        <div class="card clickable city-pred-card${isRedAlert ? ' alert-red-mode' : ''}" id="city-pred-jump" role="button" tabindex="0">
+          <div class="row-between">
+            <div class="row-start">
+              <span class="chip ${isRedAlert ? 'chip-red' : 'chip-green'}">${isRedAlert ? L('最后 4H 红警', '4H RED ALERT') : L('0 GRAM 免费猜', '0 GRAM Free')}</span>
+              <strong class="city-pred-title">${L('12H 预言擂台', '12H Prediction Arena')}</strong>
+            </div>
+            <span class="city-pred-go" id="city-pred-status">${curBet ? (curBet.side === 'BURN' ? L('已押未通关 FAIL', 'Locked FAIL') : L('已押通关 PASS', 'Locked PASS')) : L('进擂台', 'Arena')} ›</span>
+          </div>
+          <p class="city-pred-desc">${L('0 GRAM 免费猜 · 首轮保底 500 A9 · 48H 内购箱或锁仓自动激活', '0 GRAM Free · 500 A9 rookie floor · auto-activates in 48H')}</p>
+          ${showPredRatio ? `
+            <div class="city-pred-bar-wrap">
+              <div class="row-between num-xs">
+                <span class="text-green" style="font-weight:800;">${L('通关多军 PASS', 'PASS')} ${passPct}%</span>
+                <span class="text-red" style="font-weight:800;">${L('未通关空军 FAIL', 'FAIL')} ${burnPct}%</span>
+              </div>
+              <div class="pred-split-bar pred-versus-bar" style="height:8px;margin-top:4px;">
+                <div class="pred-split-pass" style="width:${passPct}%;"></div>
+                <div class="pred-split-burn" style="width:${burnPct}%;"></div>
+              </div>
+            </div>
+          ` : ''}
+          <div id="plaza-pred-action-slot">
+            ${!predSettled && !curBet ? `
+              <div class="grid-2 plaza-quick-pred" style="gap:8px;margin-top:10px;">
+                <button type="button" class="pred-side-btn pass" data-plaza-pred-side="PASS" style="min-height:38px;font-size:12.5px;">${icon('checkCircle', 14)} ${L('0 GRAM 猜通关 PASS', '0 GRAM PASS')}</button>
+                <button type="button" class="pred-side-btn burn" data-plaza-pred-side="BURN" style="min-height:38px;font-size:12.5px;">${icon('flame', 14)} ${L('0 GRAM 猜未通关 FAIL', '0 GRAM FAIL')}</button>
+              </div>
+            ` : (!predSettled && curBet ? `
+              <div class="plaza-pred-followup">
+                <button type="button" class="btn btn-secondary btn-sm" data-plaza-pred-share="${escapeHtml(curBet.side)}" style="width:100%;min-height:36px;">${icon('send', 13)} ${L('发群战报', 'Share Call')}</button>
+                <a class="btn btn-primary btn-sm" href="#/internal/market" data-plaza-stop="1" style="width:100%;min-height:36px;">${icon('bolt', 13)} ${L('0.99 开箱直发', '0.99 Direct Chest')}</a>
+              </div>
+            ` : '')}
+          </div>
         </div>
-        <span class="num-xs text-green" id="city-warmup-cta" style="font-weight:800;">${L('去预约', 'Reserve')} ›</span>
       </div>
-      <div class="row-between num-xs text-sec" style="margin-bottom:5px;">
-        <span id="city-warmup-count">${L('正在同步全网预约人数…', 'Syncing reservation count…')}</span>
-        <span class="mono" id="city-warmup-pct">—</span>
+
+      <div id="plaza-pane-airdrop" ${activePlazaTab === 'airdrop' ? '' : 'hidden'}>
+        <div id="plaza-airdrop-mount">${renderAirdropDrawsCard({ loading: true })}</div>
       </div>
-      <div class="progress-track" style="height:6px;"><div class="progress-fill" id="city-warmup-fill" style="width:0%;"></div></div>
-    </a>
 
-    <div class="city-meta-grid">
-      <a class="city-meta-tile" href="#/rewards">
-        <small>${L('全网累计达标', 'Global Wins')}</small>
-        <strong>${wins == null ? waiting() : `${wins} ${L('轮', 'wins')}`}</strong>
-        <span>${L('20% 秒提 · 14天解锁', '20% instant · 14d unlock')} ›</span>
-      </a>
-      <a class="city-meta-tile" href="#/team/invite">
-        <small>${L('直推宝箱返佣', 'Direct Referral')}</small>
-        <strong>6%</strong>
-        <span>${L('生成招募海报', 'Invite poster')} ›</span>
-      </a>
-    </div>
-
-    <details class="handbook-collapse" id="a9-handbook-collapse">
-      <summary class="handbook-collapse-summary">
-        <span class="row-start" style="gap:6px;">
-          ${icon('checkCircle', 14, 'text-green')}
-          <strong>${L('日常集章打卡', 'Daily Stamp Check-in')}</strong>
-          <span class="chip chip-muted mono" style="height:19px;font-size:10px;padding:0 6px;">Lv.${prog.level || 1} · ${prog.dailyDoneCount || 0}/4</span>
+      <a class="plaza-referral-strip" href="#/team/invite">
+        <span class="row-start" style="gap:6px;min-width:0;">
+          <span class="chip chip-gold" style="min-height:20px;font-size:10px;padding:0 6px;flex-shrink:0;">8% + 6%</span>
+          <span class="num-xs" style="font-weight:800;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${L('好友通关 8% + 商城 6% 返佣', '8% Pass + 6% Mall Referrals')}</span>
         </span>
-        <span class="num-xs text-muted">${L('展开盖章', 'Expand')} ▾</span>
-      </summary>
-      <div class="handbook-collapse-body">
-        ${renderHandbookStampCard()}
-      </div>
-    </details>
+        <span class="num-xs text-green" style="font-weight:800;flex-shrink:0;">${L('去赚 A9', 'Earn')} ›</span>
+      </a>
+    </section>
   </section>`;
 }
 
@@ -668,7 +650,6 @@ function bindHandbookStampEvents(root, navigate) {
         return;
       }
 
-      // 若点击 0 GRAM 竞猜章但本轮尚未提交竞猜，直接引导跳转到挑战页竞猜卡
       if (taskKey === 'daily_prediction' && !store.state.prediction?.currentBet) {
         A9Haptic.light();
         A9Audio.tick();
@@ -728,7 +709,7 @@ function openContractTrustModal(navigate) {
     <div class="sub-tile" style="padding:9px 11px;">
       <div class="row-between" style="margin-bottom:4px;">
         <span class="num-xs text-muted">${title}</span>
-        <span class="chip ${addr ? 'chip-green' : 'chip-muted'} mono" style="min-height:18px;font-size:9.5px;">${addr ? String(network).toUpperCase() : L('待接入', 'PENDING')}</span>
+        <span class="chip ${addr ? 'chip-green' : 'chip-muted'} mono" style="min-height:18px;font-size:9.5px;">${addr ? escapeHtml(String(network).toUpperCase()) : L('待接入', 'PENDING')}</span>
       </div>
       ${addr ? `
         <div class="row-between" style="gap:6px;">
@@ -789,25 +770,55 @@ function openContractTrustModal(navigate) {
   }
 }
 
-/** 渲染广场并绑定信任徽章、每日集章与首屏 0 GRAM 一键预言交互 */
-export function renderCity(root, navigate) {
-  if (config.isDemo && !store.state.progression.loaded) {
-    const uid = getEffectiveUserId(store.state.user);
-    const data = demoProgressionInitSnapshot(uid, store.state.round.currentRound || 3);
-    Object.assign(store.state.progression, data, { loaded: true, error: false });
+async function hydratePlazaAirdropCard(root) {
+  const mount = root.querySelector('#plaza-airdrop-mount');
+  if (!mount) return;
+  try {
+    const data = await fetchRoundAirdropDraws({ limit: 3 });
+    if (!mount.isConnected) return;
+    mount.innerHTML = renderAirdropDrawsCard({
+      loading: false,
+      items: Array.isArray(data?.items) ? data.items : [],
+      bucketRemainingRaw: data?.bucketRemainingRaw ?? null,
+    });
+  } catch (e) {
+    if (!mount.isConnected) return;
+    mount.innerHTML = renderAirdropDrawsCard({
+      loading: false,
+      error: e?.message || L('每轮空投公示暂不可读取', 'Airdrop draws unavailable'),
+    });
+    const retryBtn = mount.querySelector('#btn-retry-airdrop-draws');
+    if (retryBtn) retryBtn.onclick = () => hydratePlazaAirdropCard(root);
   }
+}
+
+/** 渲染广场并绑定信任徽章、轻卡 Tab 切换、每轮空投公示与首屏 0 GRAM 一键预言交互 */
+export function renderCity(root, navigate) {
   root.innerHTML = city();
-  bindHandbookStampEvents(root, navigate);
   bindOnboardingStrip(root);
-  syncProgressionState(root, navigate);
-  hydrateCityWarmupCard(root);
+  hydrateCityWarmupGate(root);
   hydrateOnboardingStrip(root);
+  hydratePlazaAirdropCard(root);
 
   const trustBtn = root.querySelector('#btn-plaza-trust-badge');
   if (trustBtn) {
     trustBtn.onclick = () => openContractTrustModal(navigate);
   }
 
+  root.querySelectorAll('[data-plaza-tab]').forEach((tabBtn) => {
+    tabBtn.onclick = () => {
+      const nextTab = tabBtn.dataset.plazaTab === 'airdrop' ? 'airdrop' : 'pred';
+      if (nextTab === activePlazaTab) return;
+      A9Haptic.light();
+      A9Audio.tick();
+      activePlazaTab = nextTab;
+      root.querySelectorAll('[data-plaza-tab]').forEach((b) => b.classList.toggle('active', b.dataset.plazaTab === activePlazaTab));
+      const predPane = root.querySelector('#plaza-pane-pred');
+      const airPane = root.querySelector('#plaza-pane-airdrop');
+      if (predPane) predPane.hidden = activePlazaTab !== 'pred';
+      if (airPane) airPane.hidden = activePlazaTab !== 'airdrop';
+    };
+  });
 
   const bindPlazaFollowup = () => {
     root.querySelectorAll('[data-plaza-stop]').forEach((el) => {
@@ -867,7 +878,7 @@ export function renderCity(root, navigate) {
           if (slotEl) {
             slotEl.innerHTML = `
               <div class="plaza-pred-followup">
-                <button type="button" class="btn btn-secondary btn-sm" data-plaza-pred-share="${side}" style="width:100%;min-height:36px;">${icon('send', 13)} ${L('发群战报', 'Share Call')}</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-plaza-pred-share="${escapeHtml(side)}" style="width:100%;min-height:36px;">${icon('send', 13)} ${L('发群战报', 'Share Call')}</button>
                 <a class="btn btn-primary btn-sm" href="#/internal/market" data-plaza-stop="1" style="width:100%;min-height:36px;">${icon('bolt', 13)} ${L('0.99 开箱直发', '0.99 Direct Chest')}</a>
               </div>
             `;
@@ -902,36 +913,19 @@ export function renderCity(root, navigate) {
   }
 }
 
-async function hydrateCityWarmupCard(root) {
-  const card = root.querySelector('#city-warmup-card');
-  if (!card) return;
+async function hydrateCityWarmupGate(root) {
+  const subEl = root.querySelector('[data-gate-sub="gate-warmup"]');
+  if (!subEl) return;
   try {
     const data = await fetchWarmupCurrent();
-    if (!card.isConnected || !data) return;
-    const rid = Number(data.roundId) || ((Number(data.currentOnchainRoundId ?? store.state.round?.currentRound) || 0) + 1);
-    const regCount = Number(data.stats?.totalRegistered ?? 0);
-    const target = Number(data.stats?.targetUsers ?? 0);
-    const pct = Math.max(0, Math.min(100, Number(data.stats?.progressPct ?? 0)));
-    const reserved = Boolean(data.isReserved);
-    const open = Boolean(data.open);
-    const roundEl = card.querySelector('#city-warmup-round');
-    const ctaEl = card.querySelector('#city-warmup-cta');
-    const countEl = card.querySelector('#city-warmup-count');
-    const pctEl = card.querySelector('#city-warmup-pct');
-    const fillEl = card.querySelector('#city-warmup-fill');
-    if (roundEl) roundEl.textContent = L(`第 ${rid} 轮预热`, `R${rid} Warm-Up`);
-    if (ctaEl) ctaEl.textContent = !open ? L('已截止 ›', 'Closed ›') : reserved ? L('已预约 · 查宝箱 ›', 'Reserved · Chest ›') : L('一键预约 ›', 'Reserve ›');
-    if (countEl) {
-      countEl.textContent = target > 0
-        ? L(`已预约 ${formatNum(regCount)} / 目标 ${formatNum(target)} 人`, `${formatNum(regCount)} / ${formatNum(target)} reserved`)
-        : L(`已预约 ${formatNum(regCount)} 人`, `${formatNum(regCount)} reserved`);
+    if (!subEl.isConnected || !data) return;
+    const regCount = toFiniteNum(data.stats?.totalRegistered);
+    if (data.isReserved) {
+      subEl.textContent = L('已预约·查宝箱', 'Reserved');
+    } else if (regCount !== null && regCount > 0) {
+      subEl.textContent = L(`已约 ${formatNum(regCount)} 人`, `${formatNum(regCount)} joined`);
     }
-    if (pctEl) pctEl.textContent = target > 0 ? `${pct}%` : '—';
-    if (fillEl) fillEl.style.width = `${pct}%`;
-  } catch (_) {
-    const countEl = card.querySelector('#city-warmup-count');
-    if (countEl && card.isConnected) countEl.textContent = L('点击进入下一轮预热预约与宝箱页', 'Tap to open Next Round Warm-Up & Chest');
-  }
+  } catch (_) {}
 }
 
 function renderPlazaOnboardingStrip(pred, r) {
@@ -983,6 +977,14 @@ function bindOnboardingStrip(root) {
   if (scrollPredBtn) {
     scrollPredBtn.onclick = () => {
       A9Haptic.light();
+      if (activePlazaTab !== 'pred') {
+        activePlazaTab = 'pred';
+        root.querySelectorAll('[data-plaza-tab]').forEach((b) => b.classList.toggle('active', b.dataset.plazaTab === 'pred'));
+        const predPane = root.querySelector('#plaza-pane-pred');
+        const airPane = root.querySelector('#plaza-pane-airdrop');
+        if (predPane) predPane.hidden = false;
+        if (airPane) airPane.hidden = true;
+      }
       root.querySelector('#city-pred-jump')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
   }
