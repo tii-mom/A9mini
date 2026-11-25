@@ -1,0 +1,28 @@
+<svg viewBox="0 0 180 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="90" cy="144" rx="64" ry="11" fill="#171920" fill-opacity="0.16"/>
+  <!-- 两侧提环 -->
+  <path d="M22 92H32V112H22C17.5 112 15 107.5 15 102C15 96.5 17.5 92 22 92Z" fill="#D98200" stroke="#171920" stroke-width="3.4"/>
+  <path d="M158 92H148V112H158C162.5 112 165 107.5 165 102C165 96.5 162.5 92 158 92Z" fill="#D98200" stroke="#171920" stroke-width="3.4"/>
+  <!-- 下箱体 -->
+  <rect x="28" y="80" width="124" height="60" rx="15" fill="#BA8006" stroke="#171920" stroke-width="3.4"/>
+  <rect x="28" y="76" width="124" height="54" rx="14" fill="#F7BE2C" stroke="#171920" stroke-width="3.4"/>
+  <rect x="36" y="83" width="52" height="9" rx="4.5" fill="#FFF08A"/>
+  <!-- 任天堂正红双扣带 -->
+  <rect x="48" y="76" width="20" height="54" fill="#E60012" stroke="#171920" stroke-width="3.2"/>
+  <rect x="112" y="76" width="20" height="54" fill="#E60012" stroke="#171920" stroke-width="3.2"/>
+  <!-- 护角金属件 -->
+  <rect x="28" y="112" width="18" height="18" rx="5" fill="#FFE05C" stroke="#171920" stroke-width="2.8"/>
+  <rect x="134" y="112" width="18" height="18" rx="5" fill="#FFE05C" stroke="#171920" stroke-width="2.8"/>
+  <!-- 弧形顶盖 -->
+  <path d="M26 62C26 40 42 26 64 26H116C138 26 154 40 154 62V78H26V62Z" fill="#FFC412" stroke="#171920" stroke-width="3.4" stroke-linejoin="round"/>
+  <path d="M40 45C46 37 56 34 68 34H108" stroke="#FFF4AE" stroke-width="6.5" stroke-linecap="round"/>
+  <rect x="48" y="26" width="20" height="52" fill="#E60012" stroke="#171920" stroke-width="3.2"/>
+  <rect x="112" y="26" width="20" height="52" fill="#E60012" stroke="#171920" stroke-width="3.2"/>
+  <!-- 顶盖红带高光 -->
+  <rect x="52" y="32" width="6" height="14" rx="3" fill="#FF5A67"/>
+  <rect x="116" y="32" width="6" height="14" rx="3" fill="#FF5A67"/>
+  <!-- 中央星徽卡扣 -->
+  <rect x="70" y="64" width="40" height="40" rx="11" fill="#A3000D" stroke="#171920" stroke-width="3.2" transform="translate(0 4)"/>
+  <rect x="70" y="62" width="40" height="40" rx="11" fill="#FFFFFF" stroke="#171920" stroke-width="3.4"/>
+  <path d="M90 70L93.8 78.2L102.8 79.3L96.2 85.4L97.9 94.3L90 89.9L82.1 94.3L83.8 85.4L77.2 79.3L86.2 78.2L90 70Z" fill="#F0AE14" stroke="#171920" stroke-width="2.6" stroke-linejoin="round"/>
+</svg>

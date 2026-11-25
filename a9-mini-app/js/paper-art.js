@@ -16,7 +16,7 @@ export const DIORAMA_BACKDROP = `
 </svg>`;
 
 /**
- * 任天堂主城阶段氛围底板：克制干净的顶部色带 + 极淡圆点矩阵，绝不干扰核心数字阅读
+ * 任天堂广场阶段氛围底板：克制干净的顶部色带 + 极淡圆点矩阵，绝不干扰核心数字阅读
  * @param {'warmup'|'participation'|'observation'|'matchpoint'|'pass'|'burn'} mood
  */
 export function renderCitySandtable(mood = 'observation') {

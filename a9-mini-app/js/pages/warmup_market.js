@@ -286,7 +286,7 @@ export function renderWarmupHome(root, navigate, _param = null, query = {}) {
             </span>
           </div>
           <p class="num-xs text-sec" style="margin:0 0 10px;line-height:1.5;">
-            ${L(`预约后立领 1 个本轮专属预热宝箱：邀请 ${baseReq} 位好友预约并绑定活跃 TON 钱包即解锁 ${formatNum(baseUnlockA9)} A9，之后每多 1 位 +200 A9（满 ${maxFriends} 位封顶 ${formatNum(maxChestA9)} A9），开箱进入待激活金库，开轮后参与闯关（最低 1,000 A9）或购箱即刻激活。`, `Reserve to receive 1 Round Warm-Up Chest: invite ${baseReq} friends who reserve & bind an active TON wallet to unlock ${formatNum(baseUnlockA9)} A9, plus +200 A9 per extra friend up to ${maxFriends} (${formatNum(maxChestA9)} A9 max) into your Pending Vault.`)}
+            ${L(`邀好友预约并绑钱包，最高解锁 ${formatNum(maxChestA9)} A9（入待激活金库）。`, `Invite wallet-bound friends to unlock up to ${formatNum(maxChestA9)} A9.`)}
           </p>
 
           <div class="sub-tile" style="margin-bottom:10px;">
@@ -911,44 +911,41 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
             </div>
 
             <section class="mall-checkout-panel">
-              <div class="sub-tile" style="padding:7px 10px;margin:0 0 8px;border-color:var(--gold-border);">
-                <div class="row-between num-xs" style="margin-bottom:3px;">
-                  <span style="font-weight:800;">${L('付费箱免助力 · 开箱随机暴击概率', 'No Assist Needed · Random Crit Odds')}</span>
-                  <span class="mono text-green" style="font-weight:800;">${L(`最高 +${formatNum(sel.maxBoostA9, 2)} A9`, `Up to +${formatNum(sel.maxBoostA9, 2)} A9`)}</span>
-                </div>
-                <div class="num-xs text-muted">${L('常规 75% (0–15%区间) · 幸运 18% (15–35%) · 史诗 6% (35–65%) · 传说 1% (65–100%)', 'Normal 75% (0–15%) · Lucky 18% (15–35%) · Epic 6% (35–65%) · Legendary 1% (65–100%)')}</div>
-              </div>
-
-              <div class="sub-tile" style="padding:8px 11px;margin:8px 0;">
-                <div class="row-between num-xs">
-                  <span class="text-sec">${L('宝箱货款（固定本金直发）', 'Chest Principal (Base A9 Direct)')}</span>
-                  <span class="mono">${sel.priceGram} GRAM</span>
-                </div>
-                <div class="row-between num-xs" style="margin-top:4px;">
-                  <span class="text-sec">${L('A9 链上发放 Gas（用户承担）', 'On-Chain A9 Delivery Gas (User Paid)')}</span>
-                  <span class="mono">+${sel.deliveryFeeGram || '0.06'} GRAM</span>
-                </div>
-                <div class="row-between num-xs" style="margin-top:5px;padding-top:5px;border-top:1px dashed var(--border);font-weight:800;">
-                  <span>${L('应付总额', 'Total Payable')}</span>
-                  <span class="mono text-green">${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM</span>
-                </div>
-              </div>
-
               <button class="btn ${canPurchaseNow() && !pendingTxManager.isLocked('presale') ? 'btn-primary' : 'btn-secondary'}" id="btn-buy-chest" type="button" ${!canPurchaseNow() || buyBusy || pendingTxManager.isLocked('presale') ? 'disabled' : ''}>
                 ${!store.fundsEnabled
                   ? `${icon('lock', 15)} ${L('真实模式只读 · 暂未开放购箱', 'Live Read-Only · Purchase Disabled')}`
                   : !config.isDemo && !isPresaleServerOpen()
                     ? `${icon('lock', 15)} ${L('宝箱商城尚未开售', 'Chest Mall Not Open Yet')}`
                     : config.isDemo
-                      ? `${icon('bolt', 16)} ${L(`演示购买 ${L(sel.zh, sel.en)} · 实付 ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`, `Demo Buy ${sel.en} · Pay ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`)}`
+                      ? `${icon('bolt', 16)} ${L(`演示购箱 · ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM（含 Gas）`, `Demo Buy · ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`)}`
                       : `${icon(pendingTxManager.isLocked('presale') ? 'clock' : 'bolt', 16)} ${pendingTxManager.isLocked('presale')
-                          ? L('购箱订单确认中（防重锁）', 'Order Confirming…')
+                          ? L('订单确认中…', 'Confirming…')
                           : buyBusy
-                            ? L('等待钱包确认…', 'Awaiting Wallet…')
-                            : L(`立即购买 ${L(sel.zh, sel.en)} · 实付 ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`, `Buy ${sel.en} · Pay ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`)}`}
+                            ? L('等待钱包签名…', 'Awaiting Wallet…')
+                            : L(`立即购箱 · ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM（含 Gas）`, `Buy Chest · ${sel.totalPayGram || (Number(sel.priceGram) + 0.06).toFixed(2)} GRAM`)}`}
               </button>
 
-              <div class="mall-footnote">${L('固定本金实时锁定 · 请通过页面下单付款，切勿直接向热钱包转账（发币 Gas 0.06 GRAM，过期/异常原路退款扣 0.03 GRAM Gas）', 'Base A9 locked · Pay via order flow only; never transfer directly (0.06 GRAM delivery gas, 0.03 GRAM refund gas)')} · <a href="#/risk/audit" style="color:var(--nt-green);font-weight:700;text-decoration:none;">${L('v16.1 合约验真', 'Verify v16.1')} ›</a></div>
+              <details class="plaza-slots-drawer" style="margin-top:8px;">
+                <summary class="plaza-slots-summary">
+                  <span>${L(`明细：${sel.priceGram} + ${sel.deliveryFeeGram || '0.06'} Gas · 暴击概率`, `Breakdown: ${sel.priceGram} + ${sel.deliveryFeeGram || '0.06'} gas · Crit odds`)}</span>
+                  <span class="num-xs text-muted">▾</span>
+                </summary>
+                <div class="sub-tile" style="padding:8px 10px;margin-top:6px;">
+                  <div class="row-between num-xs">
+                    <span class="text-sec">${L('宝箱货款（保底直发）', 'Chest Base A9')}</span>
+                    <span class="mono">${sel.priceGram} GRAM</span>
+                  </div>
+                  <div class="row-between num-xs" style="margin-top:4px;">
+                    <span class="text-sec">${L('链上发币 Gas', 'Delivery Gas')}</span>
+                    <span class="mono">+${sel.deliveryFeeGram || '0.06'} GRAM</span>
+                  </div>
+                  <div class="num-xs text-muted" style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--card-border);">
+                    ${L(`免助力随机暴击（最高 +${formatNum(sel.maxBoostA9, 2)} A9）：常规 75% · 幸运 18% · 史诗 6% · 传说 1%`, `Random crit (up to +${formatNum(sel.maxBoostA9, 2)} A9): Normal 75% · Lucky 18% · Epic 6% · Legend 1%`)}
+                  </div>
+                </div>
+              </details>
+
+              <div class="mall-footnote">${L('请通过页面下单，切勿直接转账（异常退款扣 0.03 GRAM）', 'Pay via order flow only; never transfer directly')} · <a href="#/risk/audit" style="color:var(--nt-green);font-weight:700;text-decoration:none;">${L('v16.2 验真', 'Verify v16.2')} ›</a></div>
             </section>
           `}
 

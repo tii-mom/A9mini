@@ -1,0 +1,23 @@
+<svg viewBox="0 0 160 176" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="80" cy="162" rx="52" ry="9" fill="#171920" fill-opacity="0.14"/>
+  <!-- Switch 级红白双层基座 -->
+  <path d="M30 144L40 120H120L130 144L118 156H42L30 144Z" fill="#E60012" stroke="#171920" stroke-width="3.4" stroke-linejoin="round"/>
+  <path d="M36 144H124L116 154H44L36 144Z" fill="#FFFFFF" stroke="#171920" stroke-width="2.8" stroke-linejoin="round"/>
+  <rect x="64" y="128" width="32" height="12" rx="6" fill="#F7BE2C" stroke="#171920" stroke-width="2.6"/>
+  <!-- 左右护托鳍片 -->
+  <path d="M36 120L24 88L54 104L50 120H36Z" fill="#A3000D" stroke="#171920" stroke-width="3.2" stroke-linejoin="round"/>
+  <path d="M124 120L136 88L106 104L110 120H124Z" fill="#A3000D" stroke="#171920" stroke-width="3.2" stroke-linejoin="round"/>
+  <!-- 中央多面体力量水晶 -->
+  <polygon points="80,10 124,62 104,122 56,122 36,62" fill="#F7BE2C" stroke="#171920" stroke-width="3.6" stroke-linejoin="round"/>
+  <!-- 水晶切面与赛璐璐高光 -->
+  <polygon points="80,10 56,64 36,62" fill="#FFF3A1"/>
+  <polygon points="80,10 104,64 56,64" fill="#FFD147"/>
+  <polygon points="80,10 124,62 104,64" fill="#E89A0C"/>
+  <polygon points="56,64 104,64 104,122 56,122" fill="#F0AE14"/>
+  <polygon points="36,62 56,64 56,122" fill="#FFE27A"/>
+  <polygon points="124,62 104,64 104,122" fill="#C97400"/>
+  <!-- 切面棱线 -->
+  <path d="M80 10L56 64L56 122M80 10L104 64L104 122M36 62L56 64L104 64L124 62" stroke="#171920" stroke-width="2.4" stroke-linejoin="round"/>
+  <!-- 星光高光点 -->
+  <path d="M64 36L67 43L74 46L67 49L64 56L61 49L54 46L61 43L64 36Z" fill="#FFFFFF"/>
+</svg>

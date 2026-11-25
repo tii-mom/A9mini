@@ -1622,13 +1622,15 @@
   width: 186px;
   height: 186px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(230, 0, 18, 0.12) 0%, rgba(230, 0, 18, 0) 70%);
+  background: var(--nt-red-soft);
+  opacity: 0.65;
   pointer-events: none;
   z-index: 0;
 }
 
 .boxhead-face.front.series-wealth .boxhead-stage-aura {
-  background: radial-gradient(circle, rgba(240, 174, 20, 0.20) 0%, rgba(240, 174, 20, 0) 70%);
+  background: var(--nt-gold-soft);
+  opacity: 0.72;
 }
 
 .boxhead-flip-card.is-flipped .boxhead-face.front {

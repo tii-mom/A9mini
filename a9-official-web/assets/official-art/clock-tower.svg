@@ -1,0 +1,32 @@
+<svg viewBox="0 0 160 176" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="80" cy="164" rx="54" ry="8" fill="#171920" fill-opacity="0.14"/>
+  <!-- 塔座基台 -->
+  <rect x="26" y="144" width="108" height="16" rx="6" fill="#C8CDD9" stroke="#171920" stroke-width="3.2"/>
+  <rect x="30" y="138" width="100" height="12" rx="5" fill="#FFFFFF" stroke="#171920" stroke-width="3.2"/>
+  <!-- 塔身主体 -->
+  <rect x="40" y="64" width="80" height="76" rx="8" fill="#FFFFFF" stroke="#171920" stroke-width="3.2"/>
+  <rect x="44" y="68" width="12" height="68" rx="4" fill="#ECEEF3"/>
+  <rect x="104" y="68" width="12" height="68" rx="4" fill="#DFE3EC"/>
+  <!-- 底部拱门 -->
+  <path d="M64 140V120C64 111.2 71.2 104 80 104C88.8 104 96 111.2 96 120V140H64Z" fill="#2574E8" stroke="#171920" stroke-width="3.2"/>
+  <path d="M70 138V121C70 115.5 74.5 111 80 111C85.5 111 90 115.5 90 121V138H70Z" fill="#58A4F5"/>
+  <!-- 两侧任天堂红旗 -->
+  <path d="M44 108H57V129L50.5 124L44 129V108Z" fill="#E60012" stroke="#171920" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M103 108H116V129L109.5 124L103 129V108Z" fill="#E60012" stroke="#171920" stroke-width="2.6" stroke-linejoin="round"/>
+  <!-- 顶部主屋檐与红白尖顶 -->
+  <path d="M26 66L80 18L134 66H26Z" fill="#E60012" stroke="#171920" stroke-width="3.4" stroke-linejoin="round"/>
+  <path d="M40 62L80 26L92 62H40Z" fill="#FF3D4C" fill-opacity="0.45"/>
+  <!-- 两侧小塔尖 -->
+  <path d="M26 66L36 44L46 66H26Z" fill="#E60012" stroke="#171920" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M114 66L124 44L134 66H114Z" fill="#E60012" stroke="#171920" stroke-width="3" stroke-linejoin="round"/>
+  <!-- 塔顶金星尖徽 -->
+  <polygon points="80,4 88,18 72,18" fill="#F7BE2C" stroke="#171920" stroke-width="3" stroke-linejoin="round"/>
+  <circle cx="80" cy="20" r="5" fill="#F0AE14" stroke="#171920" stroke-width="2.8"/>
+  <!-- 24H 金色大表盘 -->
+  <circle cx="80" cy="84" r="24" fill="#F0AE14" stroke="#171920" stroke-width="3.2"/>
+  <circle cx="80" cy="84" r="18" fill="#FFFFFF" stroke="#171920" stroke-width="2.6"/>
+  <path d="M80 70V73M80 95V98M66 84H69M91 84H94" stroke="#171920" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M80 84L80 73" stroke="#E60012" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M80 84L89 88" stroke="#171920" stroke-width="3.2" stroke-linecap="round"/>
+  <circle cx="80" cy="84" r="3.6" fill="#F7BE2C" stroke="#171920" stroke-width="2.2"/>
+</svg>

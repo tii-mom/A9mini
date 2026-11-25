@@ -1,7 +1,7 @@
 /* ==========================================================================
    A9 · 纯正任天堂第一方触感 UI 设计变量（双端统一单源真值）
    - 90% 洁净雪白中性面 (#F4F5F8 / #FFFFFF) / 8% 任天堂正红 (#E60012) / 2% 语义色
-   - 纯正任天堂 Switch 级实体硬边按键触感与亮暗双主题
+   - 纯正任天堂 Switch 级实体硬边按键触感与亮暗双主题（与官网 tokens.css 严格对齐）
    ========================================================================== */
 
 @font-face {
@@ -18,10 +18,8 @@
   --wv-safe-top: max(env(safe-area-inset-top, 0px), var(--tg-safe-area-inset-top, 0px), var(--tg-content-safe-area-inset-top, 0px));
   --wv-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px), var(--tg-content-safe-area-inset-bottom, 0px));
 
-  /* 90% 洁净中性底色与精工实体表面 */
-  --paper-bg: #F3F4F7;
-  --paper-hill-1: #EAECEF;
-  --paper-hill-2: #E2E5EE;
+  /* 90% 洁净中性底色与精工实体表面（双端统一） */
+  --paper-bg: #F4F5F8;
   --paper-tray: #EAECEF;
   --paper-tray-deep: #DFE3EC;
 
@@ -30,7 +28,6 @@
   --card-border: #DCE0EA;
   --card-border-strong: #C9CFD9;
   --card-thickness: #C5CBD8;
-  --card-stitch: transparent;
   --card-highlight: rgba(255, 255, 255, 0.96);
 
   /* Switch 第一方触感层级：L2 轻薄贴合信息卡 vs L1 实体硬边按键 */
@@ -77,23 +74,6 @@
   --nt-rose-edge: #8C253F;
   --nt-rose-soft: #FBECEF;
 
-  /* 几何网格装饰色（替代旧版剪纸布景变量，保持兼容） */
-  --diorama-thread: rgba(130, 136, 154, 0.16);
-  --diorama-bunting-1: #FAD5D8;
-  --diorama-bunting-2: #FCE8B8;
-  --diorama-bunting-3: #D5EEDB;
-  --diorama-star: #F0AE14;
-  --diorama-cloud: #FFFFFF;
-  --diorama-cloud-shadow: #E2E5EE;
-  --diorama-castle: #EAECEF;
-  --diorama-castle-shade: #DFE2EA;
-  --diorama-flag: #E60012;
-  --diorama-tree: #D7EEDF;
-  --diorama-trunk: #C8CDD8;
-  --diorama-hill-sage: #E8F3EE;
-  --diorama-stitch: transparent;
-  --diorama-rim: rgba(255, 255, 255, 0.94);
-
   --header-bg: #FFFFFF;
   --tabbar-bg: #FFFFFF;
   --paper-cut-shadow: drop-shadow(0 6px 12px rgba(20, 22, 30, 0.14));
@@ -113,35 +93,32 @@
   --red: var(--nt-rose);
   --gold: var(--nt-gold-ink);
   --cyan: var(--nt-blue);
-  --green-border: rgba(18, 168, 93, 0.34);
-  --emerald-border: rgba(18, 168, 93, 0.34);
+  --green-border: rgba(0, 168, 89, 0.34);
+  --emerald-border: rgba(0, 168, 89, 0.34);
   --red-border: rgba(200, 62, 96, 0.34);
   --gold-border: rgba(163, 110, 0, 0.34);
   --blue-border: rgba(37, 116, 232, 0.36);
   --ring-track: var(--paper-tray-deep);
 
-  /* 双端统一本地字体栈：自托管 Rubik + 原生系统中文无衬线 + 等宽数字 */
-  --font-sans: 'Rubik', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  --font-mono: 'Rubik', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  /* 双端统一本地字体栈：自托管 Rubik + 原生中文无衬线；等宽数字使用原生 monospace 防止跳动 */
+  --font-sans: 'Rubik', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-decelerate: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.22, 1.4, 0.36, 1);
 }
 
-/* Switch OLED 深石墨炭 × 任天堂正红暗夜主题（内凹托盘深于卡片表面，恢复物理凹感） */
+/* Switch OLED 深石墨炭 × 任天堂正红暗夜主题（内凹托盘 #15171E 严格深于卡片表面 #1C1E26） */
 [data-theme="dark"] {
-  --paper-bg: #101115;
-  --paper-hill-1: #161820;
-  --paper-hill-2: #1E212B;
-  --paper-tray: #13151B;
-  --paper-tray-deep: #222530;
+  --paper-bg: #121318;
+  --paper-tray: #15171E;
+  --paper-tray-deep: #262A36;
 
-  --card-bg: #1A1C23;
-  --card-soft: #20232C;
-  --card-border: #2B2F3C;
-  --card-border-strong: #3C4152;
+  --card-bg: #1C1E26;
+  --card-soft: #222530;
+  --card-border: #2C303D;
+  --card-border-strong: #3E4354;
   --card-thickness: #090A0D;
-  --card-stitch: transparent;
   --card-highlight: rgba(255, 255, 255, 0.075);
 
   --surface-shadow:
@@ -156,12 +133,12 @@
     0 2.5px 0 var(--card-thickness);
 
   --ink: #F2F4F8;
-  --nt-svg-stroke: #101115;
-  --ink-soft: #A6AEBF;
-  --ink-muted: #767E92;
+  --nt-svg-stroke: #121318;
+  --ink-soft: #A8B0C2;
+  --ink-muted: #788094;
 
-  --nt-red: #EE2434;
-  --nt-red-top: #EE2434;
+  --nt-red: #F02232;
+  --nt-red-top: #F02232;
   --nt-red-edge: #8C0E19;
   --nt-red-soft: #2E181D;
 
@@ -185,32 +162,16 @@
   --nt-rose-edge: #85223B;
   --nt-rose-soft: #2E1921;
 
-  --diorama-thread: rgba(178, 184, 200, 0.14);
-  --diorama-bunting-1: #5B2E36;
-  --diorama-bunting-2: #594A2C;
-  --diorama-bunting-3: #2D4639;
-  --diorama-star: #D9A73B;
-  --diorama-cloud: #2B2D35;
-  --diorama-cloud-shadow: #121318;
-  --diorama-castle: #25272F;
-  --diorama-castle-shade: #1D1E25;
-  --diorama-flag: #EE2434;
-  --diorama-tree: #2B3D34;
-  --diorama-trunk: #3E414C;
-  --diorama-hill-sage: #222F2A;
-  --diorama-stitch: transparent;
-  --diorama-rim: rgba(255, 255, 255, 0.08);
-
-  --header-bg: #1A1C23;
-  --tabbar-bg: #1A1C23;
+  --header-bg: #1C1E26;
+  --tabbar-bg: #1C1E26;
   --paper-cut-shadow: brightness(0.96) drop-shadow(0 8px 14px rgba(0, 0, 0, 0.48));
   --standee-filter: brightness(0.95) drop-shadow(0 8px 14px rgba(0, 0, 0, 0.52));
   --glare-color: rgba(255, 255, 255, 0.14);
 
-  --green-border: rgba(34, 194, 114, 0.36);
-  --emerald-border: rgba(34, 194, 114, 0.36);
+  --green-border: rgba(34, 200, 118, 0.36);
+  --emerald-border: rgba(34, 200, 118, 0.36);
   --red-border: rgba(224, 86, 120, 0.36);
   --gold-border: rgba(242, 184, 46, 0.38);
   --blue-border: rgba(70, 141, 242, 0.40);
-  --ring-track: #262934;
+  --ring-track: #262A36;
 }

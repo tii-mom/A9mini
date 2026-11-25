@@ -668,7 +668,7 @@ export function renderParticipateConfirm(root, navigate) {
 
       <div class="risk-check" id="risk-consent-row" role="checkbox" aria-checked="false" tabindex="0">
         <span class="risk-box" id="risk-box-ic"></span>
-        <span>${L('我已知晓：观察期 24 个时段需至少 16 个达标，未达标则本轮质押 A9 本金按合约规则销毁；单轮奖励上限为实缴本金 15 倍。', 'I understand: 16 of 24 slots must qualify; otherwise staked A9 principal is burned. Single-round reward is capped at 15x principal.')}</span>
+        <span>${L('已知晓：未达 16/24 时段本金销毁 BURN，单轮奖励上限 15×。', 'I understand: < 16/24 slots burns principal; reward capped at 15×.')}</span>
       </div>
 
       ${store.fundsEnabled
@@ -890,7 +890,7 @@ function renderLiveStakeConfirm(root, navigate) {
 
         <div class="risk-check ${riskAgreed ? 'checked' : ''}" id="live-risk-row" role="checkbox" aria-checked="${riskAgreed}" tabindex="0">
           <span class="risk-box" id="live-risk-box">${riskAgreed ? icon('check', 12) : ''}</span>
-          <span>${L('我已知晓：本交易通过 TEP-74 将 A9 转入 RoundController 合约并附带 0.30 GRAM Gas；观察期 24 时段未达 16 格时，本轮质押 A9 本金将按合约规则销毁。', 'I understand: A9 Jetton is transferred to RoundController with 0.30 GRAM gas; if fewer than 16/24 slots qualify, staked A9 principal is burned on-chain.')}</span>
+          <span>${L('已知晓：质押附带 0.30 GRAM Gas；未达 16/24 时段本金销毁 BURN。', 'I understand: +0.30 GRAM gas; < 16/24 slots burns staked principal.')}</span>
         </div>
 
         ${!store.fundsEnabled

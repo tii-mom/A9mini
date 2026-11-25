@@ -165,7 +165,7 @@ export const BOXHEADS_SERIES = {
       {
         tier: 3, id: 'wlt-03', rarity: 'RARE', reqUsd: 100,
         nameZh: 'A3 火漆翼使', nameEn: 'A3 Waxwing Courier', styleZh: '羽翼火漆', styleEn: 'Angel Parcel',
-        traitZh: '×★ 涂鸦白快递箱 · 折纸翼与红火漆', traitEn: 'X-star winged box · dripping wax seal',
+        traitZh: '×★ 涂鸦白快递箱 · 飞翼与红火漆', traitEn: 'X-star winged box · dripping wax seal',
         voiceZh: '火漆封缄，你的专属战利品准时降落。', voiceEn: 'Wax-sealed drop incoming—right on schedule.',
         shortReqZh: '$100', shortReqEn: '$100',
         hintZh: '持有 A9 代币市值达 $100 解锁', hintEn: 'Hold $100+ in A9 value',

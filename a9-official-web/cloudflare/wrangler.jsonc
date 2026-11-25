@@ -1,0 +1,24 @@
+{
+  "name": "a9-official-web",
+  "compatibility_date": "2026-11-23",
+  "main": "worker.mjs",
+  "workers_dev": true,
+  "assets": {
+    "directory": "..",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "force-trailing-slash",
+    "not_found_handling": "none"
+  },
+  "routes": [
+    {
+      "pattern": "a9.lat/*",
+      "zone_name": "a9.lat"
+    },
+    {
+      "pattern": "www.a9.lat/*",
+      "zone_name": "a9.lat"
+    }
+  ],
+  "preview_urls": true
+}

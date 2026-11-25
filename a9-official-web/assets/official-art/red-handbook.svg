@@ -1,0 +1,20 @@
+<svg viewBox="0 0 160 176" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="82" cy="162" rx="52" ry="9" fill="#171920" fill-opacity="0.14"/>
+  <!-- 书页厚底 -->
+  <rect x="34" y="24" width="98" height="130" rx="14" fill="#FFFFFF" stroke="#171920" stroke-width="3.4"/>
+  <path d="M126 36V142" stroke="#C8CDD9" stroke-width="3" stroke-linecap="round"/>
+  <!-- 任天堂正红精装封面 -->
+  <rect x="26" y="18" width="96" height="130" rx="14" fill="#E60012" stroke="#171920" stroke-width="3.4"/>
+  <!-- 书脊压条 -->
+  <rect x="26" y="18" width="18" height="130" rx="8" fill="#A3000D" stroke="#171920" stroke-width="3.2"/>
+  <!-- 封面亮面高光 -->
+  <rect x="52" y="28" width="60" height="7" rx="3.5" fill="#FF5A67"/>
+  <!-- 中央洁白徽章框 -->
+  <rect x="52" y="46" width="58" height="58" rx="14" fill="#FFFFFF" stroke="#171920" stroke-width="3"/>
+  <text x="81" y="85" text-anchor="middle" font-family="Rubik, system-ui, sans-serif" font-weight="900" font-size="30" fill="#E60012">A9</text>
+  <!-- 底部装饰条 -->
+  <rect x="54" y="116" width="54" height="8" rx="4" fill="#FFFFFF" fill-opacity="0.9"/>
+  <rect x="54" y="130" width="34" height="6" rx="3" fill="#FFD147"/>
+  <!-- 顶部金色书签丝带 -->
+  <path d="M98 14H116V44L107 37L98 44V14Z" fill="#F7BE2C" stroke="#171920" stroke-width="3" stroke-linejoin="round"/>
+</svg>

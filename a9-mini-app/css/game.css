@@ -2,7 +2,7 @@
    A9 · 纯任天堂专项场景组件层（眉标 / 观察总览 / 兑换屋小票 / 战队 / SBT 票券 / FAQ）
    ========================================================================== */
 
-/* 1. 一级场景轻眉标（仅挑战与商会显示，轻边 L2） */
+/* 1. 一级场景轻眉标（仅闯关与战队显示，轻边 L2） */
 .realm-banner {
   margin: 2px 14px 4px;
   padding: 8px 12px;
@@ -219,7 +219,7 @@
   color: var(--ink-soft);
 }
 
-/* 4. 商会主力 3 列成员立牌名册 (.guild-roster) */
+/* 4. 战队主力 3 列成员立牌名册 (.guild-roster) */
 .guild-roster {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

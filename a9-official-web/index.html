@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#F4F5F8" />
+  <meta name="description" content="A9 — 基于 TON 的链上价格挑战。每轮考核 24 个均价时段，挑战持续至奖池耗尽。" />
+  <link rel="icon" type="image/png" sizes="16x16" href="./assets/brand/favicon-16.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="./assets/brand/favicon-32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./assets/brand/apple-touch-icon.png" />
+  <link rel="canonical" href="https://a9.lat/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://a9.lat/" />
+  <meta property="og:title" content="A9 · 财富大冒险" />
+  <meta property="og:description" content="基于 TON 的链上价格挑战。每轮考核 24 个均价时段，挑战持续至奖池耗尽。" />
+  <meta property="og:image" content="https://a9.lat/assets/token/a9-token-2048.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="A9 · 财富大冒险" />
+  <meta name="twitter:description" content="基于 TON 的链上价格挑战。每轮考核 24 个均价时段，挑战持续至奖池耗尽。" />
+  <meta name="twitter:image" content="https://a9.lat/assets/token/a9-token-2048.png" />
+  <script src="./js/boot-preferences.js"></script>
+  <title>A9 · 财富大冒险</title>
+  <link rel="stylesheet" href="./css/tokens.css" />
+  <link rel="stylesheet" href="./css/official.css" />
+</head>
+<body>
+  <header class="site-header" id="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="#top" aria-label="A9 Home">
+        <img src="./assets/brand/apple-touch-icon.png" alt="A9" width="32" height="32" class="brand-logo" />
+        <strong class="brand-name">A9</strong>
+        <span class="brand-tag mono">TON</span>
+      </a>
+
+      <nav class="desktop-nav" id="desktop-nav" aria-label="Primary Navigation">
+        <span class="nav-indicator" id="nav-indicator" aria-hidden="true"></span>
+        <a href="#top" class="is-active" data-section="top" data-i18n="navHome">首页</a>
+        <a href="#observatory" data-section="observatory" data-i18n="navObservatory">考核示例</a>
+        <a href="#unlock" data-section="unlock" data-i18n="navUnlock">奖励解锁</a>
+        <a href="#allocation" data-section="allocation" data-i18n="navAllocation">分配与结算</a>
+        <a href="#ledger" data-section="ledger" data-i18n="navLedger">闯关账本</a>
+        <a href="./redpaper/" data-i18n="openRedpaper">A9 红皮书</a>
+      </nav>
+
+      <div class="header-actions">
+        <button type="button" class="pill-btn" id="theme-toggle" aria-label="Toggle Theme">
+          <span class="theme-icon" id="theme-icon" aria-hidden="true">☾</span>
+          <span class="pill-label" id="theme-label">暗夜模式</span>
+        </button>
+        <button type="button" class="pill-btn mono" id="lang-toggle" aria-label="Switch Language">EN</button>
+        <a class="cta-red header-cta" href="#simulator" data-miniapp-cta="1" data-i18n="openSimulator">打开小程序</a>
+        <button type="button" class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Menu" aria-expanded="false">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+            <path d="M4 7h16M4 12h16M4 17h16" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="mobile-drawer" id="mobile-drawer" hidden>
+      <nav class="mobile-nav">
+        <a href="#top" data-i18n="navHome">首页</a>
+        <a href="#observatory" data-i18n="navObservatory">考核示例</a>
+        <a href="#unlock" data-i18n="navUnlock">奖励解锁</a>
+        <a href="#allocation" data-i18n="navAllocation">分配与规则</a>
+        <a href="#ledger" data-i18n="navLedger">闯关账本</a>
+        <a href="./redpaper/" data-i18n="openRedpaper">A9 红皮书</a>
+      </nav>
+      <a class="cta-red full-width" href="#simulator" data-miniapp-cta="1" data-i18n="openSimulator">打开小程序</a>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- EXPRESSIVE ZONE 1: HERO -->
+    <section class="hero-section">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <div class="hero-status">
+            <span class="live-dot" aria-hidden="true"></span>
+            <span class="mono" data-i18n="heroEyebrow">第 03 轮 · 24H 观察中</span>
+          </div>
+
+          <h1 class="hero-title" data-i18n="heroTitle">财富大冒险</h1>
+          <p class="hero-lede" data-i18n="heroLede">质押 A9 闯 24H 价格关，达标 ≥ 16 小时瓜分奖池。</p>
+
+          <div class="risk-banner" role="note">
+            <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+              <path d="M10 2.5L18.2 17H1.8L10 2.5z" />
+              <path d="M10 7.5v4.2M10 14.2v.6" stroke-linecap="round" />
+            </svg>
+            <span data-i18n="riskPill">未达 16/24 时段，本金 100% 销毁 BURN。</span>
+          </div>
+
+          <div class="hero-cta-row">
+            <a class="cta-red cta-lg" href="#sandbox" data-miniapp-cta="1" data-i18n="ctaPrimary">进入闯关</a>
+            <a class="cta-card cta-lg" href="#sandbox" data-i18n="ctaSecondary">24H 判定试玩</a>
+            <a class="text-link" href="./redpaper/" data-i18n="openRedpaper">A9 红皮书</a>
+          </div>
+          <div class="hero-trust-links">
+            <a href="./redpaper/#principal-risk" data-i18n="paperRisk">本金风险</a>
+            <a href="./redpaper/#verification" data-i18n="paperVerification">链上验真</a>
+          </div>
+        </div>
+
+        <!-- Clean Single-Focal Sample Assessment Card -->
+        <div class="hero-focal-card">
+          <div class="focal-head">
+            <span class="focal-badge mono" data-i18n="focalDemo">第 03 轮 · 示例</span>
+            <span class="focal-meta mono">1.90× CORRIDOR</span>
+          </div>
+
+          <div class="focal-center">
+            <div>
+              <div class="focal-price-label" data-i18n="lockedTargetLabel">已锁定目标价</div>
+              <div class="focal-price-val mono">$0.0680</div>
+              <div class="focal-progress-row">
+                <span class="mono text-green">14 / 16</span>
+                <span class="focal-bar" aria-hidden="true"><i style="width: 87.5%;"></i></span>
+              </div>
+            </div>
+            <div class="focal-pocket">
+              <img src="./assets/official-art/clock-tower.svg" alt="" class="focal-art" id="focal-art" />
+            </div>
+          </div>
+
+          <div class="focal-metrics">
+            <div class="focal-cell">
+              <span>TWAP</span>
+              <strong class="mono">$0.0714</strong>
+            </div>
+            <div class="focal-cell">
+              <span>ROUND POOL</span>
+              <strong class="mono focal-budget">700,000,000 A9</strong>
+            </div>
+            <div class="focal-cell">
+              <span data-i18n="roundRuleLabel">轮次规则</span>
+              <strong class="mono text-gold" data-i18n="floorBadge">奖池分完为止</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EXPRESSIVE ZONE 2: SIGNATURE 7B PRIZE POOL + BURN INDEX -->
+    <section class="impact-section">
+      <div class="wrap impact-bento">
+        <div class="pool-slab">
+          <div class="pool-slab-top">
+            <span class="pool-tag mono" data-i18n="poolTag">PRIZE POOL</span>
+            <span class="pool-badge-70 mono">70% SUPPLY</span>
+          </div>
+          <div class="pool-slab-body">
+            <div>
+              <div class="pool-giant-num mono" id="pool-giant-num" data-count-suffix=" A9">—</div>
+              <h2 class="pool-headline" data-i18n="poolHeadline">闯关奖励池</h2>
+              <p class="pool-sub" data-i18n="poolSub">每轮基础 700,000,000 A9（7%），15× 超额与失败轮 50% 滚存下轮。</p>
+            </div>
+            <img src="./assets/official-art/reward-vault.svg" alt="" class="pool-vault-art" />
+          </div>
+          <div class="pool-facts mono">
+            <span data-i18n="poolPill1">10,000,000,000 固定总供应</span>
+            <span data-i18n="poolPill2">单轮上限 15× 本金</span>
+            <span data-i18n="poolPill3">12% 团队池 · 18% 其余预留</span>
+          </div>
+        </div>
+
+        <aside class="burn-slab">
+          <div class="burn-tag mono" data-i18n="burnTag">ON-CHAIN BURN INDEX</div>
+          <h3 class="burn-title" data-i18n="burnTitle">协议累计确认销毁</h3>
+          <div class="burn-counter-box">
+            <strong class="mono" id="burn-counter" data-count-suffix=" A9">—</strong>
+          </div>
+          <div class="burn-ratio-bar" hidden aria-hidden="true">
+            <div class="burn-ratio-fill" id="burn-ratio-fill"></div>
+          </div>
+          <div class="burn-remain-row">
+            <span data-i18n="burnRemainLabel">剩余供应量</span>
+            <strong class="mono" id="remain-counter" data-count-suffix=" A9">—</strong>
+          </div>
+          <div class="burn-foot mono" data-i18n="burnFoot">链上数据暂不可用</div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- HIGH-EFFICIENCY ZONE 1: 10-ROUND LADDER & 24H STAMP OBSERVATORY -->
+    <section class="section" id="observatory">
+      <div class="wrap">
+        <div class="sec-head chapter-head">
+          <div>
+            <h2 class="sec-title" id="ladder-title" data-i18n="obsTitle">24H 考核示例</h2>
+            <p class="sec-desc" data-i18n="obsDesc">目标价走廊 [1.50×, 2.50×]，点选轮次查看逐小时均价。</p>
+          </div>
+          <div class="floor-badge mono" data-i18n="floorBadge">奖池分完为止</div>
+          <img class="chapter-art" src="./assets/official-art/clock-tower.svg" alt="" loading="lazy" />
+        </div>
+
+        <div class="surface-card observatory-card">
+          <div class="ladder-grid" id="ladder-grid" role="group" aria-labelledby="ladder-title"></div>
+
+          <div class="obs-detail-split">
+            <div class="obs-metrics-box">
+              <div class="obs-round-head">
+                <strong class="mono" id="obs-round-title">第 03 轮</strong>
+                <span class="status-badge" id="obs-round-status">24H 观察中</span>
+              </div>
+              <dl class="obs-kpi-grid">
+                <div class="obs-kpi">
+                  <dt data-i18n="lockedTargetLabel">已锁定目标价</dt>
+                  <dd class="mono" id="obs-target">$0.0680</dd>
+                </div>
+                <div class="obs-kpi">
+                  <dt data-i18n="latestTwapLabel">最近判定均价</dt>
+                  <dd class="mono" id="obs-twap">$0.0714</dd>
+                </div>
+                <div class="obs-kpi">
+                  <dt data-i18n="qualifiedLabel">已达标时段（门槛 16/24）</dt>
+                  <dd class="mono" id="obs-qualified">14 / 24</dd>
+                </div>
+              </dl>
+              <button type="button" class="cta-card cta-sm" id="obs-open-modal" data-i18n="viewFullLog">查看 24H 明细</button>
+            </div>
+
+            <div class="obs-stamps-box">
+              <div class="stamps-head">
+                <h3 data-i18n="stampTitle">24H 印章簿</h3>
+                <div class="stamps-legend">
+                  <span><i class="lg-dot hit"></i><em data-i18n="stampLegendHit">达标</em></span>
+                  <span><i class="lg-dot miss"></i><em data-i18n="stampLegendMiss">未达标</em></span>
+                  <span><i class="lg-dot pending"></i><em data-i18n="stampLegendPending">待确认</em></span>
+                </div>
+              </div>
+              <div class="stamp-grid" id="stamp-grid"></div>
+              <div class="stamp-inspector mono" id="stamp-inspector" data-i18n="stampHint">点击时段格查看小时均价</div>
+            </div>
+          </div>
+        </div>
+
+        <section class="surface-card sandbox" id="sandbox" aria-labelledby="sandbox-title">
+          <div class="sandbox-head">
+            <div>
+              <h3 id="sandbox-title" data-i18n="sandboxTitle">24H 判定试玩</h3>
+              <p data-i18n="sandboxHint">点击印章切换达标，体验 16/24 通关与 15/24 销毁的分界。</p>
+            </div>
+            <div class="sandbox-presets">
+              <button class="cta-card cta-sm" type="button" data-sandbox-preset="16" data-i18n="sandboxPassPreset">刚好 16 个</button>
+              <button class="cta-card cta-sm" type="button" data-sandbox-preset="15" data-i18n="sandboxFailPreset">只差 1 个</button>
+            </div>
+          </div>
+          <div class="stamp-grid" id="sandbox-stamps" role="group" aria-labelledby="sandbox-title"></div>
+          <div class="sandbox-result" id="sandbox-result" role="status">
+            <strong class="mono" id="sandbox-count">16 / 24</strong>
+            <span id="sandbox-verdict">通关</span>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- HIGH-EFFICIENCY ZONE 2: UNLOCK RULES & SIMULATOR -->
+    <section class="section" id="unlock">
+      <div class="wrap">
+        <div class="sec-head chapter-head">
+          <div>
+            <h2 class="sec-title" data-i18n="unlockTitle">奖励释放与试算</h2>
+            <p class="sec-desc" data-i18n="unlockDesc">通关退 100% 本金 + 20% 奖励秒领，余下 80% 分 40 天按秒线性释放。</p>
+          </div>
+          <img class="chapter-art" src="./assets/official-art/reward-crystal.svg" alt="" loading="lazy" />
+        </div>
+
+        <div class="unlock-layout">
+          <div class="unlock-tiers-col">
+            <div class="tier-card">
+              <div class="tier-top">
+                <span class="tier-badge" data-i18n="tier1Title">第 0 天 · 通关秒领</span>
+                <strong class="mono text-red" data-i18n="tier1Rate">20% 立领</strong>
+              </div>
+              <div class="tier-bar"><i style="width: 20%;"></i></div>
+              <p data-i18n="tier1Desc">通关即退 100% 质押本金 + 即时可领 20% 奖励</p>
+            </div>
+
+            <div class="tier-card">
+              <div class="tier-top">
+                <span class="tier-badge" data-i18n="tier2Title">第 1–40 天线性</span>
+                <strong class="mono text-blue" data-i18n="tier2Rate">每日 +2%</strong>
+              </div>
+              <div class="tier-bar"><i class="blue" style="width: 60%;"></i></div>
+              <p data-i18n="tier2Desc">余下 80% 按秒连续线性释放，随时可合并一次领完</p>
+            </div>
+
+            <div class="tier-card">
+              <div class="tier-top">
+                <span class="tier-badge" data-i18n="tier3Title">满 40 天全额</span>
+                <strong class="mono text-green" data-i18n="tier3Rate">100% 永久累计</strong>
+              </div>
+              <div class="tier-bar"><i class="green" style="width: 100%;"></i></div>
+              <p data-i18n="tier3Desc">奖励永不倒扣，不受后续轮次胜负或登录频次影响</p>
+            </div>
+
+            <p class="unlock-note" data-i18n="unlockNote">v16.2：零质押空轮无论胜负 100% 滚存零销毁；7 天超时无许可 AbortRound 全额退本。</p>
+          </div>
+
+          <div class="surface-card sim-card" id="simulator">
+            <h3 class="sim-title" data-i18n="simTitle">收益与解锁试算</h3>
+
+            <div class="sim-field">
+              <label for="sim-stake" data-i18n="simStakeLabel">质押本金（最低 1,000 A9）</label>
+              <input id="sim-stake" type="number" min="1000" step="1000" value="10000" class="sim-input mono" />
+            </div>
+
+            <div class="sim-field">
+              <span class="sim-label" data-i18n="simWindowLabel">报名时段（早鸟权重）</span>
+              <div class="seg-group" id="sim-weight-group">
+                <span class="seg-indicator" id="seg-indicator" aria-hidden="true"></span>
+                <button type="button" class="seg-btn is-active mono" data-weight="2.0">0–12h · 2.0×</button>
+                <button type="button" class="seg-btn mono" data-weight="1.4">12–24h · 1.4×</button>
+                <button type="button" class="seg-btn mono" data-weight="1.0">24–36h · 1.0×</button>
+              </div>
+            </div>
+
+            <div class="sim-field">
+              <div class="sim-field-head">
+                <label for="sim-assumed-reward" data-i18n="simAssumedLabel">假设本轮奖励（上限 15×）</label>
+                <div class="sim-presets" role="group" aria-label="Reward presets">
+                  <button type="button" class="sim-preset-btn mono" data-reward-mult="1">1×</button>
+                  <button type="button" class="sim-preset-btn mono" data-reward-mult="3">3×</button>
+                  <button type="button" class="sim-preset-btn mono" data-reward-mult="15">15×</button>
+                </div>
+              </div>
+              <input id="sim-assumed-reward" type="number" min="0" step="1000" value="15000" class="sim-input mono" />
+            </div>
+
+            <div class="sim-field">
+              <label for="sim-tier" data-i18n="simWinTierLabel">40 天线性释放进度（每日 +2%）</label>
+              <select id="sim-tier" class="sim-select">
+                <option value="0.2" data-i18n="simWinTier1">第 0 天 · 通关当日（20% 可领）</option>
+                <option value="0.4" data-i18n="simWinTier2">第 10 天（40% 累计可领）</option>
+                <option value="0.6" data-i18n="simWinTier2b">第 20 天（60% 累计可领）</option>
+                <option value="0.8" data-i18n="simWinTier2c">第 30 天（80% 累计可领）</option>
+                <option value="1.0" data-i18n="simWinTier3">满 40 天（100% 全额可领）</option>
+              </select>
+            </div>
+
+            <dl class="sim-results">
+              <div>
+                <dt data-i18n="simWeightOut">早鸟权重份额</dt>
+                <dd class="mono" id="sim-out-weight">20,000</dd>
+              </div>
+              <div>
+                <dt data-i18n="simCapOut">单轮奖励上限（15×）</dt>
+                <dd class="mono" id="sim-out-cap">150,000 A9</dd>
+              </div>
+              <div class="highlight-row">
+                <dt data-i18n="simInstantOut">该节点累计可领（含本金）</dt>
+                <dd class="mono text-green" id="sim-out-instant">13,000 A9</dd>
+              </div>
+              <div>
+                <dt data-i18n="simLockedOut">剩余 40 天线性待释放</dt>
+                <dd class="mono text-gold" id="sim-out-locked">12,000 A9</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+
+        <!-- 3-Step Participation (Clean typographic numerals) -->
+        <div class="steps-block">
+          <div class="sec-head compact">
+            <h3 class="sec-subtitle" data-i18n="stepsTitle">参与流程</h3>
+            <a class="cta-red" href="#observatory" data-i18n="ctaSecondary">查看考核示例</a>
+          </div>
+          <div class="steps-grid">
+            <article class="surface-card step-card">
+              <span class="step-num mono">01</span>
+              <h4 data-i18n="step1Title">连接 TON 钱包</h4>
+              <p data-i18n="step1Desc">打开 A9 小程序连接钱包，查看当前轮次报名窗口。</p>
+            </article>
+            <article class="surface-card step-card">
+              <span class="step-num mono">02</span>
+              <h4 data-i18n="step2Title">报名期质押 A9</h4>
+              <p data-i18n="step2Desc">最低 1,000 A9。前/中/后 12h 早鸟权重 2.0× / 1.4× / 1.0×。</p>
+            </article>
+            <article class="surface-card step-card">
+              <span class="step-num mono">03</span>
+              <h4 data-i18n="step3Title">24H 考核自动结算</h4>
+              <p data-i18n="step3Desc">至少 16/24 小时达标即通关 PASS，结算后领回本金与奖励。</p>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HIGH-EFFICIENCY ZONE 3: ALLOCATION, 3 OUTCOMES & 4 STAGES -->
+    <section class="section" id="allocation">
+      <div class="wrap">
+        <div class="sec-head chapter-head">
+          <div>
+            <h2 class="sec-title" data-i18n="allocTitle">分配与规则</h2>
+            <p class="sec-desc" data-i18n="allocDesc">10,000,000,000 A9 固定供应，不可升级合约执行。</p>
+          </div>
+          <img class="chapter-art" src="./assets/official-art/red-handbook.svg" alt="" loading="lazy" />
+        </div>
+
+        <div class="surface-card alloc-ribbon-card">
+          <div class="ribbon-head" data-i18n="ribbonHead">10,000,000,000 A9 分配结构</div>
+          <div class="alloc-ribbon" id="alloc-ribbon"></div>
+          <div class="alloc-ribbon-note mono" id="alloc-ribbon-note">第 03 轮 · 1.90× 走廊 · 基础预算 700,000,000 A9（7%）</div>
+        </div>
+
+        <div class="outcomes-grid">
+          <article class="surface-card outcome-card">
+            <span class="outcome-chip green" data-i18n="outcomeWinChip">退本 · 上限 15×</span>
+            <h3 data-i18n="outcomeWinTitle">通关 PASS（≥ 16/24）</h3>
+            <p data-i18n="outcomeWinDesc">全额退本，按早鸟权重分奖（上限 15×），超额滚存下轮。</p>
+          </article>
+          <article class="surface-card outcome-card">
+            <span class="outcome-chip rose" data-i18n="outcomeBurnChip">本金 100% 销毁</span>
+            <h3 data-i18n="outcomeBurnTitle">销毁 BURN（&lt; 16/24）</h3>
+            <p data-i18n="outcomeBurnDesc">质押本金永久销毁；当轮奖池 50% 销毁、50% 滚存。</p>
+          </article>
+          <article class="surface-card outcome-card">
+            <span class="outcome-chip blue" data-i18n="outcomeAbortChip">全额退本</span>
+            <h3 data-i18n="outcomeAbortTitle">异常中止 · 退回本金</h3>
+            <p data-i18n="outcomeAbortDesc">本金原路退回，奖池 100% 滚存下轮。</p>
+          </article>
+        </div>
+
+        <h3 class="sec-subtitle" data-i18n="stageHead">单轮四阶段</h3>
+        <ol class="stages-grid" id="stages-grid"></ol>
+      </div>
+    </section>
+
+    <!-- HIGH-EFFICIENCY ZONE 4: TEN-ROUND LEDGER -->
+    <section class="section" id="ledger">
+      <div class="wrap">
+        <div class="sec-head chapter-head">
+          <div>
+            <h2 class="sec-title" data-i18n="ledgerTitle">闯关账本</h2>
+            <p class="sec-desc" data-i18n="ledgerDesc">核对各轮目标价、达标时段与状态。</p>
+          </div>
+          <img class="chapter-art" src="./assets/official-art/verification-ticket.svg" alt="" loading="lazy" />
+        </div>
+
+        <div class="surface-card ledger-card">
+          <div class="table-scroll">
+            <table class="ledger-table">
+              <thead>
+                <tr>
+                  <th data-i18n="colRound">轮次</th>
+                  <th data-i18n="colCorridor">档位</th>
+                  <th data-i18n="colTarget">目标价</th>
+                  <th data-i18n="colQualified">达标时段</th>
+                  <th data-i18n="colPool">当轮奖池</th>
+                  <th data-i18n="colStatus">状态</th>
+                  <th data-i18n="colAction">核对</th>
+                </tr>
+              </thead>
+              <tbody id="ledger-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EXPRESSIVE ZONE 3: A1-A9 EVOLUTION GALLERY -->
+    <section class="section gallery-section">
+      <div class="wrap">
+        <div class="sec-head chapter-head">
+          <div>
+            <h2 class="sec-title" data-i18n="evoTitle">A9 进化图鉴</h2>
+            <p class="sec-desc" data-i18n="evoDesc">点击翻卡查看 5 种宝箱解锁条件。</p>
+          </div>
+          <img class="chapter-art" src="./assets/official-art/reward-crystal.svg" alt="" loading="lazy" />
+        </div>
+        <div class="evo-strip" id="evo-strip"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-main">
+      <div class="footer-brand">
+        <a class="brand" href="#top">
+          <img src="./assets/brand/apple-touch-icon.png" alt="" width="26" height="26" class="brand-logo" />
+          <strong class="brand-name">A9</strong>
+        </a>
+        <p data-i18n="footerSummary">基于 TON 的链上价格挑战。</p>
+      </div>
+
+      <nav class="footer-nav" aria-label="Footer Links">
+        <a href="#observatory" data-i18n="navObservatory">考核示例</a>
+        <a href="#unlock" data-i18n="navUnlock">奖励解锁</a>
+        <a href="#allocation" data-i18n="navAllocation">分配与规则</a>
+        <a href="#ledger" data-i18n="navLedger">闯关账本</a>
+        <a href="./redpaper/" data-i18n="openRedpaper">A9 红皮书</a>
+        <a href="./redpaper/#principal-risk" data-i18n="paperRisk">本金风险</a>
+        <a href="./redpaper/#verification" data-i18n="paperVerification">链上验真</a>
+        <a href="./a9.json" target="_blank" rel="noopener">a9.json</a>
+      </nav>
+
+      <div class="footer-risk">
+        <div class="risk-pill-mini" data-i18n="riskPill">未达 16/24 时段，本金 100% 销毁 BURN。</div>
+        <div class="footer-meta mono" data-i18n="footerMeta">A9 Protocol · TON · 10,000,000,000 Fixed Supply</div>
+      </div>
+    </div>
+
+    <div class="wrap footer-bottom">
+      <span class="mono">© 2026 A9 Protocol</span>
+      <button type="button" class="pill-btn" id="back-to-top" data-i18n="backToTop">回到顶部 ↑</button>
+    </div>
+  </footer>
+
+  <div class="modal-backdrop" id="round-modal" hidden role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-sheet surface-card">
+      <div class="modal-head">
+        <h3 id="modal-title" class="mono">第 03 轮 · 24H 核对</h3>
+        <button type="button" class="pill-btn" id="modal-close" data-i18n="modalClose">关闭</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <script type="module" src="./js/legacy-links.js"></script>
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

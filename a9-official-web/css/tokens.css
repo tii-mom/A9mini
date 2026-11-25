@@ -1,0 +1,133 @@
+@font-face {
+  font-family: 'Rubik';
+  src: url('../assets/fonts/rubik-latin.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+2000-206F, U+20AC, U+2191, U+2193, U+2212;
+}
+
+/* ==========================================================================
+   A9 Official Website — Pure Nintendo First-Party Tactile Design Tokens
+   - Unified with A9 Mini App: Snow White #F4F5F8 / Nintendo Red #E60012 / Switch Dark #121318
+   - Pure solid flat surfaces, zero gradients, crisp solid tactile depth
+   ========================================================================== */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --paper-bg: #F4F5F8;
+  --paper-surface: #FFFFFF;
+  --paper-soft: #F9FAFC;
+  --paper-tray: #EAECEF;
+  --paper-tray-deep: #DFE3EC;
+  --paper-border: #DCE0EA;
+  --paper-border-strong: #C9CFD9;
+  --paper-thickness: #C5CBD8;
+  --header-bg: rgba(244, 245, 248, 0.94);
+
+  --ink: #141720;
+  --ink-soft: #52596B;
+  --ink-muted: #7B8396;
+
+  --cover-red: #E60012;
+  --nt-red: var(--cover-red);
+  --nt-red-hover: #D40010;
+  --nt-red-edge: #9E000C;
+  --nt-red-soft: #FDECEE;
+  --nt-red-border: #F5C2C7;
+
+  --nt-green: #00A859;
+  --nt-green-edge: #00743D;
+  --nt-green-soft: #E7F8EF;
+  --nt-green-border: #B2E4C9;
+
+  --nt-blue: #2574E8;
+  --nt-blue-edge: #1851A8;
+  --nt-blue-soft: #EDF4FE;
+  --nt-blue-border: #C2D8FA;
+
+  --nt-gold: #E5A000;
+  --nt-gold-soft: #FDF6E3;
+  --nt-gold-ink: #8C5C00;
+  --nt-gold-border: #ECD28B;
+
+  --nt-rose: #C83E60;
+  --nt-rose-edge: #8C253F;
+  --nt-rose-soft: #FBECEF;
+  --nt-rose-border: #EBC3CD;
+
+  --cut-edge: #FFFFFF;
+  --shadow-l2: 0 1px 0 var(--paper-thickness), 0 4px 12px rgba(20, 22, 30, 0.04);
+  --shadow-l1-sm: 0 3px 0 var(--paper-thickness);
+  --shadow-red-btn: 0 4px 0 var(--nt-red-edge);
+  --pool-slab-edge: #9E000C;
+
+  --stamp-pending-bg: #EAECEF;
+  --stamp-pending-border: #D4D8E3;
+  --asset-shadow: drop-shadow(0 8px 16px rgba(20, 22, 30, 0.14));
+
+  --font-sans: 'Rubik', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --ease-ui: cubic-bezier(0.22, 1, 0.36, 1);
+  --radius-xl: 20px;
+  --radius-lg: 14px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Switch OLED 深石墨炭：内凹托盘 (#15171E) 严格深于卡片表面 (#1C1E26)，双端统一物理凹感 */
+  --paper-bg: #121318;
+  --paper-surface: #1C1E26;
+  --paper-soft: #222530;
+  --paper-tray: #15171E;
+  --paper-tray-deep: #262A36;
+  --paper-border: #2C303D;
+  --paper-border-strong: #3E4354;
+  --paper-thickness: #090A0D;
+  --header-bg: rgba(18, 19, 24, 0.94);
+
+  --ink: #F2F4F8;
+  --ink-soft: #A8B0C2;
+  --ink-muted: #788094;
+
+  --nt-red: #F02232;
+  --nt-red-hover: #DC1B2B;
+  --nt-red-edge: #8C0E19;
+  --nt-red-soft: #2E181D;
+  --nt-red-border: #5E262E;
+
+  --nt-green: #22C876;
+  --nt-green-edge: #0E7542;
+  --nt-green-soft: #132B20;
+  --nt-green-border: #255742;
+
+  --nt-blue: #468DF2;
+  --nt-blue-edge: #1D4B8F;
+  --nt-blue-soft: #172235;
+  --nt-blue-border: #2A496E;
+
+  --nt-gold: #F2B82E;
+  --nt-gold-soft: #2B2415;
+  --nt-gold-ink: #F5C44B;
+  --nt-gold-border: #5C4920;
+
+  --nt-rose: #E05678;
+  --nt-rose-edge: #85223B;
+  --nt-rose-soft: #2E1921;
+  --nt-rose-border: #5C2B3B;
+
+  --cut-edge: #3E4354;
+  --shadow-l2: 0 2px 0 rgba(9, 10, 13, 0.8), 0 6px 16px rgba(0, 0, 0, 0.24);
+  --shadow-l1-sm: 0 3px 0 var(--paper-thickness);
+  --shadow-red-btn: 0 4px 0 var(--nt-red-edge);
+  --pool-slab-edge: #8C0E19;
+
+  --stamp-pending-bg: #15171E;
+  --stamp-pending-border: #323644;
+  --asset-shadow: brightness(0.95) drop-shadow(0 10px 18px rgba(0, 0, 0, 0.48));
+}
