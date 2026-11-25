@@ -239,7 +239,7 @@ export function renderLiveSparkline(points) {
 /**
  * 3-Moment Interactive Slider（木质棘轮拟音 + 每 10% 震动同步 + 实时进度回调 + 初始零毛边）
  */
-export function mountSlider(containerEl, { label = '右滑确认', onConfirm, onProgress = null, silentConfirmAudio = false }) {
+export function mountSlider(containerEl, { label = L('右滑确认', 'Slide to Confirm'), onConfirm, onProgress = null, silentConfirmAudio = false }) {
   if (!containerEl) return;
   cleanupActiveInteractions();
   activeSliderAbort = new AbortController();

@@ -48,8 +48,10 @@ let galleryWealthCache = {
 
 function portrait(n, series = 'activity', { lazy = false } = {}) {
   const code = series === 'wealth' ? 'WLT' : 'ACT';
-  const attrs = lazy ? ' loading="lazy" decoding="async" width="68" height="68"' : ' decoding="async"';
-  return `<img class="wv-person" src="${characterArt(n, series)}" alt="${code} 0${n}" loading="lazy" decoding="async"${attrs}>`;
+  const attrs = lazy
+    ? ' loading="lazy" decoding="async" width="68" height="68"'
+    : ' decoding="async" fetchpriority="high" width="120" height="120"';
+  return `<img class="wv-person" src="${characterArt(n, series)}" alt="${code} 0${n}"${attrs}>`;
 }
 
 export function stageLabel(stage) {
@@ -1194,10 +1196,10 @@ export function gallery(root, navigate, param) {
             <div class="boxhead-face front series-${activeGallerySeries}">
               <div class="boxhead-stage-aura" aria-hidden="true"></div>
               ${activeGallerySeries === 'wealth' ? '<div class="standee-slot" aria-hidden="true"></div>' : ''}
-              <img class="wv-person${canEvaluate && !isSelectedUnlocked ? ' is-locked-preview' : ''}" id="boxhead-avatar-img" src="${item.avatar}" alt="${code} 0${selected}" loading="lazy" decoding="async">
+              <img class="wv-person${canEvaluate && !isSelectedUnlocked ? ' is-locked-preview' : ''}" id="boxhead-avatar-img" src="${item.avatar}" alt="${code} 0${selected}" width="160" height="160" loading="lazy" decoding="async">
             </div>
             <div class="boxhead-face back">
-              <img class="boxhead-card-img" id="boxhead-backing-card" src="${item.card}" alt="${code} 0${selected} ${L('精装卡背', 'Backing Card')}" loading="lazy" decoding="async">
+              <img class="boxhead-card-img" id="boxhead-backing-card" src="${item.card}" alt="${code} 0${selected} ${L('精装卡背', 'Backing Card')}" width="240" height="320" loading="lazy" decoding="async">
             </div>
           </div>
         </div>

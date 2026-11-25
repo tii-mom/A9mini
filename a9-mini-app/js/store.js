@@ -290,14 +290,20 @@ class A9Store {
   }
 
   claimPromoDemo() {
-    if (!config.isDemo) return { error: '当前真实模式为只读阶段，邀友奖励领取与资金支付暂未开放' };
+    if (!config.isDemo) {
+      const en = this.state.settings?.language === 'en-US';
+      return { error: en ? 'Live mode is read-only; promo claims and payments are disabled' : '当前真实模式为只读阶段，邀友奖励领取与资金支付暂未开放' };
+    }
     const result = demoFundsClaimPromo(this.state);
     this.notify();
     return result;
   }
 
   buyInternalMarket(tonAmount) {
-    if (!config.isDemo) return { error: '当前真实模式为只读阶段，宝箱商城购买与资金支付暂未开放' };
+    if (!config.isDemo) {
+      const en = this.state.settings?.language === 'en-US';
+      return { error: en ? 'Live mode is read-only; Chest Mall purchases are disabled' : '当前真实模式为只读阶段，宝箱商城购买与资金支付暂未开放' };
+    }
     const result = demoFundsBuy(this.state, tonAmount);
     if (!result.error) this.notify();
     return result;
