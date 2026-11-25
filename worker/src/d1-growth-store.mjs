@@ -2035,13 +2035,10 @@ export class D1PresaleRepo {
 
     const addA9 = split9(o.a9AmountRaw);
     const capA9 = split9(capA9Raw);
-    const addTon = split9(o.tonNano);
-    const capTon = split9(userQuotaNano);
+    const hasUserQuota = userQuotaNano !== null && userQuotaNano !== undefined;
 
     // 同时覆盖新行（wallet_key）与尚未回填的历史友好地址行（EQ/UQ/kQ/0Q/raw 全部规范形式），保持单语句原子性。
-    const aliases = addressAliases(o.walletAddress);
-    const aliasPlaceholders = aliases.map(() => '?').join(', ');
-    const whereClause = `WHERE EXISTS (
+    const poolWhereClause = `WHERE EXISTS (
              SELECT 1 FROM (
                SELECT
                  (COALESCE(SUM(${hiExpr('a9_amount_raw')}), 0) + CAST(? AS INTEGER)
@@ -2049,7 +2046,17 @@ export class D1PresaleRepo {
                  ((COALESCE(SUM(${loExpr('a9_amount_raw')}), 0) + CAST(? AS INTEGER)) % 1000000000) AS tot_lo
                FROM presale_orders WHERE ${RESERVING_SQL}
              ) WHERE tot_hi < CAST(? AS INTEGER) OR (tot_hi = CAST(? AS INTEGER) AND tot_lo <= CAST(? AS INTEGER))
-           )
+           )`;
+    let whereClause = poolWhereClause;
+    const tailArgs = [
+      addA9.hi, addA9.lo, addA9.lo, nowSec, capA9.hi, capA9.hi, capA9.lo,
+    ];
+    if (hasUserQuota) {
+      const addTon = split9(o.tonNano);
+      const capTon = split9(userQuotaNano);
+      const aliases = addressAliases(o.walletAddress);
+      const aliasPlaceholders = aliases.map(() => '?').join(', ');
+      whereClause = `${poolWhereClause}
            AND EXISTS (
              SELECT 1 FROM (
                SELECT
@@ -2060,10 +2067,10 @@ export class D1PresaleRepo {
                WHERE (wallet_key = ? OR (wallet_key IS NULL AND wallet_address IN (${aliasPlaceholders}))) AND ${RESERVING_SQL}
              ) WHERE tot_hi < CAST(? AS INTEGER) OR (tot_hi = CAST(? AS INTEGER) AND tot_lo <= CAST(? AS INTEGER))
            )`;
-    const tailArgs = [
-      addA9.hi, addA9.lo, addA9.lo, nowSec, capA9.hi, capA9.hi, capA9.lo,
-      addTon.hi, addTon.lo, addTon.lo, o.walletKey, ...aliases, nowSec, capTon.hi, capTon.hi, capTon.lo,
-    ];
+      tailArgs.push(
+        addTon.hi, addTon.lo, addTon.lo, o.walletKey, ...aliases, nowSec, capTon.hi, capTon.hi, capTon.lo,
+      );
+    }
     try {
       const res = await this.db
         .prepare(

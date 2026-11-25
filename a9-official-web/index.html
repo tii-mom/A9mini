@@ -20,10 +20,12 @@
   <meta name="twitter:image" content="https://a9.lat/assets/token/a9-token-2048.png" />
   <script src="./js/boot-preferences.js"></script>
   <title>A9 · 财富大冒险</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="stylesheet" href="./css/tokens.css" />
   <link rel="stylesheet" href="./css/official.css" />
 </head>
 <body>
+  <a class="skip-link" href="#top">跳至正文 / Skip to content</a>
   <header class="site-header" id="site-header">
     <div class="wrap header-inner">
       <a class="brand" href="#top" aria-label="A9 Home">
@@ -37,7 +39,7 @@
         <a href="#top" class="is-active" data-section="top" data-i18n="navHome">首页</a>
         <a href="#observatory" data-section="observatory" data-i18n="navObservatory">考核示例</a>
         <a href="#unlock" data-section="unlock" data-i18n="navUnlock">奖励解锁</a>
-        <a href="#allocation" data-section="allocation" data-i18n="navAllocation">分配与结算</a>
+        <a href="#allocation" data-section="allocation" data-i18n="navAllocation">分配与规则</a>
         <a href="#ledger" data-section="ledger" data-i18n="navLedger">闯关账本</a>
         <a href="./redpaper/" data-i18n="openRedpaper">A9 红皮书</a>
       </nav>
@@ -77,7 +79,7 @@
         <div class="hero-copy">
           <div class="hero-status">
             <span class="live-dot" aria-hidden="true"></span>
-            <span class="mono" data-i18n="heroEyebrow">第 03 轮 · 24H 观察中</span>
+            <span class="mono" data-i18n="heroEyebrow">第 03 轮 · 24H 示例</span>
           </div>
 
           <h1 class="hero-title" data-i18n="heroTitle">财富大冒险</h1>
@@ -119,7 +121,7 @@
               </div>
             </div>
             <div class="focal-pocket">
-              <img src="./assets/official-art/clock-tower.svg" alt="" class="focal-art" id="focal-art" />
+              <img src="./assets/official-art/clock-tower.svg" alt="" width="160" height="176" class="focal-art" id="focal-art" />
             </div>
           </div>
 
@@ -155,7 +157,7 @@
               <h2 class="pool-headline" data-i18n="poolHeadline">闯关奖励池</h2>
               <p class="pool-sub" data-i18n="poolSub">每轮基础 700,000,000 A9（7%），15× 超额与失败轮 50% 滚存下轮。</p>
             </div>
-            <img src="./assets/official-art/reward-vault.svg" alt="" class="pool-vault-art" />
+            <img src="./assets/official-art/reward-vault.svg" alt="" width="180" height="160" class="pool-vault-art" />
           </div>
           <div class="pool-facts mono">
             <span data-i18n="poolPill1">10,000,000,000 固定总供应</span>
@@ -191,7 +193,7 @@
             <p class="sec-desc" data-i18n="obsDesc">目标价走廊 [1.50×, 2.50×]，点选轮次查看逐小时均价。</p>
           </div>
           <div class="floor-badge mono" data-i18n="floorBadge">奖池分完为止</div>
-          <img class="chapter-art" src="./assets/official-art/clock-tower.svg" alt="" loading="lazy" />
+          <img class="chapter-art" src="./assets/official-art/clock-tower.svg" alt="" width="160" height="176" loading="lazy" />
         </div>
 
         <div class="surface-card observatory-card">
@@ -263,7 +265,7 @@
             <h2 class="sec-title" data-i18n="unlockTitle">奖励释放与试算</h2>
             <p class="sec-desc" data-i18n="unlockDesc">通关退 100% 本金 + 20% 奖励秒领，余下 80% 分 40 天按秒线性释放。</p>
           </div>
-          <img class="chapter-art" src="./assets/official-art/reward-crystal.svg" alt="" loading="lazy" />
+          <img class="chapter-art" src="./assets/official-art/reward-crystal.svg" alt="" width="160" height="176" loading="lazy" />
         </div>
 
         <div class="unlock-layout">
@@ -299,7 +301,7 @@
           </div>
 
           <div class="surface-card sim-card" id="simulator">
-            <h3 class="sim-title" data-i18n="simTitle">收益与解锁试算</h3>
+            <h3 class="sim-title" data-i18n="simTitle">收益试算</h3>
 
             <div class="sim-field">
               <label for="sim-stake" data-i18n="simStakeLabel">质押本金（最低 1,000 A9）</label>
@@ -363,24 +365,24 @@
         <!-- 3-Step Participation (Clean typographic numerals) -->
         <div class="steps-block">
           <div class="sec-head compact">
-            <h3 class="sec-subtitle" data-i18n="stepsTitle">参与流程</h3>
-            <a class="cta-red" href="#observatory" data-i18n="ctaSecondary">查看考核示例</a>
+            <h3 class="sec-subtitle" data-i18n="stepsTitle">3 步参与</h3>
+            <a class="cta-red" href="#sandbox" data-i18n="ctaSecondary">24H 判定试玩</a>
           </div>
           <div class="steps-grid">
             <article class="surface-card step-card">
               <span class="step-num mono">01</span>
               <h4 data-i18n="step1Title">连接 TON 钱包</h4>
-              <p data-i18n="step1Desc">打开 A9 小程序连接钱包，查看当前轮次报名窗口。</p>
+              <p data-i18n="step1Desc">打开小程序连接钱包。</p>
             </article>
             <article class="surface-card step-card">
               <span class="step-num mono">02</span>
-              <h4 data-i18n="step2Title">报名期质押 A9</h4>
-              <p data-i18n="step2Desc">最低 1,000 A9。前/中/后 12h 早鸟权重 2.0× / 1.4× / 1.0×。</p>
+              <h4 data-i18n="step2Title">报名质押 A9</h4>
+              <p data-i18n="step2Desc">≥ 1,000 A9 · 早鸟 2.0× / 1.4× / 1.0×。</p>
             </article>
             <article class="surface-card step-card">
               <span class="step-num mono">03</span>
-              <h4 data-i18n="step3Title">24H 考核自动结算</h4>
-              <p data-i18n="step3Desc">至少 16/24 小时达标即通关 PASS，结算后领回本金与奖励。</p>
+              <h4 data-i18n="step3Title">24H 自动结算</h4>
+              <p data-i18n="step3Desc">≥ 16/24 达标通关，链上领本金与奖励。</p>
             </article>
           </div>
         </div>
@@ -395,7 +397,7 @@
             <h2 class="sec-title" data-i18n="allocTitle">分配与规则</h2>
             <p class="sec-desc" data-i18n="allocDesc">10,000,000,000 A9 固定供应，不可升级合约执行。</p>
           </div>
-          <img class="chapter-art" src="./assets/official-art/red-handbook.svg" alt="" loading="lazy" />
+          <img class="chapter-art" src="./assets/official-art/red-handbook.svg" alt="" width="160" height="176" loading="lazy" />
         </div>
 
         <div class="surface-card alloc-ribbon-card">
@@ -435,7 +437,7 @@
             <h2 class="sec-title" data-i18n="ledgerTitle">闯关账本</h2>
             <p class="sec-desc" data-i18n="ledgerDesc">核对各轮目标价、达标时段与状态。</p>
           </div>
-          <img class="chapter-art" src="./assets/official-art/verification-ticket.svg" alt="" loading="lazy" />
+          <img class="chapter-art" src="./assets/official-art/verification-ticket.svg" alt="" width="184" height="128" loading="lazy" />
         </div>
 
         <div class="surface-card ledger-card">
@@ -467,7 +469,7 @@
             <h2 class="sec-title" data-i18n="evoTitle">A9 进化图鉴</h2>
             <p class="sec-desc" data-i18n="evoDesc">点击翻卡查看 5 种宝箱解锁条件。</p>
           </div>
-          <img class="chapter-art" src="./assets/official-art/reward-crystal.svg" alt="" loading="lazy" />
+          <img class="chapter-art" src="./assets/official-art/reward-crystal.svg" alt="" width="160" height="176" loading="lazy" />
         </div>
         <div class="evo-strip" id="evo-strip"></div>
       </div>

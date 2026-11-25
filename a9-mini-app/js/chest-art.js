@@ -47,6 +47,14 @@ export const CHEST_TIER_META = {
     accentSoft: '#E8F7FF',
     accentSoftDark: 'rgba(41, 199, 255, 0.20)',
   },
+  legendary: {
+    key: 'legendary',
+    shortZh: '传说',
+    shortEn: 'Legend',
+    accent: '#E60012',
+    accentSoft: '#FFEBF0',
+    accentSoftDark: 'rgba(230, 0, 18, 0.22)',
+  },
 };
 
 export function resolveChestTier(input) {
@@ -55,6 +63,7 @@ export function resolveChestTier(input) {
       ? input
       : (input?.tier || input?.skuId || input?.labelEn || input?.zh || '')
   ).toLowerCase();
+  if (raw.includes('legend') || raw.includes('传说')) return 'legendary';
   if (raw.includes('diamond') || raw.includes('钻石')) return 'diamond';
   if (raw.includes('platinum') || raw.includes('白金')) return 'platinum';
   if (raw.includes('gold') || raw.includes('黄金')) return 'gold';
@@ -200,6 +209,32 @@ export function renderChestSvg(tierInput, { size = 64, state = 'normal', classNa
         <polygon points="45.5,40 50.5,40 55,44.5 55,49.5 50.5,54 45.5,54 41,49.5 41,44.5" fill="#29C7FF" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/>
         <polygon points="45.5,40 50.5,40 53,45 43,45" fill="#FFFFFF"/>
       </g>`,
+
+    // 6. 传说宝箱：任天堂红曜石 + 耀金龙翼皇冠 + 红宝石八芒星核（最高尊享剪影）
+    legendary: `
+      <ellipse class="chest-shadow" cx="48" cy="85" rx="37" ry="6.4" fill="rgba(20, 22, 30, 0.20)"/>
+      <g class="chest-base">
+        <rect x="10" y="71" width="76" height="10" rx="5" fill="#B8001F" stroke="${stroke}" stroke-width="2.4"/>
+        <rect x="14" y="46" width="68" height="29" rx="8" fill="#231F2E" stroke="${stroke}" stroke-width="2.5"/>
+        <rect x="14" y="44" width="68" height="27" rx="7.5" fill="#362B45" stroke="${stroke}" stroke-width="2.5"/>
+        <polygon points="18,48 40,48 33,57 18,57" fill="#57466E"/>
+        <rect x="24" y="44" width="10" height="27" fill="#FFC412" stroke="${stroke}" stroke-width="2.2"/>
+        <rect x="62" y="44" width="10" height="27" fill="#FFC412" stroke="${stroke}" stroke-width="2.2"/>
+        <rect x="14" y="63" width="10" height="8" rx="2.5" fill="#E60012" stroke="${stroke}" stroke-width="2"/>
+        <rect x="72" y="63" width="10" height="8" rx="2.5" fill="#E60012" stroke="${stroke}" stroke-width="2"/>
+      </g>
+      <g class="chest-lid" ${lidTransform}>
+        <path d="M12 38C12 26 21 19 34 19H62C75 19 84 26 84 38V46H12V38Z" fill="#E60012" stroke="${stroke}" stroke-width="2.5" stroke-linejoin="round"/>
+        <path d="M20 29C23 25 28 23.5 36 23.5H58" stroke="#FF6B78" stroke-width="4" stroke-linecap="round"/>
+        <rect x="24" y="19" width="10" height="27" fill="#FFC412" stroke="${stroke}" stroke-width="2.2"/>
+        <rect x="62" y="19" width="10" height="27" fill="#FFC412" stroke="${stroke}" stroke-width="2.2"/>
+        <path d="M32 19L35 8L43 14L48 5L53 14L61 8L64 19H32Z" fill="#FFC412" stroke="${stroke}" stroke-width="2.4" stroke-linejoin="round"/>
+        <circle cx="48" cy="13.5" r="3" fill="#E60012" stroke="${stroke}" stroke-width="1.6"/>
+      </g>
+      <g class="chest-latch">
+        <polygon points="48,35 58,41 58,52 48,58 38,52 38,41" fill="#FFC412" stroke="${stroke}" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M48 39.5L50.4 44.3L55.6 45L51.8 48.6L52.8 53.7L48 51.2L43.2 53.7L44.2 48.6L40.4 45L45.6 44.3L48 39.5Z" fill="#E60012" stroke="${stroke}" stroke-width="1.8" stroke-linejoin="round"/>
+      </g>`,
   };
 
   const cls = ['nt-chest-svg', `tier-${tier}`, `state-${state}`, className].filter(Boolean).join(' ');
@@ -236,8 +271,9 @@ export function renderChestOpenBurstSvg(tierInput, { size = 180, className = '' 
     bronze:   { body: '#C97A42', shade: '#8F4F24', band: '#D99B52', hi: '#E69F68', ray: '#F6C99E', inside: '#5A2E12' },
     silver:   { body: '#E4EAF2', shade: '#9AA9BE', band: '#8FA3BC', hi: '#FFFFFF', ray: '#CFE2F8', inside: '#485A70' },
     gold:     { body: '#F7BE2C', shade: '#C97400', band: '#E60012', hi: '#FFF08A', ray: '#FFE899', inside: '#7A4200' },
-    platinum: { body: '#EEF3FF', shade: '#99ACE0', band: '#6D5DF6', hi: '#FFFFFF', ray: '#D7D2FF', inside: '#39327A' },
-    diamond:  { body: '#29C7FF', shade: '#0077CC', band: '#FFD43B', hi: '#B8F3FF', ray: '#B8F3FF', inside: '#004A85' },
+    platinum:  { body: '#EEF3FF', shade: '#99ACE0', band: '#6D5DF6', hi: '#FFFFFF', ray: '#D7D2FF', inside: '#39327A' },
+    diamond:   { body: '#29C7FF', shade: '#0077CC', band: '#FFD43B', hi: '#B8F3FF', ray: '#B8F3FF', inside: '#004A85' },
+    legendary: { body: '#E60012', shade: '#8F0010', band: '#FFC412', hi: '#FF7A85', ray: '#FFE082', inside: '#231F2E' },
   };
   const p = palettes[tier] || palettes.gold;
 

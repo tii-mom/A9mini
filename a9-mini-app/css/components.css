@@ -44,6 +44,45 @@ img {
   display: block;
 }
 
+:focus-visible {
+  outline: 2px solid var(--nt-blue);
+  outline-offset: 2px;
+}
+
+.nt-boot-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.nt-skel-card {
+  height: 112px;
+  border-radius: 18px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--surface-shadow);
+}
+
+.nt-skel-hero {
+  height: 224px;
+  border-top: 4px solid var(--nt-red);
+}
+
+.nt-skel-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.nt-skel-grid i {
+  display: block;
+  height: 76px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+}
+
 .hidden, [hidden] {
   display: none !important;
 }
@@ -1469,8 +1508,8 @@ img {
   transform: translateX(-50%);
   bottom: 0;
   width: min(100vw, 440px);
-  height: calc(40px + var(--wv-safe-bottom));
-  background: linear-gradient(180deg, transparent 0%, var(--paper-bg) 56%, var(--paper-bg) 100%);
+  height: calc(24px + var(--wv-safe-bottom));
+  background: var(--paper-bg);
   pointer-events: none;
   z-index: 42;
 }

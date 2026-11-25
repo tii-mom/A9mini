@@ -755,22 +755,22 @@ async function openChestAssistModal(chestId) {
         ${!hasDetail
           ? L('宝箱详情待核验（暂未拉取到服务端状态），可点击下方重试读取或先连接 TON 钱包。', 'Chest details pending verification. Tap retry below or connect your TON wallet.')
           : isBoost
-            ? L('付费宝箱已升级为免助力随机暴击（100% 固定本金 + 最高 +5%–+30% 暴击），无需好友助力！你也可以免费领取专属青铜宝箱 #1（300 A9）或前往宝箱商城体验。', 'Paid chests now roll instant random crits (100% base + up to +5%–+30% bonus) with no assists needed! Claim your free Bronze Chest #1 (300 A9) or visit Chest Mall.')
-            : L(`双人同行礼：与好友结伴开启【${escapeHtml(label)}】（${formatNum(rewardA9)} A9），双方各有收获——确认后立即为你激活专属青铜宝箱 #1（300 A9）！`, `Co-op gift: team up to unlock [${escapeHtml(label)}] (${formatNum(rewardA9)} A9)—both players benefit as your own Bronze Chest #1 (300 A9) activates immediately!`)}
+            ? L('付费宝箱已升级为整数本金保底 + 免助力随机暴击，无需好友助力！你也可以免费秒开专属青铜新手箱（200 A9）或前往宝箱商城体验。', 'Paid chests roll instant random crits with exact integer base A9! Open your free 200 A9 Bronze Starter Chest or visit Chest Mall.')
+            : L(`双向开箱礼：帮好友助力开启【${escapeHtml(label)}】（${formatNum(Math.round(rewardA9), 0)} A9），确认同行后立刻为你发放可秒开的专属青铜新手箱（200 A9）！`, `Co-op gift: assist [${escapeHtml(label)}] (${formatNum(Math.round(rewardA9), 0)} A9) and instantly unlock your own 200 A9 Bronze Starter Chest!`)}
       </div>
     </div>
     ${loadFailed ? `<button class="btn btn-secondary" id="btn-retry-chest-detail" type="button" style="margin-bottom:10px;">${L('重试读取宝箱详情', 'Retry Loading Details')}</button>` : ''}
     ${isBoost ? `
       <div class="grid-2" style="gap:8px;">
         <button class="btn btn-primary btn-sm" id="btn-chest-go-mall" type="button" style="width:100%;min-height:42px;">${icon('bolt', 14)} ${L('前往宝箱商城', 'Chest Mall')}</button>
-        <button class="btn btn-secondary btn-sm" id="btn-chest-go-free" type="button" style="width:100%;min-height:42px;">${icon('trophy', 14)} ${L('免费领青铜箱', 'Free Chest')}</button>
+        <button class="btn btn-secondary btn-sm" id="btn-chest-go-free" type="button" style="width:100%;min-height:42px;">${icon('trophy', 14)} ${L('免费秒开青铜箱', 'Free Chest')}</button>
       </div>
     ` : `
       <div class="num-xs text-muted" style="margin-bottom:12px;">
-        ${L('链上防刷校验：仅需连接链上已激活 TON 钱包（0 扣款），确认同行后自动激活你的青铜宝箱 #1。', 'On-chain anti-sybil check: active TON wallet required (0 transfer). Automatically activates your Bronze Chest #1.')}
+        ${L('链上防刷校验：仅需连接链上已激活 TON 钱包（0 扣款），确认同行后立即获得可秒开的 200 A9 青铜新手箱。', 'On-chain anti-sybil check: active TON wallet required (0 transfer). Instantly unlocks your 200 A9 Bronze Starter Chest.')}
       </div>
       <button class="btn btn-primary" id="btn-do-chest-assist" type="button">
-        ${icon(connected ? 'checkCircle' : 'wallet', 15)} ${connected ? L('确认同行 · 领我的青铜宝箱 #1', 'Confirm Co-Op & Claim Bronze #1') : L('连接 TON 钱包 · 开启双人同行礼', 'Connect TON Wallet for Co-Op Gift')}
+        ${icon(connected ? 'checkCircle' : 'wallet', 15)} ${connected ? L('确认同行 · 秒开我的 200 A9 青铜箱', 'Confirm Co-Op & Open 200 A9 Chest') : L('连接 TON 钱包 · 领双向开箱礼', 'Connect TON Wallet for Co-Op Gift')}
       </button>
     `}
   `);
@@ -794,7 +794,7 @@ async function openChestAssistModal(chestId) {
       A9Haptic.success();
       closeModal();
       showToast(res?.helperGrantedStarter
-        ? L('同行礼已生效！已为你激活青铜宝箱 #1，邀 2 位同路人即可开箱！', 'Co-op gift active! Your Bronze Chest #1 is unlocked—team up with 2 friends to open!')
+        ? L('双向礼已生效！你的 200 A9 青铜新手箱已就绪，点击即可秒开！', 'Co-op gift active! Your 200 A9 Bronze Starter Chest is ready to open now!')
         : L('同行确认成功！', 'Co-op confirmed!'));
       navigate('/internal/market?tab=free');
     } catch (e) {

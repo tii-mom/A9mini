@@ -540,6 +540,40 @@ export class TelegramBroadcaster {
     });
   }
 
+  /** ⑤-b 免费宝箱收到好友助力或付费加速时私聊提醒宝箱主 */
+  async notifyChestAssistProgress({ chest, paidBoost = false, addedAssists = 1, nowSec = Math.floor(Date.now() / 1000) }) {
+    if (!this._canSend() || !chest?.chestId || !chest?.ownerUserId) {
+      return { skipped: true, reason: 'DISABLED', sentCount: 0 };
+    }
+    const ownerTgId = String(chest.ownerUserId).trim();
+    if (!/^\d{1,20}$/.test(ownerTgId)) return { skipped: true, reason: 'NO_TG_RECIPIENT', sentCount: 0 };
+    const cur = Number(chest.currentAssists || 0);
+    const req = Number(chest.requiredAssists || 0);
+    const left = Math.max(0, req - cur);
+    const rewardText = formatWholeNumber(chest.baseA9Raw || '0');
+    const url = buildTeamDeepLink({ botHandle: this.botHandle, fallbackParam: 'market' });
+    const eventKey = `chest_assist:${chest.chestId}:${cur}`;
+
+    return this._broadcastToTargets({
+      eventKey,
+      eventType: 'CHEST_ASSIST_PROGRESS',
+      targets: [{ chatId: ownerTgId, team: null }],
+      nowSec,
+      buildPayload: async () => ({
+        text: [
+          paidBoost
+            ? `付费好友加速提醒：你的【${chest.labelZh || chest.tier}】助力 +${addedAssists}（当前 ${cur}/${req}）`
+            : `好友同行助力提醒：你的【${chest.labelZh || chest.tier}】进度已达 ${cur}/${req}`,
+          left === 0
+            ? `助力进度已满！立即开箱领取 ${rewardText} A9 奖励！`
+            : `仅差最后 ${left} 点助力即可开箱领取 ${rewardText} A9（邀好友购箱可 1 抵 3 加速）。`,
+        ].join('\n'),
+        buttonText: left === 0 ? '立即开箱领 A9' : '查看宝箱进度并继续邀请',
+        buttonUrl: url,
+      }),
+    });
+  }
+
   /** ⑥ 新轮开启时向已开启提醒的预热预约用户批量发送私聊通知（按人回写 reminded_at 防重发，400/403 永久失败自动跳过防队头阻塞） */
   async sendWarmupOpeningReminders({ roundId, round = null, limit = 25, nowSec = Math.floor(Date.now() / 1000) }) {
     if (!this._canSend()) return { skipped: true, reason: 'DISABLED', sentCount: 0 };

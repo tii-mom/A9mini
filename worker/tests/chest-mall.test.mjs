@@ -39,32 +39,56 @@ const emptyStateStore = {
 
 console.log('Running A9 v15 Chest Mall & Viral Assist tests...');
 
-await test('5 Chest Mall SKUs exact fixed-rate pricing, +0.06 GRAM delivery gas & 0.03 GRAM refund gas rule', async () => {
+await test('6 Chest Mall SKUs exact integer pricing (incl. 500 GRAM Legendary), unlimited per-wallet quota, +0.06 GRAM delivery gas & 0.03 GRAM refund gas rule', async () => {
   assert.equal(PASSIVE_FREE_MIN_NANO, 990_000_000n);
   assert.equal(DELIVERY_GAS_FEE_NANO, 60_000_000n);
   assert.equal(REFUND_GAS_FEE_NANO, 30_000_000n);
-  assert.equal(CHEST_MALL_CATALOG.chest_bronze.baseA9, '1981.98');
-  assert.equal(CHEST_MALL_CATALOG.chest_silver.baseA9, '9989.98');
-  assert.equal(CHEST_MALL_CATALOG.chest_gold.baseA9, '19999.98');
-  assert.equal(CHEST_MALL_CATALOG.chest_platinum.baseA9, '40019.98');
-  assert.equal(CHEST_MALL_CATALOG.chest_diamond.baseA9, '200179.98');
-  assert.equal(CHEST_MALL_CATALOG.chest_bronze.maxBoostBps, 500);
-  assert.equal(CHEST_MALL_CATALOG.chest_silver.maxBoostBps, 1000);
-  assert.equal(CHEST_MALL_CATALOG.chest_gold.maxBoostBps, 1500);
-  assert.equal(CHEST_MALL_CATALOG.chest_platinum.maxBoostBps, 2000);
-  assert.equal(CHEST_MALL_CATALOG.chest_diamond.maxBoostBps, 3000);
+  assert.equal(CHEST_MALL_CATALOG.chest_bronze.baseA9, '1500');
+  assert.equal(CHEST_MALL_CATALOG.chest_bronze.maxA9, '2000');
+  assert.equal(CHEST_MALL_CATALOG.chest_silver.baseA9, '8000');
+  assert.equal(CHEST_MALL_CATALOG.chest_silver.maxA9, '11000');
+  assert.equal(CHEST_MALL_CATALOG.chest_gold.baseA9, '18000');
+  assert.equal(CHEST_MALL_CATALOG.chest_gold.maxA9, '22000');
+  assert.equal(CHEST_MALL_CATALOG.chest_platinum.baseA9, '38000');
+  assert.equal(CHEST_MALL_CATALOG.chest_platinum.maxA9, '45000');
+  assert.equal(CHEST_MALL_CATALOG.chest_diamond.baseA9, '200000');
+  assert.equal(CHEST_MALL_CATALOG.chest_diamond.maxA9, '220000');
+  assert.equal(CHEST_MALL_CATALOG.chest_legendary.baseA9, '900000');
+  assert.equal(CHEST_MALL_CATALOG.chest_legendary.maxA9, '1200000');
+  assert.equal(CHEST_MALL_CATALOG.chest_legendary.priceGram, '500');
   assert.equal(CHEST_MALL_CATALOG.chest_bronze.requiredAssists, 0);
-  assert.equal(CHEST_MALL_CATALOG.chest_diamond.maxSupply, null);
+  assert.equal(CHEST_MALL_CATALOG.chest_legendary.maxSupply, null);
   assert.equal(PAID_CHEST_CRIT_TIERS.reduce((s, t) => s + t.weight, 0), 100);
 
+  // Whole-integer crit rolls (zero decimals across all 6 SKUs)
+  for (const sku of Object.values(CHEST_MALL_CATALOG)) {
+    for (const r of [0.1, 0.5, 0.85, 0.96, 0.995]) {
+      const rolled = rollPaidChestBonusRaw(sku.maxBoostA9Raw, () => r);
+      assert.equal(rolled.bonusRaw % 1_000_000_000n, 0n, `${sku.skuId} crit must be whole integer A9`);
+    }
+  }
+
   const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT_WALLET, open: true });
+  const q0 = await presale.getQuota(W_OWNER, 1000);
+  assert.equal(q0.unlimitedQuota, true);
+  assert.equal(q0.unlockedQuotaNano, null);
+  assert.equal(q0.availQuotaNano, null);
+
   const ord = await presale.createOrderIntent(W_OWNER, null, 1000, { skuId: 'chest_bronze', openMode: 'BOOST', tgUserId: '1001' });
   assert.equal(ord.skuId, 'chest_bronze');
   assert.equal(ord.openMode, 'BOOST');
   assert.equal(ord.tonNano, '990000000');
   assert.equal(ord.deliveryFeeNano, '60000000');
   assert.equal(ord.payTonNano, '1050000000');
-  assert.equal(ord.a9AmountRaw, '1981980000000');
+  assert.equal(ord.a9AmountRaw, '1500000000000');
+
+  // Unlimited per-wallet cap: same wallet can buy 2x 500 GRAM Legendary Chests (= 1,000 GRAM) without OVER_QUOTA
+  const leg1 = await presale.createOrderIntent(W_OWNER, null, 1001, { skuId: 'chest_legendary', openMode: 'BOOST', tgUserId: '1001' });
+  const leg2 = await presale.createOrderIntent(W_OWNER, null, 1002, { skuId: 'chest_legendary', openMode: 'BOOST', tgUserId: '1001' });
+  assert.equal(leg1.tonNano, '500000000000');
+  assert.equal(leg1.payTonNano, '500060000000');
+  assert.equal(leg1.a9AmountRaw, '900000000000000');
+  assert.equal(leg2.a9AmountRaw, '900000000000000');
 
   // Expired 0.99 GRAM Bronze Chest order paid late (1.05 GRAM) -> passive refund minus 0.03 GRAM on-chain refund gas
   const latePlan = await presale.planInbound(
@@ -85,8 +109,14 @@ await test('Real TonCenterClient.fetchWalletAccountState format: active passes, 
   await identityStore.bindVerifiedWallet('2002', W_H2, 1000);
   await identityStore.bindVerifiedWallet('2003', W_H3, 1000);
 
+  // Claim starter Bronze (0-assist instant READY), open it to unlock Silver (2 assists required) for assist testing
   const starter = await chest.claimStarterBronzeChests({ userId: '1001', walletAddress: W_OWNER }, 1000);
-  const b1 = starter.chests[0];
+  const b0 = starter.chests[0];
+  assert.equal(b0.status, 'READY');
+  const openedStarter = await chest.openChest({ chestId: b0.chestId, userId: '1001', walletAddress: W_OWNER, predictionEngine: pred }, 1001);
+  const b1 = openedStarter.nextUnlocked;
+  assert.equal(b1.tier, 'silver');
+  assert.equal(b1.status, 'ACTIVE');
 
   // Mock TonCenter HTTP responses matching real /getAddressInformation contract
   const tc = new TonCenterClient({
@@ -281,8 +311,7 @@ await test('Direct paid invitee (TG-only ref) unlocks vault, Captain >=50 gets 5
   // Independent Chest Open switch: EVEN when presaleEngine.open=true (购箱已开), without A9_CHEST_OPEN_ENABLED='1', /api/chests/:id/open returns 403 and writes 0 to reward tables
   const starter = await chest.claimStarterBronzeChests({ userId: '1001', walletAddress: W_OWNER }, 1041);
   const b1 = starter.chests[0];
-  await chest.assistChest({ chestId: b1.chestId, helperUserId: '2001', helperWalletAddress: W_H1, walletActive: true }, 1042);
-  await chest.assistChest({ chestId: b1.chestId, helperUserId: '2002', helperWalletAddress: W_H2, walletActive: true }, 1043);
+  assert.equal(b1.status, 'READY');
   const pendingBeforeBlock = pred.getUserSummary('1001').pendingActivationRaw;
   const promoBeforeBlock = promo.getBalance(W_OWNER).claimableRaw;
   const blockedOpen = await router({ method: 'POST', pathname: `/api/chests/${b1.chestId}/open`, headers: hdrOwner, body: {}, nowSec: 1044 });
@@ -324,11 +353,10 @@ await test('Migrated SQLite D1 (0001..0009): orders, bound group, atomic open-wi
   );
   assert.equal(verifiedTeam.tgMemberCount, 120);
 
-  // 2) Atomic openChest rollback proof: inject a SQLite trigger that fails prediction_rewards INSERT
+  // 2) Atomic openChest rollback proof on Starter Bronze (0-assist READY): inject a SQLite trigger that fails prediction_rewards INSERT
   const starter = await d1Chest.claimStarterBronzeChests({ userId: '3001', walletAddress: W_OWNER }, 2010);
   const b1 = starter.chests[0];
-  await d1Chest.assistChest({ chestId: b1.chestId, helperUserId: '3002', helperWalletAddress: W_H1, walletActive: true }, 2011);
-  await d1Chest.assistChest({ chestId: b1.chestId, helperUserId: '3003', helperWalletAddress: W_H2, walletActive: true }, 2012);
+  assert.equal(b1.status, 'READY');
 
   db.exec(`CREATE TRIGGER fail_pred_reward BEFORE INSERT ON prediction_rewards BEGIN SELECT RAISE(ABORT, 'injected_reward_write_failure'); END;`);
   await assert.rejects(
@@ -339,13 +367,13 @@ await test('Migrated SQLite D1 (0001..0009): orders, bound group, atomic open-wi
   assert.equal((await d1Chest.getChest(b1.chestId)).status, 'READY');
   assert.equal((await d1Pred.getUserSummary('3001')).pendingActivationRaw, '0');
 
-  // Drop fault trigger -> retry succeeds atomically, credits 300 A9 & unlocks Bronze #2
+  // Drop fault trigger -> retry succeeds atomically, credits 200 A9 & unlocks Silver (1,000 A9, 2 assists)
   db.exec('DROP TRIGGER fail_pred_reward;');
   const opened = await d1Chest.openChest({ chestId: b1.chestId, userId: '3001', walletAddress: W_OWNER, predictionEngine: d1Pred }, 2020);
   assert.equal(opened.chest.status, 'OPENED');
-  assert.equal(opened.nextUnlocked.slotIndex, 2);
+  assert.equal(opened.nextUnlocked.tier, 'silver');
   assert.equal(opened.nextUnlocked.status, 'ACTIVE');
-  assert.equal((await d1Pred.getUserSummary('3001')).pendingActivationRaw, '300000000000');
+  assert.equal((await d1Pred.getUserSummary('3001')).pendingActivationRaw, '200000000000');
 
   // 2b) Same-second concurrent openChest + BigInt (>2^63) precision proof:
   // Pre-seed promo_balances with 20000000000000000000 (2e19, overflows SQLite 64-bit signed INTEGER).
@@ -365,7 +393,7 @@ await test('Migrated SQLite D1 (0001..0009): orders, bound group, atomic open-wi
   // Exact BigInt decimal string (NOT double-credited, NOT float!)
   assert.equal((await d1Promo.getBalance(W_OWNER)).claimableRaw, (20000000000000000000n + expectedRoll.bonusRaw).toString());
 
-  // 3) Concurrent assist on the final slot of Bronze #2: 2 distinct helpers race -> 1 succeeds, 0 orphan rows
+  // 3) Concurrent assist on the final slot of Silver: 2 distinct helpers race -> 1 succeeds, 0 orphan rows
   const b2 = opened.nextUnlocked;
   await d1Chest.assistChest({ chestId: b2.chestId, helperUserId: '3004', helperWalletAddress: W_H3, walletActive: true }, 2025);
   const raceRes = await Promise.allSettled([
@@ -379,13 +407,15 @@ await test('Migrated SQLite D1 (0001..0009): orders, bound group, atomic open-wi
   assert.equal(b2Now.currentAssists, 2);
   assert.equal(Number(b2Rows.cnt), 2);
 
-  // 4) Concurrent daily 3-assist cap: 1 helper races across 4 distinct owners on same UTC day -> exactly 3 succeed, 4th gets DAILY_ASSIST_LIMIT
+  // 4) Concurrent daily 3-assist cap: 1 helper races across 4 distinct owners' Silver chests on same UTC day -> exactly 3 succeed, 4th gets DAILY_ASSIST_LIMIT
   const helperWallet = '0:8888888888888888888888888888888888888888888888888888888888888888';
   const owners = ['4001', '4002', '4003', '4004'];
   const ownerChests = [];
   for (const ou of owners) {
-    const st = await d1Chest.claimStarterBronzeChests({ userId: ou, walletAddress: `0:${ou.padEnd(64, 'a')}` }, 3000);
-    ownerChests.push(st.chests[0]);
+    const ow = `0:${ou.padEnd(64, 'a')}`;
+    const st = await d1Chest.claimStarterBronzeChests({ userId: ou, walletAddress: ow }, 3000);
+    const op = await d1Chest.openChest({ chestId: st.chests[0].chestId, userId: ou, walletAddress: ow, predictionEngine: d1Pred }, 3001);
+    ownerChests.push(op.nextUnlocked);
   }
   const capRes = await Promise.allSettled(
     ownerChests.map((c) =>
@@ -496,8 +526,10 @@ await test('Cloudflare workerd strict globalThis.fetch receiver guard (TonCenter
 
 await test('Chest OG PNG (16x9 & 9x16) and SVG render real chest progress without DATA PENDING or ROUND PENDING', async () => {
   const chest = new ChestEngine();
+  const pred = new PredictionEngine();
   const starter = await chest.claimStarterBronzeChests({ userId: '7001', walletAddress: W_OWNER }, 5000);
-  const b1 = starter.chests[0];
+  const openedStarter = await chest.openChest({ chestId: starter.chests[0].chestId, userId: '7001', walletAddress: W_OWNER, predictionEngine: pred }, 5001);
+  const b1 = openedStarter.nextUnlocked;
   await chest.assistChest({ chestId: b1.chestId, helperUserId: '7002', helperWalletAddress: W_H1, walletActive: true }, 5005);
 
   const router = createApiRouter({
@@ -506,11 +538,11 @@ await test('Chest OG PNG (16x9 & 9x16) and SVG render real chest progress withou
     chestEngine: chest,
   });
 
-  // 1) Existing chest SVG: must show label, assist count, reward A9, and proportional green bars (1/2 => 12 green bars)
+  // 1) Existing Silver chest SVG: must show label, assist count, reward A9, and proportional green bars (1/2 => 12 green bars)
   const svgRes = await router({ method: 'GET', pathname: `/c/img/chest/${b1.chestId}.svg`, nowSec: 5010 });
   assert.equal(svgRes.status, 200);
-  assert.match(svgRes.rawBody, /A9 CHEST · Bronze Chest #1/);
-  assert.match(svgRes.rawBody, /1\/2 ASSISTS · 300 A9 Reward/);
+  assert.match(svgRes.rawBody, /A9 CHEST · Silver Co-Op Chest/);
+  assert.match(svgRes.rawBody, /1\/2 ASSISTS · 1,000 A9 Reward/);
   assert.doesNotMatch(svgRes.rawBody, /DATA PENDING|ROUND PENDING|16 \/ 24 HOURLY/);
   assert.equal((svgRes.rawBody.match(/fill="#2DA069"/g) || []).length, 12);
 
@@ -531,44 +563,12 @@ await test('Chest OG PNG (16x9 & 9x16) and SVG render real chest progress withou
   assert.match(svgMissing.rawBody, /A9 CHEST · BOOST &amp; OPEN/);
   assert.doesNotMatch(svgMissing.rawBody, /DATA PENDING|ROUND PENDING/);
 
-  // 4) Fractional reward chest (SHOP_BOOST Bronze: 1,981.98 A9 base) preserves decimals in SVG, 16x9 PNG, and 9x16 PNG
-  const shopChest = await chest.createShopBoostChest({ userId: '7001', walletAddress: W_OWNER, skuId: 'chest_bronze', orderId: 'ord_og_frac' }, 5020);
-  const svgFrac = await router({ method: 'GET', pathname: `/c/img/chest/${shopChest.chestId}.svg`, nowSec: 5021 });
-  assert.equal(svgFrac.status, 200);
-  assert.match(svgFrac.rawBody, /1,981\.98 A9 Reward/);
-
-  const pngFracLand = await router({ method: 'GET', pathname: `/c/img/chest/${shopChest.chestId}.png`, nowSec: 5021 });
-  const pngFracStory = await router({ method: 'GET', pathname: `/c/img/chest/${shopChest.chestId}.png`, query: { ratio: '9x16' }, nowSec: 5021 });
-  for (const res of [pngFracLand, pngFracStory]) {
-    assert.equal(res.status, 200);
-    assert.equal(res.contentType, 'image/png');
-    assert.deepEqual(Array.from(res.rawBody.subarray(0, 8)), [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  }
-  const { renderOgCardPng } = await import('../src/growth-engine.mjs');
-  const pngWholeLand = await renderOgCardPng({
-    type: 'chest',
-    roundId: null,
-    hasData: true,
-    state: '0/0 ASSISTS',
-    qualified: 0,
-    totalSlots: 0,
-    targetUsd: 'Bronze Chest',
-    budgetA9: '1,981',
-    ratio: '16x9',
-  });
-  const pngWholeStory = await renderOgCardPng({
-    type: 'chest',
-    roundId: null,
-    hasData: true,
-    state: '0/0 ASSISTS',
-    qualified: 0,
-    totalSlots: 0,
-    targetUsd: 'Bronze Chest',
-    budgetA9: '1,981',
-    ratio: '9x16',
-  });
-  assert.notEqual(Buffer.from(pngFracLand.rawBody).toString('base64'), Buffer.from(pngWholeLand).toString('base64'));
-  assert.notEqual(Buffer.from(pngFracStory.rawBody).toString('base64'), Buffer.from(pngWholeStory).toString('base64'));
+  // 4) Pure integer reward chest (SHOP_BOOST Bronze: 1,500 A9 base, zero decimals) renders cleanly in SVG & PNG
+  const shopChest = await chest.createShopBoostChest({ userId: '7001', walletAddress: W_OWNER, skuId: 'chest_bronze', orderId: 'ord_og_int' }, 5020);
+  const svgInt = await router({ method: 'GET', pathname: `/c/img/chest/${shopChest.chestId}.svg`, nowSec: 5021 });
+  assert.equal(svgInt.status, 200);
+  assert.match(svgInt.rawBody, /1,500 A9 Reward/);
+  assert.doesNotMatch(svgInt.rawBody, /1,500\.0/);
 });
 
 await test('Security & ledger audit fixes: openChest address normalization, GET /api/chests/:id redaction, and OG image origin routing', async () => {
@@ -629,11 +629,9 @@ await test('GET /api/chests/me chestHoldings merges OPENED free chests + dedupli
   await identityStore.bindVerifiedWallet('9101', W_OWNER, 7000);
   const presale = new PresaleHotWalletEngine({ hotWalletAddress: HOT_WALLET, open: true, promoEngine: promo, chestEngine: chest });
 
-  // 1) Open FREE_TIER Bronze #1 (Bronze #2 becomes ACTIVE and must NOT count)
+  // 1) Open FREE_TIER Starter Bronze (0-assist instant; Silver becomes ACTIVE and must NOT count)
   const starter = await chest.claimStarterBronzeChests({ userId: '9101', walletAddress: W_OWNER }, 7001);
   const b1 = starter.chests[0];
-  await chest.assistChest({ chestId: b1.chestId, helperUserId: '9102', helperWalletAddress: W_H1, walletActive: true }, 7002);
-  await chest.assistChest({ chestId: b1.chestId, helperUserId: '9103', helperWalletAddress: W_H2, walletActive: true }, 7003);
   await chest.openChest({ chestId: b1.chestId, userId: '9101', walletAddress: W_OWNER, predictionEngine: pred }, 7004);
 
   // 2) COMPLETED BOOST Gold order (appears in both shopChests and presale orders -> must deduplicate by orderId)
@@ -671,6 +669,7 @@ await test('GET /api/chests/me chestHoldings merges OPENED free chests + dedupli
     gold: 1,
     platinum: 0,
     diamond: 0,
+    legendary: 0,
     distinctTypes: 3,
     total: 3,
   });
@@ -798,6 +797,99 @@ await test('48H pending vault 6H-before-expiry Bot DM reminder (Memory + D1): ex
     assert.equal(r2.sentCount, 0);
     assert.equal(r2.skippedDuplicateCount, 1);
     assert.equal(sent.length, 1);
+  }
+});
+
+await test('Paid referral 1=3 assists acceleration (Memory + D1) & self + direct invitees cumulative purchase volume unlocking Gold free chest', async () => {
+  for (const backend of ['memory', 'd1']) {
+    const db = backend === 'd1' ? createSqliteD1(MIGRATIONS) : null;
+    const chest = backend === 'd1' ? new D1ChestEngine({ db }) : new ChestEngine();
+    const promo = backend === 'd1' ? new D1PromoStore({ db, hotWalletAddress: HOT_WALLET }) : new PromoHotWalletEngine({ hotWalletAddress: HOT_WALLET });
+    const pred = backend === 'd1' ? new D1PredictionEngine({ db }) : new PredictionEngine();
+    const social = backend === 'd1' ? new D1SocialStore({ db }) : new SocialStore();
+    const identityStore = new MemoryIdentityStore();
+    await identityStore.bindVerifiedWallet('9801', W_OWNER, 9500);
+    await identityStore.bindVerifiedWallet('9802', W_H1, 9500);
+    await identityStore.bindVerifiedWallet('9803', W_H2, 9500);
+    await social.bindReferral('9802', '9801', 9501);
+    await social.bindReferral('9803', '9801', 9501);
+
+    const dmSent = [];
+    const broadcaster = new TelegramBroadcaster({
+      enabled: true,
+      botToken: BOT_TOKEN,
+      identityStore,
+      delayMs: 0,
+      fetchImpl: async (_url, opts) => {
+        dmSent.push(JSON.parse(opts.body));
+        return { ok: true, status: 200, json: async () => ({ ok: true, result: { message_id: dmSent.length } }) };
+      },
+    });
+
+    const presale = backend === 'd1'
+      ? new D1PresaleStore({ db, hotWalletAddress: HOT_WALLET, open: true, promoEngine: promo, socialStore: social, identityStore, chestEngine: chest, broadcaster })
+      : new PresaleHotWalletEngine({ hotWalletAddress: HOT_WALLET, open: true, promoEngine: promo, socialStore: social, identityStore, chestEngine: chest, broadcaster });
+
+    // Owner opens Starter Bronze (0-assist) -> Silver (2 assists) -> opens Silver -> Gold (10 assists, >= 30 GRAM self+invitees)
+    const st = await chest.claimStarterBronzeChests({ userId: '9801', walletAddress: W_OWNER }, 9502);
+    await chest.openChest({ chestId: st.chests[0].chestId, userId: '9801', walletAddress: W_OWNER, predictionEngine: pred }, 9503);
+    const silver = (await chest.listUserChests('9801')).freeChests.find((c) => c.tier === 'silver');
+    await chest.assistChest({ chestId: silver.chestId, helperUserId: '9802', helperWalletAddress: W_H1, walletActive: true }, 9504);
+    await chest.assistChest({ chestId: silver.chestId, helperUserId: '9803', helperWalletAddress: W_H2, walletActive: true }, 9505);
+    await chest.openChest({ chestId: silver.chestId, userId: '9801', walletAddress: W_OWNER, predictionEngine: pred }, 9506);
+    const goldBefore = (await chest.listUserChests('9801')).freeChests.find((c) => c.tier === 'gold');
+    assert.equal(goldBefore.status, 'ACTIVE');
+    assert.equal(goldBefore.currentAssists, 0);
+
+    // Direct invitee 9802 completes 19.99 GRAM Platinum chest -> triggers +3 assists on owner's Gold chest & DM alert
+    const ord1 = await presale.createOrderIntent(W_H1, null, 9510, { skuId: 'chest_platinum', openMode: 'BOOST', tgUserId: '9802', referrerId: '9801' });
+    await presale.ingestInbound({ txHash: `tx_acc1_${backend}`, finality: 'finalized', to: HOT_WALLET, from: W_H1, valueNano: ord1.payTonNano, memo: ord1.memo }, 9511);
+    await presale.queueConfirmedPayouts(9512);
+    await presale.processPayouts(9513, { a9Broadcaster: async () => ({ txHash: `out_acc1_${backend}` }), verifier: async () => ({ state: 'CONFIRMED', txHash: `out_acc1_${backend}` }) });
+
+    const goldAfter1 = await chest.getChest(goldBefore.chestId);
+    assert.equal(goldAfter1.currentAssists, 3);
+    assert.ok(dmSent.some((m) => m.chat_id === '9801' && /付费好友加速提醒/.test(m.text)));
+
+    // Idempotency: re-calling creditPaidReferralAssist with same orderId adds 0
+    const dupBoost = await chest.creditPaidReferralAssist({ referrerUserId: '9801', buyerUserId: '9802', orderId: ord1.orderId }, 9514);
+    assert.equal(dupBoost.credited, false);
+    assert.equal((await chest.getChest(goldBefore.chestId)).currentAssists, 3);
+
+    // Owner buys 10.98 GRAM (gold chest 9.99 + bronze 0.99); combined self (10.98) + direct invitee (19.99) = 30.97 >= 30 GRAM!
+    for (const [idx, sku] of [['a', 'chest_gold'], ['b', 'chest_bronze']]) {
+      const o = await presale.createOrderIntent(W_OWNER, null, 9520 + (idx === 'b' ? 5 : 0), { skuId: sku, openMode: 'INSTANT', tgUserId: '9801' });
+      await presale.ingestInbound({ txHash: `tx_self_${idx}_${backend}`, finality: 'finalized', to: HOT_WALLET, from: W_OWNER, valueNano: o.payTonNano, memo: o.memo }, 9521);
+      await presale.queueConfirmedPayouts(9522);
+      await presale.processPayouts(9523, { a9Broadcaster: async () => ({ txHash: `out_self_${idx}_${backend}` }), verifier: async () => ({ state: 'CONFIRMED', txHash: `out_self_${idx}_${backend}` }) });
+    }
+
+    // Fill remaining 7 assists on Gold (3 + 7 = 10 -> READY)
+    for (let k = 0; k < 7; k += 1) {
+      const hx = (0xa0 + k).toString(16).padStart(2, '0');
+      await chest.assistChest({ chestId: goldBefore.chestId, helperUserId: `h_gold_${k}`, helperWalletAddress: '0:' + hx.repeat(32), walletActive: true }, 9530 + k);
+    }
+    assert.equal((await chest.getChest(goldBefore.chestId)).status, 'READY');
+
+    const router = createApiRouter({
+      env: { A9_BOT_TOKEN: BOT_TOKEN, A9_CHEST_OPEN_ENABLED: '1' },
+      stateStore: emptyStateStore,
+      promoEngine: promo,
+      presaleEngine: presale,
+      socialStore: social,
+      predictionEngine: pred,
+      chestEngine: chest,
+      identityStore,
+    });
+    const openGoldRes = await router({
+      method: 'POST',
+      pathname: `/api/chests/${goldBefore.chestId}/open`,
+      headers: await tgHeaders(9801, { nowSec: 9540 }),
+      body: {},
+      nowSec: 9540,
+    });
+    assert.equal(openGoldRes.status, 200, `${backend} gold open failed: ${JSON.stringify(openGoldRes.body)}`);
+    assert.equal(openGoldRes.body.data.rewardA9Raw, '8000000000000');
   }
 });
 

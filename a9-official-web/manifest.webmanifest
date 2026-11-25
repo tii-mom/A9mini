@@ -1,0 +1,21 @@
+{
+  "name": "A9 · 财富大冒险",
+  "short_name": "A9",
+  "description": "基于 TON 的 24H 链上价格挑战。每轮考核 24 个均价时段，达标 ≥ 16 小时瓜分奖池。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F4F5F8",
+  "theme_color": "#E60012",
+  "icons": [
+    {
+      "src": "./assets/brand/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "./assets/token/a9-token-2048.png",
+      "sizes": "2048x2048",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,14 +1,13 @@
-// A9 Protocol v15 — Unified Chest Mall & Viral Social Assist Engine (Zero Contract Changes).
+// A9 Protocol v15/v16 — Unified Chest Mall & Viral Social Assist Engine (Zero Contract Changes).
 //
 // Two unified chest flows backed by one ledger & one social assist link (/c/chest/:chestId):
-//   1) FREE_TIER  : Serial Bronze (#1/#2/#3: 300/300/400 A9) -> Silver (10k) -> Gold (100k)
-//                   -> Platinum (200k) -> Diamond (1,000k).
-//                   Tiers 3-5 enforce doubled difficulty (100/300/1,000 TG members, 160/400/2,000 assists,
-//                   1,000/2,400/12,000 GRAM cumulative team/direct exchange volume).
-//   2) SHOP_BOOST : Paid Chest Mall SKUs (0.99 / 4.99 / 9.99 / 19.99 / 99.99 GRAM).
-//                   Principal is ALWAYS fixed 1 GRAM = 2,002 A9 (never held hostage).
-//                   Choosing openMode='BOOST' opens a 24h boost window (+1% initial, up to +6%..+12%
-//                   from the independent promo reward pool), stoppable & openable at any time.
+//   1) FREE_TIER  : Instant Bronze Starter (200 A9, 0 assists) -> Silver Co-Op (1,000 A9, 2 assists)
+//                   -> Gold Squad (8,000 A9, 10 assists, >=30 GRAM self+invitees volume)
+//                   -> Platinum Community (40,000 A9, 60 assists, >=300 GRAM, >=50 TG members)
+//                   -> Diamond Captain (200,000 A9, 300 assists, >=2,000 GRAM, >=200 TG members).
+//                   Paid friend acceleration: 1 completed paid chest order by a direct invitee = +3 assists.
+//   2) SHOP_BOOST : 6 Paid Chest Mall SKUs (0.99 / 4.99 / 9.99 / 19.99 / 99.99 / 500 GRAM).
+//                   Whole-integer A9 base principal + whole-integer random crit bonus (zero decimals).
 //
 // Anti-sybil guardrails on assistChest():
 //   - Authenticated Telegram user + bound TON wallet (ton_proof)
@@ -26,6 +25,7 @@ export const A9_RAW = 1_000_000_000n;
 export const TON_NANO = 1_000_000_000n;
 export const SHOP_BOOST_TTL_SEC = 24 * 3600;
 export const MAX_DAILY_ASSISTS_PER_WALLET = 3;
+export const PAID_REFERRAL_ASSIST_BONUS = 3;
 export const CAPTAIN_FOUNDING_BONUS_RAW = 5_000n * A9_RAW; // 5,000 A9
 export const CAPTAIN_MIN_TG_MEMBERS = 50;
 export const CAPTAIN_MIN_TEAM_MEMBERS = 3;
@@ -80,7 +80,10 @@ export function rollPaidChestBonusRaw(maxBoostA9Raw, randomFn = null) {
   }
   const ratio = chosen.minRatio + draw() * (chosen.maxRatio - chosen.minRatio);
   const ratioBps = Math.max(0, Math.min(10000, Math.round(ratio * 10000)));
-  const bonusRaw = (maxBonus * BigInt(ratioBps)) / 10000n;
+  const maxWholeA9 = maxBonus / A9_RAW;
+  const bonusRaw = maxWholeA9 > 0n
+    ? ((maxWholeA9 * BigInt(ratioBps)) / 10000n) * A9_RAW
+    : (maxBonus * BigInt(ratioBps)) / 10000n;
   return { bonusRaw, critTier: chosen.key, isCrit: chosen.isCrit, ratioBps };
 }
 
@@ -120,12 +123,14 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     deliveryFeeNano: '60000000',
     totalPayGram: '1.05',
     totalPayNano: '1050000000',
-    baseA9: '1981.98',
-    baseA9Raw: '1981980000000',
+    baseA9: '1500',
+    baseA9Raw: '1500000000000',
+    maxA9: '2000',
     requiredAssists: 0,
     initBoostBps: 0,
-    maxBoostBps: 500, // +5% max random crit
-    maxBoostA9Raw: '99099000000', // 99.099 A9
+    maxBoostBps: 3333, // +500 A9 max random crit (1,500 - 2,000 A9)
+    maxBoostA9: '500',
+    maxBoostA9Raw: '500000000000',
     maxSupply: null,
   },
   chest_silver: {
@@ -139,12 +144,14 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     deliveryFeeNano: '60000000',
     totalPayGram: '5.05',
     totalPayNano: '5050000000',
-    baseA9: '9989.98',
-    baseA9Raw: '9989980000000',
+    baseA9: '8000',
+    baseA9Raw: '8000000000000',
+    maxA9: '11000',
     requiredAssists: 0,
     initBoostBps: 0,
-    maxBoostBps: 1000, // +10% max random crit
-    maxBoostA9Raw: '998998000000', // 998.998 A9
+    maxBoostBps: 3750, // +3,000 A9 max random crit (8,000 - 11,000 A9)
+    maxBoostA9: '3000',
+    maxBoostA9Raw: '3000000000000',
     maxSupply: null,
   },
   chest_gold: {
@@ -158,12 +165,14 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     deliveryFeeNano: '60000000',
     totalPayGram: '10.05',
     totalPayNano: '10050000000',
-    baseA9: '19999.98',
-    baseA9Raw: '19999980000000',
+    baseA9: '18000',
+    baseA9Raw: '18000000000000',
+    maxA9: '22000',
     requiredAssists: 0,
     initBoostBps: 0,
-    maxBoostBps: 1500, // +15% max random crit
-    maxBoostA9Raw: '2999997000000', // 2,999.997 A9
+    maxBoostBps: 2222, // +4,000 A9 max random crit (18,000 - 22,000 A9)
+    maxBoostA9: '4000',
+    maxBoostA9Raw: '4000000000000',
     maxSupply: null,
   },
   chest_platinum: {
@@ -177,12 +186,14 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     deliveryFeeNano: '60000000',
     totalPayGram: '20.05',
     totalPayNano: '20050000000',
-    baseA9: '40019.98',
-    baseA9Raw: '40019980000000',
+    baseA9: '38000',
+    baseA9Raw: '38000000000000',
+    maxA9: '45000',
     requiredAssists: 0,
     initBoostBps: 0,
-    maxBoostBps: 2000, // +20% max random crit
-    maxBoostA9Raw: '8003996000000', // 8,003.996 A9
+    maxBoostBps: 1842, // +7,000 A9 max random crit (38,000 - 45,000 A9)
+    maxBoostA9: '7000',
+    maxBoostA9Raw: '7000000000000',
     maxSupply: null,
   },
   chest_diamond: {
@@ -196,12 +207,35 @@ export const CHEST_MALL_CATALOG = Object.freeze({
     deliveryFeeNano: '60000000',
     totalPayGram: '100.05',
     totalPayNano: '100050000000',
-    baseA9: '200179.98',
-    baseA9Raw: '200179980000000',
+    baseA9: '200000',
+    baseA9Raw: '200000000000000',
+    maxA9: '220000',
     requiredAssists: 0,
     initBoostBps: 0,
-    maxBoostBps: 3000, // +30% max random crit
-    maxBoostA9Raw: '60053994000000', // 60,053.994 A9
+    maxBoostBps: 1000, // +20,000 A9 max random crit (200,000 - 220,000 A9)
+    maxBoostA9: '20000',
+    maxBoostA9Raw: '20000000000000',
+    maxSupply: null,
+  },
+  chest_legendary: {
+    skuId: 'chest_legendary',
+    tier: 'legendary',
+    zh: '传说宝箱',
+    en: 'Legendary Chest',
+    priceGram: '500',
+    priceNano: '500000000000',
+    deliveryFeeGram: '0.06',
+    deliveryFeeNano: '60000000',
+    totalPayGram: '500.06',
+    totalPayNano: '500060000000',
+    baseA9: '900000',
+    baseA9Raw: '900000000000000',
+    maxA9: '1200000',
+    requiredAssists: 0,
+    initBoostBps: 0,
+    maxBoostBps: 3333, // +300,000 A9 max random crit (900,000 - 1,200,000 A9)
+    maxBoostA9: '300000',
+    maxBoostA9Raw: '300000000000000',
     maxSupply: null,
   },
 });
@@ -212,6 +246,7 @@ export const CHEST_MALL_NANO_TO_SKU = Object.freeze({
   '9990000000': 'chest_gold',
   '19990000000': 'chest_platinum',
   '99990000000': 'chest_diamond',
+  '500000000000': 'chest_legendary',
 });
 
 export const FREE_CHEST_CHAIN = Object.freeze([
@@ -219,34 +254,10 @@ export const FREE_CHEST_CHAIN = Object.freeze([
     key: 'bronze:1',
     tier: 'bronze',
     slotIndex: 1,
-    zh: '青铜宝箱 #1',
-    en: 'Bronze Chest #1',
-    rewardA9Raw: String(300n * A9_RAW),
-    requiredAssists: 2,
-    minVolumeNano: '0',
-    minTgMembers: 0,
-    goesToPendingVault: true,
-  },
-  {
-    key: 'bronze:2',
-    tier: 'bronze',
-    slotIndex: 2,
-    zh: '青铜宝箱 #2',
-    en: 'Bronze Chest #2',
-    rewardA9Raw: String(300n * A9_RAW),
-    requiredAssists: 2,
-    minVolumeNano: '0',
-    minTgMembers: 0,
-    goesToPendingVault: true,
-  },
-  {
-    key: 'bronze:3',
-    tier: 'bronze',
-    slotIndex: 3,
-    zh: '青铜宝箱 #3',
-    en: 'Bronze Chest #3',
-    rewardA9Raw: String(400n * A9_RAW),
-    requiredAssists: 2,
+    zh: '青铜新手箱',
+    en: 'Bronze Starter Chest',
+    rewardA9Raw: String(200n * A9_RAW),
+    requiredAssists: 0,
     minVolumeNano: '0',
     minTgMembers: 0,
     goesToPendingVault: true,
@@ -255,48 +266,48 @@ export const FREE_CHEST_CHAIN = Object.freeze([
     key: 'silver:1',
     tier: 'silver',
     slotIndex: 1,
-    zh: '白银宝箱',
-    en: 'Silver Chest',
-    rewardA9Raw: String(6_000n * A9_RAW),
-    requiredAssists: 15,
-    minVolumeNano: String(100n * TON_NANO),
+    zh: '白银双人箱',
+    en: 'Silver Co-Op Chest',
+    rewardA9Raw: String(1_000n * A9_RAW),
+    requiredAssists: 2,
+    minVolumeNano: '0',
     minTgMembers: 0,
-    goesToPendingVault: false,
+    goesToPendingVault: true,
   },
   {
     key: 'gold:1',
     tier: 'gold',
     slotIndex: 1,
-    zh: '黄金宝箱',
-    en: 'Gold Chest',
-    rewardA9Raw: String(50_000n * A9_RAW),
-    requiredAssists: 160,
-    minVolumeNano: String(1_000n * TON_NANO),
-    minTgMembers: 100,
+    zh: '黄金小队长箱',
+    en: 'Gold Squad Chest',
+    rewardA9Raw: String(8_000n * A9_RAW),
+    requiredAssists: 10,
+    minVolumeNano: String(30n * TON_NANO),
+    minTgMembers: 0,
     goesToPendingVault: false,
   },
   {
     key: 'platinum:1',
     tier: 'platinum',
     slotIndex: 1,
-    zh: '白金宝箱',
-    en: 'Platinum Chest',
-    rewardA9Raw: String(120_000n * A9_RAW),
-    requiredAssists: 400,
-    minVolumeNano: String(2_400n * TON_NANO),
-    minTgMembers: 300,
+    zh: '白金社区长箱',
+    en: 'Platinum Community Chest',
+    rewardA9Raw: String(40_000n * A9_RAW),
+    requiredAssists: 60,
+    minVolumeNano: String(300n * TON_NANO),
+    minTgMembers: 50,
     goesToPendingVault: false,
   },
   {
     key: 'diamond:1',
     tier: 'diamond',
     slotIndex: 1,
-    zh: '钻石宝箱',
-    en: 'Diamond Chest',
-    rewardA9Raw: String(500_000n * A9_RAW),
-    requiredAssists: 2000,
-    minVolumeNano: String(12_000n * TON_NANO),
-    minTgMembers: 1000,
+    zh: '钻石大群主箱',
+    en: 'Diamond Captain Chest',
+    rewardA9Raw: String(200_000n * A9_RAW),
+    requiredAssists: 300,
+    minVolumeNano: String(2_000n * TON_NANO),
+    minTgMembers: 200,
     goesToPendingVault: false,
   },
 ]);
@@ -310,16 +321,16 @@ export function nextFreeChestSpec(tier, slotIndex = 1) {
   return idx >= 0 && idx + 1 < FREE_CHEST_CHAIN.length ? FREE_CHEST_CHAIN[idx + 1] : null;
 }
 
-export const CHEST_HOLDING_TIERS = Object.freeze(['bronze', 'silver', 'gold', 'platinum', 'diamond']);
+export const CHEST_HOLDING_TIERS = Object.freeze(['bronze', 'silver', 'gold', 'platinum', 'diamond', 'legendary']);
 
 /**
- * 统一统计用户累计持有的 5 种宝箱数量（用于图鉴「宝箱持有」系列解锁）：
+ * 统一统计用户累计持有的 6 种宝箱数量（用于图鉴「宝箱持有」系列解锁）：
  * - FREE_TIER（免费助力链）：仅已开启（OPENED）计入
  * - SHOP_BOOST（商城膨胀箱）：非 CANCELLED 计入，按 orderId 去重
  * - completedShopOrders（含 INSTANT 直接开箱与 BOOST 已成交商城订单）：按 orderId 去重补齐
  */
 export function summarizeUserChestHoldings({ freeChests = [], shopChests = [], completedShopOrders = [] } = {}) {
-  const counts = { bronze: 0, silver: 0, gold: 0, platinum: 0, diamond: 0 };
+  const counts = { bronze: 0, silver: 0, gold: 0, platinum: 0, diamond: 0, legendary: 0 };
   const seenOrderIds = new Set();
 
   for (const c of Array.isArray(freeChests) ? freeChests : []) {
@@ -452,7 +463,7 @@ export class ChestEngine {
         maxBoostA9Raw: '0',
         requiredAssists: spec.requiredAssists,
         currentAssists: 0,
-        status: i === 0 ? 'ACTIVE' : 'LOCKED',
+        status: i === 0 ? (spec.requiredAssists <= 0 ? 'READY' : 'ACTIVE') : 'LOCKED',
         expiresAt: null,
         openedAt: null,
         createdAt: nowSec + i,
@@ -661,7 +672,7 @@ export class ChestEngine {
       createdAt: nowSec,
     });
 
-    // 病毒自复制闭环：助力者若尚未领取过青铜宝箱，顺手自动激活其青铜宝箱 #1！
+    // 病毒自复制闭环：助力者若尚未领取过青铜新手箱，立即发放可秒开的青铜新手箱（200 A9，0 助力）！
     const starter = await this.claimStarterBronzeChests({ userId: hUid, walletAddress: hWallet }, nowSec);
 
     return {
@@ -670,6 +681,42 @@ export class ChestEngine {
       helperGrantedStarter: starter.created,
       helperBronzeChest: starter.chests[0] || null,
     };
+  }
+
+  /** 付费好友加速：直邀好友完成任意付费宝箱订单时，幂等为邀请人当前进行中的免费宝箱 +3 点助力进度。 */
+  async creditPaidReferralAssist(
+    { ownerUserId, orderId, helperUserId = null, bonusAssists = PAID_REFERRAL_ASSIST_BONUS },
+    nowSec = Math.floor(Date.now() / 1000),
+  ) {
+    const uid = String(ownerUserId || '').trim();
+    const oid = String(orderId || '').trim();
+    const add = Math.max(1, Math.floor(Number(bonusAssists || PAID_REFERRAL_ASSIST_BONUS)));
+    if (!uid || !oid) return { credited: false, reason: 'BAD_REQUEST' };
+    const synthKey = `paid_ref:${oid}`;
+    if (this.assists.some((a) => a.ownerUserId === uid && a.helperWalletKey === synthKey)) {
+      return { credited: false, reason: 'ALREADY_CREDITED' };
+    }
+    const activeChest = [...this.chests.values()]
+      .filter((c) => c.ownerUserId === uid && c.source === 'FREE_TIER' && c.status === 'ACTIVE' && c.currentAssists < c.requiredAssists)
+      .sort((a, b) => a.createdAt - b.createdAt)[0];
+    if (!activeChest) return { credited: false, reason: 'NO_ACTIVE_FREE_CHEST' };
+    const prev = Number(activeChest.currentAssists || 0);
+    const next = Math.min(Number(activeChest.requiredAssists || 0), prev + add);
+    const delta = next - prev;
+    if (delta <= 0) return { credited: false, reason: 'ASSIST_FULL' };
+    activeChest.currentAssists = next;
+    if (activeChest.currentAssists >= activeChest.requiredAssists) activeChest.status = 'READY';
+    activeChest.updatedAt = nowSec;
+    this.assists.push({
+      chestId: activeChest.chestId,
+      ownerUserId: uid,
+      helperUserId: helperUserId ? String(helperUserId) : synthKey,
+      helperWalletKey: synthKey,
+      assistDay: utcDayFromSec(nowSec),
+      boostDeltaRaw: '0',
+      createdAt: nowSec,
+    });
+    return { credited: true, addedAssists: delta, chest: formatChestRecord(activeChest) };
   }
 
   async openChest(
@@ -779,7 +826,7 @@ export class ChestEngine {
           other.slotIndex === nextSpec.slotIndex &&
           other.status === 'LOCKED'
         ) {
-          other.status = 'ACTIVE';
+          other.status = nextSpec.requiredAssists <= 0 ? 'READY' : 'ACTIVE';
           other.updatedAt = nowSec;
           nextUnlocked = formatChestRecord(other);
           break;

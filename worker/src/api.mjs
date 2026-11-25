@@ -1181,17 +1181,23 @@ export function createApiRouter({
         }
         // TonCenterClient.fetchWalletAccountState 返回 { state: 'active' | 'uninitialized' | 'frozen', codeBoc }
         const walletActive = walletState?.state === 'active';
-        return ok(
-          await chestEngine.assistChest(
-            {
-              chestId,
-              helperUserId: identity.telegramUserId,
-              helperWalletAddress: walletAddress,
-              walletActive,
-            },
-            nowSec,
-          ),
+        const assistRes = await chestEngine.assistChest(
+          {
+            chestId,
+            helperUserId: identity.telegramUserId,
+            helperWalletAddress: walletAddress,
+            walletActive,
+          },
+          nowSec,
         );
+        if (broadcaster && typeof broadcaster.notifyChestAssistProgress === 'function' && assistRes?.chest) {
+          try {
+            await broadcaster.notifyChestAssistProgress({ chest: assistRes.chest, paidBoost: false, addedAssists: 1, nowSec });
+          } catch (_) {
+            // 提醒推送失败不影响助力成功返回
+          }
+        }
+        return ok(assistRes);
       }
 
       const chestOpenMatch = method === 'POST' && pathname.match(/^\/api\/chests\/([^/]+)\/open$/);
@@ -1566,10 +1572,10 @@ export function createApiRouter({
         const ref = query.ref ? `_${String(query.ref).replace(/[^a-zA-Z0-9_-]/g, '')}` : '';
         if (type === 'chest') {
           const chest = chestEngine ? await chestEngine.getChest(id) : null;
-          const title = chest ? `A9 Chest Mall · ${chest.labelEn} (${chest.currentAssists}/${chest.requiredAssists} Assists)` : 'A9 Chest Mall · Help Open & Claim Bronze Chest #1';
+          const title = chest ? `A9 Chest Mall · ${chest.labelEn} (${chest.currentAssists}/${chest.requiredAssists} Assists)` : 'A9 Chest Mall · Co-Op Gift & Instant 200 A9 Chest';
           const description = chest
-            ? `Connect TON wallet to assist (${chest.currentAssists}/${chest.requiredAssists}) and auto-claim your free Bronze Chest #1.`
-            : 'Connect TON wallet to assist your friend and unlock your free A9 Bronze Chest #1.';
+            ? `Connect active TON wallet to assist (${chest.currentAssists}/${chest.requiredAssists}) and instantly open your own 200 A9 Bronze Starter Chest.`
+            : 'Connect active TON wallet to assist your friend and instantly open your own 200 A9 Bronze Starter Chest.';
           const html = renderOgLandingHtml({
             type: 'chest',
             id,

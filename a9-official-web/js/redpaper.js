@@ -3,7 +3,7 @@ const root = document.documentElement;
 function applyPreferences() {
   document.title = root.lang === 'en' ? 'A9 Redpaper' : 'A9 红皮书';
   const dark = root.dataset.theme === 'dark';
-  document.querySelector('meta[name="theme-color"]').content = dark ? '#15161A' : '#F4F5F8';
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#121318' : '#F4F5F8';
   document.querySelector('#paper-theme').setAttribute('aria-pressed', String(dark));
 }
 
@@ -47,3 +47,10 @@ function updateScenarios() {
 
 principalInput.addEventListener('input', updateScenarios);
 updateScenarios();
+
+const miniAppHref = `${location.protocol === 'file:' ? 'https:' : location.protocol}//app.a9.lat/`;
+document.querySelectorAll('[data-miniapp-cta]').forEach((el) => {
+  el.setAttribute('href', miniAppHref);
+  el.setAttribute('target', '_blank');
+  el.setAttribute('rel', 'noopener noreferrer');
+});

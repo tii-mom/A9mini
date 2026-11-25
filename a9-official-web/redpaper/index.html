@@ -14,6 +14,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:image" content="https://a9.lat/assets/token/a9-token-2048.png" />
   <title>A9 红皮书</title>
+  <link rel="manifest" href="../manifest.webmanifest" />
   <link rel="icon" type="image/png" sizes="16x16" href="../assets/brand/favicon-16.png" />
   <link rel="icon" type="image/png" sizes="32x32" href="../assets/brand/favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="../assets/brand/apple-touch-icon.png" />
@@ -24,6 +25,7 @@
   <script type="module" src="../js/redpaper.js"></script>
 </head>
 <body class="redpaper">
+  <a class="skip-link" href="#paper-main">跳至正文 / Skip to content</a>
   <header class="site-header">
     <div class="wrap header-inner">
       <a class="brand" href="../">
@@ -33,10 +35,11 @@
       <div class="header-actions">
         <button type="button" class="pill-btn" id="paper-theme"><span lang="zh-CN">切换主题</span><span lang="en">Switch theme</span></button>
         <button type="button" class="pill-btn" id="paper-language"><span lang="zh-CN">English</span><span lang="en">中文</span></button>
+        <a class="cta-red header-cta" href="../#simulator" data-miniapp-cta="1"><span lang="zh-CN">打开小程序</span><span lang="en">Open Mini App</span></a>
       </div>
     </div>
   </header>
-  <main class="wrap paper-book">
+  <main class="wrap paper-book" id="paper-main">
     <div class="paper-opening">
       <div class="paper-cover">
         <div>
@@ -48,8 +51,8 @@
           </div>
         </div>
         <div class="paper-cover-art" aria-hidden="true">
-          <img class="paper-cover-ticket" src="../assets/official-art/verification-ticket.svg" alt="" />
-          <img class="paper-cover-book" src="../assets/official-art/red-handbook.svg" alt="" />
+          <img class="paper-cover-ticket" src="../assets/official-art/verification-ticket.svg" alt="" width="184" height="128" />
+          <img class="paper-cover-book" src="../assets/official-art/red-handbook.svg" alt="" width="160" height="176" />
         </div>
       </div>
       <aside class="paper-overview">
@@ -65,7 +68,7 @@
     <section class="paper-chapter" id="bp-gates">
       <div class="chapter-head">
         <h2 class="sec-title"><span lang="zh-CN">目标价与 24H 考核</span><span lang="en">Target price and 24H assessment</span></h2>
-        <img class="chapter-art" src="../assets/official-art/clock-tower.svg" alt="" loading="lazy" />
+        <img class="chapter-art" src="../assets/official-art/clock-tower.svg" alt="" width="160" height="176" loading="lazy" />
       </div>
       <div class="paper-body">
         <dl class="paper-metrics">
@@ -81,7 +84,7 @@
         <details class="paper-details">
           <summary><span lang="zh-CN">查看完整规则</span><span lang="en">Read the full rules</span></summary>
           <div class="paper-details-content">
-            <p><span lang="zh-CN">目标价走廊为参考均价的 1.50× 至 2.50×。考核分为 24 个时段，其中至少 16 个时段的时间加权均价达到目标价，当轮通关。</span><span lang="en">The target corridor spans 1.50× to 2.50× the reference average. A round passes when the time-weighted average price meets the target in at least 16 of 24 intervals.</span></p>
+            <p><span lang="zh-CN">目标价走廊：参考均价 1.50×–2.50×。考核 24 小时均价，≥ 16 个时段达标即通关。</span><span lang="en">Corridor: 1.50×–2.50× reference TWAP. Pass threshold: ≥ 16 of 24 hourly intervals.</span></p>
             <p><span lang="zh-CN">奖池分完为止。每轮沿用同一走廊规则，轮数由奖池消耗决定。</span><span lang="en">Challenges continue until the reward pool is exhausted. Each round follows the same corridor rule.</span></p>
           </div>
         </details>
@@ -90,7 +93,7 @@
     <section class="paper-chapter" id="rules">
       <div class="chapter-head">
         <h2 class="sec-title"><span lang="zh-CN">解锁、销毁与退款</span><span lang="en">Unlocks, burns and refunds</span></h2>
-        <img class="chapter-art" src="../assets/official-art/unlock-flaps.svg" alt="" loading="lazy" />
+        <img class="chapter-art" src="../assets/official-art/unlock-flaps.svg" alt="" width="184" height="128" loading="lazy" />
       </div>
       <div class="paper-body">
         <div class="paper-tiers">
@@ -103,10 +106,10 @@
         <details class="paper-details">
           <summary><span lang="zh-CN">查看完整规则</span><span lang="en">Read the full rules</span></summary>
           <div class="paper-details-content">
-            <p><span lang="zh-CN">单轮奖励上限为实缴本金的 15×。早鸟权重 2.0×、1.4×、1.0× 只影响奖励分配份额。</span><span lang="en">The reward cap is 15× the principal actually staked. Early-bird weights of 2.0×, 1.4× and 1.0× affect each participant’s share of the rewards.</span></p>
-            <p><span lang="zh-CN">v16.2 采用固定线性释放：通关即退 100% 本金并即时解锁 20% 奖励；余下 80% 奖励自结算时刻起在 40 天（3,456,000 秒）内按秒连续线性释放（每日 2%），自动累计、永不倒扣，随时可合并一次领取。</span><span lang="en">v16.2 uses fixed linear vesting: passing rounds refund 100% principal and unlock 20% of rewards immediately; the remaining 80% vests continuously per second over 40 days (3,456,000 seconds, 2%/day), never forfeited and claimable anytime in one transaction.</span></p>
-            <p><span lang="zh-CN">失败轮仅销毁该轮质押本金、向上取整一半当轮奖池和一半团队结转池，其余奖池滚入下轮；不影响任何历史胜利奖励的线性释放。零质押空轮无论达标或失败均 100% 滚存、零销毁。</span><span lang="en">A failed round burns only that round’s staked principal, half (rounded up) of the round reward pool and team carry pool, rolling the remainder forward without affecting past vesting rewards. Zero-stake rounds roll over 100% with zero burn regardless of outcome.</span></p>
-            <p><span lang="zh-CN">7 天超时任何用户均可无许可触发 AbortRound 全额退回本金；v16.2 同时具备完整链上 bounce 回滚保护与 O(1) 无许可重放恢复路径。</span><span lang="en">After a 7-day timeout, anyone can permissionlessly trigger AbortRound to refund principal in full; v16.2 also includes full on-chain bounce rollback protection and O(1) permissionless retry recovery.</span></p>
+            <p><span lang="zh-CN">上限与权重：单轮奖励上限 15× 本金；早鸟权重 2.0× / 1.4× / 1.0× 仅影响份额。</span><span lang="en">Cap & weights: 15× principal cap; early weights 2.0× / 1.4× / 1.0× affect share only.</span></p>
+            <p><span lang="zh-CN">40 天线性释放：通关退 100% 本金 + 秒领 20% 奖励；余下 80% 分 40 天每日 2% 按秒释放，永不倒扣。</span><span lang="en">40d linear vesting: 100% principal + 20% instant; remaining 80% vests per second at 2%/day over 40 days, never forfeited.</span></p>
+            <p><span lang="zh-CN">失败与空轮：失败轮销毁当轮本金与 50% 奖池（50% 滚存），不影响历史释放；零质押空轮 100% 滚存零销毁。</span><span lang="en">Fail & empty rounds: fails burn that round’s stake & 50% pool (50% rolls over); zero-stake rounds roll 100% with zero burn.</span></p>
+            <p><span lang="zh-CN">安全逃生舱：7 天超时可无许可 AbortRound 全额退本，具备 bounce 回滚与 O(1) 重放恢复。</span><span lang="en">Escape hatch: 7d permissionless AbortRound refunds principal, with bounce rollback & O(1) retry.</span></p>
           </div>
         </details>
       </div>
@@ -114,7 +117,7 @@
     <section class="paper-chapter" id="token-data">
       <div class="chapter-head">
         <h2 class="sec-title"><span lang="zh-CN">供应、奖池与销毁</span><span lang="en">Supply, reward pools and burns</span></h2>
-        <img class="chapter-art" src="../assets/official-art/reward-vault.svg" alt="" loading="lazy" />
+        <img class="chapter-art" src="../assets/official-art/reward-vault.svg" alt="" width="180" height="160" loading="lazy" />
       </div>
       <div class="paper-body">
         <dl class="paper-metrics">
@@ -136,7 +139,7 @@
     <section class="paper-chapter" id="scenarios">
       <div class="chapter-head">
         <h2 class="sec-title"><span lang="zh-CN">收益与损失试算</span><span lang="en">Illustrative rewards and losses</span></h2>
-        <img class="chapter-art" src="../assets/official-art/reward-crystal.svg" alt="" loading="lazy" />
+        <img class="chapter-art" src="../assets/official-art/reward-crystal.svg" alt="" width="160" height="176" loading="lazy" />
       </div>
       <div class="paper-body">
         <div class="paper-scenario-input">
@@ -165,7 +168,7 @@
         <details class="paper-details">
           <summary><span lang="zh-CN">查看完整规则</span><span lang="en">Read the full rules</span></summary>
           <div class="paper-details-content">
-            <p><span lang="zh-CN">以实缴 1,000 A9 为例，单轮奖励上限是 15,000 A9。实际奖励取决于当轮奖池及全部参与者的加权份额。失败轮按规则销毁全部质押本金。</span><span lang="en">For a principal of 1,000 A9, the round reward cap is 15,000 A9. Actual rewards depend on the round pool and all participants’ weighted shares. A failed round burns the full staked principal.</span></p>
+            <p><span lang="zh-CN">示例：1,000 A9 本金的单轮上限为 15,000 A9，实际按加权份额分配；失败轮本金 100% 销毁。</span><span lang="en">Example: 1,000 A9 stake caps at 15,000 A9 by weighted share; failed rounds burn 100% of stake.</span></p>
           </div>
         </details>
       </div>
@@ -173,7 +176,7 @@
     <section class="paper-chapter" id="verification">
       <div class="chapter-head">
         <h2 class="sec-title"><span lang="zh-CN">链上验真</span><span lang="en">On-chain verification</span></h2>
-        <img class="chapter-art" src="../assets/official-art/verification-ticket.svg" alt="" loading="lazy" />
+        <img class="chapter-art" src="../assets/official-art/verification-ticket.svg" alt="" width="184" height="128" loading="lazy" />
       </div>
       <div class="paper-body">
         <div class="paper-proof">

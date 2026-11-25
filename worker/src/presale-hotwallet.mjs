@@ -125,8 +125,8 @@ export class PresaleEngine {
     hotWalletAddress,
     rateA9PerTon = 2002n,
     minOrderTon = 5n,
-    maxOrderTon = 200n,
-    defaultQuotaTon = 200n,
+    maxOrderTon = 500n,
+    defaultQuotaTon = null,
     totalCapA9Raw = 200_000_000n * A9_RAW,
     open = false,
     promoEngine = null,
@@ -147,7 +147,9 @@ export class PresaleEngine {
     this.rateA9PerTon = BigInt(rateA9PerTon);
     this.minOrderNano = toUnits(minOrderTon, 'minOrderTon');
     this.maxOrderNano = toUnits(maxOrderTon, 'maxOrderTon');
-    this.defaultQuotaNano = toUnits(defaultQuotaTon, 'defaultQuotaTon');
+    this.defaultQuotaNano = (defaultQuotaTon === null || defaultQuotaTon === undefined || defaultQuotaTon === '' || defaultQuotaTon === 'unlimited' || Number(defaultQuotaTon) === 0)
+      ? null
+      : toUnits(defaultQuotaTon, 'defaultQuotaTon');
     this.totalCapA9Raw = BigInt(totalCapA9Raw);
     this.open = Boolean(open);
     this.promoEngine = promoEngine;
@@ -185,32 +187,34 @@ export class PresaleEngine {
     const key = addressKey(walletAddress);
     const { reservedA9Raw, userReservedNano } = await this.repo.sumReserved(nowSec, key);
     const unlocked = this._quotaFor(key);
-    const avail = unlocked > userReservedNano ? unlocked - userReservedNano : 0n;
+    const unlimitedQuota = unlocked === null || unlocked === undefined;
+    const avail = unlimitedQuota ? null : (unlocked > userReservedNano ? unlocked - userReservedNano : 0n);
     const remPool = this.totalCapA9Raw > reservedA9Raw ? this.totalCapA9Raw - reservedA9Raw : 0n;
     return {
       walletAddress,
       rateA9PerTon: Number(this.rateA9PerTon),
       open: this.open,
       soldOut: remPool === 0n,
+      unlimitedQuota,
       remainingPoolA9Raw: remPool.toString(),
-      unlockedQuotaNano: unlocked.toString(),
+      unlockedQuotaNano: unlimitedQuota ? null : unlocked.toString(),
       usedQuotaNano: userReservedNano.toString(),
-      availQuotaNano: avail.toString(),
+      availQuotaNano: unlimitedQuota ? null : avail.toString(),
       minOrderNano: this.minOrderNano.toString(),
       maxOrderNano: this.maxOrderNano.toString(),
       deliveryFeeNano: this.deliveryFeeNano.toString(),
       refundFeeNano: this.refundFeeNano.toString(),
       // Legacy integer fields kept for existing UI (whole GRAM, truncated).
-      unlockedQuotaTon: Number(unlocked / TON_NANO),
+      unlockedQuotaTon: unlimitedQuota ? null : Number(unlocked / TON_NANO),
       usedQuotaTon: Number(userReservedNano / TON_NANO),
-      availQuotaTon: Number(avail / TON_NANO),
+      availQuotaTon: unlimitedQuota ? null : Number(avail / TON_NANO),
       minOrderTon: Number(this.minOrderNano / TON_NANO),
       maxOrderTon: Number(this.maxOrderNano / TON_NANO),
       payTo: this.hotWalletAddress,
     };
   }
 
-  /** Create an order and atomically reserve pool + wallet quota. Supports 5 Chest Mall SKUs & INSTANT/BOOST openMode. */
+  /** Create an order and atomically reserve pool (+ optional wallet quota). Supports 6 Chest Mall SKUs & INSTANT/BOOST openMode. */
   async createOrderIntent(walletAddress, tonAmount, nowSec = Math.floor(Date.now() / 1000), { referrerId = null, tgUserId = null, skuId = null, openMode = 'INSTANT' } = {}) {
     if (!walletAddress) throw new PresaleError('BAD_WALLET', 'walletAddress required');
     if (!this.open) throw new PresaleError('PRESALE_CLOSED', 'presale is closed');
@@ -222,9 +226,11 @@ export class PresaleEngine {
 
     let tonNano;
     let resolvedSkuId = skuId ? String(skuId).trim() : null;
+    let resolvedPack = null;
     if (resolvedSkuId) {
       const pack = CHEST_MALL_CATALOG[resolvedSkuId];
       if (!pack) throw new PresaleError('UNKNOWN_SKU', `unknown chest SKU: ${resolvedSkuId}`);
+      resolvedPack = pack;
       tonNano = BigInt(pack.priceNano);
       if (tonAmount !== undefined && tonAmount !== null && tonAmount !== '') {
         let parsed;
@@ -237,9 +243,6 @@ export class PresaleEngine {
           throw new PresaleError('BAD_AMOUNT', 'tonAmount does not match chest SKU price');
         }
       }
-      if (tonNano > this.maxOrderNano) {
-        throw new PresaleError('BAD_AMOUNT', 'order exceeds max GRAM limit');
-      }
     } else {
       try {
         tonNano = parseDecimalUnits(tonAmount, 9);
@@ -249,12 +252,13 @@ export class PresaleEngine {
       const matchedSku = CHEST_MALL_NANO_TO_SKU[tonNano.toString()] || null;
       if (matchedSku) {
         resolvedSkuId = matchedSku;
+        resolvedPack = CHEST_MALL_CATALOG[matchedSku] || null;
       } else if (tonNano < this.minOrderNano || tonNano > this.maxOrderNano) {
         throw new PresaleError('BAD_AMOUNT', 'order must be within min/max GRAM limits');
       }
     }
     const walletKey = addressKey(walletAddress);
-    const a9AmountRaw = this.quoteA9Raw(tonNano);
+    const a9AmountRaw = resolvedPack ? BigInt(resolvedPack.baseA9Raw) : this.quoteA9Raw(tonNano);
     const cleanRef = referrerId && addressKey(referrerId) !== walletKey && String(referrerId).trim() !== String(tgUserId || '')
       ? String(referrerId).trim()
       : null;
@@ -280,14 +284,15 @@ export class PresaleEngine {
       createdAt: nowSec,
       updatedAt: nowSec,
     };
+    const walletQuota = this._quotaFor(walletKey);
     const inserted = await this.repo.insertOrderIfCapacity(order, {
       capA9Raw: this.totalCapA9Raw,
-      userQuotaNano: this._quotaFor(walletKey),
+      userQuotaNano: walletQuota,
       nowSec,
     });
     if (!inserted) {
       const { reservedA9Raw, userReservedNano } = await this.repo.sumReserved(nowSec, walletKey);
-      if (userReservedNano + tonNano > this._quotaFor(walletKey)) {
+      if (walletQuota !== null && walletQuota !== undefined && userReservedNano + tonNano > walletQuota) {
         throw new PresaleError('OVER_QUOTA', 'exceeds personal unlocked quota');
       }
       if (reservedA9Raw >= this.totalCapA9Raw) throw new PresaleError('SOLD_OUT', 'presale sold out');
@@ -697,7 +702,7 @@ export class PresaleEngine {
         if (amountRaw > 0n) credit = { orderId: order.orderId, referrer: order.referrerId, amountRaw: amountRaw.toString(), status: 'PENDING', createdAt: nowSec, updatedAt: nowSec };
       }
       await this.repo.completeA9(p.payoutId, p.orderId, txHash, credit, nowSec);
-      // 宝箱商城助力膨胀模式：本金已链上确认，自动开启 24H 推广池膨胀宝箱（异常静默不阻塞主链路）
+      // 宝箱商城助力膨胀模式：本金已链上确认，自动开启随机暴击宝箱（异常静默不阻塞主链路）
       const matchedSku = order?.skuId || CHEST_MALL_NANO_TO_SKU[String(order?.tonNano ?? '')] || null;
       if (order && order.openMode === 'BOOST' && matchedSku && this.chestEngine && typeof this.chestEngine.createShopBoostChest === 'function') {
         try {
@@ -705,6 +710,26 @@ export class PresaleEngine {
           await this.chestEngine.createShopBoostChest({ userId: ownerUid, walletAddress: order.walletAddress, skuId: matchedSku, orderId: order.orderId }, nowSec);
         } catch (_) {
           // 膨胀宝箱创建异常绝不影响链上本金确认
+        }
+      }
+      // 付费好友加速：直邀好友完成任意付费宝箱订单时，自动为邀请人当前免费宝箱 +3 点助力进度
+      if (order?.referrerId && addressKey(order.referrerId) !== order.walletKey && this.chestEngine && typeof this.chestEngine.creditPaidReferralAssist === 'function') {
+        try {
+          let refTgUid = /^\d{1,20}$/.test(String(order.referrerId).trim()) ? String(order.referrerId).trim() : null;
+          if (!refTgUid && this.identityStore && typeof this.identityStore.getTelegramUserIdByWallet === 'function') {
+            refTgUid = await this.identityStore.getTelegramUserIdByWallet(order.referrerId);
+          }
+          if (refTgUid) {
+            const boostRes = await this.chestEngine.creditPaidReferralAssist(
+              { ownerUserId: refTgUid, orderId: order.orderId, helperUserId: order.tgUserId || order.walletKey },
+              nowSec,
+            );
+            if (boostRes?.credited && this.broadcaster && typeof this.broadcaster.notifyChestAssistProgress === 'function') {
+              await this.broadcaster.notifyChestAssistProgress({ chest: boostRes.chest, paidBoost: true, addedAssists: boostRes.addedAssists, nowSec }).catch(() => {});
+            }
+          }
+        } catch (_) {
+          // 免费箱付费加速异常绝不影响链上本金确认
         }
       }
       // 极简 TG 战队群捷报：大额订单（含 99.99 GRAM 钻石宝箱）确认成交后异步触发
@@ -1000,7 +1025,7 @@ export class MemoryPresaleRepo {
     // Check + insert with no await in between, so concurrent callers cannot both pass the check.
     const { reservedA9Raw, userReservedNano } = this._sumReservedSync(nowSec, order.walletKey);
     if (reservedA9Raw + BigInt(order.a9AmountRaw) > capA9Raw) return false;
-    if (userReservedNano + BigInt(order.tonNano) > userQuotaNano) return false;
+    if (userQuotaNano !== null && userQuotaNano !== undefined && userReservedNano + BigInt(order.tonNano) > userQuotaNano) return false;
     this.orders.set(order.orderId, { ...order });
     this.memoIndex.set(order.memo, order.orderId);
     return true;

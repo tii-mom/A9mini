@@ -97,8 +97,6 @@ const DEFAULT_STATE = {
     directInvites: 0,
     teamStakedTon: 0,
     teamStakedTarget: 0,
-    captainDividendTon: 0,
-    captainHistoryTon: 0,
     captainHistoryA9: 0,
     tgGroupBound: false,
     tgGroupHandle: null,

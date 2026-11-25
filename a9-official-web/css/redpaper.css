@@ -15,27 +15,30 @@ html[lang="zh-CN"] .redpaper [lang="en"] {
   grid-template-columns: minmax(0, 1fr) minmax(64px, 24%);
   align-items: center;
   gap: 12px;
-  padding: clamp(20px, 6vw, 66px);
-  color: #fff;
-  background: var(--cover-red);
-  border-inline-start: 8px solid var(--nt-red-edge);
-  border-radius: 8px 22px 22px 8px;
-  box-shadow: 0 4px var(--paper-thickness), 0 8px var(--nt-red-edge);
+  padding: clamp(16px, 3vw, 36px);
+  color: var(--ink);
+  background: var(--paper-surface);
+  border: 1.5px solid var(--paper-border-strong);
+  border-top: 6px solid var(--nt-red);
+  border-radius: 20px;
+  box-shadow: 0 5px 0 var(--paper-thickness), 0 12px 24px rgba(23, 25, 32, 0.05);
 }
 
 .paper-cover h1 {
   margin: 0;
-  font-size: clamp(2rem, 7vw, 5rem);
+  font-size: clamp(2rem, 6vw, 4rem);
   line-height: 1.05;
   text-wrap: balance;
 }
 
-.paper-cover p { margin: 12px 0 0; }
+.paper-cover p {
+  margin: 12px 0 0;
+  color: var(--ink-soft);
+}
 
 .paper-cover img {
   width: 100%;
-  transform: rotate(8deg);
-  filter: drop-shadow(0 8px 5px rgb(80 0 0 / 30%));
+  filter: var(--asset-shadow);
 }
 
 .paper-toc {
@@ -101,14 +104,8 @@ html[lang="zh-CN"] .redpaper [lang="en"] {
 }
 
 .paper-cover-art .paper-cover-ticket {
-  position: absolute;
-  width: 75%;
-  inset: 4% 35% auto auto;
-  transform: rotate(-22deg);
-  z-index: -1;
+  display: none;
 }
-
-.paper-cover-art .paper-cover-book { transform: rotate(10deg); }
 
 .paper-metrics,
 .paper-tiles,
@@ -417,8 +414,27 @@ html[lang="zh-CN"] .redpaper [lang="en"] {
 }
 
 .paper-stamps i:nth-child(16) {
+  position: relative;
   border-color: var(--nt-gold);
   box-shadow: 0 0 0 2px var(--nt-gold-soft);
+}
+
+.paper-stamps i:nth-child(16)::after {
+  content: '★';
+  position: absolute;
+  top: -6px;
+  right: -5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--nt-gold);
+  color: #FFFFFF;
+  font-size: 9px;
+  font-style: normal;
+  line-height: 14px;
+  text-align: center;
+  box-shadow: 0 1.5px 0 var(--nt-gold-edge);
+  z-index: 2;
 }
 
 .paper-body .paper-risk {

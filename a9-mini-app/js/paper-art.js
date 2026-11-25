@@ -8,7 +8,7 @@ export const DIORAMA_BACKDROP = `
 <svg class="diorama-svg" viewBox="0 0 360 220" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <defs>
     <pattern id="nt-stage-grid" width="24" height="24" patternUnits="userSpaceOnUse">
-      <circle cx="2" cy="2" r="1.2" fill="var(--diorama-thread)"/>
+      <circle cx="2" cy="2" r="1.2" fill="var(--card-border-strong)"/>
     </pattern>
   </defs>
   <rect width="360" height="220" fill="url(#nt-stage-grid)"/>
@@ -32,7 +32,7 @@ export function renderCitySandtable(mood = 'observation') {
 <svg class="diorama-svg sandtable-${mood}" viewBox="0 0 360 260" preserveAspectRatio="xMidYMin slice" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <defs>
     <pattern id="nt-hub-dots-${mood}" width="20" height="20" patternUnits="userSpaceOnUse">
-      <circle cx="2" cy="2" r="1" fill="var(--diorama-thread)"/>
+      <circle cx="2" cy="2" r="1" fill="var(--card-border-strong)"/>
     </pattern>
   </defs>
   <rect width="360" height="260" fill="url(#nt-hub-dots-${mood})" opacity="0.65"/>

@@ -384,7 +384,7 @@ export function renderPendingTxBannerHtml(tx, network = 'mainnet') {
       chipEn: `CONFIRMING ${tx.attempt || 0}/${tx.maxAttempts || 12}`,
       descZh: '正在核验链上到账状态，请勿重复签名提交…',
       descEn: 'Verifying on-chain finality; duplicate clicks locked…',
-      border: 'var(--border-strong, var(--border))',
+      border: 'var(--card-border-strong, var(--card-border))',
       ic: 'clock',
       icCls: 'text-cyan',
     },

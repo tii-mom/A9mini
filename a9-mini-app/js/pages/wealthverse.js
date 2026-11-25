@@ -417,7 +417,7 @@ export function city() {
   const gates = [
     ['/internal/market',          'market', L('宝箱商城', 'Chest Mall'),  L('0.99 GRAM起', 'From 0.99 GRAM')],
     ['/internal/market?tab=free', 'trophy', L('免费宝箱', 'Free Chests'), L('同行领 A9', 'Co-Op A9')],
-    ['/rewards',                  'vault',  L('奖金金库', 'Vault'),       L('连胜解锁', 'Vesting')],
+    ['/rewards',                  'vault',  L('奖金金库', 'Vault'),       L('40天释放', '40d Vest')],
     ['/rules',                    'rules',  L('闯关指南', 'Guide'),       L('常见问题', 'FAQ Guide')],
   ];
 
@@ -570,7 +570,7 @@ export function city() {
       <a class="city-meta-tile" href="#/rewards">
         <small>${L('全网累计达标', 'Global Wins')}</small>
         <strong>${wins == null ? waiting() : `${wins} ${L('轮', 'wins')}`}</strong>
-        <span>${unlockPct ? L(`当前即时解锁 ${unlockPct}`, `${unlockPct} instant`) : L('查看连胜解锁', 'Vesting tiers')} ›</span>
+        <span>${L('20% 秒领 · 40天释放', '20% instant · 40d linear')} ›</span>
       </a>
       <a class="city-meta-tile" href="#/team/invite">
         <small>${L('直推宝箱返佣', 'Direct Referral')}</small>
@@ -789,14 +789,6 @@ export function renderCity(root, navigate) {
     trustBtn.onclick = () => openContractTrustModal(navigate);
   }
 
-  const miniStrip = root.querySelector('#plaza-mini-strip');
-  const slotsDrawer = root.querySelector('#plaza-slots-drawer');
-  if (miniStrip && slotsDrawer) {
-    miniStrip.onclick = () => {
-      A9Haptic.tick();
-      slotsDrawer.open = !slotsDrawer.open;
-    };
-  }
 
   const bindPlazaFollowup = () => {
     root.querySelectorAll('[data-plaza-stop]').forEach((el) => {
@@ -1708,12 +1700,24 @@ export function liveRound(r) {
       : date.toLocaleString(L('zh-CN', 'en-US'), { timeZone: 'UTC' }) + ' UTC';
   };
   const canLiveStake = !config.isDemo && store.fundsEnabled && r.stage === 'participation';
-  return `<section class="wv-tower"><small>A9 / ROUND ${r.currentRound ?? '—'}</small><h2>${stageLabel(r.stage)}</h2>
-    <p>${L('参与窗口', 'Entry window')} · ${time(r.stakeOpenAt)} — ${time(r.stakeCloseAt)}</p>
-    <p>${L('早鸟权重仅影响奖励分配份额', 'Early weights affect allocation only')} · 2.0× / 1.4× / 1.0×</p>
-    <p>${L('失败将销毁该轮质押的 A9 本金。', 'Failure burns the A9 principal staked in the round.')}</p>
+  const hasPool = r.rewardBudgetA9 !== null && r.rewardBudgetA9 !== undefined && Number.isFinite(Number(r.rewardBudgetA9));
+  const chipCls = r.stage === 'settlement_success' ? 'chip-green' : r.stage === 'settlement_burn' ? 'chip-red' : 'chip-gold';
+  return `<section class="card card-hero">
+    <div class="row-between" style="margin-bottom:8px;">
+      <span class="chip ${chipCls} mono">${L('第', 'R')} ${r.currentRound ?? '—'} ${L('轮', '')} · ${stageLabel(r.stage)}</span>
+      <span class="num-xs text-muted mono">v16.2 · 15× ${L('上限', 'Cap')}</span>
+    </div>
+    <div class="num-xs text-muted">${L('本轮用户奖池', 'Round Reward Pool')}</div>
+    <div class="num-hero" style="margin-top:3px;">${hasPool ? `${formatNum(r.rewardBudgetA9)} <span class="num-md text-green">A9</span>` : waiting()}</div>
+    <div class="metric-strip cols-3">
+      <div class="metric-cell"><span class="num-xs text-muted">${L('目标底价', 'Target')}</span><span class="num-sm mono">${priceOrDash(r.targetPrice)}</span></div>
+      <div class="metric-cell"><span class="num-xs text-muted">${L('判定均价', 'TWAP')}</span><span class="num-sm mono text-green">${priceOrDash(r.twap24h ?? r.livePrice)}</span></div>
+      <div class="metric-cell"><span class="num-xs text-muted">${L('早鸟权重', 'Weights')}</span><span class="num-sm mono">2.0/1.4/1.0×</span></div>
+    </div>
+    <div class="num-xs text-sec" style="margin-bottom:10px;">${L('入场窗口', 'Window')}: ${time(r.stakeOpenAt)} — ${time(r.stakeCloseAt)} · ${L('未达 16/24 本金销毁 BURN', '< 16/24 burns stake')}</div>
     ${canLiveStake
-      ? `<a class="btn btn-primary" style="margin-top:12px;" href="#/challenge/confirm">${icon('bolt', 15)} ${L('质押 A9 参与本轮闯关', 'Stake A9 in Current Round')}</a>`
-      : `<button class="btn btn-secondary" style="margin-top:12px;" disabled>${store.fundsEnabled ? L('当前轮次非入场窗口', 'Staking window closed') : L('真实模式只读 · 质押签名暂未开放', 'Live read-only · staking disabled')}</button>`}</section>
-    ${tower(r)}<nav class="wv-links">${link('/observation/records', L('时段明细', 'Slot details'), 'clock')}${link('/rewards', L('解锁阶段', 'Vesting'), 'unlock')}${link('/warmup', L('预热', 'Warm-up'), 'bolt')}${link('/rules', L('规则', 'Rules'), 'book')}</nav>`;
+      ? `<a class="btn btn-primary" href="#/challenge/confirm">${icon('bolt', 15)} ${L('质押 A9 参与本轮闯关', 'Stake A9 in Current Round')}</a>`
+      : `<button class="btn btn-secondary" disabled>${store.fundsEnabled ? L('当前非入场窗口', 'Entry window closed') : L('真实只读 · 暂未开放质押', 'Live read-only · staking disabled')}</button>`}
+  </section>
+  ${tower(r)}<nav class="wv-links">${link('/observation/records', L('时段明细', 'Slot details'), 'clock')}${link('/rewards', L('40天释放', 'Vesting'), 'unlock')}${link('/warmup', L('预热', 'Warm-up'), 'bolt')}${link('/rules', L('规则', 'Rules'), 'book')}</nav>`;
 }

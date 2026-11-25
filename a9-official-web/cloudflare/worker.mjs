@@ -1,5 +1,5 @@
 const productionHosts = new Set(['a9.lat', 'www.a9.lat']);
-const pages = new Set(['/', '/index.html', '/a9.json', '/redpaper', '/greenpaper', '/rules']);
+const pages = new Set(['/', '/index.html', '/a9.json', '/robots.txt', '/manifest.webmanifest', '/redpaper', '/greenpaper', '/rules']);
 const documentPolicy = "default-src 'self'; base-uri 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests";
 
 export default {

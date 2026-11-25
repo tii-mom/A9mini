@@ -22,8 +22,8 @@ import {
  * - Warm-up v2: Zero-friction TG reservation, real-time participant count & progress bar,
  *   optional A9 intent tier, Bot opening reminder, and per-round WARMUP_ROUND viral chest
  *   (2 valid active-wallet friends = 300 A9 base, up to 5 = 900 A9 max -> PENDING_VAULT).
- * - Paid Chest Mall: 5 fixed SKUs (0.99 / 4.99 / 9.99 / 19.99 / 99.99 GRAM) at 1 GRAM = 2,002 A9.
- * - Free Chests: Bronze #1/#2/#3 serial -> Silver -> Gold -> Platinum -> Diamond.
+ * - Paid Chest Mall: 6 fixed integer SKUs (0.99 / 4.99 / 9.99 / 19.99 / 99.99 / 500 GRAM).
+ * - Free Chests: 5-tier ladder — Bronze Starter (200 A9, 0-assist instant) -> Silver -> Gold -> Platinum -> Diamond.
  * - Live mode stays strictly read-only on purchase/chest-open actions unless store.fundsEnabled.
  */
 
@@ -39,7 +39,7 @@ import { L } from '../i18n.js';
 import { renderChestSvg, renderA9CoinSvg, renderChestOpenBurstSvg, resolveChestTier, CHEST_TIER_META } from '../chest-art.js';
 import { openXShareSheet, buildOgShareUrl, buildTmaDeepLink, getShareRef } from '../share.js';
 
-const TIER_PRIORITY = ['diamond', 'platinum', 'gold', 'silver', 'bronze'];
+const TIER_PRIORITY = ['legendary', 'diamond', 'platinum', 'gold', 'silver', 'bronze'];
 
 function openChestCelebrationModal({ tier = 'gold', title = '', totalA9 = 0, baseA9 = 0, bonusA9 = null, openedCount = 1, nextUnlocked = null, critCount = 0, legendaryCount = 0, budgetCapped = false } = {}) {
   A9Audio.chestOpen();
@@ -59,11 +59,11 @@ function openChestCelebrationModal({ tier = 'gold', title = '', totalA9 = 0, bas
     ? `<div class="chest-burst-breakdown">
          <div class="chest-burst-cell">
            <small>${L('保底本金（购箱已到账）', 'Base Principal (Credited)')}</small>
-           <strong class="mono">${formatNum(baseA9, 2)} A9</strong>
+           <strong class="mono">${formatNum(Math.round(baseA9), 0)} A9</strong>
          </div>
          <div class="chest-burst-cell is-bonus">
            <small>${L('随机暴击（本次入账）', 'Random Crit (Just Added)')}</small>
-           <strong class="mono text-green">+${formatNum(resolvedBonusA9, 2)} A9</strong>
+           <strong class="mono text-green">+${formatNum(Math.round(resolvedBonusA9), 0)} A9</strong>
          </div>
        </div>`
     : '';
@@ -82,7 +82,7 @@ function openChestCelebrationModal({ tier = 'gold', title = '', totalA9 = 0, bas
       <div class="chest-burst-kicker">${hasPaidSplit ? L('本箱累计总获得', 'Total Chest Yield') : L('本次开箱获得', 'Chest Reward')}</div>
       <div class="chest-burst-amount">
         ${renderA9CoinSvg({ size: 26 })}
-        <span>+${formatNum(displayTotalA9, 2)} A9</span>
+        <span>+${formatNum(Math.round(displayTotalA9), 0)} A9</span>
       </div>
       <div class="chest-burst-sub">${escapeHtml(countLabel)}</div>
       ${splitHtml}
@@ -92,7 +92,7 @@ function openChestCelebrationModal({ tier = 'gold', title = '', totalA9 = 0, bas
         <button class="btn btn-primary btn-sm" id="btn-burst-stake" type="button" style="width:100%;min-height:42px;">${icon('bolt', 14)} ${L('带 A9 去本轮闯关', 'Stake This Round')}</button>
         <button class="btn btn-nt-green btn-sm" id="btn-burst-collect" type="button" style="width:100%;min-height:42px;">${icon('checkCircle', 14)} ${L('收入金库', 'Collect A9')}</button>
       </div>
-      ${hasCritShare ? `<button class="btn btn-sm" id="btn-burst-share-crit" type="button" style="width:100%;margin-top:4px;background:transparent;color:var(--nt-gold-deep, var(--gold));font-weight:800;">${icon('send', 13)} ${L('炫耀暴击战报给群友', 'Share Crit Report')}</button>` : ''}
+      ${hasCritShare ? `<button class="btn btn-sm" id="btn-burst-share-crit" type="button" style="width:100%;margin-top:4px;background:transparent;color:var(--nt-gold-ink, var(--gold));font-weight:800;">${icon('send', 13)} ${L('炫耀暴击战报给群友', 'Share Crit Report')}</button>` : ''}
     </div>
   `);
   const stage = document.getElementById('chest-burst-stage');
@@ -114,8 +114,8 @@ function openChestCelebrationModal({ tier = 'gold', title = '', totalA9 = 0, bas
       const critKind = legendaryCount > 0 ? L('传说暴击', 'Legendary Crit') : L('史诗暴击', 'Epic Crit');
       const linkUrl = buildTmaDeepLink(`market_${getShareRef()}`);
       const copy = L(
-        `刚在 A9 宝箱商城开启 ${openedCount} 个宝箱触发【${critKind}】，额外爆出 +${formatNum(totalA9, 2)} A9！100% 固定本金保底 + 最高 +30% 随机暴击：`,
-        `Hit [${critKind}] opening ${openedCount} chest(s) in A9 Chest Mall (+${formatNum(totalA9, 2)} A9 bonus)! 100% base safe + up to +30% random crit:`
+        `刚在 A9 宝箱商城开启 ${openedCount} 个宝箱触发【${critKind}】，额外爆出 +${formatNum(Math.round(resolvedBonusA9), 0)} A9！100% 固定本金保底 + 随机整数暴击：`,
+        `Hit [${critKind}] opening ${openedCount} chest(s) in A9 Chest Mall (+${formatNum(Math.round(resolvedBonusA9), 0)} A9 bonus)! 100% base safe + random integer crit:`
       );
       A9TMA.shareInvite(linkUrl, copy);
       showToast(L('已调起 Telegram 分享暴击战报', 'Opened Telegram crit share'));
@@ -314,7 +314,7 @@ export function renderWarmupHome(root, navigate, _param = null, query = {}) {
               </button>
             </div>
           ` : `
-            <div class="num-xs text-muted">${L('完成上方一键预约后自动发放本轮预热宝箱；好友仅点预约不计入防女巫进度，绑定链上活跃 TON 钱包后自动补算。', 'Reserve above to receive your chest. Invited friends count automatically once they bind an active TON wallet.')}</div>
+            <div class="num-xs text-muted">${L('预约即发本轮宝箱；好友绑定活跃 TON 钱包后自动计入进度。', 'Reserve to get your chest; wallet-bound friends count automatically.')}</div>
           `}
         </section>
 
@@ -651,15 +651,15 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     const label = L(chest.labelZh, chest.labelEn);
     const text = isBoost
       ? L(
-          `刚在 A9 宝箱商城开启【${label}】！付费箱免助力 100% 固定本金保底 + 最高 +30% 随机暴击，来试试手气或免费领青铜宝箱 #1（300 A9）：`,
-          `Just opened [${label}] in A9 Chest Mall! Paid chests need zero assists—100% base safe + up to +30% random crit. Come try your luck or claim Bronze Chest #1:`
+          `刚在 A9 宝箱商城开启【${label}】！付费箱免助力 100% 固定本金保底 + 随机整数暴击，来试试手气或免费秒开新手青铜箱（200 A9）：`,
+          `Just opened [${label}] in A9 Chest Mall! Paid chests need zero assists—100% base safe + random integer crit. Come try your luck or open your free Starter Bronze Chest (200 A9):`
         )
       : L(
-          `A9 双人同行礼：一起累计活跃钱包进度开启【${label}】（还差 ${need} 位同路人），确认同行后自动为你发放青铜宝箱 #1（300 A9，按规则激活），顺便来 24H 预言擂台 0 GRAM 站队对赌：`,
-          `A9 Co-Op Gift: team up with an active TON wallet to unlock [${label}] (${need} partner(s) left), start your own Bronze Chest #1 (300 A9), and call PASS vs BURN in the 0 GRAM 24H Arena:`
+          `A9 双向同行礼：帮我点一下一起解锁【${label}】（还差 ${need} 次助力），你绑定活跃钱包立刻获得新手青铜箱（200 A9 免助力秒开）！若你购箱还可 1 人抵 3 次助力：`,
+          `A9 Two-Way Gift: help unlock [${label}] (${need} assist(s) left) and instantly get your own 200 A9 Starter Bronze Chest (0 assists needed)! Paid friends count as 3 assists:`
         );
     A9TMA.shareInvite(ogUrl, text);
-    showToast(L('已调起 Telegram 双人同行礼分享', 'Opened Telegram co-op gift share'));
+    showToast(L('已调起 Telegram 双向同行礼分享', 'Opened Telegram two-way gift share'));
   };
 
   const shareChestToX = (chest) => {
@@ -672,7 +672,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
         source: chest.source,
         currentAssists: chest.currentAssists,
         requiredAssists: chest.requiredAssists,
-        rewardText: `${formatNum(rewardA9)} A9`
+        rewardText: `${formatNum(Math.round(rewardA9), 0)} A9`
       }
     });
   };
@@ -684,7 +684,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     const chestName = L(item.labelZh || item.tier, item.labelEn || item.tier);
     return `
       <span class="mall-crit-badge ${isLegend ? 'is-legend' : 'is-epic'}">${badge}</span>
-      <span class="mall-crit-text"><b>${escapeHtml(item.actor || 'A9')}</b> ${L('开', 'opened')} ${escapeHtml(chestName)} <b class="mono text-green">+${formatNum(bonusA9, 2)} A9</b></span>
+      <span class="mall-crit-text"><b>${escapeHtml(item.actor || 'A9')}</b> ${L('开', 'opened')} ${escapeHtml(chestName)} <b class="mono text-green">+${formatNum(Math.round(bonusA9), 0)} A9</b></span>
       ${total > 1 ? `<span class="mall-crit-idx mono">${idx + 1}/${total}</span>` : ''}
     `;
   };
@@ -749,6 +749,9 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
         const priceNum = Number(s.priceGram || 0);
         const feeStr = String(s.deliveryFeeGram || store.state.round?.chestMall?.deliveryFeeGram || '0.06');
         const totalStr = String(s.totalPayGram || (priceNum + Number(feeStr)).toFixed(2));
+        const baseInt = Math.round(Number(s.baseA9 || 0));
+        const maxBoostInt = Math.round(Number(s.maxBoostA9 || (Number(s.maxBoostA9Raw || 0) / 1e9)));
+        const maxInt = Math.round(Number(s.maxA9 || (baseInt + maxBoostInt)));
         return {
           skuId: s.skuId,
           tier: s.tier,
@@ -757,10 +760,11 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
           priceGram: String(s.priceGram),
           deliveryFeeGram: feeStr,
           totalPayGram: totalStr,
-          baseA9: Number(s.baseA9),
-          maxBoostPct: Number((Number(s.maxBoostBps || 0) / 100).toFixed(1)),
-          maxBoostA9: Number(((Number(s.maxBoostA9Raw || 0)) / 1e9).toFixed(2)),
-          requiredAssists: Number(s.requiredAssists || 2)
+          baseA9: baseInt,
+          maxA9: maxInt,
+          maxBoostPct: Math.round((Number(s.maxBoostBps || 0) / 100) * 10) / 10,
+          maxBoostA9: maxBoostInt,
+          requiredAssists: Number(s.requiredAssists || 0)
         };
       });
     }
@@ -771,7 +775,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     const skus = resolveChestSkus();
     const sel = skus.length ? (skus.find((s) => s.skuId === selectedSkuId) || skus[0]) : null;
     const selTier = sel ? resolveChestTier(sel) : 'bronze';
-    const totalIfBoost = sel ? Number((sel.baseA9 + sel.maxBoostA9).toFixed(2)) : 0;
+    const totalIfBoost = sel ? Math.round(sel.maxA9 || (sel.baseA9 + sel.maxBoostA9)) : 0;
     const displayTotalA9 = sel ? (openMode === 'BOOST' ? totalIfBoost : sel.baseA9) : 0;
     const activeShopChests = (chestData.shopChests || []).filter((c) => c.status !== 'OPENED');
     const freeList = chestData.freeChests || [];
@@ -783,22 +787,26 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
       || freeList[0]
       || null;
     const focusTier = focusChest ? resolveChestTier(focusChest) : 'bronze';
-    const readyFreeCount = freeList.filter((c) => c.status === 'READY' || (c.status !== 'LOCKED' && c.status !== 'OPENED' && c.currentAssists >= c.requiredAssists)).length;
+    const readyFreeCount = freeList.filter((c) => c.status === 'READY' || (c.status !== 'LOCKED' && c.status !== 'OPENED' && Number(c.currentAssists || 0) >= Number(c.requiredAssists || 0))).length;
 
     const renderFreeFocusCard = (c) => {
       if (!c) return '';
       const tier = resolveChestTier(c);
       const rewardA9 = rawToA9(c.baseA9Raw) || 0;
       const volReq = formatVolumeReq(c.minVolumeNano);
+      const reqAssists = Number(c.requiredAssists || 0);
+      const curAssists = Number(c.currentAssists || 0);
+      const isInstant = reqAssists === 0;
       const isLocked = c.status === 'LOCKED';
       const isOpened = c.status === 'OPENED';
-      const isReady = c.status === 'READY' || (!isLocked && !isOpened && c.currentAssists >= c.requiredAssists);
+      const isReady = c.status === 'READY' || (!isLocked && !isOpened && curAssists >= reqAssists);
+      const isPendingVault = c.rewardDestination === 'PENDING_VAULT' || c.tier === 'bronze' || c.tier === 'silver';
       const badgeCls = isOpened ? 'chip-muted' : isReady ? 'chip-green' : isLocked ? 'chip-muted' : 'chip-gold';
-      const badgeTxt = isOpened ? L('已开启', 'Opened') : isReady ? L('可开箱', 'Ready') : isLocked ? L('待解锁', 'Locked') : L('助力中', 'Active');
-      const totalSegs = Math.max(1, Math.min(8, Number(c.requiredAssists) || 2));
-      const filledSegs = c.requiredAssists > 0
-        ? Math.min(totalSegs, Math.round((Number(c.currentAssists || 0) / Number(c.requiredAssists)) * totalSegs))
-        : 0;
+      const badgeTxt = isOpened ? L('已开启', 'Opened') : isReady ? (isInstant ? L('免助力秒开', 'Instant Open') : L('可开箱', 'Ready')) : isLocked ? L('待解锁', 'Locked') : L('助力中', 'Active');
+      const totalSegs = isInstant ? 1 : Math.max(1, Math.min(8, reqAssists || 2));
+      const filledSegs = isInstant
+        ? 1
+        : (reqAssists > 0 ? Math.min(totalSegs, Math.round((curAssists / reqAssists) * totalSegs)) : 0);
 
       return `
         <section class="free-focus-card">
@@ -811,10 +819,10 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                 <h3 class="chest-stage-name">${escapeHtml(L(c.labelZh, c.labelEn))}</h3>
                 <span class="chip ${badgeCls}">${badgeTxt}</span>
               </div>
-              <div class="chest-stage-total">+${formatNum(rewardA9)} A9</div>
+              <div class="chest-stage-total">+${formatNum(Math.round(rewardA9), 0)} A9</div>
               <div class="chest-stage-stats">
-                <span>${L('活跃助力', 'Assists')} <b class="mono">${formatNum(c.currentAssists)}/${formatNum(c.requiredAssists)}</b></span>
-                <span>· ${c.tier === 'bronze' ? L('入待激活金库', 'Pending Vault') : L('可提现余额', 'Claimable')}</span>
+                <span>${isInstant ? L('新手礼遇 · 0 助力', 'Starter Gift · 0 Assists') : `${L('活跃助力', 'Assists')} <b class="mono">${formatNum(curAssists)}/${formatNum(reqAssists)}</b>`}</span>
+                <span>· ${isPendingVault ? L('入待激活金库', 'Pending Vault') : L('可提现余额', 'Claimable')}</span>
               </div>
             </div>
           </div>
@@ -825,14 +833,17 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
 
           ${(volReq || c.minTgMembers > 0) ? `
             <div class="num-xs text-muted">
-              ${L('门槛', 'Gate')}: ${volReq ? L(`购箱额 ≥ ${volReq}`, `Vol >= ${volReq}`) : ''}${volReq && c.minTgMembers > 0 ? ' · ' : ''}${c.minTgMembers > 0 ? L(`TG群 ≥ ${formatNum(c.minTgMembers)}人`, `TG >= ${formatNum(c.minTgMembers)}`) : ''}
+              ${L('门槛', 'Gate')}: ${volReq ? L(`本人+直邀累计购箱 ≥ ${volReq}`, `Self + Invitees Vol >= ${volReq}`) : ''}${volReq && c.minTgMembers > 0 ? ' · ' : ''}${c.minTgMembers > 0 ? L(`TG群 ≥ ${formatNum(c.minTgMembers)}人`, `TG >= ${formatNum(c.minTgMembers)}`) : ''}
             </div>
+          ` : ''}
+          ${!isInstant && !isLocked && !isOpened ? `
+            <div class="num-xs text-green" style="font-weight:700;">${L('好友首次购箱 1 人抵 3 次助力 · 双方得礼', 'Paid friend = 3 assists · Two-way gift')}</div>
           ` : ''}
 
           ${!isLocked && !isOpened ? (
             isReady ? `
               <button class="btn ${canOpenChestNow() ? 'btn-primary' : 'btn-secondary'}" data-open-chest="${c.chestId}" type="button" ${!canOpenChestNow() ? 'disabled' : ''}>
-                ${icon(canOpenChestNow() ? 'unlock' : 'lock', 15)} ${canOpenChestNow() ? L(`立即开箱领 ${formatNum(rewardA9)} A9`, `Open Chest (+${formatNum(rewardA9)} A9)`) : L('真实只读模式 · 暂未开放开箱', 'Read-Only Mode')}
+                ${icon(canOpenChestNow() ? 'unlock' : 'lock', 15)} ${canOpenChestNow() ? L(`立即开箱领 ${formatNum(Math.round(rewardA9), 0)} A9`, `Open Chest (+${formatNum(Math.round(rewardA9), 0)} A9)`) : L('真实只读模式 · 暂未开放开箱', 'Read-Only Mode')}
               </button>
             ` : `
               <div class="free-action-row">
@@ -855,7 +866,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
         ${activeTab === 'mall' ? `
           ${critFeed.length > 0 ? `<button type="button" class="mall-crit-ticker" id="mall-crit-ticker" aria-live="polite">${formatCritTickerInner(critFeed[critIndex % critFeed.length], critIndex % critFeed.length, critFeed.length)}</button>` : ''}
           <div class="mall-info-strip">
-            <span class="mall-rate-tag is-green">${icon('shieldCheck', 12, 'text-green')} ${L('100% 本金保底 · 最高 +30% 暴击', '100% Base Safe · Up to +30% Crit')}</span>
+            <span class="mall-rate-tag is-green">${icon('shieldCheck', 12, 'text-green')} ${L('100% 保底本金 · 整数随机暴击', '100% Base Safe · Integer Crit')}</span>
             <div class="mall-quick-pills">
               ${activeShopChests.length > 0 ? `<button type="button" class="mall-quick-btn is-hot" id="btn-jump-active-chests">${L('持有宝箱', 'Held')} ${activeShopChests.length}</button>` : ''}
               <button type="button" class="mall-quick-btn" data-nav="/internal/records">${icon('receipt', 12)} ${L('小票', 'Receipts')}${config.isDemo && market.records.length ? ` (${market.records.length})` : (liveOrdersCount ? ` (${liveOrdersCount})` : '')}</button>
@@ -864,8 +875,8 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
 
           ${!config.isDemo && liveQuota ? `
             <div class="mall-info-strip" style="padding:7px 12px;">
-              <span class="num-xs text-sec">${L('剩余购箱额度', 'Remaining Quota')}</span>
-              <b class="mono num-xs text-green">${formatGramFromNano(liveQuota.availQuotaNano ?? liveQuota.remainingNano)}</b>
+              <span class="num-xs text-sec">${liveQuota.unlimitedQuota ? L('个人购箱额度', 'Personal Quota') : L('剩余购箱额度', 'Remaining Quota')}</span>
+              <b class="mono num-xs text-green">${liveQuota.unlimitedQuota ? L('不限购', 'Unlimited') : formatGramFromNano(liveQuota.availQuotaNano ?? liveQuota.remainingNano)}</b>
             </div>
           ` : ''}
 
@@ -885,10 +896,10 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                   <h2 class="chest-stage-name">${L(sel.zh, sel.en)}</h2>
                   <span class="chip chip-green">${L('100% 保底本金', '100% Base Safe')}</span>
                 </div>
-                <div class="chest-stage-total">${L('至高 ', 'Up to ')}${formatNum(displayTotalA9, 2)} A9</div>
+                <div class="chest-stage-total">${formatNum(sel.baseA9, 0)}–${formatNum(displayTotalA9, 0)} A9</div>
                 <div class="chest-stage-stats">
-                  <span>${L('保底', 'Base')} <b class="mono">${formatNum(sel.baseA9, 2)}</b></span>
-                  <span class="text-green">· ${L('随机暴击', 'Random Crit')} <b class="mono">0%–+${sel.maxBoostPct}%</b></span>
+                  <span>${L('保底', 'Base')} <b class="mono">${formatNum(sel.baseA9, 0)}</b></span>
+                  <span class="text-green">· ${L('最高暴击', 'Max Crit')} <b class="mono">+${formatNum(sel.maxBoostA9, 0)}</b></span>
                 </div>
               </div>
             </section>
@@ -940,7 +951,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                     <span class="mono">+${sel.deliveryFeeGram || '0.06'} GRAM</span>
                   </div>
                   <div class="num-xs text-muted" style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--card-border);">
-                    ${L(`免助力随机暴击（最高 +${formatNum(sel.maxBoostA9, 2)} A9）：常规 75% · 幸运 18% · 史诗 6% · 传说 1%`, `Random crit (up to +${formatNum(sel.maxBoostA9, 2)} A9): Normal 75% · Lucky 18% · Epic 6% · Legend 1%`)}
+                    ${L(`免助力随机暴击（最高 +${formatNum(sel.maxBoostA9, 0)} A9）：常规 75% · 幸运 18% · 史诗 6% · 传说 1%`, `Random crit (up to +${formatNum(sel.maxBoostA9, 0)} A9): Normal 75% · Lucky 18% · Epic 6% · Legend 1%`)}
                   </div>
                 </div>
               </details>
@@ -964,7 +975,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
               }
               groupedMap.get(tier).chests.push(c);
             }
-            const groupedList = ['bronze', 'silver', 'gold', 'platinum', 'diamond']
+            const groupedList = ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'legendary']
               .filter((k) => groupedMap.has(k))
               .map((k) => {
                 const g = groupedMap.get(k);
@@ -1026,8 +1037,8 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
             </div>
             ${chestData.loaded && freeList.length === 0 ? (
               (!config.isDemo && !A9TMA.getRawInitData())
-                ? `<div class="num-xs text-sec">${L('请在 Telegram 小程序内打开以领取青铜宝箱 #1。', 'Open in Telegram Mini App to claim Bronze #1.')}</div>`
-                : `<button class="btn btn-primary" id="btn-claim-starter" type="button">${icon('bolt', 15)} ${L('0 成本领取青铜宝箱 #1（300 A9）', 'Claim Free Bronze #1 (300 A9)')}</button>`
+                ? `<div class="num-xs text-sec">${L('请在 Telegram 小程序内打开以领取新手青铜箱。', 'Open in Telegram Mini App to claim Starter Bronze.')}</div>`
+                : `<button class="btn btn-primary" id="btn-claim-starter" type="button">${icon('bolt', 15)} ${L('0 成本领新手青铜箱（200 A9 秒开）', 'Claim Starter Bronze (200 A9 Instant)')}</button>`
             ) : ''}
           </section>
 
@@ -1043,13 +1054,13 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                 const volReq = formatVolumeReq(c.minVolumeNano);
                 const sub = isOpened
                   ? L('已开启入库', 'Opened')
-                  : `${L('助力', 'Assists')} ${formatNum(c.currentAssists)}/${formatNum(c.requiredAssists)}${volReq ? ` · ≥${volReq}` : ''}`;
+                  : `${L('助力', 'Assists')} ${formatNum(c.currentAssists)}/${formatNum(c.requiredAssists)}${volReq ? ` · ${L('自购+直邀', 'Self+Inv')}≥${volReq}` : ''}`;
                 return `
                   <div class="free-queue-row ${isLocked ? 'is-locked' : ''}">
                     <div class="free-queue-left">
                       ${renderChestSvg(tier, { size: 38, state: isOpened ? 'opened' : isLocked ? 'locked' : 'normal' })}
                       <div class="free-queue-copy">
-                        <strong>${escapeHtml(L(c.labelZh, c.labelEn))} · <span class="mono text-green">${formatNum(rewardA9)} A9</span></strong>
+                        <strong>${escapeHtml(L(c.labelZh, c.labelEn))} · <span class="mono text-green">${formatNum(Math.round(rewardA9), 0)} A9</span></strong>
                         <small>${sub}</small>
                       </div>
                     </div>
@@ -1125,7 +1136,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
           }
           A9Haptic.success();
           burstParticles(buyBtn);
-          showToast(L(`购箱成功 · 保底本金 ${formatNum(res.receivedA9, 2)} A9 已到账，宝箱已入库待开随机暴击！`, `Purchased! ${formatNum(res.receivedA9, 2)} A9 base credited & chest ready to open!`));
+          showToast(L(`购箱成功 · 保底本金 ${formatNum(Math.round(res.receivedA9), 0)} A9 已到账，宝箱已入库待开随机暴击！`, `Purchased! ${formatNum(Math.round(res.receivedA9), 0)} A9 base credited & chest ready to open!`));
           loadChests();
           return;
         }
@@ -1185,7 +1196,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
             title: L('确认宝箱购箱付款（签名前核验）', 'Confirm Chest Purchase Payment'),
             contractLabel: L('兑换热钱包 PresaleHotWallet', 'PresaleHotWallet'),
             targetAddress: order.payTo,
-            principalText: `${priceGram} GRAM → ${formatNum(orderA9, 2)} A9`,
+            principalText: `${priceGram} GRAM → ${formatNum(Math.round(orderA9), 0)} A9`,
             gasText: `+${deliveryGram} GRAM (${L('A9 链上发币 Gas', 'delivery gas')})`,
             totalText: `${totalPayGram} GRAM`,
             memo: order.memo,
@@ -1223,8 +1234,8 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                 return {
                   confirmed: true,
                   order: found,
-                  detail: `订单 ${order.orderId} 已发放 ${formatNum(orderA9, 2)} A9。`,
-                  detailEn: `Order ${order.orderId} credited ${formatNum(orderA9, 2)} A9.`,
+                  detail: `订单 ${order.orderId} 已发放 ${formatNum(Math.round(orderA9), 0)} A9。`,
+                  detailEn: `Order ${order.orderId} credited ${formatNum(Math.round(orderA9), 0)} A9.`,
                 };
               }
               return { terminal: true, order: found };
@@ -1268,7 +1279,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
         try {
           await claimStarterChests();
           A9Haptic.success();
-          showToast(L('已激活青铜宝箱 #1，快去邀请 2 位好友助力开箱！', 'Bronze Chest #1 activated! Invite 2 friends to open.'));
+          showToast(L('已领取新手青铜箱（200 A9），免助力可直接秒开！', 'Starter Bronze Chest (200 A9) claimed—open instantly!'));
           await loadChests();
         } catch (e) {
           A9Haptic.error();
@@ -1391,10 +1402,11 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
 }
 
 export function renderInternalRecords(root) {
-  // 根据支付 GRAM 金额或 skuId 推断对应 5 阶宝箱图标
+  // 根据支付 GRAM 金额或 skuId 推断对应 6 阶宝箱图标
   const inferTierByGram = (gramVal, skuHint = '') => {
     if (skuHint) return resolveChestTier(skuHint);
     const g = Number(gramVal) || 0;
+    if (g >= 400) return 'legendary';
     if (g >= 50) return 'diamond';
     if (g >= 15) return 'platinum';
     if (g >= 8) return 'gold';
@@ -1420,7 +1432,7 @@ export function renderInternalRecords(root) {
             ${renderChestSvg(tier, { size: 36 })}
           </div>
           <div class="receipt-amounts">
-            <div class="receipt-a9-val text-green">+${formatNum(a9Val, 2)} A9</div>
+            <div class="receipt-a9-val text-green">+${formatNum(Math.round(a9Val), 0)} A9</div>
             <div class="receipt-gram-sub">-${formatNum(gramVal, 2)} GRAM · ${L(CHEST_TIER_META[tier].shortZh, CHEST_TIER_META[tier].shortEn)}</div>
           </div>
         </div>
@@ -1490,7 +1502,7 @@ export function renderInternalRecords(root) {
             </div>
             <div class="receipt-summary-cell">
               <small>${L('已完成入账 A9', 'Completed A9')}</small>
-              <strong class="text-green">${orders === null ? '—' : formatNum(totalA9, 2)}</strong>
+              <strong class="text-green">${orders === null ? '—' : formatNum(Math.round(totalA9), 0)}</strong>
             </div>
           </section>
 
@@ -1584,7 +1596,7 @@ export function renderInternalRecords(root) {
           </div>
           <div class="receipt-summary-cell">
             <small>${L('累计入账 A9', 'Total A9')}</small>
-            <strong class="text-green">${formatNum(totalA9, 2)}</strong>
+            <strong class="text-green">${formatNum(Math.round(totalA9), 0)}</strong>
           </div>
         </section>
 

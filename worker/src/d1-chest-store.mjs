@@ -9,6 +9,7 @@ import {
   FREE_CHEST_CHAIN,
   SHOP_BOOST_TTL_SEC,
   MAX_DAILY_ASSISTS_PER_WALLET,
+  PAID_REFERRAL_ASSIST_BONUS,
   CAPTAIN_FOUNDING_BONUS_RAW,
   CAPTAIN_MIN_TG_MEMBERS,
   CAPTAIN_MIN_TEAM_MEMBERS,
@@ -84,7 +85,7 @@ export class D1ChestEngine {
           spec.slotIndex,
           spec.rewardA9Raw,
           spec.requiredAssists,
-          idx === 0 ? 'ACTIVE' : 'LOCKED',
+          idx === 0 ? (spec.requiredAssists <= 0 ? 'READY' : 'ACTIVE') : 'LOCKED',
           nowSec + idx,
           nowSec,
         ),
@@ -376,6 +377,76 @@ export class D1ChestEngine {
     };
   }
 
+  /** 付费好友加速：直邀好友完成任意付费宝箱订单时，幂等原子为邀请人当前进行中的免费宝箱 +3 点助力进度。 */
+  async creditPaidReferralAssist(
+    { ownerUserId, orderId, helperUserId = null, bonusAssists = PAID_REFERRAL_ASSIST_BONUS },
+    nowSec = Math.floor(Date.now() / 1000),
+  ) {
+    const uid = String(ownerUserId || '').trim();
+    const oid = String(orderId || '').trim();
+    const add = Math.max(1, Math.floor(Number(bonusAssists || PAID_REFERRAL_ASSIST_BONUS)));
+    if (!uid || !oid) return { credited: false, reason: 'BAD_REQUEST' };
+    const synthKey = `paid_ref:${oid}`;
+    const dup = await this.db
+      .prepare('SELECT 1 AS hit FROM chest_assists WHERE owner_user_id = ? AND helper_wallet_key = ? LIMIT 1')
+      .bind(uid, synthKey)
+      .first();
+    if (dup?.hit) return { credited: false, reason: 'ALREADY_CREDITED' };
+
+    const targetRow = await this.db
+      .prepare(
+        `SELECT * FROM user_chests
+         WHERE owner_user_id = ? AND source = 'FREE_TIER' AND status = 'ACTIVE' AND current_assists < required_assists
+         ORDER BY created_at ASC LIMIT 1`,
+      )
+      .bind(uid)
+      .first();
+    if (!targetRow) return { credited: false, reason: 'NO_ACTIVE_FREE_CHEST' };
+
+    const cId = String(targetRow.chest_id);
+    const cur = Number(targetRow.current_assists || 0);
+    const req = Number(targetRow.required_assists || 0);
+    const next = Math.min(req, cur + add);
+    const delta = next - cur;
+    if (delta <= 0) return { credited: false, reason: 'ASSIST_FULL' };
+    const nextStatus = next >= req ? 'READY' : 'ACTIVE';
+    const today = utcDayFromSec(nowSec);
+    const hUid = helperUserId ? `${String(helperUserId)}:paid:${oid}` : synthKey;
+
+    try {
+      const out = await this.db.batch([
+        this.db
+          .prepare(
+            `INSERT INTO chest_assists (chest_id, owner_user_id, helper_user_id, helper_wallet_key, assist_day, boost_delta_raw, created_at)
+             SELECT ?, ?, ?, ?, ?, '0', ?
+             WHERE EXISTS (
+               SELECT 1 FROM user_chests
+               WHERE chest_id = ? AND source = 'FREE_TIER' AND current_assists = ? AND current_assists < required_assists AND status = 'ACTIVE'
+             )
+             AND NOT EXISTS (SELECT 1 FROM chest_assists WHERE owner_user_id = ? AND helper_wallet_key = ?)`,
+          )
+          .bind(cId, uid, hUid, synthKey, today, nowSec, cId, cur, uid, synthKey),
+        this.db
+          .prepare(
+            `UPDATE user_chests
+             SET current_assists = ?, status = ?, updated_at = ?
+             WHERE chest_id = ? AND source = 'FREE_TIER' AND current_assists = ? AND status = 'ACTIVE'
+               AND EXISTS (SELECT 1 FROM chest_assists WHERE chest_id = ? AND helper_wallet_key = ?)`,
+          )
+          .bind(next, nextStatus, nowSec, cId, cur, cId, synthKey),
+      ]);
+      if (changes(out?.[0]) !== 1 || changes(out?.[1]) !== 1) {
+        return { credited: false, reason: 'CONCURRENT_OR_ALREADY_CREDITED' };
+      }
+    } catch (e) {
+      if (/UNIQUE|constraint/i.test(String(e?.message || e))) {
+        return { credited: false, reason: 'ALREADY_CREDITED' };
+      }
+      throw e;
+    }
+    return { credited: true, addedAssists: delta, chest: await this.getChest(cId) };
+  }
+
   /**
    * 原子开箱与 BigInt 精确入账（防同秒并发重复发奖 + 防 SQLite 64 位整数溢出）：
    * 1) 使用每次开箱唯一 openToken 写入 chest_open_credits(chest_id PRIMARY KEY)，物理杜绝同秒并发二次入账；
@@ -624,15 +695,16 @@ export class D1ChestEngine {
       ];
 
       if (nextSpec) {
+        const nextInitStatus = nextSpec.requiredAssists <= 0 ? 'READY' : 'ACTIVE';
         stmts.push(
           this.db
             .prepare(
               `UPDATE user_chests
-               SET status = 'ACTIVE', updated_at = ?
+               SET status = ?, updated_at = ?
                WHERE owner_user_id = ? AND source = 'FREE_TIER' AND tier = ? AND slot_index = ? AND status = 'LOCKED'
                  AND EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)`,
             )
-            .bind(nowSec, uid, nextSpec.tier, nextSpec.slotIndex, cId, openToken),
+            .bind(nextInitStatus, nowSec, uid, nextSpec.tier, nextSpec.slotIndex, cId, openToken),
         );
       }
       if (budgetPrep) {

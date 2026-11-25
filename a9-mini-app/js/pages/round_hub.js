@@ -79,7 +79,7 @@ export function renderChallengeHome(root, navigate) {
         { value: 'warmup',             label: L('1. 开局倒计时', '1. Pre-Round'), sub: L('开局预热池报名', 'Pre-round registration') },
         { value: 'participation',      label: L('2. 火热入场', '2. Entry Open'), sub: L('早鸟权重份额与即时入场', 'Early weight & instant entry') },
         { value: 'observation',        label: L('3. 24H 闯关中', '3. 24H Quest'), sub: L('24 个时段 ≥16 达标', '24 slots · 16+ to pass') },
-        { value: 'settlement_success', label: L('4. 通关派奖', '4. Passed'), sub: L('金库领奖与连胜解锁', 'Prize claim & vesting') },
+        { value: 'settlement_success', label: L('4. 通关派奖', '4. Passed'), sub: L('20% 秒领与 40 天线性释放', '20% instant & 40d linear') },
         { value: 'settlement_burn',    label: L('5. 未通关 · 销毁 BURN', '5. Failed · BURN'), sub: L('本金按规则销毁 BURN', 'Principal burned') },
         { value: 'halted',             label: L('6. 异常中止 · 退回本金', '6. Aborted · Refund'), sub: L('本金原路退回', 'Principal refunded') }
       ],
@@ -553,8 +553,8 @@ function renderStakeSummaryCardHtml({ amountA9, round, weightMultiplier = 2.0, p
 
       <div class="payback-dilution-note num-xs text-muted" data-field="dilution-note" style="margin-top:8px;line-height:1.45;">
         ${m.hitCap
-          ? L(`当前推演已触及 15× 单轮硬顶（${formatNum(m.capA9)} A9）；随后续新玩家入场，单份奖励将被动态稀释，不构成收益承诺，最终以链上结算为准。`, `Estimate hits the 15× cap (${formatNum(m.capA9)} A9); later entries will dilute per-share rewards. Not a guarantee; final payout settles on-chain.`)
-          : L('注：以上按当前奖池与早鸟权重动态推演，随后续参与者增加会被稀释，不构成收益承诺；最终以链上实际结算为准。', 'Note: Dynamic estimate from current pool & weight; diluted as more participants join. Not a guarantee; final payout settles on-chain.')}
+          ? L(`已达 15× 硬顶（${formatNum(m.capA9)} A9），随参与增加动态稀释，以链上结算为准。`, `Hits 15× cap (${formatNum(m.capA9)} A9); diluted as entries grow, settled on-chain.`)
+          : L('动态推演随参与增加稀释，非收益承诺，以链上结算为准。', 'Dynamic estimate diluted by new entries; final payout settles on-chain.')}
       </div>
 
       <details class="payback-details" data-field="vesting-details" ${hasEst ? '' : 'hidden'}>
@@ -609,8 +609,8 @@ function updateStakeSummaryCardDom(cardEl, { amountA9, round, weightMultiplier =
   setText('[data-field="est-instant"]', hasEst ? `${formatNum(m.curInstantReward)} A9` : '—');
   setText('[data-field="est-locked"]', hasEst ? `${formatNum(m.curLockedReward)} A9` : '—');
   setText('[data-field="dilution-note"]', m.hitCap
-    ? L(`当前推演已触及 15× 单轮硬顶（${formatNum(m.capA9)} A9）；随后续新玩家入场，单份奖励将被动态稀释，不构成收益承诺，最终以链上结算为准。`, `Estimate hits the 15× cap (${formatNum(m.capA9)} A9); later entries will dilute per-share rewards. Not a guarantee; final payout settles on-chain.`)
-    : L('注：以上按当前奖池与早鸟权重动态推演，随后续参与者增加会被稀释，不构成收益承诺；最终以链上实际结算为准。', 'Note: Dynamic estimate from current pool & weight; diluted as more participants join. Not a guarantee; final payout settles on-chain.'));
+    ? L(`已达 15× 硬顶（${formatNum(m.capA9)} A9），随参与增加动态稀释，以链上结算为准。`, `Hits 15× cap (${formatNum(m.capA9)} A9); diluted as entries grow, settled on-chain.`)
+    : L('动态推演随参与增加稀释，非收益承诺，以链上结算为准。', 'Dynamic estimate diluted by new entries; final payout settles on-chain.'));
 
   const detailsEl = cardEl.querySelector('[data-field="vesting-details"]');
   if (detailsEl) detailsEl.hidden = !hasEst;
@@ -824,7 +824,7 @@ function renderLiveStakeConfirm(root, navigate) {
   const minStakeRaw = BigInt(String(cfg.minStakeRaw || '1000000000000'));
   const minStakeA9 = Number(minStakeRaw / 1_000_000_000n) || 1000;
   const protocolVer = cfg.stakeProtocolVersion || (cfg.protocolVersion === 'v16' ? 'v16' : config.stakeProtocolVersion);
-  const protocolBadge = protocolVer === 'v16' ? 'V16.1' : String(protocolVer || 'v16').toUpperCase();
+  const protocolBadge = protocolVer === 'v16' ? 'V16.2' : String(protocolVer || 'v16').toUpperCase();
 
   let portfolio = null;
   let loadError = null;

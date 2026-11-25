@@ -38,13 +38,12 @@ export function renderPlazaCompactBanner(pred, round) {
     const rawExp = Number(p.pendingExpiresAt);
     const expAtMs = (Number.isFinite(rawExp) && rawExp > 0) ? (rawExp < 1e12 ? rawExp * 1000 : rawExp) : 0;
     const expRemSec = expAtMs > Date.now() ? Math.floor((expAtMs - Date.now()) / 1000) : null;
-    const firstOrderTotalA9 = Number((1981.98 + pendingA9).toFixed(2));
-    const dec = firstOrderTotalA9 % 1 === 0 ? 0 : 2;
+    const firstOrderTotalA9 = Math.round(1500 + pendingA9);
     return `
       <a class="plaza-compact-strip is-vault" id="a9-pending-vault-banner" href="#/internal/market">
         <span class="plaza-compact-left">
           <span class="chip chip-gold" style="min-height:20px;font-size:10px;padding:0 6px;">${L('首单加赠', 'BONUS')}</span>
-          <span class="plaza-compact-text">${L(`0.99 GRAM 得 ${formatNum(firstOrderTotalA9, dec)} A9（含 ${formatNum(pendingA9)} 赠金）`, `0.99 GRAM → ${formatNum(firstOrderTotalA9, dec)} A9 (+${formatNum(pendingA9)} bonus)`)}</span>
+          <span class="plaza-compact-text">${L(`0.99 GRAM 得 ${formatNum(firstOrderTotalA9, 0)} A9（含 ${formatNum(Math.round(pendingA9), 0)} 赠金）`, `0.99 GRAM → ${formatNum(firstOrderTotalA9, 0)} A9 (+${formatNum(Math.round(pendingA9), 0)} bonus)`)}</span>
         </span>
         <span class="plaza-compact-right mono">${expRemSec !== null ? formatTimer(expRemSec) : '48H'} ›</span>
       </a>
@@ -89,9 +88,8 @@ export function renderPendingVaultBanner(pred, round) {
   const expRemSec = expAtMs > Date.now() ? Math.floor((expAtMs - Date.now()) / 1000) : null;
   const refPrice = (round?.priceValid !== false) ? Number(round?.livePrice || round?.twap24h || 0) : 0;
   const usdEst = refPrice > 0 ? pendingA9 * refPrice : null;
-  const firstOrderTotalA9 = Number((1981.98 + pendingA9).toFixed(2));
-  const dec = firstOrderTotalA9 % 1 === 0 ? 0 : 2;
-  const bonusPct = Math.round((pendingA9 / 1981.98) * 100);
+  const firstOrderTotalA9 = Math.round(1500 + pendingA9);
+  const bonusPct = Math.round((pendingA9 / 1500) * 100);
 
   return `
     <section class="card vault-unlock-banner" id="a9-pending-vault-banner">
@@ -102,7 +100,7 @@ export function renderPendingVaultBanner(pred, round) {
         </span>
       </div>
       <div class="row-between" style="align-items:baseline;margin-bottom:8px;">
-        <div class="num-lg text-green mono" style="font-weight:900;">+${formatNum(pendingA9)} A9</div>
+        <div class="num-lg text-green mono" style="font-weight:900;">+${formatNum(Math.round(pendingA9), 0)} A9</div>
         ${usdEst !== null ? `<span class="num-xs text-sec mono">${L('参考估值约', 'Est.')} $${formatNum(usdEst, 2)}</span>` : ''}
       </div>
       <div class="vault-two-step" role="status" aria-label="${L('解锁进度', 'Unlock progress')}">
@@ -111,7 +109,7 @@ export function renderPendingVaultBanner(pred, round) {
         <span class="vault-step next">2/2 ${L('首单加赠或 0 元激活', 'Activate with Order / 0-Cost')}</span>
       </div>
       <p class="num-xs text-sec" style="margin:6px 0 10px;line-height:1.45;">
-        ${L(`0.99 GRAM 购箱共得 ${formatNum(firstOrderTotalA9, dec)} A9（含 +${bonusPct}% 赠金），或质押 / 邀 1 友免费激活。`, `0.99 GRAM chest yields ${formatNum(firstOrderTotalA9, dec)} A9 (+${bonusPct}% bonus), or unlock free via stake / 1 invite.`)}
+        ${L(`0.99 GRAM 购箱共得 ${formatNum(firstOrderTotalA9, 0)} A9（含 +${bonusPct}% 赠金），或质押 / 邀 1 友免费激活。`, `0.99 GRAM chest yields ${formatNum(firstOrderTotalA9, 0)} A9 (+${bonusPct}% bonus), or unlock free via stake / 1 invite.`)}
       </p>
       <div class="grid-2" style="gap:8px;">
         <button class="btn btn-primary btn-sm" data-nav="/internal/market" type="button" style="width:100%;min-height:40px;white-space:nowrap;">${icon('swap', 14)} ${L('首单加赠领箱', 'Claim with Bonus')}</button>
@@ -235,7 +233,7 @@ export function renderPredictionCard(round, pred, user) {
         <span class="num-md text-green mono">${formatNum(pendingA9)} A9${usdEst !== null ? ` <span class="num-xs text-sec">(${L('约', '~')} $${formatNum(usdEst, 2)})</span>` : ''}</span>
       </div>
       <div class="num-xs text-muted" style="margin-bottom:6px;">${expRemSec !== null ? `<span id="pred-exp-cd" class="mono text-red">${L('距过期', 'Expires')} ${formatTimer(expRemSec)}</span>` : L('48 小时内未激活将自动作废回流奖池', 'Expires in 48H if unactivated')}</div>
-      <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('本人购任意宝箱（0.99 GRAM 起）、链上参与，或直邀 1 位好友购箱即可 0 元全额激活，可与邀友奖励合并走 0.06 GRAM 领取。', 'Buy any chest (from 0.99 GRAM), stake on-chain, or invite 1 paid friend to unlock for 0 GRAM. Combinable with invite rewards (0.06 GRAM gas).')}</div>
+      <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('购任意宝箱（0.99 GRAM 起）、链上质押或邀 1 友购箱即可 0 元激活，合并 0.06 GRAM 领取。', 'Buy any chest (0.99+ GRAM), stake, or invite 1 paid friend to unlock free (0.06 GRAM claim gas).')}</div>
       <div class="col-gap" style="gap:8px;">
         <button class="btn btn-primary btn-sm" id="btn-pred-activate" type="button" style="width:100%;min-height:40px;">${icon('bolt', 14)} ${L('立即激活奖励', 'Activate Reward')}</button>
         <div class="grid-2">

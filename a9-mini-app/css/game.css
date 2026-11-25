@@ -993,13 +993,15 @@
 .chest-stage-visual.tier-silver   { background: #EEF3F9; border-color: rgba(143, 163, 188, 0.38); }
 .chest-stage-visual.tier-gold     { background: #FFF7DF; border-color: rgba(217, 130, 0, 0.34); }
 .chest-stage-visual.tier-platinum { background: #F1EFFD; border-color: rgba(109, 93, 246, 0.32); }
-.chest-stage-visual.tier-diamond  { background: #E8F7FF; border-color: rgba(41, 199, 255, 0.38); }
+.chest-stage-visual.tier-diamond   { background: #E8F7FF; border-color: rgba(41, 199, 255, 0.38); }
+.chest-stage-visual.tier-legendary { background: #FFEBF0; border-color: rgba(230, 0, 18, 0.36); }
 
-[data-theme="dark"] .chest-stage-visual.tier-bronze   { background: rgba(201, 122, 66, 0.18); border-color: rgba(201, 122, 66, 0.36); }
-[data-theme="dark"] .chest-stage-visual.tier-silver   { background: rgba(143, 163, 188, 0.18); border-color: rgba(143, 163, 188, 0.36); }
-[data-theme="dark"] .chest-stage-visual.tier-gold     { background: rgba(247, 190, 44, 0.18); border-color: rgba(247, 190, 44, 0.38); }
-[data-theme="dark"] .chest-stage-visual.tier-platinum { background: rgba(109, 93, 246, 0.20); border-color: rgba(109, 93, 246, 0.40); }
-[data-theme="dark"] .chest-stage-visual.tier-diamond  { background: rgba(41, 199, 255, 0.18); border-color: rgba(41, 199, 255, 0.38); }
+[data-theme="dark"] .chest-stage-visual.tier-bronze    { background: rgba(201, 122, 66, 0.18); border-color: rgba(201, 122, 66, 0.36); }
+[data-theme="dark"] .chest-stage-visual.tier-silver    { background: rgba(143, 163, 188, 0.18); border-color: rgba(143, 163, 188, 0.36); }
+[data-theme="dark"] .chest-stage-visual.tier-gold      { background: rgba(247, 190, 44, 0.18); border-color: rgba(247, 190, 44, 0.38); }
+[data-theme="dark"] .chest-stage-visual.tier-platinum  { background: rgba(109, 93, 246, 0.20); border-color: rgba(109, 93, 246, 0.40); }
+[data-theme="dark"] .chest-stage-visual.tier-diamond   { background: rgba(41, 199, 255, 0.18); border-color: rgba(41, 199, 255, 0.38); }
+[data-theme="dark"] .chest-stage-visual.tier-legendary { background: rgba(230, 0, 18, 0.22); border-color: rgba(255, 196, 18, 0.44); }
 
 .chest-stage-meta {
   min-width: 0;
@@ -1044,16 +1046,15 @@
   color: var(--ink-soft);
 }
 
-/* 5 档任天堂实体宝箱货架（3+2 精密方格陈列） */
+/* 6 档任天堂实体宝箱货架（3×2 对称精密方格陈列） */
 .chest-shelf-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
 .chest-shelf-item {
   position: relative;
-  grid-column: span 2;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1068,12 +1069,6 @@
   text-align: center;
   box-shadow: 0 2.5px 0 var(--card-thickness);
   transition: transform 0.12s var(--ease-spring), border-color 0.14s ease, box-shadow 0.12s ease;
-}
-
-/* 第 4、5 格（白金、钻石）各占 3 列，形成稳固均衡的 3 + 2 货架 */
-.chest-shelf-item:nth-child(4),
-.chest-shelf-item:nth-child(5) {
-  grid-column: span 3;
 }
 
 .chest-shelf-item:active {

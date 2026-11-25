@@ -916,8 +916,8 @@ test('PROTOCOL_SPECS single source of truth & Live renderRiskAudit invariants ch
         hasCap: auditRoot.innerHTML.includes('300,000,000 A9'),
         hasRules: auditRoot.innerHTML.includes('16/24 · 15× · 6%'),
         hasUndefined: /\\bundefined\\b/.test(auditRoot.innerHTML),
-        compactExact: compactBanner.includes('2,281.98 A9'),
-        vaultExact: vaultBanner.includes('2,281.98 A9'),
+        compactExact: compactBanner.includes('1,800 A9'),
+        vaultExact: vaultBanner.includes('1,800 A9'),
       }));
     `,
   );

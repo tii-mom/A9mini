@@ -82,7 +82,7 @@ export const I18N = {
     themeToDark: '暗夜模式',
     themeToLight: '亮色模式',
 
-    heroEyebrow: '第 03 轮 · 24H 观察中',
+    heroEyebrow: '第 03 轮 · 24H 示例',
     heroTitle: '财富大冒险',
     heroLede: '质押 A9 闯 24H 价格关，达标 ≥ 16 小时瓜分奖池。',
     riskPill: '未达 16/24 时段，本金 100% 销毁 BURN。',
@@ -219,7 +219,7 @@ export const I18N = {
     themeToDark: 'Dark Mode',
     themeToLight: 'Light Mode',
 
-    heroEyebrow: 'ROUND 03 · 24H OBSERVING',
+    heroEyebrow: 'ROUND 03 · 24H SAMPLE',
     heroTitle: 'Wealth Quest',
     heroLede: 'Stake A9 for a 24H price quest. Pass ≥ 16/24 hours to split the round pool.',
     riskPill: 'Below 16/24 hours = 100% principal BURN.',

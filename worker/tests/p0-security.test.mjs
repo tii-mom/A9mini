@@ -377,14 +377,14 @@ for (const [name, make] of BACKENDS) {
     const W = 'EQ_BOUNDS';
     await assert.rejects(e.createOrderIntent(W, '1.99', 1000), { code: 'BAD_AMOUNT' });
     await assert.rejects(e.createOrderIntent(W, '4.999999999', 1000), { code: 'BAD_AMOUNT' });
-    await assert.rejects(e.createOrderIntent(W, '200.000000001', 1000), { code: 'BAD_AMOUNT' });
+    await assert.rejects(e.createOrderIntent(W, '500.000000001', 1000), { code: 'BAD_AMOUNT' });
     const o1 = await e.createOrderIntent(W, '5.99', 1000);
     assert.equal(o1.tonNano, '5990000000');
     assert.equal(o1.a9AmountRaw, '11991980000000');
     const o2 = await e.createOrderIntent('EQ_BOUNDS_2', '13.99', 1000);
     assert.equal(o2.a9AmountRaw, '28007980000000');
-    const o3 = await e.createOrderIntent('EQ_BOUNDS_3', '200', 1000);
-    assert.equal(o3.tonNano, '200000000000');
+    const o3 = await e.createOrderIntent('EQ_BOUNDS_3', '500', 1000);
+    assert.equal(o3.tonNano, '500000000000');
     await assert.rejects(e.createOrderIntent('EQ_BOUNDS_4', '5', 1000, {}).then(() => { e.open = false; return e.createOrderIntent('EQ_BOUNDS_4', '5', 1000); }), { code: 'PRESALE_CLOSED' });
   });
 

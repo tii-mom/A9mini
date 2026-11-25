@@ -4,9 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#F4F5F8" />
-  <meta name="description" content="A9 (Asset 9-Figure) — Redefining token distribution &amp; unlocking on TON. A bold on-chain crypto experiment." />
+  <meta name="description" content="A9 · 财富大冒险 — 基于 TON 的 24H 链上价格闯关，达标 ≥ 16/24 小时瓜分奖池，40 天按秒线性释放。" />
   <meta property="og:title" content="A9 · 财富大冒险 (A9 Wealth Quest)" />
-  <meta property="og:description" content="A9 (Asset 9-Figure) — Redefining token distribution &amp; unlocking on TON. A bold on-chain crypto experiment." />
+  <meta property="og:description" content="基于 TON 的 24H 链上价格闯关，达标 ≥ 16/24 小时瓜分奖池，40 天按秒线性释放。" />
+  <link rel="preconnect" href="https://telegram.org" crossorigin />
+  <link rel="dns-prefetch" href="https://telegram.org" />
   <meta property="og:image" content="https://app.a9.lat/assets/token/a9-token-2048.png" />
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:site" content="@A9_Ton" />
@@ -33,7 +35,13 @@
     <header id="app-header" class="app-header"></header>
     <div id="ticker-bar" class="ticker-bar hidden"></div>
     <section class="realm-banner" id="realm-banner" hidden></section>
-    <main id="app-main" class="app-main" role="main"></main>
+    <main id="app-main" class="app-main" role="main">
+      <div class="nt-boot-skeleton" aria-busy="true" aria-label="Loading A9">
+        <div class="nt-skel-card nt-skel-hero"></div>
+        <div class="nt-skel-grid"><i></i><i></i><i></i><i></i></div>
+        <div class="nt-skel-card"></div>
+      </div>
+    </main>
     <nav id="app-tabbar" class="app-tabbar" aria-label="Primary Navigation"></nav>
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
     <div id="modal-root" class="modal-root hidden" role="dialog" aria-modal="true"></div>

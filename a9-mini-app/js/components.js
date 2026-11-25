@@ -161,7 +161,7 @@ export function openChoiceSheet({ title, options, selected, onSelect }) {
     </div>
     <div class="col-gap">
       ${options.map(opt => `
-        <div class="list-row clickable ${opt.value === selected ? 'is-me' : ''}" data-choice-val="${escapeHtml(opt.value)}">
+        <div class="list-row clickable ${opt.value === selected ? 'is-me' : ''}" role="button" tabindex="0" data-choice-val="${escapeHtml(opt.value)}">
           <div>
             <div style="font-weight:600;font-size:13.5px;">${escapeHtml(opt.label)}</div>
             ${opt.sub ? `<div class="num-xs text-muted" style="margin-top:2px;">${escapeHtml(opt.sub)}</div>` : ''}

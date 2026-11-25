@@ -85,25 +85,29 @@ async function buildStack(backend, { budgetOverrides = null, walletStateResolver
 
 console.log('Running A9 v16.1 Actuarial & Anti-Abuse Hardening tests (Memory + D1 0001..0012)...');
 
-await test('M-4 constants & warmup leaderboard alignment (6% referral, +5%~+30% crit cap & EV guard, 6k/50k/120k/500k free chests, 300M budget cap)', async () => {
+await test('M-4 constants & warmup leaderboard alignment (6% referral, 6-tier integer chest catalog, 5-tier free chests, 300M budget cap)', async () => {
   assert.equal(REFERRAL_BPS, 6n);
-  assert.equal(CHEST_MALL_CATALOG.chest_bronze.maxBoostBps, 500);
-  assert.equal(CHEST_MALL_CATALOG.chest_silver.maxBoostBps, 1000);
-  assert.equal(CHEST_MALL_CATALOG.chest_gold.maxBoostBps, 1500);
-  assert.equal(CHEST_MALL_CATALOG.chest_platinum.maxBoostBps, 2000);
-  assert.equal(CHEST_MALL_CATALOG.chest_diamond.maxBoostBps, 3000);
+  assert.equal(CHEST_MALL_CATALOG.chest_bronze.maxBoostBps, 3333);
+  assert.equal(CHEST_MALL_CATALOG.chest_silver.maxBoostBps, 3750);
+  assert.equal(CHEST_MALL_CATALOG.chest_gold.maxBoostBps, 2222);
+  assert.equal(CHEST_MALL_CATALOG.chest_platinum.maxBoostBps, 1842);
+  assert.equal(CHEST_MALL_CATALOG.chest_diamond.maxBoostBps, 1000);
+  assert.equal(CHEST_MALL_CATALOG.chest_legendary.maxBoostBps, 3333);
 
   const totalCritWeight = PAID_CHEST_CRIT_TIERS.reduce((s, t) => s + Number(t.weight || 0), 0);
   assert.equal(totalCritWeight, 100);
   const expectedRatio = PAID_CHEST_CRIT_TIERS.reduce((s, t) => s + (t.weight / 100) * ((t.minRatio + t.maxRatio) / 2), 0);
   assert.ok(expectedRatio <= 0.15, `expectedRatio ${expectedRatio} exceeded 0.15`);
-  const diamondExpectedBoost = (CHEST_MALL_CATALOG.chest_diamond.maxBoostBps / 10000) * expectedRatio;
-  assert.ok(diamondExpectedBoost < 0.045, `diamondExpectedBoost ${diamondExpectedBoost} exceeded 0.045`);
-  assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'silver').rewardA9Raw, String(6_000n * A9));
-  assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'silver').minVolumeNano, String(100n * A9));
-  assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'gold').rewardA9Raw, String(50_000n * A9));
-  assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'platinum').rewardA9Raw, String(120_000n * A9));
-  assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'diamond').rewardA9Raw, String(500_000n * A9));
+  const legendaryExpectedBoost = (CHEST_MALL_CATALOG.chest_legendary.maxBoostBps / 10000) * expectedRatio;
+  assert.ok(legendaryExpectedBoost < 0.05, `legendaryExpectedBoost ${legendaryExpectedBoost} exceeded 0.05`);
+  assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'bronze').rewardA9Raw, String(200n * A9));
+  assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'bronze').requiredAssists, 0);
+  assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'silver').rewardA9Raw, String(1_000n * A9));
+  assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'silver').minVolumeNano, '0');
+  assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'gold').rewardA9Raw, String(8_000n * A9));
+  assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'gold').minVolumeNano, String(30n * A9));
+  assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'platinum').rewardA9Raw, String(40_000n * A9));
+  assert.equal(FREE_CHEST_CHAIN.find((c) => c.tier === 'diamond').rewardA9Raw, String(200_000n * A9));
 
   const totalBudget = Object.values(PROMO_BUDGET_BUCKETS).reduce((s, v) => s + BigInt(v), 0n);
   assert.equal(totalBudget, 300_000_000n * A9);
@@ -147,28 +151,28 @@ for (const backend of ['memory', 'd1']) {
       { code: 'TEAM_SWITCH_COOLDOWN' },
     );
 
-    // Unlock free Silver chest for both MEM and CAP (bypass Bronze 1-3 via direct assists/opens)
+    // Unlock free Gold chest (>=30 GRAM volume gate) for both MEM and CAP: Bronze Starter (0 assists) -> Silver (2 assists) -> Gold (10 assists)
     for (const [uid, wallet] of [['102', W_MEM], ['101', W_CAP]]) {
       const st = await chestEngine.claimStarterBronzeChests({ userId: uid, walletAddress: wallet }, 2100);
-      for (let i = 0; i < 3; i += 1) {
-        const c = st.chests[i];
-        await chestEngine.assistChest({ chestId: c.chestId, helperUserId: `h_${uid}_${i}_1`, helperWalletAddress: W(`b${i}`), walletActive: true }, 2101 + i);
-        await chestEngine.assistChest({ chestId: c.chestId, helperUserId: `h_${uid}_${i}_2`, helperWalletAddress: W(`c${i}`), walletActive: true }, 2102 + i);
-        await chestEngine.openChest({ chestId: c.chestId, userId: uid, walletAddress: wallet, predictionEngine: stack.predictionEngine }, 2110 + i);
-      }
+      const bronze = st.chests.find((x) => x.tier === 'bronze');
+      await chestEngine.openChest({ chestId: bronze.chestId, userId: uid, walletAddress: wallet, predictionEngine: stack.predictionEngine }, 2105);
       const silver = (await chestEngine.listUserChests(uid)).freeChests.find((x) => x.tier === 'silver');
-      for (let k = 0; k < 15; k += 1) {
+      await chestEngine.assistChest({ chestId: silver.chestId, helperUserId: `hs_${uid}_1`, helperWalletAddress: W('b1'), walletActive: true }, 2110);
+      await chestEngine.assistChest({ chestId: silver.chestId, helperUserId: `hs_${uid}_2`, helperWalletAddress: W('b2'), walletActive: true }, 2111);
+      await chestEngine.openChest({ chestId: silver.chestId, userId: uid, walletAddress: wallet, predictionEngine: stack.predictionEngine }, 2115);
+      const gold = (await chestEngine.listUserChests(uid)).freeChests.find((x) => x.tier === 'gold');
+      for (let k = 0; k < 10; k += 1) {
         const hx = (0xd0 + k).toString(16).padStart(2, '0');
-        await chestEngine.assistChest({ chestId: silver.chestId, helperUserId: `hs_${uid}_${k}`, helperWalletAddress: '0:' + hx.repeat(32), walletActive: true }, 2200 + k);
+        await chestEngine.assistChest({ chestId: gold.chestId, helperUserId: `hg_${uid}_${k}`, helperWalletAddress: '0:' + hx.repeat(32), walletActive: true }, 2200 + k);
       }
     }
 
-    const capSilver = (await chestEngine.listUserChests('101')).freeChests.find((x) => x.tier === 'silver');
-    const memSilver = (await chestEngine.listUserChests('102')).freeChests.find((x) => x.tier === 'silver');
+    const capGold = (await chestEngine.listUserChests('101')).freeChests.find((x) => x.tier === 'gold');
+    const memGold = (await chestEngine.listUserChests('102')).freeChests.find((x) => x.tier === 'gold');
 
-    // Captain tries to open Silver before WHALE has any post-join order -> MUST FAIL (pre-join 150 GRAM excluded!)
+    // Captain tries to open Gold before WHALE has any post-join order -> MUST FAIL (pre-join 100 GRAM excluded!)
     const capFailPre = await router({
-      method: 'POST', pathname: `/api/chests/${capSilver.chestId}/open`,
+      method: 'POST', pathname: `/api/chests/${capGold.chestId}/open`,
       headers: await tgHeaders(101, { nowSec: 2500 }), body: {}, nowSec: 2500,
     });
     assert.equal(capFailPre.status, 400);
@@ -179,19 +183,19 @@ for (const backend of ['memory', 'd1']) {
 
     // Regular member MEM STILL cannot inherit WHALE's team volume -> MUST FAIL
     const memFail = await router({
-      method: 'POST', pathname: `/api/chests/${memSilver.chestId}/open`,
+      method: 'POST', pathname: `/api/chests/${memGold.chestId}/open`,
       headers: await tgHeaders(102, { nowSec: 2700 }), body: {}, nowSec: 2700,
     });
     assert.equal(memFail.status, 400);
     assert.equal(memFail.body.error.code, 'VOLUME_UNMET');
 
-    // Captain CAN open Silver (6,000 A9) now that WHALE's post-join order is >= 100 GRAM!
+    // Captain CAN open Gold (8,000 A9) now that WHALE's post-join order is >= 30 GRAM!
     const capOk = await router({
-      method: 'POST', pathname: `/api/chests/${capSilver.chestId}/open`,
+      method: 'POST', pathname: `/api/chests/${capGold.chestId}/open`,
       headers: await tgHeaders(101, { nowSec: 2700 }), body: {}, nowSec: 2700,
     });
     assert.equal(capOk.status, 200);
-    assert.equal(capOk.body.data.rewardA9Raw, String(6_000n * A9));
+    assert.equal(capOk.body.data.rewardA9Raw, String(8_000n * A9));
 
     // After 7-day cooldown expires, MEM can switch to TM-M1B cleanly
     const switched = await socialStore.joinTeam({ teamId: 'TM-M1B', walletAddress: W_MEM }, 2000 + TEAM_SWITCH_COOLDOWN_SEC + 1);
@@ -310,7 +314,7 @@ for (const backend of ['memory', 'd1']) {
   await test(`[${backend}] M-5: promo_budget_ledger BigInt+CAS circuit breaker writes zero partial state when exhausted`, async () => {
     const stack = await buildStack(backend, {
       budgetOverrides: {
-        free_chest_captain: String(200n * A9), // < 300 A9 Bronze #1
+        free_chest_captain: String(100n * A9), // < 200 A9 Starter Bronze
         prediction: String(500n * A9),         // < 800 A9 single bet settlement
         presale_promo: String(100n * A9),      // < 6% of 5 GRAM (600.6 A9)
         warmup: String(100n * A9),
@@ -322,11 +326,9 @@ for (const backend of ['memory', 'd1']) {
     activeWallets.add(W_U);
     await identityStore.bindWallet('501', W_U, 900);
 
-    // 1) Chest open hits PROMO_BUDGET_EXHAUSTED (503) -> chest stays READY, pending stays 0
+    // 1) Starter Bronze (0-assist READY) open hits PROMO_BUDGET_EXHAUSTED (503) -> chest stays READY, pending stays 0
     const st = await chestEngine.claimStarterBronzeChests({ userId: '501', walletAddress: W_U }, 1000);
     const b1 = st.chests[0];
-    await chestEngine.assistChest({ chestId: b1.chestId, helperUserId: '502', helperWalletAddress: W('73'), walletActive: true }, 1001);
-    await chestEngine.assistChest({ chestId: b1.chestId, helperUserId: '503', helperWalletAddress: W('74'), walletActive: true }, 1002);
     const openFail = await router({
       method: 'POST', pathname: `/api/chests/${b1.chestId}/open`,
       headers: await tgHeaders(501, { nowSec: 1005 }), body: {}, nowSec: 1005,

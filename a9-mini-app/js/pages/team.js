@@ -363,7 +363,7 @@ export function renderBindTgGroup(root) {
             <div class="num-xs text-sec" style="line-height:1.6;">
               1. ${L('仅队长本人（已验签绑定钱包）可发起提交与核验，普通成员将被拒绝（403）。', 'Captain-only (verified wallet required); members are rejected (403).')}<br>
               2. ${L('仅提交 @群名 始终停留在「核验中」，绝不伪造已绑定状态。', 'Submitting @handle only sets verifying status; never faked as bound.')}<br>
-              3. ${L('必须先将官方 Bot 拉入群且队长具备群管理员权限；核验通过且群人数 ≥ 50 人、战队已绑定成员 ≥ 3 人，自动向队长金库发放 5,000 A9 创世激活金（同群/同人/同钱包永久限 1 次）。', 'Bot must be in group and captain must be admin. Verified groups with 50+ members and ≥3 bound squad members grant a one-time 5,000 A9 captain founding bonus (strictly once per group, user, and wallet).')}<br>
+              3. ${L('拉官方 Bot 入群且队长为管理员；群 ≥50 人、满 3 成员即发 5,000 A9（限 1 次）。', 'Add official Bot as admin; verified 50+ member groups with ≥3 squad members earn 5,000 A9 once.')}<br>
               4. ${L('同一真实群 ID（tgChatId）仅允许绑定 1 个战队；直推成员每次购箱返佣 6%，Bot 将私聊通知队长。', 'One tgChatId binds at most one squad; Bot DMs the captain on every 6% referral credit.')}
             </div>
           </div>
@@ -506,7 +506,7 @@ export function renderInviteShare(root) {
               : `<div class="num-xs text-sec">${escapeHtml(livePromoErr || (store.state.user.address ? L('正在读取真实推广余额…', 'Loading promo balance…') : L('连接并验证 TON 钱包后可查看可领余额', 'Connect and verify wallet to view claimable balance')))}</div>`}
           ${lastClaimStatus ? `<div class="num-xs text-green mono" style="margin-top:6px;">${L('最近领奖单', 'Latest claim')}: ${escapeHtml(lastClaimStatus.claimId)} · ${escapeHtml(lastClaimStatus.status)}${lastClaimStatus.payoutTxHash ? ` · ${escapeHtml(lastClaimStatus.payoutTxHash.slice(0, 14))}…` : ''}</div>` : ''}
           <button class="btn ${config.isDemo || (canLiveClaim && !promoTxLocked) ? 'btn-primary' : 'btn-secondary'} btn-sm" id="btn-claim-promo-hot" style="width:100%;margin-top:12px;" ${promoDisabled ? 'disabled' : ''}>${icon(store.fundsEnabled ? (promoTxLocked ? 'clock' : 'wallet') : 'lock', 14)} ${config.isDemo
-            ? L('领取邀友奖励（演示模拟 0.06 GRAM）', 'Claim Invite Rewards (Demo 0.06 GRAM)')
+            ? L('领取邀友 A9（演示付 0.06 GRAM Gas）', 'Claim Invite A9 (Demo 0.06 GRAM Gas)')
             : canLiveClaim
               ? (promoTxLocked
                   ? L('推广发放确认中（防重锁）', 'Promo Payout Confirming…')
