@@ -342,17 +342,32 @@ export function renderCurrentRoute() {
     return;
   }
   const prevPath = lastRenderedPath;
-  route.render(mainEl, navigate, param, query);
+  // 每次路由切换均创建全新子挂载容器，确保旧页面的 root.isConnected 立即变为 false，
+  // 彻底根治弱网快切 Tab 异步回调覆写新页面 DOM 与页面内 setInterval 定时器泄漏。
+  let renderTarget = mainEl;
+  if (typeof document.createElement === 'function' && typeof mainEl.replaceChildren === 'function') {
+    const viewHost = document.createElement('div');
+    viewHost.className = 'route-view-host';
+    mainEl.replaceChildren(viewHost);
+    renderTarget = viewHost;
+  } else if (typeof document.createElement === 'function' && typeof mainEl.appendChild === 'function') {
+    const viewHost = document.createElement('div');
+    viewHost.className = 'route-view-host';
+    mainEl.innerHTML = '';
+    mainEl.appendChild(viewHost);
+    renderTarget = viewHost;
+  }
+  route.render(renderTarget, navigate, param, query);
   if (prevPath && route.path !== prevPath) {
     if (route.shell === 'stack') A9Audio.pageTurn();
     if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      mainEl.animate?.([{opacity:0.7, transform:'translateY(5px)'},{opacity:1, transform:'none'}],{duration:180,easing:'ease-out'});
+      renderTarget.animate?.([{opacity:0.7, transform:'translateY(5px)'},{opacity:1, transform:'none'}],{duration:180,easing:'ease-out'});
     }
   }
   lastRenderedPath = route.path;
   lastFullHash = currentHash;
-  bindKineticSurfaces(mainEl);
-  requestAnimationFrame(() => syncSlidingSegTabs(mainEl));
+  bindKineticSurfaces(renderTarget);
+  requestAnimationFrame(() => syncSlidingSegTabs(renderTarget));
 
   const banner = staleBanner();
   if (banner) {

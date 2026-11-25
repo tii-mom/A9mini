@@ -1271,5 +1271,16 @@ test('Batch C: lockMode blocks ?mode=demo, TON Connect enforces mainnet chain & 
   const headersText = readFileSync(join(appRoot, '_headers'), 'utf8');
   assert.ok(headersText.includes('/js/runtime-config.js'));
   assert.ok(headersText.includes('Cache-Control: no-cache, must-revalidate'));
+
+  // P1-4 & P2-1 regression checks: isolated route viewHost prevents stale async overwrite/timer leaks; XSS escaping complete
+  const appSrc = readFileSync(join(JS_DIR, 'app.js'), 'utf8');
+  assert.ok(appSrc.includes("viewHost.className = 'route-view-host'"), 'app.js must mount each route in a fresh viewHost');
+  assert.ok(appSrc.includes('mainEl.replaceChildren(viewHost)'), 'app.js must replace mainEl children so old root.isConnected turns false');
+  assert.ok(appSrc.includes('route.render(renderTarget, navigate, param, query)'), 'app.js must pass isolated renderTarget to route.render');
+
+  const profileSrc = readFileSync(join(JS_DIR, 'pages/profile.js'), 'utf8');
+  assert.ok(profileSrc.includes('${escapeHtml(txHash)}'), 'profile.js must escape txHash');
+  const systemSrc = readFileSync(join(JS_DIR, 'pages/system.js'), 'utf8');
+  assert.ok(systemSrc.includes('${escapeHtml(ev.detail)}'), 'system.js must escape audit log detail');
 });
 

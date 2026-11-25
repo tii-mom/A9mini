@@ -539,7 +539,7 @@ export function renderClaimPage(root) {
             <div style="display:flex;justify-content:center;margin:0 auto 8px;">${renderChestSvg('gold', { size: 68, state: 'opened' })}</div>
             <div style="font-size:18px;font-weight:900;">${L('奖金宝箱已开启', 'Prize Chest Opened')}</div>
             <div class="num-hero text-green" id="claimed-final-num" style="margin:6px 0;">+${formatNum(claimedAmount)} <span class="num-md text-green">A9</span></div>
-            <div class="num-xs text-sec clickable" id="copy-claim-tx">${txHash} ${icon('copy', 12)}</div>
+            <div class="num-xs text-sec clickable" id="copy-claim-tx">${escapeHtml(txHash)} ${icon('copy', 12)}</div>
             <div class="num-xs text-muted" style="margin-top:6px;">${L('演示哈希 · 非链上交易', 'Demo hash · not an on-chain tx')}</div>
           </div>
 

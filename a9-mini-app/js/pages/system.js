@@ -512,11 +512,11 @@ export function renderRiskAudit(root) {
           ${events.map(ev => `
             <div class="list-row">
               <div>
-                <div class="num-xs text-muted mono">${ev.time}</div>
-                <div style="font-weight:800;margin-top:1px;">${ev.target}</div>
-                <div class="num-xs text-sec">${ev.detail}</div>
+                <div class="num-xs text-muted mono">${escapeHtml(ev.time)}</div>
+                <div style="font-weight:800;margin-top:1px;">${escapeHtml(ev.target)}</div>
+                <div class="num-xs text-sec">${escapeHtml(ev.detail)}</div>
               </div>
-              <span class="chip ${ev.cls}">${ev.result}</span>
+              <span class="chip ${escapeHtml(ev.cls)}">${escapeHtml(ev.result)}</span>
             </div>
           `).join('')}
         </div>

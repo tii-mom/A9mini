@@ -2899,6 +2899,97 @@ await test('Batch B: claim preview, payout-daemon budget/rebind, Masterchain & p
   });
   assert.equal(badMainnetEnv.ok, false);
   assert.equal(badMainnetEnv.code, 'PRODUCTION_CONFIG_INVALID');
+
+  // 7) Audit follow-up: P2-2 production defaults to v16 required vars even when A9_PROTOCOL_VERSION is omitted
+  const prodDefaultV16 = validateDeployEnv({
+    DB: db,
+    A9_ENVIRONMENT: 'production',
+    // A9_PROTOCOL_VERSION intentionally omitted
+  });
+  assert.equal(prodDefaultV16.ok, false);
+  assert.equal(prodDefaultV16.code, 'PRODUCTION_CONFIG_INCOMPLETE');
+  assert.ok(prodDefaultV16.missing.includes('A9_ROUND_CONTROLLER_ADDRESS'));
+
+  // 8) Audit follow-up: P2-3 GET /api/user/:wallet rejects malformed addresses before invoking TonCenter userReader
+  let readerCalled = 0;
+  const strictUserRouter = createApiRouter({
+    env: { TONCENTER_API_BASE: 'https://toncenter.com/api/v2', A9_NETWORK: 'mainnet' },
+    stateStore: {
+      getTiming: () => ({ observationSeconds: 86400 }),
+      getProtocolState: () => ({ dataAvailable: true, currentRoundId: 1 }),
+      listRounds: () => [],
+      getRound: () => null,
+    },
+    userReader: async () => {
+      readerCalled += 1;
+      return { jettonWallet: null, a9BalanceRaw: null, balanceAvailable: false, tickets: [], ticketsAvailable: false, onchainAvailable: false };
+    },
+  });
+  const badWalletRes = await strictUserRouter({ method: 'GET', pathname: '/api/user/NOT_A_VALID_WALLET', nowSec: 3100 });
+  assert.equal(badWalletRes.status, 400);
+  assert.equal(readerCalled, 0, 'malformed wallet MUST NOT call external TonCenter userReader');
+
+  // 9) Audit follow-up: P1-5 POST /api/admin/rounds/:id/candles idempotently persists to D1 round_candles
+  const unauthCandle = await cfWorker.fetch(
+    new Request('https://api.a9.lat/api/admin/rounds/1/candles', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ candles: [{ candleIndex: 0, periodStart: 1000, periodEnd: 4600, twapPriceUsdE8: '250000', qualified: true }] }),
+    }),
+    { DB: db, A9_ADMIN_TOKEN: 'adm_candle_sec' },
+  );
+  assert.equal(unauthCandle.status, 401);
+
+  const badCandle = await cfWorker.fetch(
+    new Request('https://api.a9.lat/api/admin/rounds/1/candles', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-a9-admin-token': 'adm_candle_sec' },
+      body: JSON.stringify({
+        candles: [
+          { candleIndex: 0, periodStart: 1000, periodEnd: 4600, twapPriceUsdE8: '250000', qualified: true },
+          { candleIndex: 0, periodStart: 4600, periodEnd: 8200, twapPriceUsdE8: '260000', qualified: true },
+        ],
+      }),
+    }),
+    { DB: db, A9_ADMIN_TOKEN: 'adm_candle_sec' },
+  );
+  assert.equal(badCandle.status, 400);
+
+  const okCandle1 = await cfWorker.fetch(
+    new Request('https://api.a9.lat/api/admin/rounds/1/candles', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-a9-admin-token': 'adm_candle_sec' },
+      body: JSON.stringify({
+        candles: [
+          { candleIndex: 0, periodStart: 1000, periodEnd: 4600, twapPriceUsdE8: '250000', qualified: true },
+          { candleIndex: 1, periodStart: 4600, periodEnd: 8200, twapPriceUsdE8: '190000', qualified: false },
+        ],
+      }),
+    }),
+    { DB: db, A9_ADMIN_TOKEN: 'adm_candle_sec' },
+  );
+  assert.equal(okCandle1.status, 200);
+  const okCandle1Body = await okCandle1.json();
+  assert.equal(okCandle1Body.data.upsertedCount, 2);
+
+  // Idempotent upsert updates existing candleIndex=1 without duplicating rows
+  const okCandle2 = await cfWorker.fetch(
+    new Request('https://api.a9.lat/api/admin/rounds/1/candles', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-a9-admin-token': 'adm_candle_sec' },
+      body: JSON.stringify({
+        candles: [
+          { candleIndex: 1, periodStart: 4600, periodEnd: 8200, twapPriceUsdE8: '270000', qualified: true },
+        ],
+      }),
+    }),
+    { DB: db, A9_ADMIN_TOKEN: 'adm_candle_sec' },
+  );
+  assert.equal(okCandle2.status, 200);
+  const storedCandles = await db.prepare('SELECT candle_index, twap_price_usd_e8, qualified FROM round_candles WHERE round_id = 1 ORDER BY candle_index ASC').all();
+  assert.equal(storedCandles.results.length, 2);
+  assert.equal(storedCandles.results[1].twap_price_usd_e8, '270000');
+  assert.equal(Number(storedCandles.results[1].qualified), 1);
 });
 
 console.log(`All ${passed} A9 v15 worker tests passed.`);

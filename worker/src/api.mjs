@@ -226,6 +226,7 @@ export function createApiRouter({
   broadcaster = null,
   healthChecker = null,
   runnerHeartbeatReader = null,
+  candleWriter = null,
 }) {
   // M-5: 24h 换绑冷静期到期晋升时自动将旧钱包推广余额原子合并至新钱包，且仅在无在途领奖单时放行晋升
   if (promoEngine && typeof promoEngine.mergeBalance === 'function' && identityStore && typeof identityStore === 'object' && !identityStore.onWalletRebound) {
@@ -586,6 +587,16 @@ export function createApiRouter({
       const userMatch = method === 'GET' && pathname.match(/^\/api\/user\/(.+)$/);
       if (userMatch) {
         const wallet = decodeURIComponent(userMatch[1]);
+        const envName = String(env.A9_ENVIRONMENT || '').trim().toLowerCase();
+        const netName = String(env.A9_NETWORK || '').trim().toLowerCase();
+        const strictWalletCheck =
+          Boolean(String(env.TONCENTER_API_BASE || '').trim()) ||
+          envName === 'production' ||
+          envName === 'candidate' ||
+          netName === 'mainnet';
+        if (strictWalletCheck && !normalizeTonAddress(wallet)) {
+          return err('BAD_REQUEST', 'invalid TON wallet address', 400);
+        }
         const range = resolveTicketRoundRange(query, stateStore);
         if (range.error) return err('BAD_REQUEST', range.error, 400);
         let onchain = { jettonWallet: null, a9BalanceRaw: null, balanceAvailable: false, tickets: [], ticketsAvailable: false, onchainAvailable: false };
@@ -1416,6 +1427,58 @@ export function createApiRouter({
           }, nowSec));
         }
         return err('NOT_FOUND', 'route not found', 404);
+      }
+
+      // Admin: Idempotent 1H TWAP candle upsert into round_candles (used by Keeper/Oracle pipeline)
+      const adminCandlesMatch = method === 'POST' && pathname.match(/^\/api\/admin\/rounds\/(\d+)\/candles$/);
+      if (adminCandlesMatch) {
+        const expectedToken = String(env.A9_ADMIN_TOKEN || '').trim();
+        const providedToken = extractAdminToken(headers);
+        if (!timingSafeEqualStr(providedToken, expectedToken)) {
+          return err('UNAUTHORIZED', 'invalid or missing admin token', 401);
+        }
+        if (typeof candleWriter !== 'function') {
+          return err('CANDLE_WRITER_UNAVAILABLE', 'round candle writer not configured', 503);
+        }
+        const roundId = Number(adminCandlesMatch[1]);
+        if (!Number.isInteger(roundId) || roundId < 1) {
+          return err('BAD_REQUEST', 'roundId must be a positive integer', 400);
+        }
+        const rawCandles = Array.isArray(body?.candles) ? body.candles : null;
+        if (!rawCandles || rawCandles.length < 1 || rawCandles.length > 24) {
+          return err('BAD_REQUEST', 'candles array (1..24 items) is required', 400);
+        }
+        const seenIdx = new Set();
+        const normalized = [];
+        for (const item of rawCandles) {
+          const idx = Number(item?.candleIndex);
+          const pStart = Number(item?.periodStart);
+          const pEnd = Number(item?.periodEnd);
+          const twapStr = String(item?.twapPriceUsdE8 ?? '').trim();
+          const qualRaw = item?.qualified;
+          const qualValid = typeof qualRaw === 'boolean' || qualRaw === 0 || qualRaw === 1;
+          if (
+            !Number.isInteger(idx) || idx < 0 || idx > 23 ||
+            seenIdx.has(idx) ||
+            !Number.isInteger(pStart) || pStart <= 0 ||
+            !Number.isInteger(pEnd) || pEnd <= pStart ||
+            !/^\d+$/.test(twapStr) ||
+            !qualValid
+          ) {
+            return err('BAD_REQUEST', 'invalid candle item (require unique candleIndex 0..23, periodEnd > periodStart > 0, integer twapPriceUsdE8, boolean qualified)', 400);
+          }
+          seenIdx.add(idx);
+          normalized.push({
+            candleIndex: idx,
+            periodStart: pStart,
+            periodEnd: pEnd,
+            twapPriceUsdE8: twapStr,
+            qualified: Boolean(qualRaw),
+          });
+        }
+        normalized.sort((a, b) => a.candleIndex - b.candleIndex);
+        await candleWriter(roundId, normalized, nowSec);
+        return ok({ roundId, upsertedCount: normalized.length, candles: normalized });
       }
 
       // Plan 3: Dynamic OG / Story PNG raster image (/c/img/:type/:id.png)

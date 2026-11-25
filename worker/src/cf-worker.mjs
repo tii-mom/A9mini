@@ -166,6 +166,34 @@ export async function readCachedRoundsFromD1(db, nowSec) {
   }
 }
 
+export async function writeCandlesToD1(db, roundId, candles) {
+  if (!db || !Array.isArray(candles) || !candles.length) return 0;
+  const rId = Number(roundId);
+  const stmts = candles.map((c) =>
+    db
+      .prepare(
+        `INSERT INTO round_candles (
+           round_id, candle_index, period_start, period_end, twap_price_usd_e8, qualified
+         ) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(round_id, candle_index) DO UPDATE SET
+           period_start = excluded.period_start,
+           period_end = excluded.period_end,
+           twap_price_usd_e8 = excluded.twap_price_usd_e8,
+           qualified = excluded.qualified`,
+      )
+      .bind(
+        rId,
+        Number(c.candleIndex),
+        Number(c.periodStart),
+        Number(c.periodEnd),
+        String(c.twapPriceUsdE8),
+        c.qualified ? 1 : 0,
+      ),
+  );
+  await db.batch(stmts);
+  return stmts.length;
+}
+
 async function writeRoundsCacheToD1(db, rounds, nowSec) {
   if (!db || !rounds.length) return;
   try {
@@ -275,13 +303,14 @@ export function validateCandidateEnv(env = {}) {
   }
   const envName = String(env.A9_ENVIRONMENT || '').trim().toLowerCase();
   const netName = String(env.A9_NETWORK || '').trim().toLowerCase();
-  const protoVer = String(env.A9_PROTOCOL_VERSION || '').trim().toLowerCase();
+  const rawProtoVer = String(env.A9_PROTOCOL_VERSION || '').trim().toLowerCase();
+  const protoVer = rawProtoVer || 'v16';
   const isProduction = envName === 'production' || netName === 'mainnet';
   if (isProduction) {
     const missing = [];
     // 生产环境严禁无 D1 绑定时静默退回内存 Store
     if (!env.DB) missing.push('DB');
-    // 主网运行 v16 时合并全部关键合约与域名白名单门禁，绝不绕过生产分支
+    // 主网/生产默认按 v16 强检全部关键合约与域名白名单，防漏配 A9_PROTOCOL_VERSION 绕过门禁
     if (protoVer === 'v16') {
       for (const key of CANDIDATE_REQUIRED_VARS) {
         if (!String(env[key] || '').trim()) missing.push(key);
@@ -328,7 +357,7 @@ export function validateCandidateEnv(env = {}) {
     }
     return { ok: true, missing: [], code: null };
   }
-  const isCandidate = envName === 'candidate' || protoVer === 'v16';
+  const isCandidate = envName === 'candidate' || rawProtoVer === 'v16';
   if (isCandidate) {
     const missing = [];
     if (!env.DB) missing.push('DB');
@@ -650,6 +679,15 @@ export default {
         }
       : null;
 
+    const candleWriter = hasD1
+      ? async (roundId, candles) => {
+          await writeCandlesToD1(env.DB, roundId, candles);
+          if (rcAddr) {
+            memChainCacheByTarget.delete(`${env.TONCENTER_API_BASE || ''}:${rcAddr}`);
+          }
+        }
+      : null;
+
     const router = createApiRouter({
       env,
       stateStore,
@@ -667,6 +705,7 @@ export default {
       broadcaster,
       healthChecker,
       runnerHeartbeatReader: readRunnerHeartbeats,
+      candleWriter,
     });
     const out = await router({ method: request.method, pathname: url.pathname, query, body, headers, origin: url.origin });
 
