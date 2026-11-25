@@ -29,6 +29,7 @@ import {
   demoOpenWarmupChest
 } from './demo-data.js';
 import { A9TMA } from './tma.js';
+import { L } from './i18n.js';
 
 /** v16.2 唯一前端展示口径常量源（Single Source of Truth，严禁各页散落旧口径） */
 export const PROTOCOL_SPECS = Object.freeze({
@@ -135,20 +136,20 @@ async function request(path, { timeoutMs = config.timeoutMs, method = 'GET', bod
     try {
       body = await res.json();
     } catch (_) {
-      throw new ApiError('BAD_RESPONSE', `接口返回非 JSON（HTTP ${res.status}）`, res.status);
+      throw new ApiError('BAD_RESPONSE', L(`接口返回非 JSON（HTTP ${res.status}）`, `Non-JSON API response (HTTP ${res.status})`), res.status);
     }
     if (!body || typeof body !== 'object' || !('ok' in body)) {
-      throw new ApiError('BAD_RESPONSE', '接口返回格式错误', res.status);
+      throw new ApiError('BAD_RESPONSE', L('接口返回格式错误', 'Malformed API response'), res.status);
     }
     if (typeof body.ts === 'number' && Number.isFinite(body.ts) && body.ts > 1_000_000_000_000) {
       serverClockOffsetMs = body.ts - Date.now();
     }
-    if (!body.ok) throw new ApiError(body.error?.code || 'API_ERROR', body.error?.message || '接口返回错误', res.status);
+    if (!body.ok) throw new ApiError(body.error?.code || 'API_ERROR', body.error?.message || L('接口返回错误', 'API error'), res.status);
     return body.data;
   } catch (e) {
-    if (timedOut) throw new ApiError('NETWORK', '请求超时，请重试', 408);
+    if (timedOut) throw new ApiError('NETWORK', L('请求超时，请重试', 'Request timed out; please retry'), 408);
     if (e instanceof ApiError) throw e;
-    throw new ApiError('NETWORK', '网络异常或接口不可达，请重试', 0);
+    throw new ApiError('NETWORK', L('网络异常或接口不可达，请重试', 'Network error or API unreachable; please retry'), 0);
   } finally {
     clearTimeout(timer);
   }
@@ -181,7 +182,7 @@ export async function loadSnapshot() {
       request(ENDPOINTS.rounds)
     ]);
     if (!protocolConfig || !Array.isArray(rounds)) {
-      throw new ApiError('BAD_RESPONSE', '接口返回配置或轮次格式错误');
+      throw new ApiError('BAD_RESPONSE', L('接口返回配置或轮次格式错误', 'Invalid protocol config or rounds response'));
     }
     const focus = pickFocusRound(rounds);
     // 轮次尚未开启（/api/config 正常、/api/rounds 为空）时允许进入只读广场与宝箱商城；
@@ -189,7 +190,7 @@ export async function loadSnapshot() {
     const detail = focus ? await request(ENDPOINTS.round(focus.roundId)) : null;
     const snapshot = {
       source: 'api',
-      label: '实时数据',
+      label: L('实时数据', 'Live'),
       fetchedAt: Date.now(),
       config: protocolConfig,
       rounds,
@@ -330,11 +331,12 @@ export function mapRoundView(snapshot) {
   return view;
 }
 
-const LIVE_FUNDS_DISABLED_MSG = '当前真实模式处于只读验收阶段，资金订单与钱包交易暂未开放';
-
 function assertFundsAllowedInMode() {
   if (!config.isDemo && !config.liveFundsEnabled) {
-    throw new ApiError('LIVE_FUNDS_DISABLED', LIVE_FUNDS_DISABLED_MSG);
+    throw new ApiError(
+      'LIVE_FUNDS_DISABLED',
+      L('当前真实模式处于只读验收阶段，资金订单与钱包交易暂未开放', 'Live mode is currently read-only; fund orders and wallet signing are disabled')
+    );
   }
 }
 
@@ -420,7 +422,7 @@ export async function fetchPredictionUser(userId, roundId) {
 
 /** 24H 生死预言局：提交单轮多空预言（0 TON 参战） */
 export async function submitPredictionBet({ roundId, userId, side, guessSlots, referrerId }) {
-  if (!userId) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 内打开或先连接 TON 钱包后再提交预言');
+  if (!userId) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 内打开或先连接 TON 钱包后再提交预言', 'Open inside Telegram or connect a TON wallet before predicting'));
   if (config.isDemo) {
     try {
       return demoPredictionBet({ roundId, userId, side, guessSlots, referrerId });
@@ -438,8 +440,8 @@ export async function submitPredictionBet({ roundId, userId, side, guessSlots, r
 
 /** 24H 生死预言局：激活待激活预言奖励到 promo_balances（live 只读阶段拦截，实盘态附带幂等键） */
 export async function activatePredictionReward(userId, walletAddress, activationId = null) {
-  if (!userId) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 内打开或先连接 TON 钱包');
-  if (!walletAddress) throw new ApiError('WALLET_REQUIRED', '请先连接 TON 钱包以激活奖励');
+  if (!userId) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 内打开或先连接 TON 钱包', 'Open inside Telegram or connect a TON wallet'));
+  if (!walletAddress) throw new ApiError('WALLET_REQUIRED', L('请先连接 TON 钱包以激活奖励', 'Connect a TON wallet to activate rewards'));
   if (config.isDemo) {
     try {
       return demoPredictionActivate(userId, walletAddress);
@@ -473,7 +475,7 @@ export async function claimProgressionTask({ userId, taskKey, roundId = null }) 
     }
   }
   if (!A9TMA.getRawInitData()) {
-    throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开以完成每日打卡盖章');
+    throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 小程序内打开以完成每日打卡盖章', 'Open inside Telegram Mini App for daily check-in'));
   }
   return request(ENDPOINTS.progressionClaim, {
     method: 'POST',
@@ -590,7 +592,7 @@ export async function requestPresaleIntent(walletAddress, tonAmount, referrerId 
 /** 阶段五：战队队长提交 Telegram 群名进入待核验状态（verifying，绝不直接置为 bound） */
 export async function bindTeamGroupTg({ teamId, name = null, tgGroupHandle }) {
   if (!A9TMA.getRawInitData()) {
-    throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内以队长身份提交群组绑定');
+    throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 小程序内以队长身份提交群组绑定', 'Open inside Telegram Mini App as captain to link a group'));
   }
   return request(ENDPOINTS.teamBindTg, {
     method: 'POST',
@@ -601,7 +603,7 @@ export async function bindTeamGroupTg({ teamId, name = null, tgGroupHandle }) {
 /** 阶段五：战队队长发起 Telegram 群真实权限核验 */
 export async function verifyTeamGroupTg({ teamId }) {
   if (!A9TMA.getRawInitData()) {
-    throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内以队长身份发起群核验');
+    throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 小程序内以队长身份发起群核验', 'Open inside Telegram Mini App as captain to verify the group'));
   }
   return request(ENDPOINTS.teamVerifyTg, {
     method: 'POST',
@@ -657,10 +659,10 @@ export async function fetchMyChests() {
   return request(ENDPOINTS.chestsMe);
 }
 
-/** 宝箱商城：首次领取青铜宝箱 #1（激活免费宝箱链） */
+/** 宝箱商城：首次领取新手青铜宝箱（激活免费宝箱链） */
 export async function claimStarterChests() {
   if (config.isDemo) return demoClaimStarterChests();
-  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开');
+  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 小程序内打开', 'Open inside Telegram Mini App'));
   return request(ENDPOINTS.chestsStarter, { method: 'POST', body: {} });
 }
 
@@ -670,12 +672,12 @@ export async function fetchChestById(chestId) {
   return request(ENDPOINTS.chestDetail(chestId));
 }
 
-/** 宝箱助力：连接已激活 TON 钱包为好友助力，顺手自动领青铜宝箱 #1 */
+/** 宝箱助力：连接已激活 TON 钱包为好友助力，立得可秒开的 200 A9 新手青铜宝箱 */
 export async function assistChestById(chestId, walletAddress = null) {
   if (config.isDemo) {
     try { return demoAssistChest(chestId); } catch (e) { throw new ApiError('DEMO_ASSIST_ERR', e.message); }
   }
-  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开后助力');
+  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 小程序内打开后助力', 'Open inside Telegram Mini App to assist'));
   return request(ENDPOINTS.chestAssist(chestId), { method: 'POST', body: { walletAddress: walletAddress || null } });
 }
 
@@ -691,10 +693,10 @@ export async function openChestById(chestId, stateForDemo = null, walletAddress 
     } catch (e) { throw new ApiError('DEMO_OPEN_ERR', e.message); }
   }
   if (cid.startsWith('ch_demo_') || cid.startsWith('demo_')) {
-    throw new ApiError('MODE_MISMATCH', '演示宝箱不可在真实模式下开启');
+    throw new ApiError('MODE_MISMATCH', L('演示宝箱不可在真实模式下开启', 'Demo chests cannot be opened in Live mode'));
   }
   assertFundsAllowedInMode();
-  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开后开箱');
+  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 小程序内打开后开箱', 'Open inside Telegram Mini App to open chest'));
   return request(ENDPOINTS.chestOpen(chestId), { method: 'POST', body: { walletAddress: walletAddress || null } });
 }
 
@@ -704,7 +706,7 @@ export async function openAllChests({ tier = null, stateForDemo = null, walletAd
     try { return demoOpenAllChests(stateForDemo, tier); } catch (e) { throw new ApiError('DEMO_OPEN_ALL_ERR', e.message); }
   }
   assertFundsAllowedInMode();
-  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开后一键开箱');
+  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 小程序内打开后一键开箱', 'Open inside Telegram Mini App to open all chests'));
   return request(ENDPOINTS.chestsOpenAll, {
     method: 'POST',
     body: { walletAddress: walletAddress || null, tier: tier || null }
@@ -753,7 +755,7 @@ export async function updateNotificationPrefs({ settlementPush }) {
       updatedAt: Math.floor(Date.now() / 1000),
     };
   }
-  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', '请在 Telegram 小程序内打开');
+  if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 小程序内打开', 'Open inside Telegram Mini App'));
   return request(ENDPOINTS.meNotifications, {
     method: 'POST',
     body: { settlementPush: Boolean(settlementPush) },

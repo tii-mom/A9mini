@@ -23,6 +23,15 @@
   Access-Control-Allow-Origin: *
   Cache-Control: public, max-age=86400
 
+/assets/boxheads/*
+  Cache-Control: public, max-age=86400
+
+/assets/fonts/*
+  Cache-Control: public, max-age=604800
+
+/assets/brand/*
+  Cache-Control: public, max-age=86400
+
 /*
   Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'self' https://web.telegram.org https://*.telegram.org https://t.me; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.a9.lat https: wss:; upgrade-insecure-requests
   X-Content-Type-Options: nosniff

@@ -128,7 +128,7 @@ export function renderTeamHome(root, navigate) {
           ${(team.topMembers || []).length === 0
             ? `<div class="empty-state" style="padding:14px;grid-column:1/-1;"><div class="num-xs text-muted">${L('暂无成员闯关战绩', 'No active members yet')}</div></div>`
             : (team.topMembers || []).map((m,i) => `
-            <div class="guild-member"><img src="./assets/boxheads/activity/avatars/act-0${[5,4,6][i%3]}.png" alt=""><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
+            <div class="guild-member"><img src="./assets/boxheads/activity/avatars/act-0${[5,4,6][i%3]}.png" alt="" loading="lazy" decoding="async"><div class="num-sm"><span class="text-gold">${escapeHtml(m.rank)}</span> ${escapeHtml(m.addr)}</div>
               <div class="num-xs text-green mono" style="font-weight:800;">${formatNum(m.ton)} A9</div>
             </div>
           `).join('')}

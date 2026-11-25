@@ -128,22 +128,22 @@ function buildAngles(type, id, ctx = {}) {
   }
 
   if (type === 'chest') {
-    const label = ctx.label || L('青铜宝箱 #1', 'Bronze Chest #1');
+    const label = ctx.label || L('白银助力箱', 'Silver Co-Op Chest');
     const isBoost = ctx.source === 'SHOP_BOOST';
     const need = Math.max(0, Number(ctx.requiredAssists || 2) - Number(ctx.currentAssists || 0));
-    const rewardText = ctx.rewardText || '300 A9';
+    const rewardText = ctx.rewardText || '1,000 A9';
     return [
       {
         key: 'gift',
-        label: isBoost ? L('随机暴击战报', 'Crit Report') : L('双人同行礼', 'Co-Op Gift'),
+        label: isBoost ? L('随机暴击战报', 'Crit Report') : L('双向开箱礼', 'Co-Op Gift'),
         text: isBoost
           ? L(
-              `刚在 A9 宝箱商城开启【${label}】触发随机暴击，额外爆出 ${rewardText}！付费箱免助力 100% 固定本金保底 + 最高 +30% 暴击，来试试手气或 0 GRAM 参加 24H 预言擂台！`,
-              `Just hit a random crit opening [${label}] in A9 Chest Mall (+${rewardText} bonus)! Paid chests need zero assists—100% base safe + up to +30% crit.`
+              `刚在 A9 宝箱商城开启【${label}】触发随机暴击，额外爆出 ${rewardText}！6 档纯整数本金保底免助力，传说箱最高暴击 +300,000 A9，来试试手气或 0 GRAM 参加 24H 预言擂台！`,
+              `Just hit a random crit opening [${label}] in A9 Chest Mall (+${rewardText} bonus)! 6 integer-base tiers with zero assists needed and up to +300,000 A9 crit.`
             )
           : L(
-              `A9 双人同行礼：一起累计活跃钱包进度开启【${label}】（${rewardText}，还差 ${need} 位同路人），确认同行后自动为你发放青铜宝箱 #1（300 A9，按规则激活）！`,
-              `A9 Co-Op Gift: team up with an active TON wallet to unlock [${label}] (${rewardText}, ${need} partner(s) left) and start your own Bronze Chest #1 (300 A9).`
+              `A9 双向开箱礼：帮我助力开启【${label}】（${rewardText}，还差 ${need} 位同路人），确认同行立刻领可秒开的 200 A9 青铜新手箱！`,
+              `A9 Co-Op Gift: assist [${label}] (${rewardText}, ${need} partner(s) left) with an active TON wallet and instantly open your own 200 A9 Bronze Starter Chest!`
             )
       },
       {
@@ -155,8 +155,8 @@ function buildAngles(type, id, ctx = {}) {
               `A9 Round #${roundNum} 24H is heating up (${passed}/${required} slots)! Just popped [${label}] for ${rewardText} bonus—come pick PASS or BURN for 0 GRAM.`
             )
           : L(
-              `A9 第 ${roundNum} 轮 24H 生死线（${passed}/${required} 段）！差 ${need} 位活跃钱包同路人一起开【${label}】，同行即得青铜宝箱 #1，来 24H 擂台一决高下！`,
-              `A9 Round #${roundNum} (${passed}/${required} slots)! Need ${need} active-wallet partner(s) for [${label}]—claim your Co-Op Bronze Chest #1 and call PASS vs BURN.`
+              `A9 第 ${roundNum} 轮 24H 生死线（${passed}/${required} 段）！差 ${need} 位活跃钱包同路人一起开【${label}】，同行秒领 200 A9 青铜新手箱，来 24H 擂台一决高下！`,
+              `A9 Round #${roundNum} (${passed}/${required} slots)! Need ${need} active-wallet partner(s) for [${label}]—get an instant 200 A9 Bronze Starter Chest and call PASS vs BURN.`
             )
       },
       {
@@ -164,12 +164,12 @@ function buildAngles(type, id, ctx = {}) {
         label: L('链上规则透明', 'Transparent'),
         text: isBoost
           ? L(
-              `A9 宝箱商城透明规则：付费宝箱 100% 固定本金保底直发，开箱触发服务端随机暴击（5%–30% 区间，四档概率全公开）。`,
-              `A9 Chest Mall rules: paid chests credit 100% base principal directly, plus server-side CSPRNG random crit (up to +5%–+30% across 4 transparent tiers).`
+              `A9 宝箱商城透明规则：6 档纯整数 A9 保底直发、不限个人购箱额度，开箱触发服务端 CSPRNG 纯整数随机暴击（最高 +300,000 A9，四档概率全公开）。`,
+              `A9 Chest Mall rules: 6 fixed integer-A9 tiers with no personal cap, plus server-side CSPRNG integer crits up to +300,000 A9 across 4 transparent odds tiers.`
             )
           : L(
-              `A9 协议双人同行礼：仅需连接链上活跃 TON 钱包校验（0 扣款、防女巫公开可查），同行推进【${label}】并自动激活青铜宝箱 #1。`,
-              `A9 Protocol Co-Op Gift: active TON wallet check (0 transfer, transparent anti-sybil) advances [${label}] and activates your Bronze Chest #1.`
+              `A9 协议双向开箱礼：仅需连接链上活跃 TON 钱包校验（0 扣款、防女巫公开可查），同行推进【${label}】并立得可秒开的 200 A9 青铜新手箱。`,
+              `A9 Protocol Co-Op Gift: active TON wallet check (0 transfer, transparent anti-sybil) advances [${label}] and unlocks an instant 200 A9 Bronze Starter Chest.`
             )
       }
     ];

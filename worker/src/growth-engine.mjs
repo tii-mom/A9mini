@@ -712,7 +712,7 @@ export function renderOgCardSvg({
   const poolPart = budgetA9 ? `Pool ${budgetA9} A9` : 'Pool Pending Verification';
   const chestSub = verified
     ? `${state || `${qualNum ?? 0}/${safeTotal} ASSISTS`} · ${budgetA9 ? `${budgetA9} A9 Reward` : 'Free Chest Assist'}`
-    : 'Connect Active TON Wallet to Assist & Claim Bronze Chest #1';
+    : 'Connect Active TON Wallet to Assist & Open 200 A9 Starter Chest';
   const sub = subtitle || (isChest
     ? chestSub
     : (!verified
@@ -729,7 +729,7 @@ export function renderOgCardSvg({
     bars.push(`<rect x="${x}" y="380" width="32" height="92" rx="8" fill="${fill}" />`);
   }
   const footerText = isChest
-    ? 'ACTIVE TON WALLET ASSIST · 0 TRANSFER · AUTO-CLAIM BRONZE #1'
+    ? 'ACTIVE TON WALLET ASSIST · 0 TRANSFER · INSTANT 200 A9 STARTER CHEST'
     : '16 / 24 HOURLY SLOTS TO PASS · 100% ON-CHAIN TON TEP-74';
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">

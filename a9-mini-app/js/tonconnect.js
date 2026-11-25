@@ -12,6 +12,7 @@ import { demoWalletSendResult } from './demo-data.js';
 import { A9Haptic } from './tma.js';
 import { escapeHtml, showToast, copyText, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
+import { L } from './i18n.js';
 import { buildV15StakeTx, buildV15ClaimTx, buildV15PromoFeeTx, buildV15PresaleTx, parseTonAddress } from './v15-tx.js';
 import { A9TMA as TMA } from './tma.js';
 import { fetchMe, requestTonProofPayload, submitTonProof } from './data.js';
@@ -36,8 +37,15 @@ export function canonicalWalletKey(addr) {
 
 export const LIVE_READONLY_REASON = '当前真实模式处于只读验收阶段，资金交易与钱包签名入口暂未开放（支持连接钱包与只读查询）。';
 
-function createFundsDisabledError(reason = LIVE_READONLY_REASON) {
-  const err = new Error(reason);
+function getLiveReadonlyReason() {
+  return L(
+    LIVE_READONLY_REASON,
+    'Live mode is currently read-only; wallet connection and queries work, while on-chain fund signing is disabled.'
+  );
+}
+
+function createFundsDisabledError(reason = null) {
+  const err = new Error(reason || getLiveReadonlyReason());
   err.code = 'LIVE_FUNDS_DISABLED';
   return err;
 }
@@ -82,32 +90,32 @@ class A9TonConnect {
       throw createFundsDisabledError();
     }
     if (!this.sdkReady || !this.ui || typeof this.ui.sendTransaction !== 'function') {
-      const err = new Error('TON Connect SDK 尚未就绪，请先刷新或重试加载钱包组件');
+      const err = new Error(L('TON Connect SDK 尚未就绪，请先刷新或重试加载钱包组件', 'TON Connect SDK is not ready; please refresh and retry'));
       err.code = 'WALLET_SDK_NOT_READY';
       throw err;
     }
     const u = store.state.user;
     if (!u.connected || !u.address) {
-      const err = new Error('请先连接非托管 TON 钱包后再发起交易签名');
+      const err = new Error(L('请先连接非托管 TON 钱包后再发起交易签名', 'Please connect a non-custodial TON wallet before signing'));
       err.code = 'WALLET_NOT_CONNECTED';
       throw err;
     }
     const expectedChain = this.getExpectedChainId();
     const walletChain = String(this.ui?.wallet?.account?.chain || u.walletChain || '').trim();
     if (expectedChain && walletChain && walletChain !== expectedChain) {
-      const wantLabel = expectedChain === '-239' ? 'TON 主网 (-239)' : 'TON 测试网 (-3)';
-      const err = new Error(`当前钱包网络 (${walletChain}) 与协议网络不匹配，请切换至 ${wantLabel} 后重试`);
+      const wantLabel = expectedChain === '-239' ? L('TON 主网 (-239)', 'TON Mainnet (-239)') : L('TON 测试网 (-3)', 'TON Testnet (-3)');
+      const err = new Error(L(`当前钱包网络 (${walletChain}) 与协议网络不匹配，请切换至 ${wantLabel} 后重试`, `Wallet network (${walletChain}) mismatches protocol; switch to ${wantLabel} and retry`));
       err.code = 'WRONG_WALLET_NETWORK';
       throw err;
     }
     if (proofFlowEnabled()) {
       if (u.walletVerificationState === 'unverified') {
-        const err = new Error('当前钱包尚未完成 Telegram 归属签名校验，请断开后重连钱包完成验签');
+        const err = new Error(L('当前钱包尚未完成 Telegram 归属签名校验，请断开后重连钱包完成验签', 'Wallet ownership proof not verified; disconnect and reconnect to sign'));
         err.code = 'WALLET_NOT_VERIFIED';
         throw err;
       }
       if (u.serverBoundWallet && canonicalWalletKey(u.address) !== canonicalWalletKey(u.serverBoundWallet)) {
-        const err = new Error('当前连接的钱包与账号已绑定钱包不一致，已拦截签名以防资金错付');
+        const err = new Error(L('当前连接的钱包与账号已绑定钱包不一致，已拦截签名以防资金错付', 'Connected wallet differs from your bound account wallet; signing blocked for safety'));
         err.code = 'WALLET_MISMATCH';
         throw err;
       }
@@ -144,10 +152,10 @@ class A9TonConnect {
             });
             const expectedChain = this.getExpectedChainId();
             if (!config.isDemo && expectedChain && chain && chain !== expectedChain) {
-              const wantLabel = expectedChain === '-239' ? 'TON 主网 (-239)' : 'TON 测试网 (-3)';
-              showToast(`检测到错链钱包 (${chain})，请切换至 ${wantLabel}`, 'error');
+              const wantLabel = expectedChain === '-239' ? L('TON 主网 (-239)', 'TON Mainnet (-239)') : L('TON 测试网 (-3)', 'TON Testnet (-3)');
+              showToast(L(`检测到错链钱包 (${chain})，请切换至 ${wantLabel}`, `Wrong wallet network (${chain}); please switch to ${wantLabel}`), 'error');
             } else {
-              showToast(`TON Connect 2.0 已连接: ${short}`);
+              showToast(L(`TON Connect 2.0 已连接: ${short}`, `TON Connect 2.0 connected: ${short}`));
             }
             await this._verifyOwnership(wallet);
           } else {
@@ -166,11 +174,11 @@ class A9TonConnect {
         });
         this._prepareProofPayload();
       } else {
-        this.lastError = 'TON Connect SDK 未加载（检查网络或 CDN）';
+        this.lastError = L('TON Connect SDK 未加载（检查网络或 CDN）', 'TON Connect SDK not loaded (check network)');
       }
     } catch (e) {
       this.sdkReady = false;
-      this.lastError = e?.message || 'TON Connect 初始化失败';
+      this.lastError = e?.message || L('TON Connect 初始化失败', 'TON Connect initialization failed');
     }
   }
 
@@ -190,7 +198,7 @@ class A9TonConnect {
     } catch (e) {
       this._proofPayload = null;
       this._proofExpiresAtSec = 0;
-      this.lastError = e?.message || '获取钱包归属挑战失败';
+      this.lastError = e?.message || L('获取钱包归属挑战失败', 'Failed to fetch wallet proof challenge');
       this.ui.setConnectRequestParameters(null);
       return false;
     }
@@ -222,8 +230,8 @@ class A9TonConnect {
       let pendingSwitch = null;
       let serverBoundWallet = null;
       if (proof && 'error' in proof) {
-        const reason = proof.error?.message || proof.error?.code || '钱包未提供归属签名';
-        showToast(`钱包未完成归属签名：${reason}`, 'amber');
+        const reason = proof.error?.message || proof.error?.code || L('钱包未提供归属签名', 'Wallet did not return ownership proof');
+        showToast(L(`钱包未完成归属签名：${reason}`, `Ownership proof incomplete: ${reason}`), 'amber');
       } else if (proof && 'proof' in proof) {
         const res = await submitTonProof({
           address: wallet.account.address,
@@ -239,11 +247,12 @@ class A9TonConnect {
         serverBoundWallet = res?.wallet?.address || null;
         if (res?.status === 'PENDING_REBIND') {
           pending = true;
-          showToast(`换绑申请已提交，将于 ${new Date(res.wallet.pendingSwitch.effectiveAt * 1000).toLocaleString()} 生效；原钱包可签名取消`, 'amber');
+          const effTime = new Date(res.wallet.pendingSwitch.effectiveAt * 1000).toLocaleString();
+          showToast(L(`换绑申请已提交，将于 ${effTime} 生效；原钱包可签名取消`, `Rebind requested; effective at ${effTime}. Sign with original wallet to cancel`), 'amber');
         } else if (res?.status === 'UNBOUND') {
-          showToast('已通过原钱包签名解除钱包绑定', 'amber');
+          showToast(L('已通过原钱包签名解除钱包绑定', 'Wallet unbound via original wallet signature'), 'amber');
         } else if (res?.status === 'REBIND_CANCELLED') {
-          showToast('已取消待生效的钱包换绑申请');
+          showToast(L('已取消待生效的钱包换绑申请', 'Pending wallet rebind cancelled'));
         }
       } else {
         // 恢复的本地钱包连接没有本次 ton_proof：不标为本次已重新验证，仅核对服务端既有绑定。
@@ -263,16 +272,16 @@ class A9TonConnect {
         s.user.serverBoundWallet = serverBoundWallet;
       });
       if (verificationState === 'restored_binding') {
-        showToast('已恢复连接（沿用服务端历史绑定，本次未重新签名验证）', 'amber');
+        showToast(L('已恢复连接（沿用服务端历史绑定，本次未重新签名验证）', 'Session restored (reusing server binding; no fresh proof this session)'), 'amber');
       } else if (!freshVerified && !pending && !(proof && 'error' in proof)) {
-        showToast('钱包尚未完成归属验证，请断开后重新连接并签名', 'amber');
+        showToast(L('钱包尚未完成归属验证，请断开后重新连接并签名', 'Wallet ownership not verified; disconnect and reconnect to sign'), 'amber');
       }
     } catch (e) {
       store.update(s => {
         s.user.walletVerified = false;
         s.user.walletVerificationState = 'unverified';
       });
-      showToast(`钱包归属验证失败：${e?.message || '请重试'}`, 'error');
+      showToast(L(`钱包归属验证失败：${e?.message || '请重试'}`, `Wallet verification failed: ${e?.message || 'please retry'}`), 'error');
     } finally {
       this._proofPayload = null;
       this._proofExpiresAtSec = 0;
@@ -294,15 +303,15 @@ class A9TonConnect {
     const verifyChip = !user.connected
       ? ''
       : user.walletVerificationState === 'fresh_proof'
-        ? '<span class="chip chip-green">本次已验签</span>'
+        ? `<span class="chip chip-green">${L('本次已验签', 'Proof Verified')}</span>`
         : user.walletVerificationState === 'restored_binding'
-          ? '<span class="chip chip-amber">历史绑定 · 本次未重验</span>'
-          : '<span class="chip chip-red">未验证归属</span>';
+          ? `<span class="chip chip-amber">${L('历史绑定 · 本次未重验', 'Restored Binding')}</span>`
+          : `<span class="chip chip-red">${L('未验证归属', 'Unverified')}</span>`;
 
     openModal(`
       <div class="sheet-handle"></div>
       <div class="row-between">
-        <div class="card-title">${icon('wallet', 18, 'text-green')} TON Connect 2.0 钱包终端</div>
+        <div class="card-title">${icon('wallet', 18, 'text-green')} ${L('TON Connect 2.0 钱包终端', 'TON Connect 2.0 Wallet')}</div>
         <span class="chip ${this.sdkReady ? 'chip-green' : (canSandbox ? 'chip-cyan' : 'chip-red')}">${this.modeLabel}</span>
       </div>
       <div class="sub-tile">
@@ -312,35 +321,35 @@ class A9TonConnect {
         </div>
         ${!canSandbox && user.connected ? `<div class="row-between" style="margin-top:6px;"><span class="caps text-muted">OWNERSHIP PROOF</span>${verifyChip}</div>` : ''}
         <div class="row-between" style="margin-top:6px;gap:8px;">
-          <div class="num-sm text-cyan" style="word-break:break-all;">${user.connected ? escapeHtml(user.address) : '尚未连接非托管 TON 钱包'}</div>
-          ${user.connected ? `<button class="pill-trigger neutral" id="tc-copy-wallet" type="button" style="flex-shrink:0;">${icon('copy', 11)} 复制</button>` : ''}
+          <div class="num-sm text-cyan" style="word-break:break-all;">${user.connected ? escapeHtml(user.address) : L('尚未连接非托管 TON 钱包', 'No non-custodial TON wallet connected')}</div>
+          ${user.connected ? `<button class="pill-trigger neutral" id="tc-copy-wallet" type="button" style="flex-shrink:0;">${icon('copy', 11)} ${L('复制', 'Copy')}</button>` : ''}
         </div>
-        ${!canSandbox && user.pendingSwitch ? `<div class="num-xs text-gold" style="margin-top:6px;">待生效换绑：将于 ${new Date(Number(user.pendingSwitch.effectiveAt) * 1000).toLocaleString()} 生效；可使用原钱包重签取消。</div>` : ''}
-        ${!this.sdkReady ? `<div class="num-xs text-muted" style="margin-top:6px;">${escapeHtml(this.lastError || 'SDK 未就绪')}</div>` : ''}
+        ${!canSandbox && user.pendingSwitch ? `<div class="num-xs text-gold" style="margin-top:6px;">${L(`待生效换绑：将于 ${new Date(Number(user.pendingSwitch.effectiveAt) * 1000).toLocaleString()} 生效；可使用原钱包重签取消。`, `Pending rebind effective at ${new Date(Number(user.pendingSwitch.effectiveAt) * 1000).toLocaleString()}; re-sign with original wallet to cancel.`)}</div>` : ''}
+        ${!this.sdkReady ? `<div class="num-xs text-muted" style="margin-top:6px;">${escapeHtml(this.lastError || L('SDK 未就绪', 'SDK not ready'))}</div>` : ''}
         ${canSandbox
-          ? `<div class="num-xs text-gold" style="margin-top:6px;">当前为演示模式：沙盒连接与资金结果均由本地演示数据生成，不会触发真实钱包签名。</div>`
+          ? `<div class="num-xs text-gold" style="margin-top:6px;">${L('当前为演示模式：沙盒连接与资金结果均由本地演示数据生成，不会触发真实钱包签名。', 'Demo mode: sandbox wallet and results are simulated locally with no real signatures.')}</div>`
           : liveFundsReady()
-            ? `<div class="num-xs text-green" style="margin-top:6px;">当前为真实交易模式：支持连接钱包与按授权发起非托管 TON Connect 2.0 链上交易签名。</div>`
-            : `<div class="num-xs text-muted" style="margin-top:6px;">当前为真实只读模式：仅支持连接钱包与只读数据查看，不会发起任何资金交易签名。</div>`}
+            ? `<div class="num-xs text-green" style="margin-top:6px;">${L('当前为真实交易模式：支持连接钱包与按授权发起非托管 TON Connect 2.0 链上交易签名。', 'Live mode: supports non-custodial TON Connect 2.0 wallet connection and authorized on-chain signing.')}</div>`
+            : `<div class="num-xs text-muted" style="margin-top:6px;">${L('当前为真实只读模式：仅支持连接钱包与只读数据查看，不会发起任何资金交易签名。', 'Live read-only mode: wallet connection and read-only queries only; fund signing is disabled.')}</div>`}
       </div>
       ${!this.sdkReady && !canSandbox ? `
         <div class="card row-between" style="border-color:var(--gold-border);">
-          <span class="num-xs text-sec">${icon('shieldAlert', 13, 'text-gold')} 钱包组件未就绪，无法连接或签名。</span>
+          <span class="num-xs text-sec">${icon('shieldAlert', 13, 'text-gold')} ${L('钱包组件未就绪，无法连接或签名。', 'Wallet SDK unavailable; cannot connect or sign.')}</span>
         </div>
       ` : ''}
       <div class="col-gap">
-        <button class="btn btn-primary" id="tc-real-connect">${icon('bolt', 16)} ${this.sdkReady ? '唤起 TON Connect 2.0 官方钱包列表' : (canSandbox ? '连接非托管 TON 钱包 (模拟)' : '重试加载钱包 SDK')}</button>
-        ${!canSandbox && this.sdkReady && user.pendingSwitch ? `<button class="btn btn-secondary" id="tc-cancel-rebind">${icon('shieldCheck', 15)} 原钱包重签取消换绑</button>` : ''}
-        ${!canSandbox && this.sdkReady && user.connected ? `<button class="btn btn-secondary" id="tc-unbind-wallet">${icon('shieldAlert', 15)} 签名解除服务端绑定</button>` : ''}
-        ${user.connected ? `<button class="btn btn-danger" id="tc-disconnect">${icon('x', 16)} 断开当前钱包连接</button>` : ''}
-        <button class="btn btn-secondary" id="tc-close">关闭</button>
+        <button class="btn btn-primary" id="tc-real-connect">${icon('bolt', 16)} ${this.sdkReady ? L('唤起 TON Connect 2.0 官方钱包列表', 'Open TON Connect 2.0 Wallet List') : (canSandbox ? L('连接非托管 TON 钱包 (模拟)', 'Connect TON Wallet (Demo)') : L('重试加载钱包 SDK', 'Retry Loading Wallet SDK'))}</button>
+        ${!canSandbox && this.sdkReady && user.pendingSwitch ? `<button class="btn btn-secondary" id="tc-cancel-rebind">${icon('shieldCheck', 15)} ${L('原钱包重签取消换绑', 'Cancel Rebind (Original Wallet)')}</button>` : ''}
+        ${!canSandbox && this.sdkReady && user.connected ? `<button class="btn btn-secondary" id="tc-unbind-wallet">${icon('shieldAlert', 15)} ${L('签名解除服务端绑定', 'Sign to Unbind Wallet')}</button>` : ''}
+        ${user.connected ? `<button class="btn btn-danger" id="tc-disconnect">${icon('x', 16)} ${L('断开当前钱包连接', 'Disconnect Wallet')}</button>` : ''}
+        <button class="btn btn-secondary" id="tc-close">${L('关闭', 'Close')}</button>
       </div>
     `);
 
     document.getElementById('tc-close').onclick = () => { A9Haptic.light(); closeModal(); };
     const copyWalletBtn = document.getElementById('tc-copy-wallet');
     if (copyWalletBtn && user.address) {
-      copyWalletBtn.onclick = () => copyText(user.address, '已复制钱包地址');
+      copyWalletBtn.onclick = () => copyText(user.address, L('已复制钱包地址', 'Wallet address copied'));
     }
 
     const launchWithProof = async (purpose = 'bind') => {
@@ -353,21 +362,21 @@ class A9TonConnect {
             }
             const ready = await this._ensureFreshProofPayload(purpose);
             if (!ready) {
-              showToast('获取钱包签名挑战失败，请检查网络后重试', 'error');
+              showToast(L('获取钱包签名挑战失败，请检查网络后重试', 'Failed to get proof challenge; check network and retry'), 'error');
               return;
             }
           }
           await this.ui.openModal();
           return;
         } catch (e) {
-          this.lastError = e?.message || '钱包连接失败';
-          showToast('钱包连接失败，请重试', 'error');
+          this.lastError = e?.message || L('钱包连接失败', 'Wallet connection failed');
+          showToast(L('钱包连接失败，请重试', 'Wallet connection failed; please retry'), 'error');
           return;
         }
       }
       if (!canSandbox) {
         this.init();
-        showToast(this.sdkReady ? '钱包 SDK 已就绪，请重试' : '钱包 SDK 仍不可用，请检查网络后重试', 'error');
+        showToast(this.sdkReady ? L('钱包 SDK 已就绪，请重试', 'Wallet SDK ready; please retry') : L('钱包 SDK 仍不可用，请检查网络后重试', 'Wallet SDK still unavailable; check network'), 'error');
         return;
       }
       A9Haptic.success();
@@ -376,7 +385,7 @@ class A9TonConnect {
         s.user.address = 'UQ_9921_A9_TERMINAL_489f';
         s.user.shortAddress = 'UQ...489f';
       });
-      showToast('[演示模式] 已接入模拟钱包 UQ...489f');
+      showToast(L('[演示模式] 已接入模拟钱包 UQ...489f', '[Demo] Connected simulated wallet UQ...489f'));
       if (onChanged) onChanged();
     };
 
@@ -401,7 +410,7 @@ class A9TonConnect {
           s.user.walletVerified = false;
           s.user.walletVerificationState = 'unverified';
         });
-        showToast('已断开 TON 钱包连接', 'amber');
+        showToast(L('已断开 TON 钱包连接', 'TON wallet disconnected'), 'amber');
         if (onChanged) onChanged();
       };
     }
@@ -427,20 +436,20 @@ class A9TonConnect {
       throw createFundsDisabledError();
     }
     if (!this.sdkReady || !this.ui || typeof this.ui.sendTransaction !== 'function') {
-      const err = new Error('TON Connect SDK 尚未就绪，请先刷新或重试加载钱包组件');
+      const err = new Error(L('TON Connect SDK 尚未就绪，请先刷新或重试加载钱包组件', 'TON Connect SDK is not ready; please refresh and retry'));
       err.code = 'WALLET_SDK_NOT_READY';
       throw err;
     }
     if (!store.state.user.connected) {
-      const err = new Error('请先连接非托管 TON 钱包后再发起交易签名');
+      const err = new Error(L('请先连接非托管 TON 钱包后再发起交易签名', 'Please connect a non-custodial TON wallet before signing'));
       err.code = 'WALLET_NOT_CONNECTED';
       throw err;
     }
     const expectedChain = this.getExpectedChainId();
     const walletChain = String(this.ui?.wallet?.account?.chain || store.state.user.walletChain || '').trim();
     if (expectedChain && walletChain && walletChain !== expectedChain) {
-      const wantLabel = expectedChain === '-239' ? 'TON 主网 (-239)' : 'TON 测试网 (-3)';
-      const err = new Error(`当前钱包网络 (${walletChain}) 与协议网络不匹配，请切换至 ${wantLabel} 后重试`);
+      const wantLabel = expectedChain === '-239' ? L('TON 主网 (-239)', 'TON Mainnet (-239)') : L('TON 测试网 (-3)', 'TON Testnet (-3)');
+      const err = new Error(L(`当前钱包网络 (${walletChain}) 与协议网络不匹配，请切换至 ${wantLabel} 后重试`, `Wallet network (${walletChain}) mismatches protocol; switch to ${wantLabel} and retry`));
       err.code = 'WRONG_WALLET_NETWORK';
       throw err;
     }
@@ -460,7 +469,7 @@ class A9TonConnect {
     } catch (e) {
       const msg = String(e?.message || e || '');
       const rejected = /reject|cancel|declin|user/i.test(msg);
-      const err = new Error(rejected ? '已在钱包中取消本次签名，未扣款' : (msg || '钱包交易签名失败，请重试'));
+      const err = new Error(rejected ? L('已在钱包中取消本次签名，未扣款', 'Signature cancelled in wallet; no funds spent') : (msg || L('钱包交易签名失败，请重试', 'Wallet signing failed; please retry')));
       err.code = rejected ? 'USER_REJECTED' : (e?.code || 'WALLET_TX_FAILED');
       throw err;
     }
@@ -484,7 +493,7 @@ class A9TonConnect {
     if (config.isDemo) return demoWalletSendResult('demo_v15_stake');
     if (!liveFundsReady()) throw createFundsDisabledError();
     if (!userJettonWallet || !roundController || !userAddress) {
-      const err = new Error('缺少 A9 钱包或 RoundController 地址，无法构造质押交易');
+      const err = new Error(L('缺少 A9 钱包或 RoundController 地址，无法构造质押交易', 'Missing A9 wallet or RoundController address'));
       err.code = 'STAKE_PARAMS_MISSING';
       throw err;
     }
@@ -507,7 +516,7 @@ class A9TonConnect {
     if (!liveFundsReady()) throw createFundsDisabledError();
     const target = ticketAddress || '';
     if (!target) {
-      const err = new Error('缺少 StakeTicket 凭证地址，无法发起领奖');
+      const err = new Error(L('缺少 StakeTicket 凭证地址，无法发起领奖', 'Missing StakeTicket address'));
       err.code = 'TICKET_ADDRESS_MISSING';
       throw err;
     }
@@ -519,7 +528,7 @@ class A9TonConnect {
     if (config.isDemo) return demoWalletSendResult('demo_v15_promo');
     if (!liveFundsReady()) throw createFundsDisabledError();
     if (!intent?.payTo || !intent?.memo) {
-      const err = new Error('邀友奖励支付单无效，请重新获取');
+      const err = new Error(L('邀友奖励支付单无效，请重新获取', 'Invalid promo claim intent; please refresh'));
       err.code = 'BAD_PROMO_INTENT';
       throw err;
     }
@@ -532,7 +541,7 @@ class A9TonConnect {
     if (!liveFundsReady()) throw createFundsDisabledError();
     const payNano = order?.payTonNano || order?.tonNano;
     if (!order?.payTo || !order?.memo || !payNano) {
-      const err = new Error('宝箱商城付款单无效，请重新下单');
+      const err = new Error(L('宝箱商城付款单无效，请重新下单', 'Invalid Chest Mall order; please create a new order'));
       err.code = 'BAD_PRESALE_ORDER';
       throw err;
     }

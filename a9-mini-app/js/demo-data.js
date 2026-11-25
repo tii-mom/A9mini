@@ -185,7 +185,7 @@ export function demoFundsClaim(state) {
 export function demoFundsBuy(state, tonAmount) {
   const amt = Number(tonAmount);
   const availQuota = state.market.unlockedQuotaTon - state.market.usedQuotaTon;
-  if (amt < state.market.minOrderTon || amt > state.market.maxOrderTon) return { error: '单笔金额须在 5 - 200 GRAM 之间' };
+  if (amt < state.market.minOrderTon || amt > state.market.maxOrderTon) return { error: `单笔金额须在 ${state.market.minOrderTon} - ${state.market.maxOrderTon} GRAM 之间` };
   if (amt > availQuota) return { error: `超出当前可用额度 (${availQuota} GRAM)` };
   if (amt > state.user.tonBalance) return { error: 'GRAM 余额不足' };
   const receivedA9 = Math.round(amt * state.market.rateA9PerTon);
@@ -830,13 +830,13 @@ export function demoGetChest(chestId) {
   const found = [...s.freeChests, ...s.shopChests].find((c) => c.chestId === chestId);
   if (found) return { ...found };
   return {
-    chestId: String(chestId || 'ch_demo_b1'),
+    chestId: String(chestId || 'ch_demo_silver'),
     source: 'FREE_TIER',
-    tier: 'bronze',
+    tier: 'silver',
     slotIndex: 1,
-    labelZh: '好友的青铜宝箱 #1',
-    labelEn: "Friend's Bronze Chest #1",
-    baseA9Raw: '300000000000',
+    labelZh: '好友的白银助力箱',
+    labelEn: "Friend's Silver Co-Op Chest",
+    baseA9Raw: '1000000000000',
     boostA9Raw: '0',
     maxBoostA9Raw: '0',
     requiredAssists: 2,

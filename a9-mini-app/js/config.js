@@ -67,6 +67,15 @@ function buildAllowedApiOrigins() {
   return allowed;
 }
 
+function isEnglishLocale() {
+  try {
+    const lang = String(typeof navigator !== 'undefined' ? (navigator.language || '') : '').toLowerCase();
+    return Boolean(lang) && !lang.startsWith('zh');
+  } catch (_) {
+    return false;
+  }
+}
+
 function resolveApiBase() {
   const deployedRaw = String(injected.apiBase || '').trim();
   const deployedUrl = parseHttpUrl(deployedRaw);
@@ -77,12 +86,15 @@ function resolveApiBase() {
     return { apiBase: deployedBase, apiOverrideRejected: false, apiOverrideError: null };
   }
 
+  const en = isEnglishLocale();
   const candidate = parseHttpUrl(paramRaw);
   if (!candidate) {
     return {
       apiBase: deployedBase,
       apiOverrideRejected: true,
-      apiOverrideError: 'URL 参数 api 不是合法的 HTTP(S) 地址，已忽略并回退至部署配置'
+      apiOverrideError: en
+        ? 'Query param ?api is not a valid HTTP(S) URL; ignored and fell back to deployed config'
+        : 'URL 参数 api 不是合法的 HTTP(S) 地址，已忽略并回退至部署配置'
     };
   }
 
@@ -100,7 +112,9 @@ function resolveApiBase() {
   return {
     apiBase: deployedBase,
     apiOverrideRejected: true,
-    apiOverrideError: `未受信任的 API 数据源 (${candidate.origin}) 已被拦截，仅信任部署配置允许的数据源`
+    apiOverrideError: en
+      ? `Untrusted API origin (${candidate.origin}) blocked; only deployed allowlisted origins are trusted`
+      : `未受信任的 API 数据源 (${candidate.origin}) 已被拦截，仅信任部署配置允许的数据源`
   };
 }
 

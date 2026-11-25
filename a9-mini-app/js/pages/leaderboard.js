@@ -7,7 +7,7 @@ import { A9Haptic } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
-import { openChoiceSheet } from '../components.js';
+import { openChoiceSheet, escapeHtml } from '../components.js';
 import { uiMemory } from '../app.js';
 import { characterArt } from '../wealth-art.js';
 import { config } from '../config.js';
@@ -56,7 +56,7 @@ export function renderLeaderboard(root) {
           <button class="seg-tab ${activeTab === 'invite' ? 'active' : ''}" data-ltab="invite">${L('邀请榜', 'Invites')}</button>
         </div>
 
-        <div class="wv-podium">${[1, 0, 2].map(i => `<div class="rank-${i + 1}"><img class="wv-person" src="${characterArt(9 - i, 'activity')}" alt=""><b>#${i + 1}</b><small>${rows[i].name}</small></div>`).join('')}</div>
+        <div class="wv-podium">${[1, 0, 2].map(i => `<div class="rank-${i + 1}"><img class="wv-person" src="${characterArt(9 - i, 'activity')}" alt="" loading="lazy" decoding="async"><b>#${i + 1}</b><small>${escapeHtml(rows[i].name)}</small></div>`).join('')}</div>
 
         <div class="card">
           <div class="card-header" style="margin-bottom:4px;">
@@ -67,13 +67,13 @@ export function renderLeaderboard(root) {
             ${rows.map(r => `
               <div class="list-row ${r.me ? 'is-me' : ''}">
                 <div class="row-start">
-                  <span class="chip ${r.rank === '01' ? 'chip-gold' : r.me ? 'chip-green' : 'chip-muted'}" style="min-width:34px;">#${r.rank}</span>
+                  <span class="chip ${r.rank === '01' ? 'chip-gold' : r.me ? 'chip-green' : 'chip-muted'}" style="min-width:34px;">#${escapeHtml(r.rank)}</span>
                   <div>
-                    <div class="num-sm" style="font-weight:${r.me ? '800' : '700'};">${r.name}</div>
-                    <div class="num-xs text-muted">${r.ton}</div>
+                    <div class="num-sm" style="font-weight:${r.me ? '800' : '700'};">${escapeHtml(r.name)}</div>
+                    <div class="num-xs text-muted">${escapeHtml(r.ton)}</div>
                   </div>
                 </div>
-                <div class="num-sm text-green" style="font-weight:800;">${r.a9}</div>
+                <div class="num-sm text-green" style="font-weight:800;">${escapeHtml(r.a9)}</div>
               </div>
             `).join('')}
           </div>

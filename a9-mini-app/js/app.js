@@ -172,14 +172,25 @@ function goBack() {
   navigate(fallbackTab, { replace: true });
 }
 
+let lastHeaderSig = '';
+
 /** 极简降噪顶栏：左侧品牌/返回标题 + 右侧钱包状态（演示模式留 1 枚控制台图标）；主题与音效收进「设置」 */
 function renderHeader(route) {
-  const { user } = store.state;
+  const { user, settings } = store.state;
   const isStack = route.shell === 'stack';
   const titleText = typeof route.title === 'function' ? route.title() : route.title;
+  const walletLabel = user.connected
+    ? (user.shortAddress || (user.address ? (user.address.length > 12 ? `${user.address.slice(0, 4)}...${user.address.slice(-4)}` : user.address) : t('connect_wallet')))
+    : t('connect_wallet');
 
   syncDocumentLang(isStack ? titleText : '');
   A9TMA.setBackButton(isStack, goBack);
+
+  const nextSig = `${isStack ? '1' : '0'}|${titleText}|${user.connected ? '1' : '0'}|${walletLabel}|${settings?.language || ''}|${config.isDemo ? '1' : '0'}`;
+  if (nextSig === lastHeaderSig && headerEl.innerHTML) {
+    return;
+  }
+  lastHeaderSig = nextSig;
 
   headerEl.innerHTML = `
     <div class="header-left">
@@ -193,7 +204,7 @@ function renderHeader(route) {
       ${config.isDemo ? `<button class="icon-btn has-demo-pip" id="btn-open-sim" aria-label="${L('演示控制台', 'Demo console')}" title="${L('演示控制台 (DEMO)', 'Demo console (DEMO)')}">${icon('sliders', 14)}</button>` : ''}
       <button class="wallet-pill ${user.connected ? '' : 'disconnected'}" id="btn-wallet-pill">
         <span class="live-dot ${user.connected ? '' : 'amber'}"></span>
-        <span>${escapeHtml(user.connected ? (user.shortAddress || (user.address ? (user.address.length > 12 ? `${user.address.slice(0, 4)}...${user.address.slice(-4)}` : user.address) : t('connect_wallet'))) : t('connect_wallet'))}</span>
+        <span>${escapeHtml(walletLabel)}</span>
       </button>
     </div>
   `;
@@ -679,6 +690,15 @@ function startDisplayLoop() {
 window.addEventListener('scroll', () => {
   headerEl.classList.toggle('scrolled', window.scrollY > 6);
 }, { passive: true });
+
+// Keyboard accessibility delegation for clickable non-button elements with role="button"
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const el = e.target?.closest?.('[role="button"][tabindex="0"]');
+  if (!el || el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return;
+  e.preventDefault();
+  el.click();
+});
 
 // Bootstrap — 默认任天堂雪白亮色主题（尊重用户已保存于 a9_ui_prefs_v1 的 Switch 暗夜偏好）
 initAutoLanguage();

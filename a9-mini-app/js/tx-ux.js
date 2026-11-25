@@ -8,7 +8,7 @@
 import { escapeHtml, copyText, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
 import { L } from './i18n.js';
-import { A9Haptic } from './tma.js';
+import { A9Haptic, A9TMA } from './tma.js';
 
 export const SESSION_PENDING_TX_KEY = 'a9_pending_tx_v1';
 const PENDING_TX_MAX_AGE_MS = 10 * 60 * 1000;
@@ -218,6 +218,7 @@ export class PendingTxManager {
 
   _emit() {
     const snap = this.getActive();
+    A9TMA.setClosingConfirmation(Boolean(snap && (snap.status === 'signed' || snap.status === 'confirming')));
     for (const fn of this._listeners) {
       try { fn(snap); } catch (_) {}
     }

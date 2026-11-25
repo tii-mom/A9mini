@@ -1147,7 +1147,7 @@ export function renderParticipateSuccess(root, navigate, certId) {
 
       <section class="success-cheer-card">
         <div class="success-cheer-standee">
-          <img class="wv-person" id="success-cheer-img" src="${characterArt(tier, series)}" alt="${seriesCode} 0${tier}">
+          <img class="wv-person" id="success-cheer-img" src="${characterArt(tier, series)}" alt="${seriesCode} 0${tier}" loading="lazy" decoding="async">
         </div>
         <div class="success-cheer-copy">
           <span class="diorama-kicker">${seriesCode} 0${tier} · ${L(boxhead.nameZh, boxhead.nameEn)}</span>

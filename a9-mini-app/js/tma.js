@@ -17,6 +17,7 @@ export const A9TMA = {
     try {
       tg.ready();
       tg.expand();
+      tg.disableVerticalSwipes?.();
       const theme = document.documentElement.dataset.theme || 'light';
       this.syncTheme(theme);
     } catch (_) {
@@ -25,7 +26,7 @@ export const A9TMA = {
   },
 
   syncTheme(theme) {
-    const bg = theme === 'dark' ? '#15161A' : '#F4F5F8';
+    const bg = theme === 'dark' ? '#121318' : '#F4F5F8';
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', bg);
     const tg = getTg();
@@ -33,6 +34,16 @@ export const A9TMA = {
     try {
       tg.setHeaderColor?.(bg);
       tg.setBackgroundColor?.(bg);
+    } catch (_) {}
+  },
+
+  /** 交易签名/链上确认中开启防误关确认，完结后自动解除。 */
+  setClosingConfirmation(enabled) {
+    const tg = getTg();
+    if (!tg) return;
+    try {
+      if (enabled) tg.enableClosingConfirmation?.();
+      else tg.disableClosingConfirmation?.();
     } catch (_) {}
   },
 

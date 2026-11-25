@@ -49,7 +49,7 @@ let galleryWealthCache = {
 function portrait(n, series = 'activity', { lazy = false } = {}) {
   const code = series === 'wealth' ? 'WLT' : 'ACT';
   const attrs = lazy ? ' loading="lazy" decoding="async" width="68" height="68"' : ' decoding="async"';
-  return `<img class="wv-person" src="${characterArt(n, series)}" alt="${code} 0${n}"${attrs}>`;
+  return `<img class="wv-person" src="${characterArt(n, series)}" alt="${code} 0${n}" loading="lazy" decoding="async"${attrs}>`;
 }
 
 export function stageLabel(stage) {
@@ -1194,10 +1194,10 @@ export function gallery(root, navigate, param) {
             <div class="boxhead-face front series-${activeGallerySeries}">
               <div class="boxhead-stage-aura" aria-hidden="true"></div>
               ${activeGallerySeries === 'wealth' ? '<div class="standee-slot" aria-hidden="true"></div>' : ''}
-              <img class="wv-person${canEvaluate && !isSelectedUnlocked ? ' is-locked-preview' : ''}" id="boxhead-avatar-img" src="${item.avatar}" alt="${code} 0${selected}">
+              <img class="wv-person${canEvaluate && !isSelectedUnlocked ? ' is-locked-preview' : ''}" id="boxhead-avatar-img" src="${item.avatar}" alt="${code} 0${selected}" loading="lazy" decoding="async">
             </div>
             <div class="boxhead-face back">
-              <img class="boxhead-card-img" id="boxhead-backing-card" src="${item.card}" alt="${code} 0${selected} ${L('精装卡背', 'Backing Card')}">
+              <img class="boxhead-card-img" id="boxhead-backing-card" src="${item.card}" alt="${code} 0${selected} ${L('精装卡背', 'Backing Card')}" loading="lazy" decoding="async">
             </div>
           </div>
         </div>
