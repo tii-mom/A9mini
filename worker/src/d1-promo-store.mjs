@@ -72,6 +72,109 @@ export class D1PromoStore {
     return Boolean(row);
   }
 
+  /**
+   * 为 D1IdentityStore.getBinding 提供单事务 db.batch() 原子余额合并语句与快照守卫：
+   * - 将 wallet_bindings 晋升与 promo_balances 迁移合并进同一 SQLite/D1 事务；
+   * - 任一守卫（余额快照变动、在途领币单、目标钱包冲突、约束错误）失败时整批回滚，
+   *   彻底杜绝串账、丢余额与重复迁移。
+   */
+  async prepareAtomicMergeBalance(fromWallet, toWallet, nowSec = Math.floor(Date.now() / 1000)) {
+    const fromKey = addressKey(fromWallet);
+    const toKey = addressKey(toWallet);
+    if (!fromKey || !toKey || fromKey === toKey) {
+      return { noop: true, moveRaw: '0', guardSql: '', guardArgs: [], buildStmts: () => [] };
+    }
+    if (await this.hasPendingClaim(fromWallet, nowSec)) {
+      throw new PromoError('PENDING_CLAIM_ACTIVE', '原钱包存在处理中的推广领币单，请完成后再合并余额');
+    }
+    const fromAliases = addressAliases(fromWallet);
+    const claimPh = fromAliases.map(() => '?').join(', ');
+    const noPendingClaimSql = fromAliases.length
+      ? ` AND NOT EXISTS (SELECT 1 FROM promo_claims WHERE wallet_address IN (${claimPh}) AND (status IN (?, ?) OR (status = ? AND expires_at > ?)))`
+      : '';
+    const noPendingClaimArgs = fromAliases.length
+      ? [...fromAliases, CLAIM_STATUS.FEE_CONFIRMED, CLAIM_STATUS.PAYOUT_SENT, CLAIM_STATUS.PENDING_FEE, nowSec]
+      : [];
+
+    const srcRow = await this._findBalanceRow(fromWallet);
+    const move = BigInt(srcRow?.claimable_raw || '0');
+    if (!srcRow || move <= 0n) {
+      const srcAliases = Array.from(new Set([fromKey, ...fromAliases].filter(Boolean)));
+      const srcPh = srcAliases.map(() => '?').join(', ');
+      return {
+        noop: true,
+        moveRaw: '0',
+        guardSql:
+          `${noPendingClaimSql} AND NOT EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address IN (${srcPh}) AND claimable_raw != '0')`,
+        guardArgs: [...noPendingClaimArgs, ...srcAliases],
+        buildStmts: () => [],
+      };
+    }
+
+    const srcKey = String(srcRow.wallet_address);
+    const srcCurStr = String(srcRow.claimable_raw);
+    let dstRow = await this._findBalanceRow(toWallet);
+    if (!dstRow) {
+      await this.db
+        .prepare(
+          `INSERT OR IGNORE INTO promo_balances (wallet_address, claimable_raw, total_claimed_raw, updated_at)
+           VALUES (?, '0', '0', ?)`,
+        )
+        .bind(toKey, nowSec)
+        .run();
+      dstRow = await this._findBalanceRow(toWallet);
+    }
+    if (!dstRow) {
+      throw new PromoError('CONFLICT', '目标钱包推广余额行初始化冲突，请重试');
+    }
+    const dstKey = String(dstRow.wallet_address);
+    const dstCurStr = String(dstRow.claimable_raw || '0');
+    const dstNextStr = (BigInt(dstCurStr) + move).toString();
+
+    return {
+      noop: false,
+      moveRaw: move.toString(),
+      srcKey,
+      dstKey,
+      srcCurStr,
+      dstCurStr,
+      dstNextStr,
+      guardSql:
+        `${noPendingClaimSql}` +
+        ' AND EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ? AND claimable_raw = ?)' +
+        ' AND EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ? AND claimable_raw = ?)',
+      guardArgs: [...noPendingClaimArgs, srcKey, srcCurStr, dstKey, dstCurStr],
+      buildStmts: (bindingGuardSql = '', bindingGuardArgs = []) => [
+        this.db
+          .prepare(
+            `UPDATE promo_balances
+             SET claimable_raw = CASE
+                   WHEN claimable_raw = ?
+                    AND EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ? AND claimable_raw = ?)${bindingGuardSql}
+                   THEN '0'
+                   ELSE NULL
+                 END,
+                 updated_at = ?
+             WHERE wallet_address = ?`,
+          )
+          .bind(srcCurStr, dstKey, dstCurStr, ...bindingGuardArgs, nowSec, srcKey),
+        this.db
+          .prepare(
+            `UPDATE promo_balances
+             SET claimable_raw = CASE
+                   WHEN claimable_raw = ?
+                    AND EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ? AND claimable_raw = '0')${bindingGuardSql}
+                   THEN ?
+                   ELSE NULL
+                 END,
+                 updated_at = ?
+             WHERE wallet_address = ?`,
+          )
+          .bind(dstCurStr, srcKey, ...bindingGuardArgs, dstNextStr, nowSec, dstKey),
+      ],
+    };
+  }
+
   async mergeBalance(fromWallet, toWallet, nowSec = Math.floor(Date.now() / 1000)) {
     const fromKey = addressKey(fromWallet);
     const toKey = addressKey(toWallet);

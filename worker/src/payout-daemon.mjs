@@ -175,13 +175,10 @@ export function createPayoutDaemon({
         transferGasNano: env.A9_PROMO_TRANSFER_GAS_NANO || '50000000',
       })
     : null;
-  const onWalletRebound = promoEngine
-    ? ({ fromWalletAddress, toWalletAddress, nowSec: rebindNow }) => promoEngine.mergeBalance(fromWalletAddress, toWalletAddress, rebindNow)
-    : null;
   const canPromoteRebind = promoEngine && typeof promoEngine.hasPendingClaim === 'function'
     ? async ({ fromWalletAddress, nowSec: checkNow }) => !(await promoEngine.hasPendingClaim(fromWalletAddress, checkNow))
     : null;
-  const identityStore = new D1IdentityStore({ db: ledger, onWalletRebound, canPromoteRebind });
+  const identityStore = new D1IdentityStore({ db: ledger, promoEngine, canPromoteRebind, strictAtomicRebind: true });
   const socialStore = new D1SocialStore({ db: ledger });
   const chestEngine = new D1ChestEngine({ db: ledger, budgetLedger });
   const broadcaster = new TelegramBroadcaster({

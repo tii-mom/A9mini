@@ -495,13 +495,14 @@ await test('Migrated SQLite D1 (0001..0009): orders, bound group, atomic open-wi
   assert.equal((await d1Pred.getUserSummary('6001')).pendingActivationRaw, '5000000000000');
 });
 
-await test('Legacy 0001..0004 SQLite DB (without 0009 sku_id/open_mode): plain order succeeds and OVER_QUOTA still triggers', async () => {
+await test('Legacy 0001..0004 SQLite DB (without 0009 sku_id/open_mode): valid SKU order succeeds, non-SKU rejected, and OVER_QUOTA still triggers', async () => {
   const oldDb = createSqliteD1(MIGRATIONS.slice(0, 4));
-  const legacyPresale = new D1PresaleStore({ db: oldDb, hotWalletAddress: HOT_WALLET, defaultQuotaTon: 20n, open: true });
-  const okOrd = await legacyPresale.createOrderIntent(W_OWNER, '15', 4000);
-  assert.equal(okOrd.tonNano, '15000000000');
-  assert.equal('skuId' in okOrd, false);
-  await assert.rejects(legacyPresale.createOrderIntent(W_OWNER, '10', 4001), { code: 'OVER_QUOTA' });
+  const legacyPresale = new D1PresaleStore({ db: oldDb, hotWalletAddress: HOT_WALLET, defaultQuotaTon: 15n, open: true });
+  await assert.rejects(legacyPresale.createOrderIntent(W_OWNER, '15', 3999), { code: 'UNKNOWN_SKU' });
+  const okOrd = await legacyPresale.createOrderIntent(W_OWNER, null, 4000, { skuId: 'chest_gold' });
+  assert.equal(okOrd.tonNano, '9990000000');
+  assert.equal(okOrd.skuId, 'chest_gold');
+  await assert.rejects(legacyPresale.createOrderIntent(W_OWNER, null, 4001, { skuId: 'chest_gold' }), { code: 'OVER_QUOTA' });
 });
 
 await test('Cloudflare workerd strict globalThis.fetch receiver guard (TonCenterClient / TelegramBroadcaster / group verifier)', async () => {

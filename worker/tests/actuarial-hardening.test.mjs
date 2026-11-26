@@ -144,8 +144,8 @@ for (const backend of ['memory', 'd1']) {
     await identityStore.bindWallet('103', W_WHALE, 900);
     await identityStore.bindWallet('104', W_CAP2, 900);
 
-    // Whale completes 100 GRAM purchase BEFORE joining captain's team (at t=1000)
-    await completePurchase(presaleEngine, W_WHALE, '100', 1000, { txHash: `pre-join-${backend}` });
+    // Whale completes 99.99 GRAM (chest_diamond) purchase BEFORE joining captain's team (at t=1000)
+    await completePurchase(presaleEngine, W_WHALE, '99.99', 1000, { txHash: `pre-join-${backend}` });
 
     // Captain creates & binds TG group, MEM and WHALE join at t=2000
     await socialStore.createOrBindTeamGroup({ teamId: 'TM-M1', name: 'M1 Squad', captainWallet: W_CAP, tgGroupHandle: '@squad777' }, 1500);
@@ -186,8 +186,8 @@ for (const backend of ['memory', 'd1']) {
     assert.equal(capFailPre.status, 400);
     assert.equal(capFailPre.body.error.code, 'VOLUME_UNMET');
 
-    // WHALE completes 100 GRAM purchase AFTER joining (at t=2600)
-    await completePurchase(presaleEngine, W_WHALE, '100', 2600, { txHash: `post-join-${backend}` });
+    // WHALE completes 99.99 GRAM (chest_diamond) purchase AFTER joining (at t=2600)
+    await completePurchase(presaleEngine, W_WHALE, '99.99', 2600, { txHash: `post-join-${backend}` });
 
     // Regular member MEM STILL cannot inherit WHALE's team volume -> MUST FAIL
     const memFail = await router({
@@ -369,7 +369,7 @@ for (const backend of ['memory', 'd1']) {
     assert.equal((await predictionEngine.getUserSummary('501')).pendingActivationRaw, '0');
 
     // 3) Presale 6% referral credit hits PROMO_BUDGET_EXHAUSTED -> credit rolls back to PENDING, referrer gets 0
-    const ord = await presaleEngine.createOrderIntent(W_U, '5', 1030, { referrerId: W_REF });
+    const ord = await presaleEngine.createOrderIntent(W_U, null, 1030, { skuId: 'chest_silver', referrerId: W_REF });
     await presaleEngine.ingestInbound({ txHash: `bud-in-${backend}`, finality: 'finalized', to: HOT, from: W_U, valueNano: ord.payTonNano, memo: ord.memo }, 1031);
     await presaleEngine.queueConfirmedPayouts(1032);
     await presaleEngine.processPayouts(1033, { a9Broadcaster: async () => ({ txHash: `bud-out-${backend}` }), verifier: async () => ({ state: 'CONFIRMED' }) });

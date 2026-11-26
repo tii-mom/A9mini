@@ -248,21 +248,23 @@ export class PresaleEngine {
         }
       }
     } else {
+      if (tonAmount === undefined || tonAmount === null || tonAmount === '') {
+        throw new PresaleError('SKU_REQUIRED', 'skuId is required; only the 6 valid Chest Mall SKUs are accepted');
+      }
       try {
         tonNano = parseDecimalUnits(tonAmount, 9);
       } catch (e) {
         throw new PresaleError('BAD_AMOUNT', e.message);
       }
       const matchedSku = CHEST_MALL_NANO_TO_SKU[tonNano.toString()] || null;
-      if (matchedSku) {
-        resolvedSkuId = matchedSku;
-        resolvedPack = CHEST_MALL_CATALOG[matchedSku] || null;
-      } else if (tonNano < this.minOrderNano || tonNano > this.maxOrderNano) {
-        throw new PresaleError('BAD_AMOUNT', 'order must be within min/max GRAM limits');
+      if (!matchedSku) {
+        throw new PresaleError('UNKNOWN_SKU', 'only the 6 valid Chest Mall SKUs are accepted; legacy fixed-rate orders are disabled');
       }
+      resolvedSkuId = matchedSku;
+      resolvedPack = CHEST_MALL_CATALOG[matchedSku];
     }
     const walletKey = addressKey(walletAddress);
-    const a9AmountRaw = resolvedPack ? BigInt(resolvedPack.baseA9Raw) : this.quoteA9Raw(tonNano);
+    const a9AmountRaw = BigInt(resolvedPack.baseA9Raw);
     const cleanRef = referrerId && addressKey(referrerId) !== walletKey && String(referrerId).trim() !== String(tgUserId || '')
       ? String(referrerId).trim()
       : null;

@@ -373,6 +373,9 @@ export class MemoryIdentityStore {
     this.bindings = new Map(); // tg -> binding row
     this.onWalletRebound = onWalletRebound;
     this.canPromoteRebind = canPromoteRebind;
+    this._inflightRebinds = new Map(); // tg -> { fromWalletKey, toWalletKey, promise }
+    this._reservedWalletKeys = new Map(); // walletKey -> tg (locks both from & to during in-flight callback)
+    this._uncertainRebinds = new Map(); // tg -> { fromWalletKey, toWalletKey } (callback threw; recovery required)
   }
 
   async issueProofPayload(tg, nowSec, ttlSec = TON_PROOF_PAYLOAD_TTL_SEC) {
@@ -390,11 +393,22 @@ export class MemoryIdentityStore {
 
   _ownerOf(walletKey) {
     for (const b of this.bindings.values()) if (b.walletKey === walletKey) return b.telegramUserId;
+    if (this._reservedWalletKeys.has(walletKey)) return this._reservedWalletKeys.get(walletKey);
     return null;
+  }
+
+  _assertNoActiveOrUncertainRebind(id, action) {
+    if (this._inflightRebinds.has(id)) {
+      throw new AuthError('REBIND_IN_PROGRESS', `cannot ${action} while wallet rebind migration is in progress`, 409);
+    }
+    if (this._uncertainRebinds.has(id)) {
+      throw new AuthError('REBIND_RECOVERY_REQUIRED', `cannot ${action} after a failed rebind migration; retry getBinding to recover`, 409);
+    }
   }
 
   async bindVerifiedWallet(tg, walletAddress, nowSec, { rebindDelaySec = REBIND_DELAY_SEC } = {}) {
     const id = String(tg);
+    this._assertNoActiveOrUncertainRebind(id, 'bind or switch wallet');
     const key = addressKey(walletAddress);
     const owner = this._ownerOf(key);
     if (owner && owner !== id) throw walletBoundElsewhere();
@@ -428,55 +442,149 @@ export class MemoryIdentityStore {
     nowSec = Math.floor(Date.now() / 1000),
     { onWalletRebound = this.onWalletRebound, canPromoteRebind = this.canPromoteRebind } = {},
   ) {
-    const b = this.bindings.get(String(tg));
+    const id = String(tg);
+    if (this._inflightRebinds.has(id)) {
+      await this._inflightRebinds.get(id).promise;
+      return viewBinding(this.bindings.get(id));
+    }
+
+    const b = this.bindings.get(id);
     if (!b) return null;
-    let promotedFrom = null;
-    if (b.pendingWalletKey && b.pendingEffectiveAt <= nowSec) {
-      let allowPromote = true;
-      if (typeof canPromoteRebind === 'function') {
-        allowPromote = Boolean(await canPromoteRebind({
-          tgUserId: b.telegramUserId,
-          fromWalletAddress: b.walletAddress,
-          toWalletAddress: b.pendingWalletAddress,
-          nowSec,
-        }));
+    if (!b.pendingWalletKey || b.pendingEffectiveAt > nowSec) {
+      return viewBinding(b);
+    }
+
+    if (typeof canPromoteRebind === 'function') {
+      const allowPromote = Boolean(await canPromoteRebind({
+        tgUserId: id,
+        fromWalletAddress: b.walletAddress,
+        toWalletAddress: b.pendingWalletAddress,
+        nowSec,
+      }));
+      if (!allowPromote) return viewBinding(this.bindings.get(id));
+    }
+
+    // Re-check after await (another caller may have started or completed promotion)
+    if (this._inflightRebinds.has(id)) {
+      await this._inflightRebinds.get(id).promise;
+      return viewBinding(this.bindings.get(id));
+    }
+    const cur = this.bindings.get(id);
+    if (!cur || !cur.pendingWalletKey || cur.pendingEffectiveAt > nowSec) {
+      return viewBinding(cur);
+    }
+
+    const fromWalletAddress = cur.walletAddress;
+    const fromWalletKey = cur.walletKey;
+    const toWalletAddress = cur.pendingWalletAddress;
+    const toWalletKey = cur.pendingWalletKey;
+
+    const owner = this._ownerOf(toWalletKey);
+    if (owner && owner !== id) {
+      if (this._uncertainRebinds.has(id)) {
+        throw new AuthError('REBIND_COMMIT_CONFLICT', 'target wallet is bound elsewhere after an uncertain rebind migration; manual reconciliation required', 409);
       }
-      if (allowPromote) {
-        const owner = this._ownerOf(b.pendingWalletKey);
-        if (!owner || owner === b.telegramUserId) {
-          const prevWalletAddress = b.walletAddress;
-          const nextWalletAddress = b.pendingWalletAddress;
-          Object.assign(b, { walletAddress: nextWalletAddress, walletKey: b.pendingWalletKey, boundAt: nowSec });
-          if (prevWalletAddress && addressKey(prevWalletAddress) !== addressKey(nextWalletAddress)) {
-            promotedFrom = prevWalletAddress;
-          }
-        }
-        Object.assign(b, { pendingWalletAddress: null, pendingWalletKey: null, pendingEffectiveAt: null });
-        if (promotedFrom && typeof onWalletRebound === 'function') {
-          await onWalletRebound({ tgUserId: b.telegramUserId, fromWalletAddress: promotedFrom, toWalletAddress: b.walletAddress, nowSec });
-        }
+      Object.assign(cur, { pendingWalletAddress: null, pendingWalletKey: null, pendingEffectiveAt: null });
+      return viewBinding(cur);
+    }
+
+    // Hold-Before-Commit: keep `cur` on `fromWalletKey` (never expose temporary `toWalletKey` to readers)
+    // and reserve BOTH `fromWalletKey` and `toWalletKey` until `onWalletRebound` completes.
+    const needsCallback = Boolean(fromWalletAddress && toWalletAddress && fromWalletKey !== toWalletKey && typeof onWalletRebound === 'function');
+    if (!needsCallback) {
+      Object.assign(cur, {
+        walletAddress: toWalletAddress,
+        walletKey: toWalletKey,
+        boundAt: nowSec,
+        pendingWalletAddress: null,
+        pendingWalletKey: null,
+        pendingEffectiveAt: null,
+      });
+      this._uncertainRebinds.delete(id);
+      const view = viewBinding(cur);
+      if (view && fromWalletAddress && fromWalletKey !== toWalletKey) view.reboundFrom = fromWalletAddress;
+      return view;
+    }
+
+    this._reservedWalletKeys.set(fromWalletKey, id);
+    this._reservedWalletKeys.set(toWalletKey, id);
+
+    const runPromotion = (async () => {
+      try {
+        await onWalletRebound({ tgUserId: id, fromWalletAddress, toWalletAddress, nowSec });
+      } catch (e) {
+        // Callback may have partially migrated external state before throwing:
+        // keep binding on `fromWalletKey` with `pending = toWalletKey` as recoverable state
+        // and block cancel/new-rebind/unbind until a retry succeeds.
+        this._uncertainRebinds.set(id, { fromWalletKey, toWalletKey });
+        throw e;
+      }
+
+      // Synchronous commit (zero awaits) after callback succeeds
+      const latest = this.bindings.get(id);
+      if (!latest || latest.walletKey !== fromWalletKey || latest.pendingWalletKey !== toWalletKey) {
+        this._uncertainRebinds.set(id, { fromWalletKey, toWalletKey });
+        throw new AuthError('REBIND_COMMIT_CONFLICT', 'binding state changed unexpectedly during rebind callback', 409);
+      }
+      const conflictAfter = this._ownerOf(toWalletKey);
+      if (conflictAfter && conflictAfter !== id) {
+        this._uncertainRebinds.set(id, { fromWalletKey, toWalletKey });
+        throw new AuthError('REBIND_COMMIT_CONFLICT', 'target wallet conflict detected after rebind callback', 409);
+      }
+      Object.assign(latest, {
+        walletAddress: toWalletAddress,
+        walletKey: toWalletKey,
+        boundAt: nowSec,
+        pendingWalletAddress: null,
+        pendingWalletKey: null,
+        pendingEffectiveAt: null,
+      });
+      this._uncertainRebinds.delete(id);
+      return fromWalletAddress;
+    })();
+
+    const inflightEntry = { fromWalletKey, toWalletKey, promise: runPromotion };
+    this._inflightRebinds.set(id, inflightEntry);
+
+    try {
+      const promotedFrom = await runPromotion;
+      const view = viewBinding(this.bindings.get(id));
+      if (view && promotedFrom) view.reboundFrom = promotedFrom;
+      return view;
+    } finally {
+      if (this._inflightRebinds.get(id) === inflightEntry) {
+        this._inflightRebinds.delete(id);
+      }
+      if (this._reservedWalletKeys.get(fromWalletKey) === id) {
+        this._reservedWalletKeys.delete(fromWalletKey);
+      }
+      if (this._reservedWalletKeys.get(toWalletKey) === id) {
+        this._reservedWalletKeys.delete(toWalletKey);
       }
     }
-    const view = viewBinding(b);
-    if (promotedFrom && view) view.reboundFrom = promotedFrom;
-    return view;
   }
 
   async cancelPendingRebind(tg) {
-    const b = this.bindings.get(String(tg));
+    const id = String(tg);
+    this._assertNoActiveOrUncertainRebind(id, 'cancel pending rebind');
+    const b = this.bindings.get(id);
     if (!b || !b.pendingWalletKey) return false;
     Object.assign(b, { pendingWalletAddress: null, pendingWalletKey: null, pendingEffectiveAt: null });
     return true;
   }
 
   async unbindWallet(tg) {
-    return this.bindings.delete(String(tg));
+    const id = String(tg);
+    this._assertNoActiveOrUncertainRebind(id, 'unbind wallet');
+    return this.bindings.delete(id);
   }
 
   /** 根据已绑定的钱包地址反查 Telegram 用户 ID（用于生成短长度 startapp 归因链接，避免突破 64 字节上限）。 */
   async getTelegramUserIdByWallet(walletAddress) {
     if (!walletAddress) return null;
-    return this._ownerOf(addressKey(walletAddress));
+    const key = addressKey(walletAddress);
+    for (const b of this.bindings.values()) if (b.walletKey === key) return b.telegramUserId;
+    return null;
   }
 }
 
@@ -494,11 +602,24 @@ function rowToBinding(r) {
 }
 
 export class D1IdentityStore {
-  constructor({ db, onWalletRebound = null, canPromoteRebind = null }) {
+  constructor({
+    db,
+    promoEngine = null,
+    onWalletRebound = null,
+    canPromoteRebind = null,
+    strictAtomicRebind = false,
+    allowNonAtomicRebindCallback = false,
+  }) {
     if (!db) throw new Error('D1 binding required');
     this.db = db;
+    this.promoEngine = promoEngine;
     this.onWalletRebound = onWalletRebound;
     this.canPromoteRebind = canPromoteRebind;
+    this.strictAtomicRebind = Boolean(strictAtomicRebind);
+    this.allowNonAtomicRebindCallback = Boolean(allowNonAtomicRebindCallback);
+    this._inflightRebinds = new Map(); // tg -> { fromWalletKey, toWalletKey, promise }
+    this._reservedWalletKeys = new Map(); // walletKey -> tg
+    this._uncertainRebinds = new Map(); // tg -> { fromWalletKey, toWalletKey }
   }
 
   async issueProofPayload(tg, nowSec, ttlSec = TON_PROOF_PAYLOAD_TTL_SEC) {
@@ -528,11 +649,31 @@ export class D1IdentityStore {
     return r ? String(r.tg_user_id) : null;
   }
 
+  _assertNoActiveOrUncertainRebind(id, action) {
+    if (this._inflightRebinds.has(id)) {
+      throw new AuthError('REBIND_IN_PROGRESS', `cannot ${action} while wallet rebind migration is in progress`, 409);
+    }
+    if (this._uncertainRebinds.has(id)) {
+      throw new AuthError('REBIND_RECOVERY_REQUIRED', `cannot ${action} after a failed rebind migration; retry getBinding to recover`, 409);
+    }
+  }
+
   async bindVerifiedWallet(tg, walletAddress, nowSec, { rebindDelaySec = REBIND_DELAY_SEC } = {}) {
     const id = String(tg);
+    this._assertNoActiveOrUncertainRebind(id, 'bind or switch wallet');
     const key = addressKey(walletAddress);
+    const reservedOwner = this._reservedWalletKeys.get(key);
+    if (reservedOwner && reservedOwner !== id) throw walletBoundElsewhere();
     const owner = await this._ownerOf(key);
     if (owner && owner !== id) throw walletBoundElsewhere();
+    // Cross-isolate guard: block binding a wallet that is currently maturing into another user's rebind.
+    // (During the 72h delay before pending_effective_at, other users may still legitimately bind it.)
+    const maturedPending = await this.db
+      .prepare('SELECT tg_user_id FROM wallet_bindings WHERE pending_wallet_key = ? AND tg_user_id != ? AND pending_effective_at <= ? LIMIT 1')
+      .bind(key, id, nowSec)
+      .first();
+    if (maturedPending) throw walletBoundElsewhere();
+
     const cur = await this._row(id);
     try {
       if (!cur) {
@@ -571,80 +712,388 @@ export class D1IdentityStore {
     return b?.walletAddress || null;
   }
 
-  async getBinding(
-    tg,
-    nowSec = Math.floor(Date.now() / 1000),
-    { onWalletRebound = this.onWalletRebound, canPromoteRebind = this.canPromoteRebind } = {},
-  ) {
-    const b = await this._row(tg);
-    if (!b) return null;
-    if (b.pendingWalletKey && b.pendingEffectiveAt <= nowSec) {
+  async _hasConflict(targetKey, tg) {
+    if (!targetKey) return false;
+    const reservedOwner = this._reservedWalletKeys.get(targetKey);
+    if (reservedOwner && reservedOwner !== String(tg)) return true;
+    const conflictRow = await this.db
+      .prepare('SELECT tg_user_id FROM wallet_bindings WHERE wallet_key = ? AND tg_user_id != ? LIMIT 1')
+      .bind(targetKey, String(tg))
+      .first();
+    return Boolean(conflictRow);
+  }
+
+  async _promoteAtomicWithPromo(tg, nowSec, { promoEngine, canPromoteRebind }) {
+    const id = String(tg);
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const b = await this._row(id);
+      if (!b || !b.pendingWalletKey || b.pendingEffectiveAt > nowSec) {
+        return viewBinding(b);
+      }
       const prevWalletAddress = b.walletAddress;
+      const prevWalletKey = b.walletKey;
       const targetWalletAddress = b.pendingWalletAddress;
+      const targetKey = b.pendingWalletKey;
+
       if (typeof canPromoteRebind === 'function') {
         const allowPromote = Boolean(await canPromoteRebind({
-          tgUserId: String(tg),
+          tgUserId: id,
           fromWalletAddress: prevWalletAddress,
           toWalletAddress: targetWalletAddress,
           nowSec,
         }));
-        if (!allowPromote) {
+        if (!allowPromote) return viewBinding(b);
+      }
+
+      if (await this._hasConflict(targetKey, id)) {
+        await this.cancelPendingRebind(id, targetKey);
+        return viewBinding(await this._row(id));
+      }
+
+      let prep;
+      try {
+        prep = await promoEngine.prepareAtomicMergeBalance(prevWalletAddress, targetWalletAddress, nowSec);
+      } catch (e) {
+        if (e?.code === 'PENDING_CLAIM_ACTIVE') {
           return viewBinding(b);
         }
+        throw e;
       }
-      // 先检测目标钱包是否已被其他账号绑定，再优先合并旧钱包推广余额，合并成功后再切换绑定，彻底杜绝换绑后余额孤立
-      const targetKey = b.pending_wallet_key;
-      const conflictRow = targetKey
-        ? await this.db
-            .prepare('SELECT tg_user_id FROM wallet_bindings WHERE wallet_key = ? AND tg_user_id != ? LIMIT 1')
-            .bind(targetKey, String(tg))
-            .first()
-        : null;
-      if (conflictRow) {
-        await this.cancelPendingRebind(tg);
-        return viewBinding(await this._row(tg));
+
+      const bindingGuardSql = ' AND EXISTS (SELECT 1 FROM wallet_bindings WHERE tg_user_id = ? AND wallet_key = ? AND pending_wallet_key IS NULL)';
+      const bindingGuardArgs = [id, targetKey];
+      const stmts = [
+        this.db
+          .prepare(
+            `UPDATE wallet_bindings
+             SET wallet_address = pending_wallet_address,
+                 wallet_key = CASE
+                   WHEN wallet_key = ?
+                    AND pending_wallet_key = ?
+                    AND pending_effective_at <= ?
+                    AND NOT EXISTS (SELECT 1 FROM wallet_bindings WHERE wallet_key = ? AND tg_user_id != ?)${prep.guardSql}
+                   THEN pending_wallet_key
+                   ELSE NULL
+                 END,
+                 bound_at = ?,
+                 pending_wallet_address = NULL,
+                 pending_wallet_key = NULL,
+                 pending_effective_at = NULL,
+                 updated_at = ?
+             WHERE tg_user_id = ?`,
+          )
+          .bind(
+            prevWalletKey,
+            targetKey,
+            nowSec,
+            targetKey,
+            id,
+            ...prep.guardArgs,
+            nowSec,
+            nowSec,
+            id,
+          ),
+        ...prep.buildStmts(bindingGuardSql, bindingGuardArgs),
+      ];
+
+      try {
+        const res = await this.db.batch(stmts);
+        const promoted = Number(res?.[0]?.meta?.changes ?? res?.[0]?.changes ?? 0) === 1;
+        if (promoted) {
+          this._uncertainRebinds.delete(id);
+          const fresh = viewBinding(await this._row(id));
+          if (fresh && prevWalletAddress && fresh.walletAddress && addressKey(prevWalletAddress) !== addressKey(fresh.walletAddress)) {
+            fresh.reboundFrom = prevWalletAddress;
+          }
+          return fresh;
+        }
+      } catch (e) {
+        const msg = String(e?.message || e);
+        if (!/NOT NULL|UNIQUE|constraint/i.test(msg)) {
+          throw e;
+        }
+        if (await this._hasConflict(targetKey, id)) {
+          await this.cancelPendingRebind(id, targetKey);
+          return viewBinding(await this._row(id));
+        }
+        const latest = await this._row(id);
+        if (!latest || !latest.pendingWalletKey || latest.pendingEffectiveAt > nowSec) {
+          return viewBinding(latest);
+        }
+        if (typeof promoEngine.hasPendingClaim === 'function' && (await promoEngine.hasPendingClaim(prevWalletAddress, nowSec))) {
+          return viewBinding(latest);
+        }
+        continue;
       }
-      if (prevWalletAddress && targetWalletAddress && addressKey(prevWalletAddress) !== addressKey(targetWalletAddress)) {
-        if (typeof onWalletRebound === 'function') {
-          await onWalletRebound({ tgUserId: String(tg), fromWalletAddress: prevWalletAddress, toWalletAddress: targetWalletAddress, nowSec });
+    }
+    throw new AuthError('REBIND_CONFLICT', 'concurrent wallet rebind promotion conflict, please retry', 409);
+  }
+
+  /**
+   * 降级回调路径（Hold-Before-Commit）：
+   * 1. 回调执行期间 `wallet_bindings` 仍保留原 `wallet_key`（由 D1 UNIQUE 跨实例锁住旧钱包，
+   *    同时进程内 `_reservedWalletKeys` 锁住新旧双钱包、`_inflightRebinds` 序列化同账号并发请求）；
+   * 2. 并发读取不会观察到未提交的临时目标绑定；
+   * 3. 回调失败时绝不假装外部资金已回滚，而是保留 `wallet_bindings` 在原钱包 + pending 可恢复状态，
+   *    并标记 `_uncertainRebinds` 阻止取消/新换绑/解绑，直至幂等回调重试成功；
+   * 4. 回调成功后用条件 CAS 提交 `wallet_bindings`，若跨实例触发 UNIQUE 或状态变更则显式抛出
+   *    `REBIND_COMMIT_CONFLICT`，绝不覆盖新绑定或产生双重绑定。
+   */
+  async _promoteWithCallback(tg, nowSec, { onWalletRebound, canPromoteRebind }) {
+    const id = String(tg);
+    if (this._inflightRebinds.has(id)) {
+      await this._inflightRebinds.get(id).promise;
+      return viewBinding(await this._row(id));
+    }
+
+    const b0 = await this._row(id);
+    if (!b0 || !b0.pendingWalletKey || b0.pendingEffectiveAt > nowSec) {
+      return viewBinding(b0);
+    }
+
+    if (typeof canPromoteRebind === 'function') {
+      const allowPromote = Boolean(await canPromoteRebind({
+        tgUserId: id,
+        fromWalletAddress: b0.walletAddress,
+        toWalletAddress: b0.pendingWalletAddress,
+        nowSec,
+      }));
+      if (!allowPromote) return viewBinding(await this._row(id));
+    }
+
+    if (this._inflightRebinds.has(id)) {
+      await this._inflightRebinds.get(id).promise;
+      return viewBinding(await this._row(id));
+    }
+
+    const b = await this._row(id);
+    if (!b || !b.pendingWalletKey || b.pendingEffectiveAt > nowSec) {
+      return viewBinding(b);
+    }
+
+    const prevWalletAddress = b.walletAddress;
+    const prevWalletKey = b.walletKey;
+    const targetWalletAddress = b.pendingWalletAddress;
+    const targetKey = b.pendingWalletKey;
+
+    if (await this._hasConflict(targetKey, id)) {
+      if (this._uncertainRebinds.has(id)) {
+        throw new AuthError('REBIND_COMMIT_CONFLICT', 'target wallet is bound elsewhere after an uncertain rebind migration; manual reconciliation required', 409);
+      }
+      await this.cancelPendingRebind(id, targetKey);
+      return viewBinding(await this._row(id));
+    }
+
+    if (this._inflightRebinds.has(id)) {
+      await this._inflightRebinds.get(id).promise;
+      return viewBinding(await this._row(id));
+    }
+
+    this._reservedWalletKeys.set(prevWalletKey, id);
+    this._reservedWalletKeys.set(targetKey, id);
+
+    const runPromotion = (async () => {
+      if (prevWalletAddress && targetWalletAddress && prevWalletKey !== targetKey) {
+        try {
+          await onWalletRebound({ tgUserId: id, fromWalletAddress: prevWalletAddress, toWalletAddress: targetWalletAddress, nowSec });
+        } catch (e) {
+          this._uncertainRebinds.set(id, { fromWalletKey: prevWalletKey, toWalletKey: targetKey });
+          throw e;
         }
       }
-      let promoted = false;
+
+      let changes = 0;
       try {
-        // wallet_key is UNIQUE: promotion fails (and the pending switch is dropped) if the
-        // target wallet was bound to someone else meanwhile.
         const res = await this.db
           .prepare(
-            `UPDATE wallet_bindings SET wallet_address = pending_wallet_address, wallet_key = pending_wallet_key, bound_at = ?,
-               pending_wallet_address = NULL, pending_wallet_key = NULL, pending_effective_at = NULL, updated_at = ?
-             WHERE tg_user_id = ? AND pending_wallet_key IS NOT NULL AND pending_effective_at <= ?`,
+            `UPDATE wallet_bindings
+             SET wallet_address = pending_wallet_address,
+                 wallet_key = pending_wallet_key,
+                 bound_at = ?,
+                 pending_wallet_address = NULL,
+                 pending_wallet_key = NULL,
+                 pending_effective_at = NULL,
+                 updated_at = ?
+             WHERE tg_user_id = ?
+               AND wallet_key = ?
+               AND pending_wallet_key = ?
+               AND pending_effective_at <= ?`,
           )
-          .bind(nowSec, nowSec, String(tg), nowSec)
+          .bind(nowSec, nowSec, id, prevWalletKey, targetKey, nowSec)
           .run();
-        promoted = Number(res?.meta?.changes ?? res?.changes ?? 0) === 1;
+        changes = Number(res?.meta?.changes ?? res?.changes ?? 0);
       } catch (e) {
-        if (!/UNIQUE/i.test(String(e?.message))) throw e;
-        await this.cancelPendingRebind(tg);
+        if (/UNIQUE/i.test(String(e?.message))) {
+          this._uncertainRebinds.set(id, { fromWalletKey: prevWalletKey, toWalletKey: targetKey });
+          throw new AuthError(
+            'REBIND_COMMIT_CONFLICT',
+            'rebind callback completed but wallet_bindings commit hit UNIQUE constraint; manual reconciliation required',
+            409,
+          );
+        }
+        this._uncertainRebinds.set(id, { fromWalletKey: prevWalletKey, toWalletKey: targetKey });
+        throw e;
       }
-      const fresh = viewBinding(await this._row(tg));
-      if (promoted && prevWalletAddress && fresh?.walletAddress && addressKey(prevWalletAddress) !== addressKey(fresh.walletAddress)) {
+
+      if (changes !== 1) {
+        const latest = await this._row(id);
+        if (latest && latest.walletKey === targetKey && !latest.pendingWalletKey) {
+          this._uncertainRebinds.delete(id);
+          return null;
+        }
+        this._uncertainRebinds.set(id, { fromWalletKey: prevWalletKey, toWalletKey: targetKey });
+        throw new AuthError(
+          'REBIND_COMMIT_CONFLICT',
+          'wallet_bindings changed concurrently during rebind callback; refusing to overwrite newer binding state',
+          409,
+        );
+      }
+
+      this._uncertainRebinds.delete(id);
+      return prevWalletAddress && targetWalletAddress && prevWalletKey !== targetKey ? prevWalletAddress : null;
+    })();
+
+    const inflightEntry = { fromWalletKey: prevWalletKey, toWalletKey: targetKey, promise: runPromotion };
+    this._inflightRebinds.set(id, inflightEntry);
+
+    try {
+      const promotedFrom = await runPromotion;
+      const fresh = viewBinding(await this._row(id));
+      if (fresh && promotedFrom) fresh.reboundFrom = promotedFrom;
+      return fresh;
+    } finally {
+      if (this._inflightRebinds.get(id) === inflightEntry) {
+        this._inflightRebinds.delete(id);
+      }
+      if (this._reservedWalletKeys.get(prevWalletKey) === id) {
+        this._reservedWalletKeys.delete(prevWalletKey);
+      }
+      if (this._reservedWalletKeys.get(targetKey) === id) {
+        this._reservedWalletKeys.delete(targetKey);
+      }
+    }
+  }
+
+  async getBinding(
+    tg,
+    nowSec = Math.floor(Date.now() / 1000),
+    opts = {},
+  ) {
+    const id = String(tg);
+    if (this._inflightRebinds.has(id)) {
+      await this._inflightRebinds.get(id).promise;
+      return viewBinding(await this._row(id));
+    }
+
+    const hasCustomRebound = Object.prototype.hasOwnProperty.call(opts, 'onWalletRebound') && opts.onWalletRebound !== undefined;
+    const onWalletRebound = hasCustomRebound ? opts.onWalletRebound : this.onWalletRebound;
+    const canPromoteRebind = opts.canPromoteRebind !== undefined ? opts.canPromoteRebind : this.canPromoteRebind;
+    const promoEngine = opts.promoEngine !== undefined ? opts.promoEngine : this.promoEngine;
+
+    const b = await this._row(id);
+    if (!b) return null;
+    if (!b.pendingWalletKey || b.pendingEffectiveAt > nowSec) {
+      return viewBinding(b);
+    }
+
+    // 1. 优先走同库 D1PromoStore 单事务 db.batch() 原子路径（冲突校验 + 绑定晋升 + 余额迁移全同事务）
+    if (
+      !hasCustomRebound &&
+      promoEngine &&
+      promoEngine.db === this.db &&
+      typeof promoEngine.prepareAtomicMergeBalance === 'function'
+    ) {
+      return this._promoteAtomicWithPromo(id, nowSec, { promoEngine, canPromoteRebind });
+    }
+
+    // 2. 跨库 / 非原子 promoEngine：拒绝静默降级（除非调用方显式允许非原子回调）
+    if (!hasCustomRebound && promoEngine && promoEngine.db !== this.db && !this.allowNonAtomicRebindCallback) {
+      throw new AuthError(
+        'NON_ATOMIC_REBIND_UNSUPPORTED',
+        'promoEngine does not share the same D1 database; refusing silent downgrade to non-atomic wallet rebind',
+        503,
+      );
+    }
+
+    // 3. 存在外部 onWalletRebound 回调：严格原子模式下直接拒绝，否则走 Hold-Before-Commit 降级路径
+    if (typeof onWalletRebound === 'function') {
+      if (this.strictAtomicRebind && !this.allowNonAtomicRebindCallback) {
+        throw new AuthError(
+          'NON_ATOMIC_REBIND_UNSUPPORTED',
+          'strictAtomicRebind is enabled; refusing non-atomic onWalletRebound callback',
+          503,
+        );
+      }
+      return this._promoteWithCallback(id, nowSec, { onWalletRebound, canPromoteRebind });
+    }
+
+    // 4. 无资金迁移回调的纯身份换绑：单条条件 CAS UPDATE
+    const prevWalletAddress = b.walletAddress;
+    const prevWalletKey = b.walletKey;
+    const targetWalletAddress = b.pendingWalletAddress;
+    const targetKey = b.pendingWalletKey;
+
+    if (typeof canPromoteRebind === 'function') {
+      const allowPromote = Boolean(await canPromoteRebind({
+        tgUserId: id,
+        fromWalletAddress: prevWalletAddress,
+        toWalletAddress: targetWalletAddress,
+        nowSec,
+      }));
+      if (!allowPromote) return viewBinding(b);
+    }
+
+    if (await this._hasConflict(targetKey, id)) {
+      await this.cancelPendingRebind(id, targetKey);
+      return viewBinding(await this._row(id));
+    }
+
+    try {
+      const res = await this.db
+        .prepare(
+          `UPDATE wallet_bindings
+           SET wallet_address = pending_wallet_address,
+               wallet_key = pending_wallet_key,
+               bound_at = ?,
+               pending_wallet_address = NULL,
+               pending_wallet_key = NULL,
+               pending_effective_at = NULL,
+               updated_at = ?
+           WHERE tg_user_id = ?
+             AND wallet_key = ?
+             AND pending_wallet_key = ?
+             AND pending_effective_at <= ?`,
+        )
+        .bind(nowSec, nowSec, id, prevWalletKey, targetKey, nowSec)
+        .run();
+      const promoted = Number(res?.meta?.changes ?? res?.changes ?? 0) === 1;
+      const fresh = viewBinding(await this._row(id));
+      if (promoted && fresh && prevWalletAddress && fresh.walletAddress && addressKey(prevWalletAddress) !== addressKey(fresh.walletAddress)) {
         fresh.reboundFrom = prevWalletAddress;
       }
       return fresh;
+    } catch (e) {
+      if (!/UNIQUE/i.test(String(e?.message))) throw e;
+      await this.cancelPendingRebind(id, targetKey);
+      return viewBinding(await this._row(id));
     }
-    return viewBinding(b);
   }
 
-  async cancelPendingRebind(tg) {
-    const res = await this.db
-      .prepare('UPDATE wallet_bindings SET pending_wallet_address = NULL, pending_wallet_key = NULL, pending_effective_at = NULL WHERE tg_user_id = ? AND pending_wallet_key IS NOT NULL')
-      .bind(String(tg))
-      .run();
+  async cancelPendingRebind(tg, expectedPendingKey = null) {
+    const id = String(tg);
+    this._assertNoActiveOrUncertainRebind(id, 'cancel pending rebind');
+    const sql = expectedPendingKey
+      ? 'UPDATE wallet_bindings SET pending_wallet_address = NULL, pending_wallet_key = NULL, pending_effective_at = NULL WHERE tg_user_id = ? AND pending_wallet_key = ?'
+      : 'UPDATE wallet_bindings SET pending_wallet_address = NULL, pending_wallet_key = NULL, pending_effective_at = NULL WHERE tg_user_id = ? AND pending_wallet_key IS NOT NULL';
+    const args = expectedPendingKey ? [id, String(expectedPendingKey)] : [id];
+    const res = await this.db.prepare(sql).bind(...args).run();
     return Number(res?.meta?.changes || 0) > 0;
   }
 
   async unbindWallet(tg) {
-    const res = await this.db.prepare('DELETE FROM wallet_bindings WHERE tg_user_id = ?').bind(String(tg)).run();
+    const id = String(tg);
+    this._assertNoActiveOrUncertainRebind(id, 'unbind wallet');
+    const res = await this.db.prepare('DELETE FROM wallet_bindings WHERE tg_user_id = ?').bind(id).run();
     return Number(res?.meta?.changes || 0) > 0;
   }
 

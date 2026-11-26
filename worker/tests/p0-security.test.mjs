@@ -157,7 +157,7 @@ await test('user A cannot read, claim or order with user B\'s wallet (body / pat
   const hA = await tgHeaders(6001, { nowSec: 1000 });
   assert.equal((await route({ method: 'GET', pathname: '/api/promo/balance/EQ_WALLET_B', headers: hA, nowSec: 1000 })).status, 403);
   assert.equal((await route({ method: 'GET', pathname: '/api/presale/orders/EQ_WALLET_B', headers: hA, nowSec: 1000 })).status, 403);
-  assert.equal((await route({ method: 'POST', pathname: '/api/presale/intent', body: { walletAddress: 'EQ_WALLET_B', gramAmount: '5' }, headers: hA, nowSec: 1000 })).status, 403);
+  assert.equal((await route({ method: 'POST', pathname: '/api/presale/intent', body: { walletAddress: 'EQ_WALLET_B', skuId: 'chest_silver' }, headers: hA, nowSec: 1000 })).status, 403);
   assert.equal((await route({ method: 'POST', pathname: '/api/promo/intent', body: { walletAddress: 'EQ_WALLET_B' }, headers: hA, nowSec: 1000 })).status, 403);
   // B's claim id is not visible to A
   const hB = await tgHeaders(6002, { nowSec: 1000 });
@@ -166,7 +166,7 @@ await test('user A cannot read, claim or order with user B\'s wallet (body / pat
   const peek = await route({ method: 'GET', pathname: `/api/promo/claim/${claimB.body.data.claimId}`, headers: hA, nowSec: 1000 });
   assert.equal(peek.status, 404);
   // A's own order goes to A's bound wallet even with no wallet in the body
-  const own = await route({ method: 'POST', pathname: '/api/presale/intent', body: { gramAmount: '5' }, headers: hA, nowSec: 1000 });
+  const own = await route({ method: 'POST', pathname: '/api/presale/intent', body: { skuId: 'chest_silver' }, headers: hA, nowSec: 1000 });
   assert.equal(own.status, 200);
   assert.equal(own.body.data.walletAddress, 'EQ_WALLET_A');
   assert.equal((await presaleEngine.listOrders('EQ_WALLET_B')).length, 0);
@@ -344,7 +344,7 @@ await test('initData replay: a replayed (stolen) initData is valid until expiry 
   // Attacker replays the same initData within 24h and proves THEIR wallet -> only a pending switch
   assert.equal((await proofFlow(route, stolen, attackerWallet, t0 + 3600)).body.data.status, 'PENDING_REBIND');
   // Rewards still go to the victim's bound wallet
-  await completePurchase(presale, victimWallet.address, 5, t0);
+  await completePurchase(presale, victimWallet.address, '4.99', t0);
   pred.placeBet({ roundId: 1, userId: '9201', side: 'PASS' }, t0);
   await pred.settleRoundBets(1, true, 18, '10000000000000', t0 * 1000);
   const act = await route({ method: 'POST', pathname: '/api/prediction/activate', body: { walletAddress: attackerWallet.address }, headers: stolen, nowSec: t0 + 3700 });
@@ -372,25 +372,29 @@ await test('exact decimal money: 1.99 / 5.99 / 13.99 GRAM x 2,002 = 3,983.98 / 1
 });
 
 for (const [name, make] of BACKENDS) {
-  await test(`[${name}] min/max boundaries; 1.99 GRAM rejected under current 5 GRAM minimum; amounts stored exactly`, async () => {
+  await test(`[${name}] strict 6-tier SKU boundaries: non-SKU amounts rejected with UNKNOWN_SKU; valid SKU amounts stored exactly`, async () => {
     const e = await make({});
     const W = 'EQ_BOUNDS';
-    await assert.rejects(e.createOrderIntent(W, '1.99', 1000), { code: 'BAD_AMOUNT' });
-    await assert.rejects(e.createOrderIntent(W, '4.999999999', 1000), { code: 'BAD_AMOUNT' });
-    await assert.rejects(e.createOrderIntent(W, '500.000000001', 1000), { code: 'BAD_AMOUNT' });
-    const o1 = await e.createOrderIntent(W, '5.99', 1000);
-    assert.equal(o1.tonNano, '5990000000');
-    assert.equal(o1.a9AmountRaw, '11991980000000');
-    const o2 = await e.createOrderIntent('EQ_BOUNDS_2', '13.99', 1000);
-    assert.equal(o2.a9AmountRaw, '28007980000000');
+    await assert.rejects(e.createOrderIntent(W, '1.99', 1000), { code: 'UNKNOWN_SKU' });
+    await assert.rejects(e.createOrderIntent(W, '4.999999999', 1000), { code: 'UNKNOWN_SKU' });
+    await assert.rejects(e.createOrderIntent(W, '5', 1000), { code: 'UNKNOWN_SKU' });
+    await assert.rejects(e.createOrderIntent(W, '500.000000001', 1000), { code: 'UNKNOWN_SKU' });
+    const o1 = await e.createOrderIntent(W, '4.99', 1000);
+    assert.equal(o1.skuId, 'chest_silver');
+    assert.equal(o1.tonNano, '4990000000');
+    assert.equal(o1.a9AmountRaw, '8000000000000');
+    const o2 = await e.createOrderIntent('EQ_BOUNDS_2', '19.99', 1000);
+    assert.equal(o2.skuId, 'chest_platinum');
+    assert.equal(o2.a9AmountRaw, '37000000000000');
     const o3 = await e.createOrderIntent('EQ_BOUNDS_3', '500', 1000);
+    assert.equal(o3.skuId, 'chest_legendary');
     assert.equal(o3.tonNano, '500000000000');
-    await assert.rejects(e.createOrderIntent('EQ_BOUNDS_4', '5', 1000, {}).then(() => { e.open = false; return e.createOrderIntent('EQ_BOUNDS_4', '5', 1000); }), { code: 'PRESALE_CLOSED' });
+    await assert.rejects(e.createOrderIntent('EQ_BOUNDS_4', '4.99', 1000, {}).then(() => { e.open = false; return e.createOrderIntent('EQ_BOUNDS_4', '4.99', 1000); }), { code: 'PRESALE_CLOSED' });
   });
 
   await test(`[${name}] duplicate inbound tx is a no-op; memo alone (wrong sender / wrong amount) never confirms`, async () => {
     const e = await make({});
-    const o = await e.createOrderIntent('EQ_BUYER_1', '10', 1000);
+    const o = await e.createOrderIntent('EQ_BUYER_1', '9.99', 1000);
     const first = await e.ingestInbound(inbound(o), 1001);
     assert.equal(first.action, 'CONFIRM');
     const again = await e.ingestInbound(inbound(o), 1002);
@@ -399,7 +403,7 @@ for (const [name, make] of BACKENDS) {
     assert.equal(await e.queueConfirmedPayouts(1004), 0);
     assert.equal((await e.repo.listOpenPayouts()).length, 1);
 
-    const o2 = await e.createOrderIntent('EQ_BUYER_2', '10', 1000);
+    const o2 = await e.createOrderIntent('EQ_BUYER_2', '9.99', 1000);
     const thief = await e.ingestInbound(inbound(o2, { txHash: 'thief', from: 'EQ_SOMEONE_ELSE' }), 1005);
     assert.equal(thief.action, 'ANOMALY');
     assert.equal(thief.reason, 'sender_mismatch');
@@ -411,7 +415,7 @@ for (const [name, make] of BACKENDS) {
     assert.equal((await e.repo.listOpenPayouts()).length, 1); // no automatic refund, no automatic fee
     const anomalies = await e.listAnomalies();
     assert.deepEqual(anomalies.map((a) => [a.txHash, a.reason, a.refundTo, a.valueNano]).sort(), [
-      ['thief', 'sender_mismatch', 'EQ_SOMEONE_ELSE', '10060000000'],
+      ['thief', 'sender_mismatch', 'EQ_SOMEONE_ELSE', '10050000000'],
       ['under', 'amount_mismatch', 'EQ_BUYER_2', '9000000000'],
     ]);
     const wrongDest = await e.planInbound(inbound(o, { txHash: 'x', to: 'EQ_OTHER_WALLET' }), 1007);
@@ -422,7 +426,7 @@ for (const [name, make] of BACKENDS) {
 
   await test(`[${name}] payment confirmed but broadcast fails: order stays retryable, then completes with exactly one payout`, async () => {
     const e = await make({});
-    const o = await e.createOrderIntent('EQ_RETRY', '5', 1000);
+    const o = await e.createOrderIntent('EQ_RETRY', '4.99', 1000);
     await e.ingestInbound(inbound(o), 1001);
     await e.queueConfirmedPayouts(1002);
     let calls = 0;
@@ -443,7 +447,7 @@ for (const [name, make] of BACKENDS) {
 
   await test(`[${name}] ambiguous broadcast failure is never blindly re-sent (verifier or manual review)`, async () => {
     const e = await make({});
-    const o = await e.createOrderIntent('EQ_AMBIG', '5', 1000);
+    const o = await e.createOrderIntent('EQ_AMBIG', '4.99', 1000);
     await e.ingestInbound(inbound(o), 1001);
     await e.queueConfirmedPayouts(1002);
     let calls = 0;
@@ -454,7 +458,7 @@ for (const [name, make] of BACKENDS) {
     assert.equal((await e.getOrder(o.orderId)).status, PRESALE_STATUS.NEEDS_REVIEW);
 
     const e2 = await make({});
-    const o2 = await e2.createOrderIntent('EQ_AMBIG_2', '5', 1000);
+    const o2 = await e2.createOrderIntent('EQ_AMBIG_2', '4.99', 1000);
     await e2.ingestInbound(inbound(o2), 1001);
     await e2.queueConfirmedPayouts(1002);
     await e2.processPayouts(1003, { a9Broadcaster: async () => { throw new Error('timeout after submit'); } });
@@ -471,7 +475,7 @@ for (const [name, make] of BACKENDS) {
 
   await test(`[${name}] dry-run runner writes nothing and never calls a broadcaster`, async () => {
     const e = await make({});
-    const o = await e.createOrderIntent('EQ_DRY', '5', 1000);
+    const o = await e.createOrderIntent('EQ_DRY', '4.99', 1000);
     const before = await dumpOf(e);
     let calls = 0;
     const runner = new PresalePayoutRunner({
@@ -490,29 +494,29 @@ for (const [name, make] of BACKENDS) {
   });
 
   await test(`[${name}] concurrent orders cannot oversell wallet quota or pool cap`, async () => {
-    const e = await make({ defaultQuotaTon: 200n });
-    const results = await Promise.allSettled(Array.from({ length: 6 }, () => e.createOrderIntent('EQ_RUSH', '50', 1000)));
+    const e = await make({ defaultQuotaTon: 80n });
+    const results = await Promise.allSettled(Array.from({ length: 6 }, () => e.createOrderIntent('EQ_RUSH', '19.99', 1000)));
     assert.equal(results.filter((r) => r.status === 'fulfilled').length, 4);
     assert.ok(results.filter((r) => r.status === 'rejected').every((r) => r.reason.code === 'OVER_QUOTA'));
 
-    const pool = await make({ totalCapA9Raw: 3n * 10n * 2002n * 1_000_000_000n });
-    const res2 = await Promise.allSettled(['EQ_P1', 'EQ_P2', 'EQ_P3', 'EQ_P4', 'EQ_P5'].map((w) => pool.createOrderIntent(w, '10', 1000)));
+    const pool = await make({ totalCapA9Raw: 3n * 17_500n * 1_000_000_000n });
+    const res2 = await Promise.allSettled(['EQ_P1', 'EQ_P2', 'EQ_P3', 'EQ_P4', 'EQ_P5'].map((w) => pool.createOrderIntent(w, '9.99', 1000)));
     assert.equal(res2.filter((r) => r.status === 'fulfilled').length, 3);
     // Unpaid reservations expire and free capacity again.
     const later = 1000 + 31 * 60;
-    await pool.createOrderIntent('EQ_P6', '10', later);
+    await pool.createOrderIntent('EQ_P6', '9.99', later);
   });
 
   await test(`[${name}] expired order paid late -> passive refund minus 0.03 GRAM gas; refund broadcast failure retries then confirms`, async () => {
     const e = await make({});
-    const o = await e.createOrderIntent('EQ_LATE', '5', 1000);
+    const o = await e.createOrderIntent('EQ_LATE', '4.99', 1000);
     const late = await e.ingestInbound(inbound(o), 1000 + 31 * 60);
     assert.equal(late.action, 'REFUND');
     assert.equal(late.reason, 'expired');
-    assert.equal(late.refundNano, 5_030_000_000n);
+    assert.equal(late.refundNano, 5_020_000_000n);
     const t = 1000 + 32 * 60;
     let n = 0;
-    const flaky = async (inst) => { n += 1; if (n === 1) throw Object.assign(new Error('rpc down'), { notSent: true }); assert.equal(inst.tonNano, '5030000000'); return { txHash: 'refund-tx' }; };
+    const flaky = async (inst) => { n += 1; if (n === 1) throw Object.assign(new Error('rpc down'), { notSent: true }); assert.equal(inst.tonNano, '5020000000'); return { txHash: 'refund-tx' }; };
     await e.processPayouts(t, { refundBroadcaster: flaky });
     assert.equal((await e.getOrder(o.orderId)).status, PRESALE_STATUS.REFUND_PENDING);
     await e.processPayouts(t + 1, { refundBroadcaster: flaky });
@@ -524,7 +528,7 @@ for (const [name, make] of BACKENDS) {
 
   await test(`[${name}] anomaly resolution (P0-D): 0.03 GRAM base refund gas deducted for USER/SYSTEM/UNKNOWN; higher userFaultFeeNano applies only to USER; resolves once`, async () => {
     const e = await make({});
-    const o = await e.createOrderIntent('EQ_ANOM', '10', 1000);
+    const o = await e.createOrderIntent('EQ_ANOM', '9.99', 1000);
     await e.ingestInbound(inbound(o, { txHash: 'short', valueNano: '9000000000' }), 1001);
     await e.ingestInbound({ txHash: 'stray', finality: 'finalized', to: HOT, from: 'EQ_STRANGER', valueNano: '3000000000', memo: 'hello' }, 1002);
     await e.ingestInbound({ txHash: 'user-nofee', finality: 'finalized', to: HOT, from: 'EQ_USER_FAULT', valueNano: '4000000000', memo: '' }, 1002);
@@ -573,7 +577,7 @@ for (const [name, make] of BACKENDS) {
   await test(`[${name}] referral reward booked once; crash while crediting goes to review, never double-credits`, async () => {
     const promo = new PromoHotWalletEngine({ hotWalletAddress: HOT });
     const e = await make({ promoEngine: promo });
-    const o = await e.createOrderIntent('EQ_REFBUY', '10', 1000, { referrerId: 'EQ_INVITER' });
+    const o = await e.createOrderIntent('EQ_REFBUY', '9.99', 1000, { referrerId: 'EQ_INVITER' });
     await e.ingestInbound(inbound(o), 1001);
     await e.queueConfirmedPayouts(1002);
     await e.processPayouts(1003, { a9Broadcaster: async () => ({ txHash: 'p' }) });
@@ -582,12 +586,12 @@ for (const [name, make] of BACKENDS) {
     await e.processPayouts(1005, { verifier: async () => ({ state: 'CONFIRMED' }) });
     await e.processReferralCredits(1006);
     await e.processReferralCredits(1007);
-    assert.equal(promo.getBalance('EQ_INVITER').claimableRaw, String((10n * 2002n * 1_000_000_000n * 6n) / 100n));
+    assert.equal(promo.getBalance('EQ_INVITER').claimableRaw, String((17_500n * 1_000_000_000n * 6n) / 100n));
 
     const crashing = { creditReward: () => { throw new Error('crash mid-credit'); } };
     const e2 = await make({ promoEngine: crashing });
-    const o2 = await e2.createOrderIntent('EQ_REFBUY2', '10', 1000, { referrerId: 'EQ_INVITER2' });
-    await completePurchase(e2, 'EQ_FILLER', '5', 999).catch(() => {});
+    const o2 = await e2.createOrderIntent('EQ_REFBUY2', '9.99', 1000, { referrerId: 'EQ_INVITER2' });
+    await completePurchase(e2, 'EQ_FILLER', '4.99', 999).catch(() => {});
     await e2.ingestInbound(inbound(o2), 1001);
     await e2.queueConfirmedPayouts(1002);
     await e2.processPayouts(1003, { a9Broadcaster: async () => ({ txHash: 'p2' }), verifier: async () => ({ state: 'CONFIRMED' }) });
@@ -613,10 +617,10 @@ for (const [name, make] of BACKENDS) {
     const claimExp = promo.createClaimIntent('EQ_PROMO_EXP', 10); // 10 + 900 = 910 < 1010 已过期
 
     const e = await make({ promoEngine: promo });
-    const validOrder = await e.createOrderIntent('EQ_VALID', '10', 1000);
-    const wrongAmtOrder = await e.createOrderIntent('EQ_BADAMT', '10', 1000);
-    const wrongSenderOrder = await e.createOrderIntent('EQ_OWNER_A', '10', 1000);
-    const doneOrder = await completePurchase(e, 'EQ_DONE', '5', 900, { txHash: 'done-first' });
+    const validOrder = await e.createOrderIntent('EQ_VALID', '9.99', 1000);
+    const wrongAmtOrder = await e.createOrderIntent('EQ_BADAMT', '9.99', 1000);
+    const wrongSenderOrder = await e.createOrderIntent('EQ_OWNER_A', '9.99', 1000);
+    const doneOrder = await completePurchase(e, 'EQ_DONE', '4.99', 900, { txHash: 'done-first' });
 
     const txs = [
       { txHash: 'tx-valid', finality: 'finalized', to: HOT, from: 'EQ_VALID', valueNano: validOrder.payTonNano, memo: validOrder.memo },
@@ -705,8 +709,8 @@ for (const [name, make] of BACKENDS) {
   // -------------------------------------------------------------------------
   await test(`[${name}] P0-B & P0-C: B/C wrong-payer refunds never touch A's order or quota; duplicate refund never alters COMPLETED order`, async () => {
     const e = await make({ defaultQuotaTon: 20n });
-    const aOrder = await e.createOrderIntent('EQ_USER_A', '10', 1000);
-    assert.equal((await e.getQuota('EQ_USER_A', 1000)).usedQuotaNano, '10000000000');
+    const aOrder = await e.createOrderIntent('EQ_USER_A', '9.99', 1000);
+    assert.equal((await e.getQuota('EQ_USER_A', 1000)).usedQuotaNano, '9990000000');
 
     // B 和 C 两人分别错用 A 的订单号付款
     const bIn = await e.ingestInbound({ txHash: 'b-wrong', finality: 'finalized', to: HOT, from: 'EQ_USER_B', valueNano: aOrder.payTonNano, memo: aOrder.memo }, 1001);
@@ -719,8 +723,8 @@ for (const [name, make] of BACKENDS) {
     const rC = await e.resolveAnomaly('c-wrong', { decision: 'REFUND', faultParty: 'USER', operator: 'ops' }, 1004);
     assert.equal(rB.status, 'REFUND_QUEUED');
     assert.equal(rC.status, 'REFUND_QUEUED');
-    assert.equal(rB.refundNano, '10030000000');
-    assert.equal(rC.refundNano, '10030000000');
+    assert.equal(rB.refundNano, '10020000000');
+    assert.equal(rC.refundNano, '10020000000');
     assert.equal((await e.repo.getPayout('refund:b-wrong')).orderId, null);
     assert.equal((await e.repo.getPayout('refund:c-wrong')).orderId, null);
 
@@ -746,7 +750,7 @@ for (const [name, make] of BACKENDS) {
 
     // 验证 A 的订单仍为 PENDING_PAYMENT，额度仍精确占用 10 GRAM，随后 A 仍能正常付款成交
     assert.equal((await e.getOrder(aOrder.orderId)).status, PRESALE_STATUS.PENDING_PAYMENT);
-    assert.equal((await e.getQuota('EQ_USER_A', 1007)).usedQuotaNano, '10000000000');
+    assert.equal((await e.getQuota('EQ_USER_A', 1007)).usedQuotaNano, '9990000000');
     const aPay = await e.ingestInbound({ txHash: 'a-real-pay', finality: 'finalized', to: HOT, from: 'EQ_USER_A', valueNano: aOrder.payTonNano, memo: aOrder.memo }, 1008);
     assert.equal(aPay.action, 'CONFIRM');
     await e.queueConfirmedPayouts(1009);
@@ -771,10 +775,10 @@ for (const [name, make] of BACKENDS) {
     assert.equal((await e.repo.getPayout('refund:dup-by-b')).status, 'NEEDS_REVIEW');
     assert.equal((await e.getOrder(aOrder.orderId)).status, PRESALE_STATUS.COMPLETED);
     assert.equal(await e.hasCompletedPurchase('EQ_USER_A'), true);
-    assert.equal((await e.getQuota('EQ_USER_A', 1200)).usedQuotaNano, '10000000000');
+    assert.equal((await e.getQuota('EQ_USER_A', 1200)).usedQuotaNano, '9990000000');
 
     // 错额订单叠加第二笔误付：退第二笔不改订单，退错额本人这笔才将 PAYMENT_EXCEPTION -> REFUNDED
-    const oExc = await e.createOrderIntent('EQ_EXC', '10', 1300);
+    const oExc = await e.createOrderIntent('EQ_EXC', '9.99', 1300);
     await e.ingestInbound({ txHash: 'exc-short', finality: 'finalized', to: HOT, from: 'EQ_EXC', valueNano: '9000000000', memo: oExc.memo }, 1301);
     assert.equal((await e.getOrder(oExc.orderId)).status, PRESALE_STATUS.PAYMENT_EXCEPTION);
     assert.equal((await e.getQuota('EQ_EXC', 1302)).usedQuotaNano, '0');
@@ -792,9 +796,9 @@ for (const [name, make] of BACKENDS) {
   // P0-I: 过期与到账时间竞争守卫 + NEEDS_REVIEW 不可被自动恢复误处理 + 账本守恒不变量
   // -------------------------------------------------------------------------
   await test(`[${name}] P0-I: expiry-vs-arrival race cannot oversell pool; NEEDS_REVIEW is never auto-retried; ledger balances exactly`, async () => {
-    const pool = await make({ totalCapA9Raw: 10n * 2002n * 1_000_000_000n });
-    const oA = await pool.createOrderIntent('EQ_RACE_A', '10', 1000);
-    const oB = await pool.createOrderIntent('EQ_RACE_B', '10', 2801);
+    const pool = await make({ totalCapA9Raw: 17_500n * 1_000_000_000n });
+    const oA = await pool.createOrderIntent('EQ_RACE_A', '9.99', 1000);
+    const oB = await pool.createOrderIntent('EQ_RACE_B', '9.99', 2801);
     assert.ok(oB.orderId);
     const raceRes = await pool.repo.commitInbound({
       inbound: { txHash: 'late-race-a', orderId: oA.orderId, sender: 'EQ_RACE_A', valueNano: oA.tonNano, memo: oA.memo, decision: 'CONFIRM', reason: 'valid', createdAt: 2801 },
@@ -808,7 +812,7 @@ for (const [name, make] of BACKENDS) {
     assert.equal(raceAnom.anomalyStatus, 'OPEN');
 
     const e2 = await make({});
-    const oRev = await e2.createOrderIntent('EQ_REV', '5', 1000);
+    const oRev = await e2.createOrderIntent('EQ_REV', '4.99', 1000);
     await e2.ingestInbound(inbound(oRev), 1001);
     await e2.queueConfirmedPayouts(1002);
     let sends = 0;
@@ -831,7 +835,7 @@ for (const [name, make] of BACKENDS) {
 
     // 账本守恒不变量
     const e3 = await make({ userFaultFeeNano: '50000000' });
-    const oOk = await completePurchase(e3, 'EQ_CON_1', '10', 1000, { txHash: 'c-ok' });
+    const oOk = await completePurchase(e3, 'EQ_CON_1', '9.99', 1000, { txHash: 'c-ok' });
     await e3.ingestInbound({ txHash: 'c-dup', finality: 'finalized', to: HOT, from: 'EQ_CON_2', valueNano: '8000000000', memo: oOk.memo }, 1010);
     await e3.resolveAnomaly('c-dup', { decision: 'REFUND', faultParty: 'USER', operator: 'ops' }, 1011);
     await e3.processPayouts(1012, { refundBroadcaster: async () => ({ txHash: 'rf-c-dup' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
@@ -840,7 +844,7 @@ for (const [name, make] of BACKENDS) {
     await e3.ingestInbound({ txHash: 'c-open', finality: 'finalized', to: HOT, from: 'EQ_CON_4', valueNano: '4000000000', memo: 'bad' }, 1015);
     await e3.ingestInbound({ txHash: 'c-dust', finality: 'finalized', to: HOT, from: 'EQ_CON_5', valueNano: '50000000', memo: '' }, 1016);
 
-    const totalIn = 10_060_000_000n + 8_000_000_000n + 6_000_000_000n + 4_000_000_000n + 50_000_000n;
+    const totalIn = 10_050_000_000n + 8_000_000_000n + 6_000_000_000n + 4_000_000_000n + 50_000_000n;
     const okOrd = await e3.getOrder(oOk.orderId);
     const completedGram = BigInt(okOrd.tonNano) + BigInt(okOrd.deliveryFeeNano);
     const refundedGram = BigInt((await e3.repo.getPayout('refund:c-dup')).amount);
@@ -855,7 +859,7 @@ for (const [name, make] of BACKENDS) {
 await test('[d1-sqlite] restart after broadcast: new process resumes from DB, confirms without re-sending', async () => {
   const db = createSqliteD1(FRESH_SCHEMA);
   const e1 = new D1PresaleStore({ db, hotWalletAddress: HOT, open: true });
-  const o = await e1.createOrderIntent('EQ_RESTART', '5', 1000);
+  const o = await e1.createOrderIntent('EQ_RESTART', '4.99', 1000);
   await e1.ingestInbound(inbound(o), 1001);
   await e1.queueConfirmedPayouts(1002);
   await e1.processPayouts(1003, { a9Broadcaster: async () => ({ txHash: 'sent-before-crash' }) });
@@ -868,7 +872,7 @@ await test('[d1-sqlite] restart after broadcast: new process resumes from DB, co
   assert.equal((await e2.getOrder(o.orderId)).status, PRESALE_STATUS.COMPLETED);
 
   // Crash between "BROADCASTING" persisted and broadcast result recorded
-  const o2 = await e2.createOrderIntent('EQ_RESTART_2', '5', 2000);
+  const o2 = await e2.createOrderIntent('EQ_RESTART_2', '4.99', 2000);
   await e2.ingestInbound(inbound(o2), 2001);
   await e2.queueConfirmedPayouts(2002);
   const [p] = await e2.repo.listOpenPayouts();
@@ -903,9 +907,9 @@ await test('[d1-sqlite] P0-E: refund confirmation is atomic; crash at every writ
   };
 
   const e1 = new D1PresaleStore({ db: flakyDb, hotWalletAddress: HOT, open: true });
-  const untouched = await e1.createOrderIntent('EQ_INNOCENT', '10', 1000);
+  const untouched = await e1.createOrderIntent('EQ_INNOCENT', '9.99', 1000);
 
-  const oLate = await e1.createOrderIntent('EQ_CRASH_REFUND', '5', 1000);
+  const oLate = await e1.createOrderIntent('EQ_CRASH_REFUND', '4.99', 1000);
   await e1.ingestInbound(inbound(oLate), 1000 + 31 * 60);
   assert.equal((await e1.getOrder(oLate.orderId)).status, PRESALE_STATUS.REFUND_PENDING);
 
@@ -948,7 +952,7 @@ await test('[d1-sqlite] P0-E: refund confirmation is atomic; crash at every writ
   assert.equal((await eRecovered.getOrder(oLate.orderId)).status, PRESALE_STATUS.REFUNDED);
 
   // 崩溃点 2：已广播退款但回写 SENT 前崩溃 -> 重启超时查链返回 CONFIRMED -> 原子完成，不重发
-  const oLate2 = await eRecovered.createOrderIntent('EQ_CRASH_REFUND_2', '5', 4000);
+  const oLate2 = await eRecovered.createOrderIntent('EQ_CRASH_REFUND_2', '4.99', 4000);
   await eRecovered.ingestInbound(inbound(oLate2), 4000 + 31 * 60);
   const pId2 = `refund:in-${oLate2.orderId}`;
   assert.ok(await eRecovered.repo.claimPayout(pId2, ['PENDING'], { status: 'BROADCASTING', attempts: 1, updatedAt: 6000 }));
@@ -995,7 +999,7 @@ await test('[d1-sqlite] migration 0001->0004 (D5 & P0-C): real friendly-address 
     assert.equal(orders[0].status, PRESALE_STATUS.PAYOUT_SENT);
     assert.equal(await e.hasCompletedPurchase(form), false);
     assert.equal((await e.getQuota(form, 200)).usedQuotaTon, 195);
-    await assert.rejects(e.createOrderIntent(form, '10', 200), { code: 'OVER_QUOTA' });
+    await assert.rejects(e.createOrderIntent(form, '9.99', 200), { code: 'OVER_QUOTA' });
   }
   const [noHash] = await e.listOrders('EQ_LEGACY');
   assert.equal(noHash.status, PRESALE_STATUS.NEEDS_REVIEW);
@@ -1004,7 +1008,7 @@ await test('[d1-sqlite] migration 0001->0004 (D5 & P0-C): real friendly-address 
   assert.equal(await e.backfillLegacyWalletKeys(), 0);
   assert.equal((await e.listOrders(uqFriendly)).length, 1);
 
-  const oNew = await e.createOrderIntent('EQ_MIG_A', '10', 300);
+  const oNew = await e.createOrderIntent('EQ_MIG_A', '9.99', 300);
   await e.ingestInbound({ txHash: 'm-s1', finality: 'finalized', to: HOT, from: 'EQ_MIG_B', valueNano: oNew.tonNano, memo: oNew.memo }, 301);
   await e.ingestInbound({ txHash: 'm-s2', finality: 'finalized', to: HOT, from: 'EQ_MIG_C', valueNano: oNew.tonNano, memo: oNew.memo }, 302);
   assert.equal((await e.resolveAnomaly('m-s1', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 303)).status, 'REFUND_QUEUED');
@@ -1045,7 +1049,7 @@ await test('[d1-sqlite] P0-I: commitInbound order-race commits ANOMALY in ONE db
   };
 
   const e = new D1PresaleStore({ db: monitoredDb, hotWalletAddress: HOT, open: true });
-  const o = await e.createOrderIntent('EQ_RACE_A', '10', 1000);
+  const o = await e.createOrderIntent('EQ_RACE_A', '9.99', 1000);
   // 模拟 planInbound 时订单有效，随后在 commitInbound 前订单刚过期释放
   const plan = await e.planInbound({ txHash: 'tx-race-atomic', finality: 'finalized', to: HOT, from: 'EQ_RACE_A', valueNano: o.payTonNano, memo: o.memo }, 1005);
   assert.equal(plan.action, 'CONFIRM');
@@ -1084,7 +1088,7 @@ await test('[d1-sqlite] P0-I: commitInbound order-race commits ANOMALY in ONE db
   assert.equal((await restarted.repo.getPayout('refund:tx-race-atomic')).status, 'CONFIRMED');
 
   // 场景 2：batch 提交前中途失败整批回滚 -> 零残留记录 -> 重启重扫正常处理
-  const o2 = await restarted.createOrderIntent('EQ_RACE_B', '5', 2000);
+  const o2 = await restarted.createOrderIntent('EQ_RACE_B', '4.99', 2000);
   let failBatchOnce = true;
   const rollbackDb = {
     prepare(sql) { return wrapStmt(rawDb.prepare(sql), sql); },
@@ -1137,15 +1141,15 @@ if (BACKENDS.some(([n]) => n === 'd1-miniflare')) {
     assert.equal((await e.repo.getPayout('a9:mf-leg-1')).txHash, 'out-mf-1');
     assert.equal((await e.listOrders(uqFriendly)).length, 1);
     assert.equal((await e.getQuota(uqFriendly, 200)).usedQuotaTon, 195);
-    await assert.rejects(e.createOrderIntent(uqFriendly, '10', 200), { code: 'OVER_QUOTA' });
+    await assert.rejects(e.createOrderIntent(uqFriendly, '9.99', 200), { code: 'OVER_QUOTA' });
     assert.equal(await e.backfillLegacyWalletKeys(), 1);
 
     // 真实 D1 上验证多笔错付同一订单均可独立退款
-    const oA = await e.createOrderIntent('EQ_MF_A', '10', 300);
+    const oA = await e.createOrderIntent('EQ_MF_A', '9.99', 300);
     await e.ingestInbound({ txHash: 'mf-b', finality: 'finalized', to: HOT, from: 'EQ_MF_B', valueNano: oA.payTonNano, memo: oA.memo }, 301);
     await e.ingestInbound({ txHash: 'mf-c', finality: 'finalized', to: HOT, from: 'EQ_MF_C', valueNano: oA.payTonNano, memo: oA.memo }, 302);
-    assert.equal((await e.resolveAnomaly('mf-b', { decision: 'REFUND', faultParty: 'USER', operator: 'ops' }, 303)).refundNano, '10030000000');
-    assert.equal((await e.resolveAnomaly('mf-c', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 304)).refundNano, '10030000000');
+    assert.equal((await e.resolveAnomaly('mf-b', { decision: 'REFUND', faultParty: 'USER', operator: 'ops' }, 303)).refundNano, '10020000000');
+    assert.equal((await e.resolveAnomaly('mf-c', { decision: 'REFUND', faultParty: 'UNKNOWN', operator: 'ops' }, 304)).refundNano, '10020000000');
 
     // 真实 D1 上验证 db.batch() 崩溃回滚原子性（P0-E）
     let crashOnce = true;
@@ -1167,7 +1171,7 @@ if (BACKENDS.some(([n]) => n === 'd1-miniflare')) {
         return db.batch(stmts.map((s) => s?._raw || s));
       },
     };
-    const oLate = await e.createOrderIntent('EQ_MF_LATE', '5', 400);
+    const oLate = await e.createOrderIntent('EQ_MF_LATE', '4.99', 400);
     await e.ingestInbound(inbound(oLate), 400 + 31 * 60);
     await e.processPayouts(400 + 32 * 60, { refundBroadcaster: async (inst) => ({ txHash: `mf-rf-${inst.payoutId}` }) });
     const eCrash = new D1PresaleStore({ db: wrappedDb, hotWalletAddress: HOT, open: true });
@@ -1186,7 +1190,7 @@ if (BACKENDS.some(([n]) => n === 'd1-miniflare')) {
     assert.equal((await e.getOrder(oA.orderId)).status, PRESALE_STATUS.PENDING_PAYMENT);
 
     // 真实 Cloudflare D1 上验证 commitInbound 单事务竞态无崩溃窗口（P0-I）
-    const oRaceMf = await e.createOrderIntent('EQ_MF_RACE', '5', 500);
+    const oRaceMf = await e.createOrderIntent('EQ_MF_RACE', '4.99', 500);
     await db.prepare('UPDATE presale_orders SET expires_at = 501 WHERE order_id = ?').bind(oRaceMf.orderId).run();
     let mfBatchCalls = 0;
     let mfPostWrites = 0;
@@ -1238,11 +1242,11 @@ if (BACKENDS.some(([n]) => n === 'd1-miniflare')) {
 await test('D6: PresaleEngine defaults to closed; cf-worker refuses orders unless A9_PRESALE_OPEN=1 and never falls back to promo hot wallet', async () => {
   const memClosed = new PresaleHotWalletEngine({ hotWalletAddress: HOT });
   assert.equal(memClosed.open, false);
-  await assert.rejects(memClosed.createOrderIntent('EQ_X', '5', 1000), { code: 'PRESALE_CLOSED' });
+  await assert.rejects(memClosed.createOrderIntent('EQ_X', '4.99', 1000), { code: 'PRESALE_CLOSED' });
 
   const d1Closed = new D1PresaleStore({ db: createSqliteD1(FRESH_SCHEMA), hotWalletAddress: HOT });
   assert.equal(d1Closed.open, false);
-  await assert.rejects(d1Closed.createOrderIntent('EQ_X', '5', 1000), { code: 'PRESALE_CLOSED' });
+  await assert.rejects(d1Closed.createOrderIntent('EQ_X', '4.99', 1000), { code: 'PRESALE_CLOSED' });
 
   const rNoPresale = await cfWorker.fetch(new Request('https://a9.example/api/config'), {
     A9_PROMO_HOT_WALLET_ADDRESS: 'EQ_PROMO_ONLY',
@@ -1269,7 +1273,7 @@ await test('D6: PresaleEngine defaults to closed; cf-worker refuses orders unles
     new Request('https://a9.example/api/presale/intent', {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...hdrs },
-      body: JSON.stringify({ gramAmount: '5' }),
+      body: JSON.stringify({ skuId: 'chest_silver' }),
     }),
     envClosed,
   );
@@ -1630,7 +1634,7 @@ await test('ineligible user (payout only broadcast, not confirmed) cannot activa
   await identityStore.bindWallet('9501', 'EQ_HALFWAY', 900);
   pred.placeBet({ roundId: 1, userId: '9501', side: 'PASS' }, 1000);
   await pred.settleRoundBets(1, true, 18, '10000000000000', 1_000_000);
-  const o = await presale.createOrderIntent('EQ_HALFWAY', '5', 1000);
+  const o = await presale.createOrderIntent('EQ_HALFWAY', '4.99', 1000);
   await presale.ingestInbound(inbound(o), 1001);
   await presale.queueConfirmedPayouts(1002);
   await presale.processPayouts(1003, { a9Broadcaster: async () => ({ txHash: 'sent' }) });
@@ -1825,11 +1829,11 @@ await test('Step 0 & Knife 2: Item shop/inventory fully removed (404), pure 1 GR
     assert.equal((await route({ method: 'POST', pathname: '/api/inventory/sandbox-open', headers: hRookie, body: { skuId: 'pack_basic' }, nowSec })).status, 404);
     assert.equal((await route({ method: 'POST', pathname: '/api/inventory/equip', headers: hRookie, body: { category: 'frame', itemId: 'frame_cotton' }, nowSec })).status, 404);
 
-    // 2. 确认纯内盘 5..200 GRAM 严格边界：1.99 GRAM 与仅传 skuId 均被拒绝
+    // 2. 确认严格六档 SKU 边界：无效 skuId 与非六档金额均返回 UNKNOWN_SKU
     assert.equal((await route({ method: 'POST', pathname: '/api/presale/intent', headers: hRookie, body: { skuId: 'pack_basic' }, nowSec })).status, 400);
     const reject199 = await route({ method: 'POST', pathname: '/api/presale/intent', headers: hRookie, body: { gramAmount: '1.99' }, nowSec });
     assert.equal(reject199.status, 400);
-    assert.equal(reject199.body.error.code, 'BAD_AMOUNT');
+    assert.equal(reject199.body.error.code, 'UNKNOWN_SKU');
 
     // 3. 新人首轮竞猜押错：自动获得 500 A9 保底待激活奖励（48h 有效），且不占赢家主奖池
     await route({ method: 'POST', pathname: '/api/prediction/bet', headers: hWinner, body: { roundId: 1, side: 'PASS' }, nowSec });
@@ -1871,10 +1875,10 @@ await test('Step 0 & Knife 2: Item shop/inventory fully removed (404), pure 1 GR
     assert.equal(rookieView2.body.data.pendingActivationRaw, '500000000000');
     assert.equal(rookieView2.body.data.currentBet.status, 'LOST');
 
-    // 6. 完成 1 笔纯内盘 5 GRAM（10,010 A9）兑换确认 -> 成功激活 500 A9 进入 promo_balances
-    const ord = (await route({ method: 'POST', pathname: '/api/presale/intent', headers: hRookie, body: { gramAmount: '5' }, nowSec: nowSec + 140 })).body.data;
-    assert.equal(ord.a9AmountRaw, '10010000000000');
-    assert.equal('skuId' in ord, false);
+    // 6. 完成 1 笔有效六档 SKU（chest_silver = 4.99 GRAM -> 8,000 A9）兑换确认 -> 成功激活 500 A9 进入 promo_balances
+    const ord = (await route({ method: 'POST', pathname: '/api/presale/intent', headers: hRookie, body: { skuId: 'chest_silver' }, nowSec: nowSec + 140 })).body.data;
+    assert.equal(ord.a9AmountRaw, '8000000000000');
+    assert.equal(ord.skuId, 'chest_silver');
     await presaleEngine.ingestInbound({ txHash: 'tx-k2-5g', finality: 'finalized', to: HOT, from: 'EQ_ROOKIE_K2', valueNano: ord.payTonNano, memo: ord.memo }, nowSec + 145);
     await presaleEngine.queueConfirmedPayouts(nowSec + 146);
     await presaleEngine.processPayouts(nowSec + 147, { a9Broadcaster: async () => ({ txHash: 'out-k2-5g' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
@@ -2192,27 +2196,27 @@ await test('Knife 3: TG squad broadcaster (disabled by default, bound-only targe
 
     // 事件 ②：纯内盘大额兑换确认成交（< 50 GRAM 不推；>= 50 GRAM 仅推买家所属 bound 群；TG 故障绝不阻塞主链路）
     const presale = makePresale(bot);
-    // 10 GRAM 小单 -> 不推送
-    const oSmall = await presale.createOrderIntent('EQ_MEM_WHALE', '10', nowSec);
+    // 9.99 GRAM 小单 -> 不推送
+    const oSmall = await presale.createOrderIntent('EQ_MEM_WHALE', '9.99', nowSec);
     await presale.ingestInbound({ txHash: 'tx-small-10', finality: 'finalized', to: HOT, from: 'EQ_MEM_WHALE', valueNano: oSmall.payTonNano, memo: oSmall.memo }, nowSec + 1);
     await presale.queueConfirmedPayouts(nowSec + 2);
     await presale.processPayouts(nowSec + 3, { a9Broadcaster: async () => ({ txHash: 'out-small-10' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
     const countBeforeWhale = sentCalls.length;
 
-    // 50 GRAM 大单 -> 仅向买家所属战队群 (-100888999) 推 1 条捷报
-    const oWhale = await presale.createOrderIntent('EQ_MEM_WHALE', '50', nowSec + 10);
+    // 99.99 GRAM 大单 (chest_diamond -> 195,000 A9) -> 仅向买家所属战队群 (-100888999) 推 1 条捷报
+    const oWhale = await presale.createOrderIntent('EQ_MEM_WHALE', '99.99', nowSec + 10);
     await presale.ingestInbound({ txHash: 'tx-whale-50', finality: 'finalized', to: HOT, from: 'EQ_MEM_WHALE', valueNano: oWhale.payTonNano, memo: oWhale.memo }, nowSec + 11);
     await presale.queueConfirmedPayouts(nowSec + 12);
     await presale.processPayouts(nowSec + 13, { a9Broadcaster: async () => ({ txHash: 'out-whale-50' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });
     assert.equal(sentCalls.length, countBeforeWhale + 1);
     const whaleCall = sentCalls[sentCalls.length - 1];
     assert.equal(whaleCall.body.chat_id, '-100888999');
-    assert.ok(whaleCall.body.text.includes('50 GRAM'));
-    assert.ok(whaleCall.body.text.includes('100,100 A9'));
+    assert.ok(whaleCall.body.text.includes('99.99 GRAM'));
+    assert.ok(whaleCall.body.text.includes('195,000 A9'));
 
     // Telegram API 故障时绝不阻塞主链路的 COMPLETED 状态确认
     failTelegramApi = true;
-    const oFailPush = await presale.createOrderIntent('EQ_MEM_WHALE', '60', nowSec + 20);
+    const oFailPush = await presale.createOrderIntent('EQ_MEM_WHALE', '99.99', nowSec + 20);
     await presale.ingestInbound({ txHash: 'tx-whale-60', finality: 'finalized', to: HOT, from: 'EQ_MEM_WHALE', valueNano: oFailPush.payTonNano, memo: oFailPush.memo }, nowSec + 21);
     await presale.queueConfirmedPayouts(nowSec + 22);
     await presale.processPayouts(nowSec + 23, { a9Broadcaster: async () => ({ txHash: 'out-whale-60' }), verifier: async (p) => ({ state: 'CONFIRMED', txHash: p.txHash }) });

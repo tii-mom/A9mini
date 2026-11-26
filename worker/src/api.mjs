@@ -238,11 +238,26 @@ export function createApiRouter({
   runnerHeartbeatReader = null,
   candleWriter = null,
 }) {
-  // M-5: 24h 换绑冷静期到期晋升时自动将旧钱包推广余额原子合并至新钱包，且仅在无在途领奖单时放行晋升
-  if (promoEngine && typeof promoEngine.mergeBalance === 'function' && identityStore && typeof identityStore === 'object' && !identityStore.onWalletRebound) {
-    identityStore.onWalletRebound = async ({ fromWalletAddress, toWalletAddress, nowSec: rebindNow }) => {
-      await promoEngine.mergeBalance(fromWalletAddress, toWalletAddress, rebindNow);
-    };
+  // M-5: 换绑冷静期到期晋升时优先走同库单事务 db.batch()；生产/严格原子模式禁止静默降级为非原子回调
+  if (promoEngine && identityStore && typeof identityStore === 'object') {
+    if (identityStore.db && promoEngine.db === identityStore.db && typeof promoEngine.prepareAtomicMergeBalance === 'function') {
+      if (!identityStore.promoEngine) identityStore.promoEngine = promoEngine;
+    } else if (identityStore.db && promoEngine.db !== identityStore.db) {
+      const envName = String(env.A9_ENVIRONMENT || '').trim().toLowerCase();
+      const netName = String(env.A9_NETWORK || '').trim().toLowerCase();
+      const strictProd = envName === 'production' || envName === 'candidate' || netName === 'mainnet' || identityStore.strictAtomicRebind;
+      if (strictProd && !identityStore.allowNonAtomicRebindCallback) {
+        if (!identityStore.promoEngine) identityStore.promoEngine = promoEngine; // 触发 D1IdentityStore.getBinding 显式拒绝 NON_ATOMIC_REBIND_UNSUPPORTED
+      } else if (typeof promoEngine.mergeBalance === 'function' && !identityStore.onWalletRebound) {
+        identityStore.onWalletRebound = async ({ fromWalletAddress, toWalletAddress, nowSec: rebindNow }) => {
+          await promoEngine.mergeBalance(fromWalletAddress, toWalletAddress, rebindNow);
+        };
+      }
+    } else if (!identityStore.db && typeof promoEngine.mergeBalance === 'function' && !identityStore.onWalletRebound) {
+      identityStore.onWalletRebound = async ({ fromWalletAddress, toWalletAddress, nowSec: rebindNow }) => {
+        await promoEngine.mergeBalance(fromWalletAddress, toWalletAddress, rebindNow);
+      };
+    }
   }
   if (promoEngine && typeof promoEngine.hasPendingClaim === 'function' && identityStore && typeof identityStore === 'object' && !identityStore.canPromoteRebind) {
     identityStore.canPromoteRebind = async ({ fromWalletAddress, nowSec: rebindNow }) =>
@@ -750,10 +765,10 @@ export function createApiRouter({
           if (!hb.ok) return err('PAYOUT_RUNNER_OFFLINE', `出账签名进程离线或心跳超时：${hb.reason}`, 503);
         }
         const skuId = body?.skuId ? String(body.skuId).trim() : null;
-        const openMode = body?.openMode ? String(body.openMode).trim().toUpperCase() : null;
+        const openMode = body?.openMode ? String(body.openMode).trim().toUpperCase() : undefined;
         const amount = body?.tonAmount ?? body?.gramAmount;
         if (!skuId && (amount === undefined || amount === null || amount === '')) {
-          return err('BAD_REQUEST', 'gramAmount or skuId required', 400);
+          return err('SKU_REQUIRED', 'skuId is required; only the 6 valid Chest Mall SKUs are accepted', 400);
         }
         const rawRef = String(body?.referrerId || '').trim() || null;
         if (socialStore && rawRef) await socialStore.bindReferral(walletAddress, rawRef, nowSec, { aliases: [identity.telegramUserId] });

@@ -2156,7 +2156,7 @@ export class D1PresaleRepo {
     } catch (e) {
       // 兼容尚未执行 0009 迁移的旧库（SQLite INSERT 报 "has no column named sku_id"，D1/SELECT 报 "no such column: sku_id"）
       const errText = `${e?.message || ''} ${e?.cause?.message || ''}`;
-      if (!o.skuId && (o.openMode || 'INSTANT') === 'INSTANT' && /(no such column|has no column named)[\s:]+["'`]?(sku_id|open_mode)["'`]?/i.test(errText)) {
+      if ((o.openMode || 'INSTANT') === 'INSTANT' && /(no such column|has no column named)[\s:]+["'`]?(sku_id|open_mode)["'`]?/i.test(errText)) {
         const res = await this.db
           .prepare(
             `INSERT INTO presale_orders

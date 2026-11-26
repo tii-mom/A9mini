@@ -582,13 +582,15 @@ export default {
               transferGasNano: env.A9_PROMO_TRANSFER_GAS_NANO || '50000000',
             }))
       : null;
-    const onWalletRebound = promoEngine
+    const onWalletRebound = !hasD1 && promoEngine
       ? ({ fromWalletAddress, toWalletAddress, nowSec: rebindNow }) => promoEngine.mergeBalance(fromWalletAddress, toWalletAddress, rebindNow)
       : null;
     const canPromoteRebind = promoEngine && typeof promoEngine.hasPendingClaim === 'function'
       ? async ({ fromWalletAddress, nowSec: rebindNow }) => !(await promoEngine.hasPendingClaim(fromWalletAddress, rebindNow))
       : null;
-    const identityStore = hasD1 ? new D1IdentityStore({ db: env.DB, onWalletRebound, canPromoteRebind }) : memIdentityStore;
+    const identityStore = hasD1
+      ? new D1IdentityStore({ db: env.DB, promoEngine, canPromoteRebind, strictAtomicRebind: true })
+      : memIdentityStore;
     if (!hasD1) {
       if (onWalletRebound) identityStore.onWalletRebound = onWalletRebound;
       if (canPromoteRebind) identityStore.canPromoteRebind = canPromoteRebind;
