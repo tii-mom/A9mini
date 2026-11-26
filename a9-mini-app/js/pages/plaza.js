@@ -142,6 +142,16 @@ export function renderCity(root) {
   const candles = r.candles || [];
   const confirmed = candles.filter((c) => c.confirmed || c.status === 'closed');
   const price = (value) => (Number(value) > 0 ? '$' + Number(value).toFixed(4) : '—');
+  const validLive = r.priceValid !== false && Number(r.livePrice ?? r.twap24h) > 0 ? Number(r.livePrice ?? r.twap24h) : null;
+  const validTarget = Number(r.targetPrice) > 0 ? Number(r.targetPrice) : null;
+  const deltaPct = (validLive !== null && validTarget !== null) ? (((validLive - validTarget) / validTarget) * 100) : null;
+  const isAbove = deltaPct !== null && deltaPct >= 0;
+  const deltaText = deltaPct === null
+    ? L('价格待同步', 'Syncing price')
+    : isAbove
+      ? L(`已站上目标价 +${deltaPct.toFixed(1)}%`, `Above target +${deltaPct.toFixed(1)}%`)
+      : L(`距目标价差 ${deltaPct.toFixed(1)}%`, `Below target ${deltaPct.toFixed(1)}%`);
+
   const gates = [
     ['/internal/market', 'chest', '', L('宝箱商城', 'Chest Mall'), L('6 档 · 直发钱包', '6 tiers · wallet delivery')],
     ['/internal/market?tab=free', 'chestOpen', 'is-green', L('免费宝箱', 'Free Chests'), config.isDemo ? L('青铜箱可开', 'Bronze ready') : L('查看开启条件', 'Check eligibility')],
@@ -156,16 +166,25 @@ export function renderCity(root) {
         <span id="round-cd" class="mono num-sm text-sec">${r.countdownSec == null ? '—' : formatTimer(r.countdownSec)}</span>
       </div>
       <h2>${roundSummary(r)}</h2>
+      <div class="row-between sub-tile" style="padding:8px 11px;flex-wrap:wrap;gap:6px 8px;">
+        <div class="row-start" style="gap:6px;flex-wrap:nowrap;min-width:0;">
+          <span class="sw-pulse-dot ${deltaPct === null ? '' : (isAbove ? 'is-up' : 'is-down')}" aria-hidden="true"></span>
+          <span class="num-xs text-muted" style="white-space:nowrap;flex-shrink:0;">A9</span>
+          <strong class="mono num-md" id="plaza-live-price" style="white-space:nowrap;word-break:normal;flex-shrink:0;">${price(validLive)}</strong>
+          <span class="num-xs text-muted mono" style="white-space:nowrap;flex-shrink:0;">/ ${L('目标', 'Goal')} ${price(validTarget)}</span>
+        </div>
+        <span class="chip ${deltaPct === null ? 'chip-muted' : (isAbove ? 'chip-green' : 'chip-red')} mono" id="plaza-target-delta" style="min-height:20px;font-size:10.5px;padding:0 7px;white-space:nowrap;flex-shrink:0;">${deltaText}</span>
+      </div>
       ${observing ? `
         ${renderPlazaStampStrip(candles, r.currentRound ?? 'cur')}
-        <div class="num-sm text-sec mono">${L('已确认', 'Confirmed')} ${r.candlesSeen ?? '—'}/12 · ${L('达标', 'Qualified')} ${r.qualifiedCandles ?? '—'}/${r.minQualifiedCandles ?? 8}</div>
-        <div class="num-xs text-muted mono">${L('目标价', 'Target')} ${price(r.targetPrice)} · ${L('最近确认均价', 'Last confirmed average')} ${price(confirmed.at(-1)?.p)}</div>
+        <div class="num-sm text-sec mono">${L('已确认', 'Confirmed')} ${r.candlesSeen ?? '—'}/12 · ${L('已达标', 'Qualified')} ${r.qualifiedCandles ?? '—'}/${r.minQualifiedCandles ?? 8}</div>
+        <div class="num-xs text-muted mono">${L('最近确认均价', 'Last confirmed average')} ${price(confirmed.at(-1)?.p)}</div>
       ` : ''}
       <div class="row-between" style="padding-top:4px;border-top:1px solid var(--card-border);">
         <span class="num-xs text-muted">${L('本轮奖池', 'Round Pool')}</span>
         <strong class="mono num-md">${r.rewardBudgetA9 == null ? '—' : formatNum(r.rewardBudgetA9)} A9</strong>
       </div>
-      <a class="btn btn-primary" href="#/round">${observing ? L('查看冲价盘', 'View Push Board') : L('查看本轮详情', 'View Round Details')} ›</a>
+      <a class="btn btn-primary" href="#/round">${observing ? L('进入冲价战场', 'Enter Push Arena') : L('进入本轮战场', 'Enter Round Arena')} ›</a>
     </section>
 
     <nav class="sw-gate-grid" aria-label="${L('快捷入口', 'Quick Menu')}">
@@ -179,6 +198,16 @@ export function renderCity(root) {
     </nav>
 
     <section id="plaza-activity" hidden></section>
+
+    <div class="sw-menu-group">
+      <a class="sw-menu-row" href="#/team?action=rally">
+        <div class="sw-menu-left">
+          <span class="sw-menu-title">${L('去战队动员喊单 · 助推本轮冲线', 'Rally Squad · Push This Round')}</span>
+          <span class="sw-menu-sub">${L('拉人共推 A9 解锁奖池 · 赚商城 6% + 通关 8% 返佣', 'Rally buys to unlock pool · earn 6% mall + 8% pass credits')}</span>
+        </div>
+        <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+      </a>
+    </div>
   </div>`;
 
   if (config.isDemo) {

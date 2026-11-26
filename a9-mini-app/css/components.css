@@ -1637,8 +1637,19 @@ img {
   color: var(--card-bg);
   font-size: 12px;
   font-weight: 800;
+  line-height: 1.35;
   box-shadow: 0 8px 20px rgba(20, 22, 30, 0.24);
   animation: toast-pop 200ms var(--ease-spring);
+}
+
+.toast svg {
+  flex-shrink: 0;
+}
+
+.toast > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .toast.error { background: var(--nt-rose); color: #FFFFFF; }
@@ -1748,24 +1759,9 @@ img {
   min-width: 0;
 }
 
-.sw-asset-token {
-  width: 54px;
-  height: 54px;
-  border-radius: 16px;
-  background: var(--paper-tray);
-  border: 1px solid var(--card-border);
-  padding: 4px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.sw-asset-token img {
-  width: 44px;
-  height: 44px;
-  object-fit: contain;
-  border-radius: 12px;
+.sw-asset-card .profile-asset-label {
+  margin: 0;
+  padding: 0;
 }
 
 .sw-asset-body {
@@ -2322,14 +2318,6 @@ img {
     gap: 10px;
     padding: 13px 12px;
   }
-  .sw-asset-token {
-    width: 46px;
-    height: 46px;
-  }
-  .sw-asset-token img {
-    width: 38px;
-    height: 38px;
-  }
   .sw-stamp-row {
     gap: 2.5px;
   }
@@ -2344,3 +2332,432 @@ img {
   }
 }
 
+/* ==========================================================================
+   十、实时价格作战看板 / 战场动员联动 / 闭环路线图（复用 tokens.css 亮暗变量）
+   ========================================================================== */
+@keyframes sw-pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(230, 0, 18, 0.45); }
+  70%  { box-shadow: 0 0 0 7px rgba(230, 0, 18, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(230, 0, 18, 0); }
+}
+
+@keyframes sw-pulse-green {
+  0%   { box-shadow: 0 0 0 0 rgba(18, 168, 93, 0.45); }
+  70%  { box-shadow: 0 0 0 7px rgba(18, 168, 93, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(18, 168, 93, 0); }
+}
+
+.sw-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+  background: var(--ink-muted);
+}
+
+.sw-pulse-dot.is-up {
+  background: var(--nt-green);
+  animation: sw-pulse-green 1.8s infinite;
+}
+
+.sw-pulse-dot.is-down {
+  background: var(--nt-red);
+  animation: sw-pulse-ring 1.5s infinite;
+}
+
+.sw-price-arena {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 15px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  min-width: 0;
+}
+
+.sw-price-arena-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sw-price-live-block {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.sw-price-token {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sw-price-token img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.sw-price-main {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(20px, 6.2vw, 26px);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.sw-price-target-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.sw-price-target-val {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.sw-price-cd {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+
+.sw-price-cd.is-urgent {
+  color: var(--nt-red);
+}
+
+.sw-price-ruler-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sw-price-ruler {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  overflow: visible;
+}
+
+.sw-price-ruler-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--nt-red);
+  transition: width 320ms var(--ease-standard), background-color 240ms ease;
+}
+
+.sw-price-ruler-fill.is-up {
+  background: var(--nt-green);
+}
+
+.sw-price-ruler-target {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: 62.5%;
+  width: 2.5px;
+  border-radius: 2px;
+  background: var(--ink);
+  z-index: 2;
+}
+
+.sw-price-ruler-labels {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+.sw-battle-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 13px;
+  border-radius: 16px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  box-shadow: var(--card-shadow-sm);
+  text-decoration: none;
+  color: var(--ink);
+  transition: transform 0.11s var(--ease-spring), box-shadow 0.11s ease;
+  min-width: 0;
+}
+
+.sw-battle-strip:active {
+  transform: translateY(2px);
+  box-shadow: 0 0.5px 0 var(--card-thickness);
+}
+
+.sw-battle-strip-left {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.sw-battle-strip-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sw-battle-strip-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--nt-red);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sw-roadmap-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.sw-roadmap-step {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--card-border);
+  text-decoration: none;
+  color: var(--ink);
+  transition: background-color 0.12s ease, transform 0.1s var(--ease-spring);
+}
+
+.sw-roadmap-step:last-child {
+  border-bottom: 0;
+}
+
+.sw-roadmap-step:active {
+  background: var(--paper-tray);
+  transform: translateY(2px);
+}
+
+.sw-roadmap-num {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--nt-red);
+  color: #FFFFFF;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sw-roadmap-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sw-roadmap-title {
+  font-size: 13.5px;
+  font-weight: 900;
+  color: var(--ink);
+  line-height: 1.25;
+}
+
+.sw-roadmap-desc {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  line-height: 1.35;
+}
+
+@media (max-width: 350px) {
+  .sw-price-arena {
+    padding: 10px;
+  }
+  .sw-price-arena-top {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .sw-price-target-block {
+    align-items: flex-start;
+    text-align: left;
+  }
+  .sw-price-main {
+    font-size: 19px;
+  }
+  .sw-battle-strip {
+    padding: 10px 11px;
+    gap: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-pulse-dot.is-up,
+  .sw-pulse-dot.is-down {
+    animation: none !important;
+  }
+  .sw-menu-row:active,
+  .sw-gate-tile:active,
+  .sw-record-tile:active,
+  .sw-battle-strip:active,
+  .sw-roadmap-step:active,
+  .sw-stamp-grid .sw-stamp-cell:active {
+    transform: none !important;
+  }
+}
+
+.user-guide { display: grid; gap: 14px; padding-bottom: 4px; }
+.user-guide :is(h1, h2, h3, p, dl, dd, ol, ul) { margin: 0; }
+.user-guide :is(h1, h2, h3) { line-height: 1.25; }
+.user-guide h2 { font-size: 1.12rem; }
+.user-guide h3 { font-size: .86rem; }
+.user-guide :is(p, .guide-list) {
+  color: var(--text-secondary);
+  font-size: .82rem;
+  line-height: 1.55;
+}
+
+.guide-hero {
+  display: grid;
+  gap: 7px;
+  padding: 22px 20px 20px;
+  border: 1px solid var(--nt-red-edge);
+  border-bottom: 5px solid var(--nt-red-edge);
+  border-radius: 21px;
+  color: #fff;
+  background: #c90011;
+}
+.guide-hero h1 { font-size: clamp(1.55rem, 7vw, 2rem); font-weight: 900; }
+.user-guide .guide-hero p { color: #fff; }
+.guide-hero small { color: #fff; font-size: .72rem; }
+
+.guide-destinations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.guide-tile {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-height: 102px;
+  padding: 12px;
+  color: var(--ink);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 15px;
+  box-shadow: var(--interactive-shadow);
+  text-decoration: none;
+  transition: transform .12s ease;
+}
+.guide-tile-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  color: var(--nt-red);
+  background: var(--nt-red-soft);
+}
+.guide-tile strong { font-size: .91rem; padding-inline-end: 10px; }
+.guide-tile small, .guide-track small, .guide-stamp-board small, .guide-result small {
+  color: var(--text-secondary);
+  font-size: .73rem;
+  line-height: 1.4;
+}
+.guide-tile-arrow { position: absolute; top: 14px; right: 12px; color: var(--text-secondary); }
+.guide-tile:active { transform: translateY(2px); }
+@media (prefers-reduced-motion: reduce) {
+  .guide-tile { transition: none; }
+  .guide-tile:active { transform: none; }
+}
+
+.guide-panel { display: grid; gap: 10px; padding: 15px; }
+.guide-panel .btn { justify-self: start; max-width: 100%; white-space: normal; }
+.guide-track {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  padding: 0;
+  list-style: none;
+}
+.guide-track li {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 9px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--card-border);
+  background: var(--paper-tray);
+}
+.guide-track strong { font-size: 1rem; }
+.guide-track span { font-size: .78rem; font-weight: 700; }
+
+.guide-stamp-board { display: grid; gap: 6px; }
+.guide-stamp-board strong { font-size: .84rem; }
+.guide-stamps { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; }
+.guide-stamps span {
+  display: grid;
+  place-items: center;
+  min-height: 22px;
+  border: 1px solid var(--card-border);
+  border-radius: 5px;
+  color: var(--text-secondary);
+  background: var(--paper-tray);
+  font-weight: 800;
+}
+.guide-stamps .is-met { background: #14734d; border-color: #106044; color: #fff; }
+
+.guide-outcomes, .guide-fees { display: grid; }
+.guide-result, .guide-fee-row {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--card-border);
+  font-size: .84rem;
+}
+.guide-result { grid-template-columns: minmax(0, 1fr) minmax(0, 2.6fr); }
+.guide-result small { display: block; margin-top: 4px; }
+.guide-result > span { font-weight: 800; }
+.guide-result.pass > span { color: var(--nt-green); }
+.guide-fee-row { grid-template-columns: minmax(0, 1fr) auto; }
+.guide-fee-row dd { font-family: var(--font-mono); font-weight: 800; white-space: nowrap; }
+.guide-list { display: grid; gap: 6px; padding-inline-start: 1.15em; }
+.guide-audit { border: 1px solid var(--card-border); border-radius: 13px; background: var(--card-bg); }

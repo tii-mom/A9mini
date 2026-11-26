@@ -7,10 +7,10 @@
   Cache-Control: no-cache, must-revalidate
 
 /css/*
-  Cache-Control: public, max-age=300, stale-while-revalidate=86400
+  Cache-Control: public, max-age=300, must-revalidate
 
 /js/*
-  Cache-Control: public, max-age=300, stale-while-revalidate=86400
+  Cache-Control: no-cache, must-revalidate
 
 /js/runtime-config.js
   Cache-Control: no-cache, must-revalidate

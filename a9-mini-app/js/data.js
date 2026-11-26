@@ -271,7 +271,13 @@ export function mapRoundView(snapshot) {
   const seen = Number(d.candlesSeen) || 0;
   const confirmed = Array.isArray(d.candles) ? d.candles.length : seen;
   const qualified = Number.isInteger(d.qualifiedCandles) && d.qualifiedCandles >= 0 && d.qualifiedCandles <= candleCount ? d.qualifiedCandles : null;
-  const liveIndex = d.live ? Number(d.live.candleIndex) : -1;
+  const liveIndex = d.state === 'OBSERVING' && d.live?.candleIndex != null ? Number(d.live.candleIndex) : -1;
+  const toMillis = value => Number(value) > 0 ? Number(value) * (Number(value) < 1e12 ? 1000 : 1) : null;
+  const slotMs = Number(c.candleSeconds ?? 3600) * 1000;
+  const observationStart = toMillis(d.observationStart ?? d.stakeCloseAt);
+  const activeCandleEndAt = Number.isInteger(liveIndex) && liveIndex >= 0 && liveIndex < candleCount
+    ? (toMillis(d.live?.periodEnd) ?? (observationStart && slotMs > 0 ? observationStart + (liveIndex + 1) * slotMs : null))
+    : null;
   const livePrice = d.live ? e8ToUsd(d.live.twapPriceUsdE8) : judgePrice;
 
   const confirmedMap = new Map(
@@ -334,7 +340,8 @@ export function mapRoundView(snapshot) {
     minQualifiedCandles: minQualified,
     needMore: qualified === null ? null : Math.max(0, minQualified - qualified),
     candles,
-    activeCandleSec: liveIndex >= 0 && d.secondsRemaining !== null ? Math.max(0, Number(d.secondsRemaining)) : 0,
+    activeCandleEndAt,
+    activeCandleSec: activeCandleEndAt ? Math.max(0, Math.ceil((activeCandleEndAt - serverNowMs()) / 1000)) : null,
     rewardBudgetRaw: d.rewardBudgetRaw || c.roundRewardRaw || null,
     rewardBudgetA9: rawToA9(d.rewardBudgetRaw, decimals),
     totalStakedRaw: d.totalAcceptedStakeRaw ?? null,

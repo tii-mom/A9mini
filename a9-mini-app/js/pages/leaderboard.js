@@ -49,7 +49,7 @@ export function renderLeaderboard(root) {
           <div class="metric-strip cols-3" style="margin:6px 0 8px;padding:8px 0;">
             <div class="metric-cell"><span class="num-xs text-muted">${L('目标底价', 'Target')}</span><span class="num-sm mono">${meta.target}</span></div>
             <div class="metric-cell"><span class="num-xs text-muted">${L('判定均价', 'TWAP')}</span><span class="num-sm text-green mono">${meta.est}</span></div>
-            <div class="metric-cell"><span class="num-xs text-muted">${L('达标进度', 'Slots')}</span><span class="num-sm text-gold mono">${meta.bars}</span></div>
+            <div class="metric-cell"><span class="num-xs text-muted">${L('已达标 / 通关所需', 'Qualified / Required')}</span><span class="num-sm text-gold mono">${meta.bars}</span></div>
           </div>
           <div class="progress-track"><div class="progress-fill" style="width:${meta.pct}%"></div></div>
         </section>

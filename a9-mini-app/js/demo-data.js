@@ -152,6 +152,7 @@ export function demoFundsStake(state, amount) {
   const certId = `A9-STAKE-R0${state.round.currentRound}-${Math.floor(100000 + Math.random() * 899999)}`;
   const cert = {
     id: certId,
+    demoEntryConfirmed: true,
     round: state.round.currentRound,
     stakeTon: amt,
     multiplier: 1,
@@ -165,7 +166,7 @@ export function demoFundsStake(state, amount) {
   state.user.a9Available = Number((state.user.a9Available - amt).toFixed(2));
   state.user.profileMode = 'active';
   state.round.myStakeTon += amt;
-  state.round.myWeight += amt * mult;
+  state.round.myWeight += amt;
   state.round.totalStakedTon += amt;
   state.certificates.unshift(cert);
   return cert;
@@ -242,6 +243,12 @@ function createInitialCandles() {
   }
   return candles;
 }
+
+export const DEMO_SQUADS = [
+  { id: 'TM-0001', zh: 'A9 冒险战队', en: 'A9 Quest Squad', level: 4, memberCount: 412, capacity: 500, lockedA9: 580000 },
+  { id: 'TM-8829', zh: '星航冲锋战队', en: 'Star Voyagers', level: 3, memberCount: 84, capacity: 100 },
+  { id: 'TM-3042', zh: '金箔典藏战队', en: 'Gold Foil Collectors', level: 3, memberCount: 66, capacity: 100 },
+];
 
 export function applyDemoInitialState(state) {
   state.round.currentRound = 3;
@@ -326,10 +333,10 @@ export function applyDemoInitialState(state) {
     name: 'A9 冒险战队',
     level: 4,
     boostPct: 15,
-    membersActive: 412,
-    membersTotal: 500,
+    membersActive: DEMO_SQUADS[0].memberCount,
+    membersTotal: DEMO_SQUADS[0].capacity,
     directInvites: 18,
-    teamStakedTon: 580000,
+    teamStakedTon: DEMO_SQUADS[0].lockedA9,
     teamStakedTarget: 700000,
     captainHistoryA9: 184200,
     tgGroupBound: true,
@@ -617,9 +624,9 @@ export function demoPredictionActivate(userId, walletAddress) {
 }
 
 export const ROUND_META = {
-  R3: { zh: '第 3 轮 · 12H 冲价中', en: 'Round #3 · 12H Push', target: '$0.0046', est: '$0.0048', bars: '6/12', pct: 75 },
-  R2: { zh: '第 2 轮 · 已清算', en: 'Round #2 · Paid', target: '$0.0023', est: '$0.0026', bars: '10/12', pct: 100 },
-  R1: { zh: '第 1 轮 · 创世轮', en: 'Round #1 · Genesis', target: '$0.0012', est: '$0.0014', bars: '11/12', pct: 100 }
+  R3: { zh: '第 3 轮 · 12H 冲价中', en: 'Round #3 · 12H Push', target: '$0.0046', est: '$0.0048', bars: '6/8', pct: 75 },
+  R2: { zh: '第 2 轮 · 已清算', en: 'Round #2 · Paid', target: '$0.0023', est: '$0.0026', bars: '10/8', pct: 100 },
+  R1: { zh: '第 1 轮 · 创世轮', en: 'Round #1 · Genesis', target: '$0.0012', est: '$0.0014', bars: '11/8', pct: 100 }
 };
 
 export const DEMO_RANKS = {
@@ -1195,4 +1202,46 @@ export function demoRoundAirdropDraws(limit = 10) {
     bucketCapRaw: '50000000000000000',
     bucketRemainingRaw: '49800000000000000'
   };
+}
+
+/** Keep the demo stage, its clocks and confirmed slots in sync. */
+export function setDemoRoundStage(round, stage) {
+  const now = Date.now();
+  const { detail } = demoFixture();
+  const inPush = stage === 'observation';
+  const locking = stage === 'participation';
+  const settled = stage === 'settlement_success' || stage === 'settlement_burn';
+  const confirmed = inPush ? 8 : settled ? 12 : 0;
+  const candles = Array.from({ length: 12 }, (_, index) => {
+    const candle = detail.candles[index];
+    const closed = index < confirmed;
+    const active = inPush && index === confirmed;
+    return {
+      index: index + 1,
+      confirmed: closed,
+      status: closed ? 'closed' : active ? 'active' : 'pending',
+      bull: closed ? (candle ? candle.qualified : stage === 'settlement_success') : null,
+      p: candle && closed ? Number(candle.twapPriceUsdE8) / 1e8 : active || closed ? round.livePrice : null,
+    };
+  });
+  const qualified = candles.filter(candle => candle.confirmed && candle.bull).length;
+  const rawState = {
+    warmup: 'UNOPENED', participation: 'STAKING_OPEN', observation: 'OBSERVING',
+    settlement_success: 'SUCCEEDED', settlement_burn: 'FAILED_PERMANENT', halted: 'TECHNICAL_ABORTED',
+  }[stage];
+  Object.assign(round, {
+    stage, rawState, candles, candlesSeen: confirmed, candlesConfirmed: confirmed,
+    qualifiedCandles: qualified, needMore: Math.max(0, 8 - qualified),
+    nextState: null, inFirst6h: locking, earlyBirdSec: locking ? 4 * 3600 : 0,
+    activeCandleEndAt: inPush ? now + 3600 * 1000 : null,
+    activeCandleSec: inPush ? 3600 : null,
+    countdownSec: locking ? 22 * 3600 : inPush ? detail.secondsRemaining : stage === 'warmup' ? 4 * 3600 : null,
+  });
+  if (locking) {
+    round.stakeOpenAt = Math.floor(now / 1000) - 7200;
+    round.stakeCloseAt = round.stakeOpenAt + 24 * 3600;
+    round.earlyCloseAt = round.stakeOpenAt + 6 * 3600;
+  } else if (inPush) {
+    Object.assign(round, { stakeOpenAt: detail.stakeOpenAt, stakeCloseAt: detail.stakeCloseAt, earlyCloseAt: detail.earlyCloseAt });
+  }
 }

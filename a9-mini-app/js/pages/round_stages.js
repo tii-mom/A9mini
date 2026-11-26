@@ -35,6 +35,171 @@ function priceOrDash(v) {
 }
 
 /**
+ * 统一计算本轮实时价格、目标价、差幅与水位标尺位置（严格隔离 Demo/Live，绝不把 null 当 0）
+ */
+export function computeRoundPriceMetrics(round) {
+  const r = round || {};
+  const priceAllowed = r.priceValid !== false;
+  const rawLive = priceAllowed ? (r.livePrice ?? r.twap24h) : null;
+  const livePrice = toFiniteNum(rawLive);
+  const validLive = livePrice !== null && livePrice > 0 ? livePrice : null;
+  const rawTarget = toFiniteNum(r.targetPrice);
+  const validTarget = rawTarget !== null && rawTarget > 0 ? rawTarget : null;
+
+  let deltaPct = null;
+  let isAbove = false;
+  let rulerPct = 0;
+  if (validLive !== null && validTarget !== null) {
+    deltaPct = ((validLive - validTarget) / validTarget) * 100;
+    isAbove = deltaPct >= 0;
+    const minBound = validTarget * 0.75;
+    const maxBound = validTarget * 1.15;
+    const rawPct = ((validLive - minBound) / (maxBound - minBound)) * 100;
+    rulerPct = Math.max(8, Math.min(100, Math.round(rawPct * 10) / 10));
+  }
+
+  const deltaText = deltaPct === null
+    ? L('价格待同步', 'Syncing price')
+    : isAbove
+      ? L(`已站上目标价 +${deltaPct.toFixed(1)}%`, `Above target +${deltaPct.toFixed(1)}%`)
+      : L(`距目标价差 ${deltaPct.toFixed(1)}%`, `Below target ${deltaPct.toFixed(1)}%`);
+
+  return {
+    livePrice: validLive,
+    targetPrice: validTarget,
+    liveText: validLive !== null ? `$${validLive.toFixed(4)}` : '—',
+    targetText: validTarget !== null ? `$${validTarget.toFixed(4)}` : '—',
+    deltaPct,
+    isAbove,
+    deltaText,
+    rulerPct,
+  };
+}
+
+/**
+ * 实时 A9 价格作战看板（24H 锁仓与 12H 冲价首屏必显）
+ */
+export function renderPriceArenaBoard(round, { mode = 'observation' } = {}) {
+  const m = computeRoundPriceMetrics(round);
+  const cdSec = toFiniteNum(round?.countdownSec);
+  const isUrgent = cdSec !== null && cdSec > 0 && cdSec <= 3600;
+  const dotCls = m.deltaPct === null ? '' : (m.isAbove ? 'is-up' : 'is-down');
+  const chipCls = m.deltaPct === null ? 'chip-muted' : (m.isAbove ? 'chip-green' : 'chip-red');
+  const poolText = (round?.rewardBudgetA9 !== null && round?.rewardBudgetA9 !== undefined && Number.isFinite(Number(round.rewardBudgetA9)))
+    ? `${formatNum(round.rewardBudgetA9)} A9`
+    : '—';
+  const cdLabel = mode === 'participation'
+    ? L('锁仓倒计时', 'Lock Closes')
+    : L('本轮冲价剩余', 'Push Left');
+
+  return `
+    <div class="sw-price-arena" id="round-price-arena">
+      <div class="sw-price-arena-top">
+        <div class="sw-price-live-block">
+          <span class="sw-price-token">
+            <img src="./assets/token/a9-token-2048.png" alt="A9" width="28" height="28" decoding="async" />
+          </span>
+          <div style="min-width:0;">
+            <div class="row-start" style="gap:5px;margin-bottom:2px;">
+              <span class="sw-pulse-dot ${dotCls}" id="round-live-pulse" aria-hidden="true"></span>
+              <span class="num-xs text-muted">${L('A9 实时价格', 'A9 Live Price')}</span>
+            </div>
+            <div class="sw-price-main" id="round-live-price">${m.liveText}</div>
+          </div>
+        </div>
+        <div class="sw-price-target-block">
+          <span class="num-xs text-muted">${L('目标通关价', 'Target Price')}</span>
+          <span class="sw-price-target-val" id="round-target-price">${m.targetText}</span>
+          <span class="sw-price-cd ${isUrgent ? 'is-urgent' : ''}">${cdLabel} <b id="round-cd">${cdSec === null ? '—' : formatTimer(cdSec)}</b></span>
+        </div>
+      </div>
+
+      <div class="row-between" style="flex-wrap:wrap;gap:6px;">
+        <span class="chip ${chipCls} mono" id="round-target-delta">${m.deltaText}</span>
+        <span class="num-xs text-sec mono">${L('通关解锁', 'Unlock')} <b style="color:var(--ink);">${poolText}</b></span>
+      </div>
+
+      <div class="sw-price-ruler-wrap">
+        <div class="sw-price-ruler" aria-label="${L('实时价格距目标价水位条', 'Live price vs target gauge')}">
+          <div class="sw-price-ruler-fill ${m.isAbove ? 'is-up' : ''}" id="round-price-ruler-fill" style="width:${m.rulerPct}%;"></div>
+          <span class="sw-price-ruler-target" title="${L('目标通关价', 'Target Price')}" aria-hidden="true"></span>
+        </div>
+        <div class="sw-price-ruler-labels">
+          <span>${L('开盘区间', 'Base')}</span>
+          <span style="color:var(--ink);font-weight:800;">${L('目标线', 'Target')} ${m.targetText}</span>
+          <span>${L('超额冲高', 'Breakout')}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * 生成实时战况喊单话术（Demo/Live 通用，Live 绝不编造缺失价格或进度）
+ */
+export function buildBattleRallyCopy(round, inviteLink, tpl = 'push') {
+  const r = round || {};
+  const roundNum = r.currentRound != null ? L(`第 ${r.currentRound} 轮`, `Round #${r.currentRound}`) : L('本轮', 'Current Round');
+  const m = computeRoundPriceMetrics(r);
+  const qual = toFiniteNum(r.qualifiedCandles);
+  const req = toFiniteNum(r.minQualifiedCandles) || 8;
+  const need = qual !== null ? Math.max(0, req - qual) : null;
+  const poolStr = (r.rewardBudgetA9 !== null && r.rewardBudgetA9 !== undefined && Number.isFinite(Number(r.rewardBudgetA9)))
+    ? `${formatNum(r.rewardBudgetA9)} A9`
+    : L('700,000,000 A9 奖池', '700,000,000 A9 pool');
+
+  if (tpl === 'first6h') {
+    return L(
+      `【A9 ${roundNum} · 头矿 6H 召唤】最低 100 A9 锁仓参战，头矿 6H 未通关仅 5% 轻止损（退 95%），永不爆仓！通关全员 1:1 分 ${poolStr}（最高 5×），一起来冲：${inviteLink}`,
+      `[A9 ${roundNum} · First 6H Call] Lock from 100 A9 with 5% Stop-Loss (95% refund if missed) and no liquidation! Pass 8/12 slots to split ${poolStr} up to 5x: ${inviteLink}`
+    );
+  }
+  if (tpl === 'free') {
+    return L(
+      `【A9 新人 0 GRAM 上车】免费秒开新手青铜箱领 200 A9，再进 0 GRAM 12H 预言擂台猜涨跌！宝箱商城 0.99 GRAM 起保底 + 随机直发钱包：${inviteLink}`,
+      `[A9 0 GRAM Free Start] Open your free 200 A9 Starter Bronze Chest and join the 0 GRAM 12H Prediction Arena! Chest Mall starts at 0.99 GRAM with direct wallet payout: ${inviteLink}`
+    );
+  }
+  const priceLineZh = m.deltaPct !== null
+    ? `A9 实时价 ${m.liveText}（${m.isAbove ? `已站上目标价 ${m.targetText} +${m.deltaPct.toFixed(1)}%` : `距目标价 ${m.targetText} 仅差 ${Math.abs(m.deltaPct).toFixed(1)}%`}）`
+    : (m.targetPrice !== null ? `本轮目标价 ${m.targetText}（实时价链上同步中）` : '本轮链上实时行情同步中');
+  const priceLineEn = m.deltaPct !== null
+    ? `A9 live ${m.liveText} (${m.isAbove ? `above ${m.targetText} by +${m.deltaPct.toFixed(1)}%` : `${Math.abs(m.deltaPct).toFixed(1)}% from ${m.targetText} target`})`
+    : (m.targetPrice !== null ? `Target ${m.targetText} (live price syncing)` : 'On-chain live price syncing');
+  const slotLineZh = need !== null ? (need === 0 ? `已达 ${qual}/${req} 通关门槛，守住结算！` : `目前 ${qual}/${req} 格达标，还差 ${need} 个时段解锁 ${poolStr}！`) : `冲刺 8/12 达标时段解锁 ${poolStr}！`;
+  const slotLineEn = need !== null ? (need === 0 ? `${qual}/${req} slots met — hold for settlement!` : `${qual}/${req} slots met, ${need} more to unlock ${poolStr}!`) : `Push 8/12 slots to unlock ${poolStr}!`;
+  return L(
+    `【A9 ${roundNum} 冲线喊单】${priceLineZh}，${slotLineZh} 一起来推高通关，我还能赚好友通关 8% 返佣：${inviteLink}`,
+    `[A9 ${roundNum} Push Rally] ${priceLineEn} — ${slotLineEn} Join the push for 8% friend pass referral credits: ${inviteLink}`
+  );
+}
+
+/**
+ * 战场直连战队动员助推卡（闯关页核心联动卡）
+ */
+export function renderRoundRallyCard(round) {
+  const m = computeRoundPriceMetrics(round);
+  const hintText = m.deltaPct === null
+    ? L('拉好友一起参与本轮涨价解锁，通关享 8% 好友奖金返佣 + 商城直推 6%。', 'Rally friends to push A9 past target and earn 8% friend pass credits + 6% mall referrals.')
+    : m.isAbove
+      ? L('已站上目标线！叫上战队一起稳住买盘守住盖章，同时赚好友通关 8% 返佣。', 'Above target! Rally your squad to hold the line and earn 8% friend pass credits.')
+      : L('想让本轮 A9 冲过目标价、尽快解锁奖池并额外赚好友通关 8% 返佣？立刻去战队动员喊单！', 'Want A9 to cross target, unlock the pool faster, and earn 8% friend pass credits? Rally your squad now!');
+  return `
+    <section class="card sw-rally-card" id="round-rally-card">
+      <div class="row-between" style="margin-bottom:6px;">
+        <span class="card-title">${icon('team', 15, 'text-red')} ${L('战队动员助推 · 一起冲线', 'Squad Rally · Push Together')}</span>
+        <span class="chip chip-green mono">6% + 8%</span>
+      </div>
+      <p class="num-xs text-sec" style="margin:0 0 10px;line-height:1.5;">${hintText}</p>
+      <div class="grid-2" style="gap:8px;">
+        <a class="btn btn-primary btn-sm" href="#/team?action=rally" style="width:100%;min-height:40px;">${icon('send', 13)} ${L('去战队动员喊单', 'Rally Squad')} ›</a>
+        <button class="btn btn-secondary btn-sm" id="btn-round-copy-rally" type="button" style="width:100%;min-height:40px;">${icon('copy', 13)} ${L('一键复制战况喊单', 'Copy Battle Call')}</button>
+      </div>
+    </section>
+  `;
+}
+
+/**
  * v17.0 心理安全垫卡片：头矿 6H (5% 止损) vs 普通 (10% 止损) + 24H 锁仓期提前解押 (退 85% / 烧 15%) + 每轮 100,000 A9 等权空投
  */
 export function renderSafetyCushionCard(round) {
@@ -290,6 +455,9 @@ export function renderVeteranShieldCard() {
  * 12H 预言擂台嵌入式卡片（0 GRAM 参战 + 新人首轮保底 + 防薅激活闭环）
  */
 export function renderPredictionCard(round, pred, user) {
+  if (!round?.stage || round.stage === 'warmup' || round.stage === 'halted') {
+    return `<section class="card col-gap" id="a9-prediction-card"><strong>${L('12H 预言擂台', '12H Prediction Arena')}</strong><span>${round?.stage === 'halted' ? L('本轮已中止', 'Round aborted') : L('本轮预言暂未开放', 'Predictions are closed for now')}</span></section>`;
+  }
   if (!config.isDemo && (!pred?.loaded || pred.roundId !== round.currentRound)) {
     return `<div class="card" id="a9-prediction-card"><div class="card-title">${L('12H 预言擂台', '12H Prediction Arena')}</div><p class="num-xs text-muted" style="margin:6px 0 0;">${L('正在读取预言数据…', 'Reading prediction data…')}</p></div>`;
   }
@@ -430,7 +598,7 @@ export function renderPredictionCard(round, pred, user) {
           ${icon(isExpanded ? 'chevronDown' : 'chevronRight', 14)}
         </div>
       </div>
-      <div class="pred-expand-wrap ${isExpanded ? 'open' : ''}">
+      <div class="pred-expand-wrap ${isExpanded ? 'open' : ''}" ${isExpanded ? '' : 'hidden inert'}>
         <div class="pred-expand-inner">
           <div style="margin-top:12px;">
             <div class="row-between num-xs" style="margin-bottom:6px;">
@@ -493,33 +661,35 @@ export function renderParticipation(round) {
   const inFirst6h = Boolean(round.inFirst6h);
   const canStake = config.isDemo || store.fundsEnabled;
   const closeTimeStr = formatCloseTime(round.stakeCloseAt);
+  const openAt = toUnixSec(round.stakeOpenAt);
+  const closeAt = toUnixSec(round.stakeCloseAt);
+  const explicitEarlyEnd = toUnixSec(round.earlyCloseAt);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const earlyEnd = explicitEarlyEnd > 0
+    ? explicitEarlyEnd
+    : (openAt > 0 && closeAt > openAt ? openAt + Number(round.earlyWindowSeconds || 21600) : 0);
+  let earlyRemSec = (earlyEnd > 0 && nowSec < earlyEnd) ? (earlyEnd - nowSec) : null;
+  if ((earlyRemSec === null || earlyRemSec <= 0) && config.isDemo && inFirst6h && Number(round.earlyBirdSec) > 0) {
+    earlyRemSec = Math.floor(Number(round.earlyBirdSec));
+  }
+  const slChipHtml = inFirst6h
+    ? (earlyRemSec !== null && earlyRemSec > 0
+      ? `<span class="chip chip-green mono">${L('头矿 6H · 5%', 'First 6H · 5%')} · <span id="early-window-cd">${formatTimer(earlyRemSec)}</span></span>`
+      : `<span class="chip chip-green">${L('头矿 6H · 5% 止损', 'First 6H · 5% Stop-Loss')}</span>`)
+    : `<span class="chip chip-gold">${L('普通 · 10% 止损', 'Std · 10% Stop-Loss')}</span>`;
 
   return `
     <section class="card card-hero col-gap">
-      <div class="row-between">
-        ${stagePillTrigger('participation', round.currentRound ?? '—')}
-        <span class="row-start num-sm text-sec">${icon('clock', 13)} <span id="round-cd" class="mono">${round.countdownSec === null ? '—' : formatTimer(round.countdownSec)}</span></span>
-      </div>
-
       <div class="row-between" style="flex-wrap:wrap;gap:6px;">
-        <span class="chip ${inFirst6h ? 'chip-green' : 'chip-gold'}">${inFirst6h ? L('头矿 6H · 5% 止损', 'First 6H · 5% Stop-Loss') : L('普通窗口 · 10% 止损', 'Standard · 10% Stop-Loss')}</span>
-        <span class="num-xs text-muted mono">${L('锁仓截止', 'Closes')} ${closeTimeStr}</span>
+        ${stagePillTrigger('participation', round.currentRound ?? '—')}
+        ${slChipHtml}
       </div>
 
-      <div>
-        <div class="num-xs text-muted">${L('本轮用户奖励池', 'Round Reward Pool')}</div>
-        <div class="num-hero" style="margin-top:3px;">${round.rewardBudgetA9 === null || round.rewardBudgetA9 === undefined ? '—' : formatNum(round.rewardBudgetA9)} <span class="num-md text-green">A9</span></div>
-      </div>
+      ${renderPriceArenaBoard(round, { mode: 'participation' })}
 
-      <div class="metric-strip" style="margin:2px 0;">
-        <div class="metric-cell">
-          <span class="num-xs text-muted">${L('目标价', 'Target')}</span>
-          <span class="num-md">${priceOrDash(round.targetPrice)}</span>
-        </div>
-        <div class="metric-cell">
-          <span class="num-xs text-muted">${L('1H 均价', '1H TWAP')}</span>
-          <span class="num-md text-green">${priceOrDash(round.twap24h ?? round.livePrice)}</span>
-        </div>
+      <div class="row-between num-xs text-muted">
+        <span>${L('24H 锁仓截止', '24H Lock Closes')} <b class="mono">${closeTimeStr}</b></span>
+        <span>${L('满 8/12 段通关 · 5× 封顶', '8/12 to pass · 5× cap')}</span>
       </div>
 
       ${config.isDemo ? `
@@ -539,7 +709,7 @@ export function renderParticipation(round) {
 }
 
 /**
- * 挑战页 12H 冲价 / 等待结算总览：先看当前阶段与 6×2 印章盘，主入口直达时段明细
+ * 挑战页 12H 冲价 / 等待结算总览：实时价格作战看板 + 紧迫达标进度 + 6×2 印章盘 + 时段明细入口
  */
 export function renderObservation(round) {
   const isAwaitingSettle = Boolean(round.rawState?.startsWith('SETTLING_') || round.nextState === 'AWAITING_SETTLE');
@@ -550,26 +720,38 @@ export function renderObservation(round) {
   const needMoreVal = toFiniteNum(round.needMore);
   const need = !hasQualified ? null : (needMoreVal !== null ? needMoreVal : Math.max(0, required - passed));
   const pct = hasQualified && required ? Math.round(Math.min(100, (passed / required) * 100)) : 0;
+  const m = computeRoundPriceMetrics(round);
+  const poolStr = (round.rewardBudgetA9 !== null && round.rewardBudgetA9 !== undefined && Number.isFinite(Number(round.rewardBudgetA9)))
+    ? `${formatNum(round.rewardBudgetA9)} A9`
+    : L('本轮奖池', 'round pool');
+  const priceActionHint = isAwaitingSettle
+    ? L('12 个时段已采集完成 · 等待链上结算', 'All 12 slots finalized · awaiting settlement')
+    : m.deltaPct === null
+      ? L('实时价格同步中 · 整点达标自动盖章', 'Live price syncing · stamps automatically on close')
+      : m.isAbove
+        ? L('当前均价达到目标，时段结束后确认', 'Current average meets target · confirmation at slot close')
+        : L('当前均价低于目标，时段结束后确认', 'Current average below target · confirmation at slot close');
 
   return `
-    <section class="observatory-stage">
-      <div class="observatory-hud">
+    <section class="card card-hero col-gap">
+      <div class="row-between">
         ${stagePillTrigger('observation', round.currentRound ?? '—')}
         ${isAwaitingSettle
           ? `<span class="chip chip-gold">${L('等待结算', 'Awaiting Settlement')}</span>`
-          : `<span class="obs-cd-tag">${icon('clock', 12)} <b id="round-cd">${round.countdownSec == null ? '—' : formatTimer(round.countdownSec)}</b></span>`}
+          : `<span class="chip ${m.deltaPct !== null && !m.isAbove ? 'chip-red' : 'chip-green'} mono">${passed ?? '—'}/${required} ${L('达标', 'Met')}</span>`}
       </div>
-      <div class="observatory-status">
-        <div class="obs-hero-ratio">
-          <span id="obs-passed-num" data-val="${passed ?? ''}"><span class="ratio-cur">${passed ?? '—'}</span><span class="ratio-sep">/</span><span class="ratio-req">${required}</span></span>
-          <span>${L('个达标时段', 'qualified slots')}</span>
+
+      ${renderPriceArenaBoard(round, { mode: 'observation' })}
+
+      <div class="col-gap" style="gap:6px;">
+        <div class="row-between">
+          <strong id="obs-need-text" style="font-size:14.5px;font-weight:900;">${isAwaitingSettle
+            ? L('已采集 12/12 · 等待链上结算', '12/12 Finalized · Awaiting Settlement')
+            : (need === null ? L('达标进度同步中', 'Syncing progress') : need === 0 ? L(`已达通关门槛，等待解锁 ${poolStr}`, `Goal met · unlocking ${poolStr}`) : L(`还差 ${need} 个达标时段解锁 ${poolStr}`, `${need} more slots to unlock ${poolStr}`))}</strong>
+          <span id="obs-passed-num" data-val="${passed ?? ''}" class="mono num-xs text-muted">${passed ?? '—'}/${required}</span>
         </div>
         <div class="progress-track"><div class="progress-fill" id="obs-progress-fill" style="width:${pct}%"></div></div>
-        <div class="row-between obs-sub-row">
-          <span id="obs-need-text">${isAwaitingSettle
-            ? L('12 个时段已采集完成 · 等待链上结算', 'All 12 slots finalized · awaiting settlement')
-            : (need === null ? L('达标进度同步中', 'Syncing progress') : need === 0 ? L('已达通关门槛，等待结算', 'Threshold met · awaiting settlement') : L(`还差 ${need} 个达标时段通关`, `${need} more qualifying slots needed`))}</span>
-        </div>
+        <div class="num-xs ${m.deltaPct !== null ? (m.isAbove ? 'text-green' : 'text-red') : 'text-sec'}" id="round-price-action-hint" style="font-weight:800;">${priceActionHint}</div>
       </div>
     </section>
 
@@ -622,10 +804,10 @@ export function renderObservationRecords(root) {
       <section class="stamp-logbook wv-tower" data-round="${round.currentRound ?? ''}">
         <header class="row-between" style="margin-bottom:10px;">
           <div>
-            <small>${L('第', 'Round')} ${round.currentRound ?? '—'}${L(' 轮', '')} · 12H Push</small>
+            <small>${L('第', 'Round')} ${round.currentRound ?? '—'}${L(' 轮', '')} · ${L('12H 冲价', '12H Push')}</small>
             <h1 style="margin:2px 0 0;font-size:18px;font-weight:900;">${L('12H 印章簿', '12H Stamp Log')}</h1>
           </div>
-          <span class="chip chip-muted mono">${L('门槛', 'Goal')} ${round.qualifiedCandles ?? '—'}/${required}</span>
+          <span class="chip chip-muted mono">${L('通关需', 'Goal')} ${required} ${L('格', 'slots')}</span>
         </header>
 
         <div class="radar-dual-counts" style="margin-top:0;">
@@ -793,9 +975,14 @@ export function renderSettlementFailed(round, ticket = null) {
 /**
  * v17.0 每轮等权空投抽奖公示卡片（Demo 展示演示数据，Live 严格展示服务端结果）
  */
-export function renderAirdropDrawsCard({ loading = false, error = null, items = [], bucketRemainingRaw = null } = {}) {
+export function renderAirdropDrawsCard({ loading = false, error = null, items = [], bucketRemainingRaw = null, hasQualifiedPosition = null } = {}) {
   const remA9 = bucketRemainingRaw !== null && bucketRemainingRaw !== undefined ? rawToA9(bucketRemainingRaw) : null;
   const list = Array.isArray(items) ? items : [];
+  const qualHtml = hasQualifiedPosition === true
+    ? `<div class="sub-tile row-start" style="margin-bottom:8px;padding:8px 10px;border-color:var(--green-border);gap:7px;">${icon('checkCircle', 14, 'text-green')}<span class="num-xs text-green" style="font-weight:800;">${L('本轮已锁仓 ≥ 100 A9 · 已自动获得 100,000 A9 等权空投抽奖资格', 'Locked ≥ 100 A9 this round · Auto-entered in 100,000 A9 equal airdrop')}</span></div>`
+    : hasQualifiedPosition === false
+      ? `<a class="sub-tile row-between" href="#/challenge/confirm" style="margin-bottom:8px;padding:8px 10px;border-color:var(--gold-border);text-decoration:none;"><span class="num-xs" style="font-weight:800;color:var(--ink);">${L('锁仓 ≥ 100 A9 即自动参与本轮 100,000 A9 等权空投', 'Lock ≥ 100 A9 to auto-enter 100,000 A9 equal airdrop')}</span><span class="sw-menu-arrow" aria-hidden="true">›</span></a>`
+      : '';
   const bodyHtml = loading
     ? `<div class="num-xs text-muted" style="padding:6px 0;">${L('正在读取每轮空投公示…', 'Loading round airdrop draws…')}</div>`
     : error
@@ -827,6 +1014,7 @@ export function renderAirdropDrawsCard({ loading = false, error = null, items = 
         <span class="card-title">${icon('trophy', 15, 'text-gold')} ${L('每轮等权空投公示', 'Per-Round Equal Airdrop')}</span>
         <span class="chip chip-muted mono">${remA9 !== null ? L(`池余 ${formatNum(Math.round(remA9), 0)} A9`, `${formatNum(Math.round(remA9), 0)} A9 Left`) : L('50,000,000 A9 池', '50,000,000 A9 Pool')}</span>
       </div>
+      ${qualHtml}
       ${bodyHtml}
     </section>
   `;

@@ -361,6 +361,7 @@ test('W1: startapp parser preserves underscore TON addresses, supports gallery/c
 
   const invTeam = parse('invite_TM-0001_UQAbc_def');
   assert.equal(invTeam.teamId, 'TM-0001');
+  assert.equal(invTeam.route, '/team?invite=TM-0001');
   assert.equal(invTeam.ref, 'UQAbc_def');
   assert.equal(invTeam.isAttribution, true);
 
@@ -932,6 +933,13 @@ test('PROTOCOL_SPECS single source of truth & Live renderRiskAudit invariants ch
       const auditRoot = { isConnected: true, innerHTML: '', querySelector() { return null; } };
       renderRiskAudit(auditRoot);
 
+      store.update((s) => {
+        s.round.protocolConfig = { network: 'mainnet', contracts: {} };
+        s.round.poolState = null;
+      });
+      const pendingAuditRoot = { isConnected: true, innerHTML: '', querySelector() { return null; } };
+      renderRiskAudit(pendingAuditRoot);
+
       const compactBanner = renderPlazaCompactBanner({ pendingActivationRaw: '300000000000', loaded: true }, {});
       const vaultBanner = renderPendingVaultBanner({ pendingActivationRaw: '300000000000', loaded: true }, {});
 
@@ -940,6 +948,8 @@ test('PROTOCOL_SPECS single source of truth & Live renderRiskAudit invariants ch
         hasCap: auditRoot.innerHTML.includes('550,000,000 A9'),
         hasRules: auditRoot.innerHTML.includes('8/12 · 5× · 6%'),
         hasUndefined: /\\bundefined\\b/.test(auditRoot.innerHTML),
+        pendingAuditHasWait: pendingAuditRoot.innerHTML.includes('待核验'),
+        pendingAuditHasRenounced: pendingAuditRoot.innerHTML.includes('已弃权'),
         compactExact: compactBanner.includes('1,800 A9'),
         vaultExact: vaultBanner.includes('1,800 A9'),
       }));
@@ -950,6 +960,8 @@ test('PROTOCOL_SPECS single source of truth & Live renderRiskAudit invariants ch
   assert.equal(out.hasCap, true);
   assert.equal(out.hasRules, true);
   assert.equal(out.hasUndefined, false);
+  assert.equal(out.pendingAuditHasWait, true);
+  assert.equal(out.pendingAuditHasRenounced, false);
   assert.equal(out.compactExact, true);
   assert.equal(out.vaultExact, true);
 });
@@ -1073,7 +1085,7 @@ test('Settings page disables hourlyCandlePush in Live mode and syncs settlementP
       renderSettingsPage(root);
       console.log(JSON.stringify({
         hourlyDisabled: /id="set-hourly-push-switch"[^>]*disabled/.test(root.innerHTML) || root.innerHTML.includes('id="set-hourly-push-switch" role="switch" aria-checked="false" aria-disabled="true"'),
-        hourlyText: root.innerHTML.includes('由战队 TG 群自动播报'),
+        hourlyText: root.innerHTML.includes('个人整点推送暂未开放'),
         settleDisabledNonTg: /class="a9-switch disabled" id="set-settlement-push-switch"/.test(root.innerHTML),
         settleNonTgHint: root.innerHTML.includes('请在 Telegram 小程序内打开以管理结算私聊提醒'),
         notifFetchCount: fetchCalls.filter((c) => String(c.url).includes('/api/me/notifications')).length,
@@ -1223,7 +1235,7 @@ test('Settings page disables hourlyCandlePush in Live mode and syncs settlementP
 
   assert.equal(tgOut.afterLoad.on, true);
   assert.equal(tgOut.afterLoad.ariaChecked, 'true');
-  assert.ok(tgOut.afterLoad.sub.includes('已开启 Telegram 私聊结算与领取提醒'));
+  assert.ok(tgOut.afterLoad.sub.includes('结算与领取提醒偏好已开启'));
   assert.equal(tgOut.afterToggleOff.on, false);
   assert.equal(tgOut.afterToggleOff.ariaChecked, 'false');
   assert.equal(tgOut.afterToggleOff.serverPref, false);

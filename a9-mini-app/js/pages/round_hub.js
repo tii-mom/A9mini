@@ -1,5 +1,6 @@
 import { store } from '../store.js';
 import { config } from '../config.js';
+import { setDemoRoundStage } from '../demo-data.js';
 import {
   estimateRewardA9,
   fetchPredictionRound,
@@ -28,7 +29,7 @@ import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
 import { pendingTxManager } from '../tx-ux.js';
-import { openXShareSheet, buildOgShareUrl } from '../share.js';
+import { openXShareSheet, buildOgShareUrl, buildTmaDeepLink, getShareRef } from '../share.js';
 import {
   renderWarmupStage,
   renderParticipation,
@@ -41,7 +42,9 @@ import {
   renderEarlyBirdBanner,
   renderSafetyCushionCard,
   renderMyRoundPositionCard,
-  renderAirdropDrawsCard
+  renderAirdropDrawsCard,
+  renderRoundRallyCard,
+  buildBattleRallyCopy
 } from './round_stages.js';
 
 let activeRoundDeckTab = 'pred';
@@ -80,22 +83,25 @@ function bindRoundDeckTabs(root) {
   });
 }
 
-async function syncMyRoundPositionCard(root) {
+async function syncMyRoundPositionCard(root, onQualifiedChange = null) {
   const mount = root.querySelector('#a9-my-round-position-mount');
   if (!mount) return;
   const { round, user, certificates } = store.state;
   const curRoundId = round?.currentRound;
   if (curRoundId === null || curRoundId === undefined) {
     mount.innerHTML = '';
+    if (onQualifiedChange) onQualifiedChange(null);
     return;
   }
   if (config.isDemo) {
     const cert = (certificates || []).find((c) => Number(c.round) === Number(curRoundId)) || null;
     mount.innerHTML = cert ? renderMyRoundPositionCard(round, { ...cert, isFirst6h: Boolean(round?.inFirst6h) }) : '';
+    if (onQualifiedChange) onQualifiedChange(Boolean(cert && Number(cert.stakeTon) >= 100));
     return;
   }
   if (!user?.address) {
     mount.innerHTML = '';
+    if (onQualifiedChange) onQualifiedChange(false);
     return;
   }
   try {
@@ -105,6 +111,8 @@ async function syncMyRoundPositionCard(root) {
       ? port.tickets.find((t) => Number(t.roundId) === Number(curRoundId))
       : null;
     mount.innerHTML = ticket ? renderMyRoundPositionCard(round, ticket) : '';
+    const totalA9 = ticket ? (rawToA9(ticket.amountRaw) ?? 0) : 0;
+    if (onQualifiedChange) onQualifiedChange(Boolean(ticket && !ticket.exited && totalA9 >= 100));
     const settleEl = root.querySelector('#round-settlement-personal');
     if (settleEl && ticket) {
       const wrap = document.createElement('div');
@@ -117,6 +125,7 @@ async function syncMyRoundPositionCard(root) {
     }
   } catch (_) {
     if (mount.isConnected) mount.innerHTML = '';
+    if (onQualifiedChange) onQualifiedChange(null);
   }
 }
 
@@ -125,12 +134,14 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
   const { round, user } = store.state;
   const stage = round.stage;
   if (!stage) {
-    root.innerHTML = `<div class="col-gap anim-page-enter"><section class="card empty-state"><div class="num-sm text-sec">${L('轮次状态等待核验', 'Round state awaits verification')}</div></section></div>`;
+    root.innerHTML = `<div class="col-gap anim-page-enter"><section class="card empty-state"><div class="num-sm text-sec">${L('轮次状态等待核验', 'Round state awaits verification')}</div></section>${renderPredictionCard(round, store.state.prediction, user)}</div>`;
+    handlePendingDeepLinkScroll(root);
     return;
   }
 
   if (store.state.referral.pendingScrollTarget === 'prediction') {
     activeRoundDeckTab = 'pred';
+    store.state.prediction.expanded = true;
   }
 
   const body = stage === 'warmup'
@@ -145,12 +156,25 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
             ? renderTechnicalHalt(round)
             : renderSettlementFailed(round);
 
+  const rallyBlock = (stage === 'participation' || stage === 'observation') ? renderRoundRallyCard(round) : '';
   const interactBlock = stage !== 'warmup' && stage !== 'halted'
     ? renderRoundInteractDeck(round, store.state.prediction, user)
-    : `<div id="a9-airdrop-draws-mount">${renderAirdropDrawsCard({ loading: true })}</div>`;
+    : `${renderPredictionCard(round, store.state.prediction, user)}<div id="a9-airdrop-draws-mount">${renderAirdropDrawsCard({ loading: true })}</div>`;
 
-  // 信息顺序严格统一：1. 当前阶段 → 2. 个人本金 → 3. 预言与空投
-  root.innerHTML = `<div class="col-gap anim-page-enter">${body}<div id="a9-my-round-position-mount"></div>${interactBlock}</div>`;
+  // 信息顺序严格统一：1. 当前阶段战场 → 2. 个人本金 → 3. 战队动员助推 → 4. 预言与空投
+  root.innerHTML = `<div class="col-gap anim-page-enter">${body}<div id="a9-my-round-position-mount"></div>${rallyBlock}${interactBlock}</div>`;
+
+  const copyRallyBtn = root.querySelector('#btn-round-copy-rally');
+  if (copyRallyBtn) {
+    copyRallyBtn.onclick = () => {
+      A9Haptic.light();
+      const shareRef = getShareRef();
+      const inviteLink = config.isDemo
+        ? `${window.location.origin}${window.location.pathname}?mode=${config.mode}&startapp=invite_${encodeURIComponent(shareRef)}`
+        : buildTmaDeepLink(`invite_${shareRef}`);
+      copyText(buildBattleRallyCopy(store.state.round, inviteLink, 'push'), L('已复制实时战况喊单', 'Copied live battle call'));
+    };
+  }
 
   const stageBtn = config.isDemo ? root.querySelector('#btn-stage-sheet') : null;
   if (stageBtn) {
@@ -166,7 +190,7 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
         { value: 'halted',             label: L('6. 异常中止 · 退回本金', '6. Aborted · Refund'), sub: L('本金原路退回', 'Principal refunded') }
       ],
       onSelect: (val) => {
-        store.update(s => { s.round.stage = val; });
+        store.update(s => { setDemoRoundStage(s.round, val); });
         renderChallengeHome(root, navigate);
       }
     });
@@ -186,35 +210,47 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
     };
   });
 
+  const airdropState = { loading: true, error: null, items: [], bucketRemainingRaw: null, hasQualifiedPosition: null };
+  const paintAirdrop = () => {
+    const mount = root.querySelector('#a9-airdrop-draws-mount');
+    if (!mount || !mount.isConnected) return;
+    mount.innerHTML = renderAirdropDrawsCard(airdropState);
+    const retryBtn = mount.querySelector('#btn-retry-airdrop-draws');
+    if (retryBtn) retryBtn.onclick = () => syncAirdropDrawsCard(root, airdropState, paintAirdrop);
+  };
+
   bindRoundDeckTabs(root);
   bindCorridorRadarEvents(root);
   bindXShareTriggers(root);
   bindPredictionCardEvents(root, navigate);
   syncPredictionState(root, navigate);
-  syncAirdropDrawsCard(root);
-  syncMyRoundPositionCard(root);
+  syncAirdropDrawsCard(root, airdropState, paintAirdrop);
+  syncMyRoundPositionCard(root, (qualified) => {
+    airdropState.hasQualifiedPosition = qualified;
+    paintAirdrop();
+  });
   handlePendingDeepLinkScroll(root);
 }
 
-async function syncAirdropDrawsCard(root) {
+async function syncAirdropDrawsCard(root, state, paint) {
   const mount = root.querySelector('#a9-airdrop-draws-mount');
   if (!mount) return;
+  state.loading = true;
+  state.error = null;
+  paint();
   try {
     const data = await fetchRoundAirdropDraws({ limit: 5 });
     if (!mount.isConnected) return;
-    mount.innerHTML = renderAirdropDrawsCard({
-      loading: false,
-      items: Array.isArray(data?.items) ? data.items : [],
-      bucketRemainingRaw: data?.bucketRemainingRaw ?? null,
-    });
+    state.loading = false;
+    state.error = null;
+    state.items = Array.isArray(data?.items) ? data.items : [];
+    state.bucketRemainingRaw = data?.bucketRemainingRaw ?? null;
+    paint();
   } catch (e) {
     if (!mount.isConnected) return;
-    mount.innerHTML = renderAirdropDrawsCard({
-      loading: false,
-      error: e?.message || L('每轮空投公示暂不可读取', 'Airdrop draws unavailable'),
-    });
-    const retryBtn = mount.querySelector('#btn-retry-airdrop-draws');
-    if (retryBtn) retryBtn.onclick = () => syncAirdropDrawsCard(root);
+    state.loading = false;
+    state.error = e?.message || L('每轮空投公示暂不可读取', 'Airdrop draws unavailable');
+    paint();
   }
 }
 
@@ -264,6 +300,7 @@ async function syncPredictionState(root, navigate) {
   const requestedCard = root.querySelector('#a9-prediction-card');
   if (!requestedCard) return;
   const { round, user } = store.state;
+  if (!round.stage || round.stage === 'warmup' || round.stage === 'halted') return;
   const roundId = config.isDemo ? (round.currentRound || 1) : round.currentRound;
   if (!roundId) {
     requestedCard.textContent = L('轮次数据待核验，暂无法读取预言状态', 'Round data pending verification');
@@ -325,6 +362,7 @@ function bindPredictionCardEvents(root, navigate) {
       const cur = toggleHead.getAttribute('aria-expanded') === 'true';
       store.state.prediction.expanded = !cur;
       repaintPredictionCard(root, navigate);
+      root.querySelector('#pred-toggle-head')?.focus({ preventScroll: true });
     };
     toggleHead.onclick = doToggle;
     toggleHead.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doToggle(); } };
@@ -770,8 +808,8 @@ export function renderParticipateConfirm(root, navigate) {
             </div>
             <div class="sw-menu-row is-static">
               <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('链上 Gas 附带', 'On-Chain Gas')}</span>
-                <span class="sw-menu-sub">${L('合约执行消耗后余量原路退回钱包', 'Unused gas refunded to wallet')}</span>
+                <span class="sw-menu-title">${L('链上预附', 'Attached GRAM')}</span>
+                <span class="sw-menu-sub">${L('扣除链上费用和必要留存后退回可退余量', 'Refundable excess returns after fees and reserves')}</span>
               </div>
               <div class="sw-menu-right"><span class="sw-menu-amount">0.30 GRAM</span></div>
             </div>
@@ -783,6 +821,13 @@ export function renderParticipateConfirm(root, navigate) {
         </section>
         <button class="btn btn-secondary" type="button" disabled>${icon('lock', 15)} ${L('当前只读 · 暂未开放锁仓签名', 'Read-Only · Lock Signing Disabled')}</button>
         <div class="sw-menu-group">
+          <a class="sw-menu-row" href="#/risk/audit">
+            <div class="sw-menu-left">
+              <span class="sw-menu-title">${L('v17.0 合约安全核验', 'v17.0 Contract Audit')}</span>
+              <span class="sw-menu-sub">${L('admin_address 已弃权 · 7 天 AbortRound 无许可逃生舱', 'Renounced admin · 7d permissionless AbortRound')}</span>
+            </div>
+            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          </a>
           <a class="sw-menu-row" href="#/round">
             <div class="sw-menu-left"><span class="sw-menu-title">${L('返回闯关', 'Back to Quest')}</span></div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
@@ -845,6 +890,15 @@ export function renderParticipateConfirm(root, navigate) {
            <button class="accessible-confirm-link" id="btn-confirm-accessible" type="button"><span id="acc-confirm-lbl">${L(`无法滑动？点此无障碍确认锁仓 ${formatNum(amount)} A9`, `Can’t slide? Tap to confirm lock ${formatNum(amount)} A9`)}</span></button>`
         : `<button class="btn btn-secondary" id="btn-confirm-accessible" type="button">${icon('lock', 15)} <span id="acc-confirm-lbl">${L('真实模式只读 · 暂未开放锁仓', 'Read-Only Mode · Locking Disabled')}</span></button>`
       }
+      <div class="sw-menu-group">
+        <a class="sw-menu-row" href="#/risk/audit">
+          <div class="sw-menu-left">
+            <span class="sw-menu-title">${L('v17.0 合约安全核验', 'v17.0 Contract Audit')}</span>
+            <span class="sw-menu-sub">${L('admin_address 已弃权 · 7 天 AbortRound 无许可逃生舱', 'Renounced admin · 7d permissionless AbortRound')}</span>
+          </div>
+          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+        </a>
+      </div>
     </div>
   `;
 
@@ -898,6 +952,11 @@ export function renderParticipateConfirm(root, navigate) {
     if (!config.isDemo || !store.fundsEnabled) {
       A9Haptic.warning();
       showToast(L('真实模式当前为只读验收阶段，暂未开放锁仓签名与资金转出', 'Live mode is read-only; locking and wallet signing are disabled'), 'amber');
+      initSlider();
+      return;
+    }
+    if (store.state.round.stage !== 'participation') {
+      showToast(L('本轮锁仓已关闭', 'Locking is closed for this round'), 'amber');
       initSlider();
       return;
     }
@@ -1138,7 +1197,7 @@ function renderLiveStakeConfirm(root, navigate) {
           contractLabel: L('目标合约 RoundController', 'Target RoundController'),
           targetAddress: roundController,
           principalText: `${exactAmtText} A9`,
-          gasText: `0.30 GRAM (${L('余量原路退回', 'excess refunded')})`,
+          gasText: `0.30 GRAM (${L('预附 · 钱包发起费另计', 'attached · wallet sending fee separate')})`,
           totalText: `${exactAmtText} A9 + 0.30 GRAM`,
           note: L(`第 ${round.currentRound} 轮 · 24H 锁仓期可提前解押（扣 15% 销毁）；12H 冲价未达 8/12 时段永不爆仓 · 自动止损（头矿 6H 退 95% / 普通退 90%）。`, `Round #${round.currentRound} · 24H Lock allows Early Exit (-15% Burn); < 8/12 in 12H Push uses No Liquidation · Auto Stop-Loss (95% First 6H / 90% late).`),
           insufficientReason,
@@ -1237,9 +1296,9 @@ function renderLiveStakeConfirm(root, navigate) {
 }
 
 export function renderParticipateSuccess(root, navigate, certId) {
-  const cert = store.state.certificates.find(c => c.id === certId) || store.state.certificates[0];
+  const cert = config.isDemo && store.state.certificates.find(c => c.id === certId && c.demoEntryConfirmed === true);
   if (!cert) {
-    root.innerHTML = `<div class="col-gap"><div class="card empty-state"><div class="num-sm text-sec">${L('暂无可展示的闯关凭证', 'No quest pass to show')}</div></div><button class="btn btn-secondary" data-nav="/profile">${L('返回我的', 'Back to Me')}</button></div>`;
+    root.innerHTML = `<div class="col-gap"><div class="card empty-state"><div class="num-sm text-sec">${L('找不到本次入场凭证', 'Entry ticket not found')}</div></div><button class="btn btn-secondary" data-nav="/proof">${L('返回凭证列表', 'Back to tickets')}</button></div>`;
     return;
   }
   const shareUrl = `${window.location.origin}${window.location.pathname}?startapp=proof_${cert.id.replace('A9-STAKE-', '')}`;

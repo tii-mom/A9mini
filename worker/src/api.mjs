@@ -41,9 +41,10 @@ function publicBinding(b) {
 
 /**
  * 战队视图权限裁剪（P0-H）：
- * 仅对战队队长本人返回内部 tgChatId；普通成员仅可见战队公开/成员信息，绝不泄露内部群 ID。
+ * 仅对战队队长本人返回内部 tgChatId 与队长 5,000 A9 创世金库真实发放状态；
+ * 普通成员仅可见战队公开/成员信息，绝不泄露内部群 ID 或队长金库隐私。
  */
-function sanitizeTeamView(team, viewerWalletKey) {
+function sanitizeTeamView(team, viewerWalletKey, captainBonusStatus = null) {
   if (!team) return null;
   const isCaptain = Boolean(viewerWalletKey) && addressKey(team.captainWallet) === viewerWalletKey;
   const base = {
@@ -58,7 +59,14 @@ function sanitizeTeamView(team, viewerWalletKey) {
     createdAt: team.createdAt,
     updatedAt: team.updatedAt,
   };
-  if (isCaptain) base.tgChatId = team.tgChatId || null;
+  if (isCaptain) {
+    base.tgChatId = team.tgChatId || null;
+    if (captainBonusStatus && typeof captainBonusStatus.paid === 'boolean') {
+      base.captainVaultPaid = captainBonusStatus.paid;
+      base.foundingBonusPaid = captainBonusStatus.paid;
+      base.captainVaultPaidAt = captainBonusStatus.createdAt || null;
+    }
+  }
   return base;
 }
 
@@ -662,7 +670,24 @@ export function createApiRouter({
         const promo = owner && promoEngine ? await promoEngine.getBalance(wallet) : null;
         const presaleQuota = owner && presaleEngine ? await presaleEngine.getQuota(wallet, nowSec) : null;
         const rawTeam = owner && socialStore ? await socialStore.getTeamByWallet(wallet) : null;
-        const team = sanitizeTeamView(rawTeam, viewerKey);
+        let captainBonusStatus = null;
+        if (
+          rawTeam &&
+          viewerKey &&
+          addressKey(rawTeam.captainWallet) === viewerKey &&
+          chestEngine &&
+          typeof chestEngine.getCaptainFoundingBonusStatus === 'function'
+        ) {
+          try {
+            captainBonusStatus = await chestEngine.getCaptainFoundingBonusStatus({
+              teamId: rawTeam.teamId,
+              captainWallet: rawTeam.captainWallet,
+            });
+          } catch (_) {
+            captainBonusStatus = null;
+          }
+        }
+        const team = sanitizeTeamView(rawTeam, viewerKey, captainBonusStatus);
         return ok({
           walletAddress: wallet,
           ...onchain,
@@ -965,6 +990,17 @@ export function createApiRouter({
           } else {
             view.captainBonus = { granted: false, reason: 'CHEST_OPEN_DISABLED', amountRaw: '0' };
           }
+          if (typeof chestEngine.getCaptainFoundingBonusStatus === 'function') {
+            try {
+              const st = await chestEngine.getCaptainFoundingBonusStatus({
+                teamId: team.teamId,
+                captainWallet: team.captainWallet,
+              });
+              view.captainVaultPaid = Boolean(st.paid);
+              view.foundingBonusPaid = Boolean(st.paid);
+              view.captainVaultPaidAt = st.createdAt || null;
+            } catch (_) {}
+          }
         }
         return ok(view);
       }
@@ -1012,7 +1048,23 @@ export function createApiRouter({
         const requestedWallet = decodeURIComponent(teamMatch[1]);
         const { binding, walletAddress } = await auth.wallet(requestedWallet);
         const team = await socialStore.getTeamByWallet(walletAddress);
-        return ok(sanitizeTeamView(team, binding.walletKey));
+        let captainBonusStatus = null;
+        if (
+          team &&
+          addressKey(team.captainWallet) === binding.walletKey &&
+          chestEngine &&
+          typeof chestEngine.getCaptainFoundingBonusStatus === 'function'
+        ) {
+          try {
+            captainBonusStatus = await chestEngine.getCaptainFoundingBonusStatus({
+              teamId: team.teamId,
+              captainWallet: team.captainWallet,
+            });
+          } catch (_) {
+            captainBonusStatus = null;
+          }
+        }
+        return ok(sanitizeTeamView(team, binding.walletKey, captainBonusStatus));
       }
 
       // 24H PASS/BURN prediction (M-3: requires bound active TON wallet; userId = verified Telegram user id).

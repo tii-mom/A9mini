@@ -1,5 +1,5 @@
 import { paintScene } from './game-scenes.js';
-import { tickDemoPrice } from './demo-data.js';
+import { tickDemoPrice, setDemoRoundStage } from './demo-data.js';
 /**
  * A9 Telegram Mini App Bootstrapper — Slim Header, Race-Safe Dual-Theme & Quiet Telemetry
  */
@@ -580,14 +580,7 @@ function openSimDrawer() {
   simDrawerEl.querySelectorAll('[data-sim-stage]').forEach(b => {
     b.onclick = () => {
       store.update(s => {
-        s.round.stage = b.dataset.simStage;
-        if (b.dataset.simStage === 'participation') {
-          const nowSec = Math.floor(Date.now() / 1000);
-          s.round.stakeOpenAt = nowSec - 7200;
-          s.round.stakeCloseAt = nowSec + 22 * 3600;
-          s.round.earlyWindowSeconds = 21600;
-          s.round.earlyBirdSec = 4 * 3600;
-        }
+        setDemoRoundStage(s.round, b.dataset.simStage);
       });
       simDrawerEl.classList.add('hidden');
       navigate('/round');
@@ -659,16 +652,79 @@ document.addEventListener('keydown', (e) => {
   btnTarget.click();
 });
 
+function syncLivePriceDomInPlace(r) {
+  const validLive = r.priceValid !== false && Number(r.livePrice ?? r.twap24h) > 0 ? Number(r.livePrice ?? r.twap24h) : null;
+  const validTarget = Number(r.targetPrice) > 0 ? Number(r.targetPrice) : null;
+  const liveText = validLive !== null ? `$${validLive.toFixed(4)}` : '—';
+  const deltaPct = (validLive !== null && validTarget !== null) ? (((validLive - validTarget) / validTarget) * 100) : null;
+  const isAbove = deltaPct !== null && deltaPct >= 0;
+  const deltaText = deltaPct === null
+    ? L('价格待同步', 'Syncing price')
+    : isAbove
+      ? L(`已站上目标价 +${deltaPct.toFixed(1)}%`, `Above target +${deltaPct.toFixed(1)}%`)
+      : L(`距目标价差 ${deltaPct.toFixed(1)}%`, `Below target ${deltaPct.toFixed(1)}%`);
+
+  const liveEl = document.getElementById('round-live-price');
+  if (liveEl) liveEl.textContent = liveText;
+  const deltaEl = document.getElementById('round-target-delta');
+  if (deltaEl) {
+    deltaEl.textContent = deltaText;
+    deltaEl.className = `chip ${deltaPct === null ? 'chip-muted' : (isAbove ? 'chip-green' : 'chip-red')} mono`;
+  }
+  const pulseEl = document.getElementById('round-live-pulse');
+  if (pulseEl) {
+    pulseEl.className = `sw-pulse-dot ${deltaPct === null ? '' : (isAbove ? 'is-up' : 'is-down')}`;
+  }
+  const rulerFill = document.getElementById('round-price-ruler-fill');
+  if (rulerFill && validLive !== null && validTarget !== null) {
+    const minB = validTarget * 0.75;
+    const maxB = validTarget * 1.15;
+    const pct = Math.max(8, Math.min(100, Math.round((((validLive - minB) / (maxB - minB)) * 100) * 10) / 10));
+    rulerFill.style.width = `${pct}%`;
+    rulerFill.classList.toggle('is-up', isAbove);
+  }
+  const actionHint = document.getElementById('round-price-action-hint');
+  if (actionHint && deltaPct !== null && r.stage === 'observation' && !r.rawState?.startsWith('SETTLING_')) {
+    actionHint.textContent = isAbove
+      ? L('当前均价达到目标，时段结束后确认', 'Current average meets target · confirmation at slot close')
+      : L('当前均价低于目标，时段结束后确认', 'Current average below target · confirmation at slot close');
+    actionHint.className = `num-xs ${isAbove ? 'text-green' : 'text-red'}`;
+  }
+  const plazaLive = document.getElementById('plaza-live-price');
+  if (plazaLive) plazaLive.textContent = liveText;
+  const plazaDelta = document.getElementById('plaza-target-delta');
+  if (plazaDelta) {
+    plazaDelta.textContent = deltaText;
+    plazaDelta.className = `chip ${deltaPct === null ? 'chip-muted' : (isAbove ? 'chip-green' : 'chip-red')} mono`;
+  }
+  const teamLive = document.getElementById('team-battle-price');
+  if (teamLive) teamLive.textContent = liveText;
+  const teamDelta = document.getElementById('team-battle-delta');
+  if (teamDelta) {
+    teamDelta.textContent = deltaPct === null ? '—' : `${isAbove ? '+' : ''}${deltaPct.toFixed(1)}%`;
+    teamDelta.className = `chip ${deltaPct === null ? 'chip-muted' : (isAbove ? 'chip-green' : 'chip-red')} mono`;
+  }
+}
+
 function startDisplayLoop() {
   setInterval(() => {
     if (document.hidden) return;
     const r = store.state.round;
     if (typeof r.countdownSec === 'number' && r.countdownSec > 0) r.countdownSec -= 1;
     if (typeof r.earlyBirdSec === 'number' && r.earlyBirdSec > 0) r.earlyBirdSec -= 1;
-    if (typeof r.activeCandleSec === 'number' && r.activeCandleSec > 0) r.activeCandleSec -= 1;
+    r.activeCandleSec = r.activeCandleEndAt ? Math.max(0, Math.ceil((r.activeCandleEndAt - serverNowMs()) / 1000)) : null;
 
+    const cdText = r.countdownSec === null ? '—' : formatTimer(r.countdownSec);
+    const isUrgent = typeof r.countdownSec === 'number' && r.countdownSec > 0 && r.countdownSec <= 3600;
     const roundCd = document.getElementById('round-cd');
-    if (roundCd) roundCd.textContent = r.countdownSec === null ? '—' : formatTimer(r.countdownSec);
+    if (roundCd) {
+      roundCd.textContent = cdText;
+      if (roundCd.parentElement?.classList?.contains('sw-price-cd')) {
+        roundCd.parentElement.classList.toggle('is-urgent', isUrgent);
+      }
+    }
+    const teamCd = document.getElementById('team-battle-cd');
+    if (teamCd) teamCd.textContent = cdText;
     const earlyCd = document.getElementById('early-cd');
     if (earlyCd) earlyCd.textContent = r.earlyBirdSec === null ? '—' : formatTimer(r.earlyBirdSec);
     const earlyWinEl = document.getElementById('early-window-cd');
@@ -697,7 +753,7 @@ function startDisplayLoop() {
     const candleCd = document.getElementById('active-candle-cd');
     if (candleCd) {
       const hasActive = Array.isArray(r.candles) && r.candles.some(c => c.status === 'active');
-      candleCd.textContent = hasActive ? `${L('剩余', 'Left')} ${formatTimer(r.activeCandleSec || 0).slice(3)}` : '—';
+      candleCd.textContent = hasActive && r.activeCandleSec > 0 ? `${L('剩余', 'Left')} ${formatTimer(r.activeCandleSec).slice(r.activeCandleSec >= 3600 ? 0 : 3)}` : L('待确认', 'Awaiting confirmation');
     }
     const rawExpAt = Number(store.state.prediction?.pendingExpiresAt);
     if (Number.isFinite(rawExpAt) && rawExpAt > 0) {
@@ -731,6 +787,7 @@ function startDisplayLoop() {
 
     const twapP = document.getElementById('live-twap-val');
     if (twapP) twapP.textContent = `$${nextPrice.toFixed(4)}`;
+    syncLivePriceDomInPlace(r);
   }, 2600);
 }
 

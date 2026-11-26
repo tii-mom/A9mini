@@ -921,7 +921,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
 
               <details class="plaza-slots-drawer" style="margin-top:8px;">
                 <summary class="plaza-slots-summary">
-                  <span>${L(`明细：${sel.priceGram} + ${sel.deliveryFeeGram || '0.06'} Gas · 随机区间`, `Breakdown: ${sel.priceGram} + ${sel.deliveryFeeGram || '0.06'} gas · Random range`)}</span>
+                  <span>${L(`明细：${sel.priceGram} + ${sel.deliveryFeeGram || '0.06'} GRAM 配送费 · 随机区间`, `Breakdown: ${sel.priceGram} + ${sel.deliveryFeeGram || '0.06'} GRAM delivery fee · Random range`)}</span>
                   <span class="num-xs text-muted">▾</span>
                 </summary>
                 <div class="sub-tile" style="padding:8px 10px;margin-top:6px;">
@@ -930,7 +930,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                     <span class="mono">${sel.priceGram} GRAM</span>
                   </div>
                   <div class="row-between num-xs" style="margin-top:4px;">
-                    <span class="text-sec">${L('链上发币 Gas（仅收一次）', 'Single Delivery Gas')}</span>
+                    <span class="text-sec">${L('固定配送费', 'Fixed Delivery Fee')}</span>
                     <span class="mono">+${sel.deliveryFeeGram || '0.06'} GRAM</span>
                   </div>
                   <div class="num-xs text-muted" style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--card-border);">
@@ -942,6 +942,23 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
               <div class="mall-footnote">${L('请通过页面下单，切勿直接转账（异常退款扣 0.03 GRAM）', 'Pay via order flow only; never transfer directly')} · <a href="#/risk/audit" style="color:var(--nt-green);font-weight:700;text-decoration:none;">${L('v17.0 验真', 'Verify v17.0')} ›</a></div>
             </section>
           `}
+
+          <div class="sw-menu-group">
+            <a class="sw-menu-row" href="#/round">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('购箱到手后 → 进战场锁仓冲价', 'After Unboxing → Lock in Round')}</span>
+                <span class="sw-menu-sub">${L('100 A9 起参战 · 头矿 6H 仅 5% 止损，通关分 700,000,000 A9 奖池', 'Lock from 100 A9 · First 6H 5% SL · split 700,000,000 A9 pool')}</span>
+              </div>
+              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+            </a>
+            <a class="sw-menu-row" href="#/team/invite">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('邀友购箱享 6% 返佣 · 战队动员', 'Invite for 6% Mall Credit · Rally')}</span>
+                <span class="sw-menu-sub">${L('复制专属邀请链，好友购箱实时返佣 6% + 通关 8%', 'Share link for 6% mall referral + 8% friend pass credits')}</span>
+              </div>
+              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+            </a>
+          </div>
 
           ${activeShopChests.length > 0 ? (() => {
             const groupedMap = new Map();
@@ -1053,6 +1070,22 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
               }).join('')}
             </div>
           ` : ''}
+          <div class="sw-menu-group">
+            <a class="sw-menu-row" href="#/round">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('免费箱领到 A9 后 → 进战场锁仓冲价', 'After Free Chest → Lock in Round')}</span>
+                <span class="sw-menu-sub">${L('100 A9 起锁仓参战 · 头矿 6H 仅 5% 止损', 'Lock from 100 A9 · First 6H 5% Stop-Loss')}</span>
+              </div>
+              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+            </a>
+            <a class="sw-menu-row" href="#/team?action=rally">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('去战队动员 · 拉好友加速助力', 'Rally Squad · Boost Assists')}</span>
+                <span class="sw-menu-sub">${L('一键喊单拉好友同行，还能赚 6% + 8% 返佣', 'Share 1-tap battle call & earn 6% + 8% referrals')}</span>
+              </div>
+              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+            </a>
+          </div>
         `}
       </div>
     `;
@@ -1189,10 +1222,10 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
             contractLabel: L('兑换热钱包 PresaleHotWallet', 'PresaleHotWallet'),
             targetAddress: order.payTo,
             principalText: `${priceGram} GRAM → ${formatNum(Math.round(orderA9), 0)} A9`,
-            gasText: `+${deliveryGram} GRAM (${L('A9 链上发币 Gas', 'delivery gas')})`,
+            gasText: `+${deliveryGram} GRAM (${L('固定配送费', 'fixed delivery fee')})`,
             totalText: `${totalPayGram} GRAM`,
             memo: order.memo,
-            note: L('请核对订单 Memo 并通过钱包签名支付；切勿向热钱包直接转账（异常/过期退款扣除 0.03 GRAM Gas）。', 'Keep order memo intact; never transfer directly (invalid/late refunds deduct 0.03 GRAM gas).'),
+            note: L('钱包发起费另计。请通过订单付款。符合条件的订单退款扣 0.03 GRAM。', 'Wallet sending fees apply separately. Pay through the order. Eligible refunds deduct 0.03 GRAM.'),
             insufficientReason,
             confirmText: L('确认并唤起钱包付款', 'Confirm & Pay in Wallet'),
           });
@@ -1569,6 +1602,17 @@ export function renderInternalRecords(root) {
             </div>
           `}
 
+          ${totalA9 >= 100 ? `
+            <div class="sw-menu-group">
+              <a class="sw-menu-row" href="#/challenge/confirm?amt=${Math.floor(totalA9)}">
+                <div class="sw-menu-left">
+                  <span class="sw-menu-title">${L('带着已入账 A9 进战场锁仓', 'Lock Credited A9 in Current Round')}</span>
+                  <span class="sw-menu-sub">${L('100 A9 起参战 · 头矿 6H 仅 5% 止损，通关分 700,000,000 A9 奖池', 'From 100 A9 · First 6H 5% SL · split 700,000,000 A9 pool')}</span>
+                </div>
+                <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+              </a>
+            </div>
+          ` : ''}
           ${filtered.length > 0 ? `<button class="btn btn-secondary" data-nav="/internal/market" type="button">${icon('arrowLeft', 15)} ${L('返回宝箱商城', 'Back to Chest Mall')}</button>` : ''}
         </div>
       `;
@@ -1671,6 +1715,17 @@ export function renderInternalRecords(root) {
           </div>
         `}
 
+        ${totalA9 >= 100 ? `
+          <div class="sw-menu-group">
+            <a class="sw-menu-row" href="#/challenge/confirm?amt=${Math.floor(totalA9)}">
+              <div class="sw-menu-left">
+                <span class="sw-menu-title">${L('带着已入账 A9 进战场锁仓', 'Lock Credited A9 in Current Round')}</span>
+                <span class="sw-menu-sub">${L('100 A9 起参战 · 头矿 6H 仅 5% 止损，通关分 700,000,000 A9 奖池', 'From 100 A9 · First 6H 5% SL · split 700,000,000 A9 pool')}</span>
+              </div>
+              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+            </a>
+          </div>
+        ` : ''}
         ${filtered.length > 0 ? `<button class="btn btn-secondary" data-nav="/internal/market" type="button">${icon('arrowLeft', 15)} ${L('返回宝箱商城', 'Back to Chest Mall')}</button>` : ''}
       </div>
     `;

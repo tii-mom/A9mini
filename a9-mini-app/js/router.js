@@ -9,7 +9,7 @@ import { t, L } from './i18n.js';
 export const ROUTES = [
   { path: '/challenge',           title: () => L('A9 广场', 'A9 Plaza'),           shell: 'tab',   tab: 'challenge',   ticker: false, load: () => import('./pages/plaza.js').then(m => m.renderCity) },
   { path: '/round',               title: () => L('轮次闯关', 'Round Quest'),       shell: 'tab',   tab: 'round',       ticker: true,  load: () => import('./pages/round_hub.js').then(m => m.renderChallengeHome) },
-  { path: '/gallery',             title: () => L('A9 进化图鉴', 'A9 Evolution Deck'), shell: 'stack', tab: 'profile', load: () => import('./pages/wealthverse.js').then(m => m.gallery) },
+  { path: '/gallery',             title: () => L('A9 角色档案', 'A9 Character Archive'), shell: 'stack', tab: 'profile', load: () => import('./pages/wealthverse.js').then(m => m.gallery) },
   { path: '/rewards',             title: () => L('奖金金库', 'Prize Vault'),       shell: 'stack', tab: 'profile',     load: () => import('./pages/wealthverse.js').then(m => m.rewards) },
   { path: '/challenge/confirm',   title: () => t('rt_confirm'),                    shell: 'stack', tab: 'round',       ticker: false, load: () => import('./pages/round_hub.js').then(m => m.renderParticipateConfirm) },
   { path: '/challenge/success',   title: () => t('rt_success'),                    shell: 'stack', tab: 'round',       ticker: false, load: () => import('./pages/round_hub.js').then(m => m.renderParticipateSuccess) },
@@ -27,13 +27,13 @@ export const ROUTES = [
   { path: '/profile',             title: () => L('我的档案', 'My Profile'),        shell: 'tab',   tab: 'profile',     ticker: false, load: () => import('./pages/profile.js').then(m => m.renderProfileHome) },
   { path: '/claim',               title: () => t('rt_claim'),                      shell: 'stack', tab: 'profile',     ticker: false, load: () => import('./pages/profile.js').then(m => m.renderClaimPage) },
   { path: '/proof',               title: () => t('rt_proof'),                      shell: 'stack', tab: 'profile',     ticker: false, load: () => import('./pages/profile.js').then(m => m.renderProofDetail) },
-  { path: '/renew',               title: () => t('rt_renew'),                      shell: 'stack', tab: 'profile',     ticker: false, load: () => import('./pages/profile.js').then(m => m.renderRenewPage) },
+  { path: '/renew',               title: () => t('rt_settings'),                      shell: 'stack', tab: 'profile',     ticker: false, load: () => import('./pages/system.js').then(m => m.renderSettingsPage) },
   { path: '/ledger',              title: () => t('rt_ledger'),                     shell: 'stack', tab: 'profile',     ticker: false, load: () => import('./pages/profile.js').then(m => m.renderLedgerPage) },
   { path: '/records',             title: () => t('rt_records'),                    shell: 'stack', tab: 'profile',     ticker: false, load: () => import('./pages/profile.js').then(m => m.renderRecordsPage) },
   { path: '/settings',            title: () => t('rt_settings'),                   shell: 'stack', tab: 'profile',     ticker: false, load: () => import('./pages/system.js').then(m => m.renderSettingsPage) },
   { path: '/risk/matrix',         title: () => t('rt_risk_matrix'),                shell: 'stack', tab: 'profile',     ticker: false, load: () => import('./pages/system.js').then(m => m.renderRiskMatrix) },
   { path: '/risk/audit',          title: () => t('rt_risk_audit'),                 shell: 'stack', tab: 'profile',     ticker: false, load: () => import('./pages/system.js').then(m => m.renderRiskAudit) },
-  { path: '/rules',               title: () => t('rt_rules'),                      shell: 'stack', tab: 'profile',     ticker: false, load: () => import('./pages/system.js').then(m => m.renderRulesPage) }
+  { path: '/rules',               title: () => L('用户指南', 'User Guide'),                      shell: 'stack', tab: 'profile',     ticker: false, load: () => import('./pages/user-guide.js').then(m => m.renderUserGuide) }
 ];
 
 export function matchRoute(rawPath) {

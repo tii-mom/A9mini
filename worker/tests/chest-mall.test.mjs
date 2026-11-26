@@ -916,4 +916,87 @@ await test('Paid referral 1=3 assists acceleration (Memory + D1) & self + direct
   }
 });
 
+await test('Captain founding bonus paid status (captainVaultPaid / foundingBonusPaid) exposed only to captain in Memory + D1', async () => {
+  const W_MEM_1 = '0:' + '71'.repeat(32);
+  const W_MEM_2 = '0:' + '72'.repeat(32);
+  for (const backend of ['memory', 'd1']) {
+    const db = backend === 'd1' ? createSqliteD1(MIGRATIONS) : null;
+    const chest = backend === 'd1' ? new D1ChestEngine({ db }) : new ChestEngine();
+    const pred = backend === 'd1' ? new D1PredictionEngine({ db }) : new PredictionEngine();
+    const social = backend === 'd1' ? new D1SocialStore({ db }) : new SocialStore();
+    const identityStore = new MemoryIdentityStore();
+    const budgetLedger = null;
+    await identityStore.bindVerifiedWallet('9901', W_OWNER, 9600);
+    await identityStore.bindVerifiedWallet('9902', W_MEM_1, 9600);
+    await identityStore.bindVerifiedWallet('9903', W_MEM_2, 9600);
+
+    await social.createOrBindTeamGroup(
+      { teamId: 'TM-CAP-99', name: 'Captain Squad', captainWallet: W_OWNER, tgGroupHandle: '@cap_squad_99' },
+      9601,
+    );
+    await social.joinTeam({ teamId: 'TM-CAP-99', walletAddress: W_MEM_1, aliases: ['9902'] }, 9602);
+    await social.joinTeam({ teamId: 'TM-CAP-99', walletAddress: W_MEM_2, aliases: ['9903'] }, 9603);
+
+    const router = createApiRouter({
+      env: { A9_BOT_TOKEN: BOT_TOKEN, A9_CHEST_OPEN_ENABLED: '1' },
+      stateStore: emptyStateStore,
+      socialStore: social,
+      predictionEngine: pred,
+      chestEngine: chest,
+      budgetLedger,
+      identityStore,
+      telegramGroupVerifier: async () => ({
+        chatId: '-10099887766',
+        tgMemberCount: 68,
+        botInGroup: true,
+        botIsAdmin: true,
+        operatorIsAdmin: true,
+      }),
+    });
+
+    const capHeaders = await tgHeaders(9901, { nowSec: 9605 });
+    const memHeaders = await tgHeaders(9902, { nowSec: 9605 });
+
+    // Before verify: captain sees bindStatus='verifying' and captainVaultPaid=false
+    const beforeTeam = await router({ method: 'GET', pathname: `/api/team/${encodeURIComponent(W_OWNER)}`, headers: capHeaders, nowSec: 9605 });
+    assert.equal(beforeTeam.status, 200);
+    assert.equal(beforeTeam.body.data.bindStatus, 'verifying');
+    assert.equal(beforeTeam.body.data.captainVaultPaid, false);
+    assert.equal(beforeTeam.body.data.foundingBonusPaid, false);
+
+    // Member never sees tgChatId or captainVaultPaid
+    const memView = await router({ method: 'GET', pathname: `/api/team/${encodeURIComponent(W_MEM_1)}`, headers: memHeaders, nowSec: 9605 });
+    assert.equal(memView.status, 200);
+    assert.equal(memView.body.data.role, 'member');
+    assert.equal('tgChatId' in memView.body.data, false);
+    assert.equal('captainVaultPaid' in memView.body.data, false);
+
+    // Verify TG group -> grants 5,000 A9 captain founding bonus
+    const verifyRes = await router({
+      method: 'POST',
+      pathname: '/api/team/verify-tg',
+      headers: capHeaders,
+      body: { teamId: 'TM-CAP-99', captainWallet: W_OWNER },
+      nowSec: 9610,
+    });
+    assert.equal(verifyRes.status, 200, `${backend} verify failed: ${JSON.stringify(verifyRes.body)}`);
+    assert.equal(verifyRes.body.data.bindStatus, 'bound');
+    assert.equal(verifyRes.body.data.captainBonus.granted, true);
+    assert.equal(verifyRes.body.data.captainVaultPaid, true);
+    assert.equal(verifyRes.body.data.foundingBonusPaid, true);
+
+    // Subsequent GET /api/team/:wallet and GET /api/user/:wallet reflect paid=true
+    const afterTeam = await router({ method: 'GET', pathname: `/api/team/${encodeURIComponent(W_OWNER)}`, headers: capHeaders, nowSec: 9612 });
+    assert.equal(afterTeam.status, 200);
+    assert.equal(afterTeam.body.data.bindStatus, 'bound');
+    assert.equal(afterTeam.body.data.captainVaultPaid, true);
+
+    const afterUser = await router({ method: 'GET', pathname: `/api/user/${encodeURIComponent(W_OWNER)}`, headers: capHeaders, nowSec: 9612 });
+    assert.equal(afterUser.status, 200);
+    assert.equal(afterUser.body.data.team.bindStatus, 'bound');
+    assert.equal(afterUser.body.data.team.captainVaultPaid, true);
+    assert.equal(afterUser.body.data.team.foundingBonusPaid, true);
+  }
+});
+
 console.log(`All ${passed} A9 v15 Chest Mall & Viral Assist tests passed.`);

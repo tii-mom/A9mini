@@ -18,16 +18,16 @@
 
 建议主网启动 GRAM 储备：
 - `deployer`：`>= 5 GRAM`（部署合约 Gas）
-- `treasury`：`>= 3 GRAM`（100 亿一次铸造弃权 + 82 亿注资 RoundController）
+- `treasury`：`>= 3 GRAM`（`10,000,000,000 A9` 一次铸造弃权 + `8,200,000,000 A9` 注资 RoundController）
 - `keeper` / `roundOpener`：`>= 3 GRAM`
 - `presaleHotWallet`：`>= 5 GRAM`（A9 发币与被动退款 Gas 垫底）
 - `promoHotWallet`：`>= 3 GRAM`（启动储备，用户每次 0.06 GRAM 找零持续净增）
 
 ---
 
-## 1. 波次 1：拆分执行（波次 1A 前端/基础设施只读上线 → 波次 1B 主网铸币与 82 亿注资）
+## 1. 波次 1：拆分执行（波次 1A 前端/基础设施只读上线 → 波次 1B 主网铸币与 8,200,000,000 A9 注资）
 
-**拆分原则**：严禁将“前端静态站只读上线”与“主网不可逆铸币弃权 / 82 亿注资”捆绑在同一步。先在**零主网铸币、零资金暴露**前提下完成前端静态站、域名、Bot 与 D1 只读链路验收（波次 1A），再经业主单独书面授权执行主网 4 合约部署、铸币弃权与 82 亿注资（波次 1B，仍不开轮）。
+**拆分原则**：严禁将“前端静态站只读上线”与“主网不可逆铸币弃权 / 8,200,000,000 A9 注资”捆绑在同一步。先在**零主网铸币、零资金暴露**前提下完成前端静态站、域名、Bot 与 D1 只读链路验收（波次 1A），再经业主单独书面授权执行主网 4 合约部署、铸币弃权与 8,200,000,000 A9 注资（波次 1B，仍不开轮）。
 
 ### 1A. 前端静态站只读上线与生产基础设施预演（零链上铸币/注资）
 > **生产写操作红线**：本步中的**远程生产 D1 迁移（`--remote`）**与**生产 Worker Secrets 注入（`wrangler secret put`）**均直接写入生产 Cloudflare 环境，**必须由业主单独书面授权后方可执行**；未获单独授权前仅可进行本地只读预演与静态资产核对。
@@ -49,7 +49,7 @@ npx wrangler secret put TONCENTER_API_KEY --env production
 ```
 4. **前端只读验收**：在移动端 `390×844` 打开正式 Telegram Mini App，确认广场/闯关/宝箱商城（`#/internal/market` 与 `#/market`）/战队/我的零报错、零 Emoji、数字完整不缩写、所有资金按钮只读禁用，且 `tonconnect-manifest.json` 握手正常。
 
-### 1B. 主网 4 合约部署（v17.0 涨价解锁）、铸币弃权与 82 亿注资（暂不开轮）
+### 1B. 主网 4 合约部署（v17.0 涨价解锁）、铸币弃权与 8,200,000,000 A9 注资（暂不开轮）
 先验证 `v17/ci/artifacts.sha256`（4/4，已锁定 v17.0 涨价解锁：24H 锁仓（头矿 6H `A9_EARLY_WINDOW_SECONDS=21600` 享 5% 轻止损 / 之后 10% 止损，锁仓期可提前解押退 85% / 烧 15%）→ 封盘 12H 冲价 `A9_OBS_SECONDS=43200`（>= 8/12 通关）；通关退 100% 本金 + 秒领 20% 奖励 + 余下 80% 分 14 天逐秒线性解锁 `A9_VESTING_SECONDS=1209600`，支持随时对未解锁余额 3 折急提 / 7 折销毁；空轮无论胜负 100% 滚存零销毁；未通关自动退本 95%/90% 且奖池与团队结转向上取整折半；两段式 `MintOnce -> 验收到账 -> DropMinterAdmin` 弃权）与 Acton 单元测试全部通过，导出主网必填部署变量（`A9_DEPLOY_WALLET`、`A9_TREASURY_WALLET`、`A9_KEEPER_ADDRESS`、`A9_ROUND_OPENER_ADDRESS`、`A9_TEAM_WALLET_ADDRESS`、`A9_METADATA_URI`），先只读干跑预检，再由业主单独书面授权执行：
 ```bash
 cd /Users/yu1/Desktop/A9mini/ops
@@ -73,6 +73,8 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
 - `treasury` 留存 `1,800,000,000 A9` 供后续划拨至独立预售热钱包、推广热钱包与 STON.fi 流动池。
 
 ### 1C. 回填主网合约地址并部署只读 Worker（三开关保持 `"0"`）
+> **关于预期的 `503 PRODUCTION_CONFIG_INCOMPLETE`**：生产 Worker 内置 Fail-Closed 安全门禁。在波次 1B 尚未部署主网合约并回填以下 4 个地址前，线上 `GET /api/config` 与 `GET /api/health` 返回 `503 PRODUCTION_CONFIG_INCOMPLETE` 属预期保护行为，须于本步回填地址并完成部署后再验收 `200 OK`。
+
 确认 `[env.production.vars]` 全部必填变量非空（尤其 `A9_TON_PROOF_DOMAINS` 与两枚独立热钱包地址，缺任一项均触发 fail-closed 503）：
 - `A9_NETWORK = "mainnet"`
 - `A9_PROTOCOL_VERSION = "v17"`
@@ -137,8 +139,8 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES OPS_CONFIRM_MAINNET=YES \
 ### 2.2 小额真钱冒烟验证与分步开闸（放量前必做）
 1. **第一步（开购箱 + 开箱入账，保持群播报关闭）**：将 Worker 变量置为 `A9_PRESALE_OPEN = "1"`、`A9_CHEST_OPEN_ENABLED = "1"`、`A9_BROADCAST_ENABLED = "0"` 并部署；前端部署配置开启 `window.__A9_CONFIG__.liveFundsEnabled = true`；
 2. 使用团队自有主网小号实测 4 笔真实小额闭环并逐项链上+库表对账：
-   - `0.99 GRAM`（实付 `1.05 GRAM` 含 `0.06 GRAM` 发币 Gas）青铜箱购箱 → 买家链上 A9 `JettonWallet` 实测到账 `1,500 A9`（保底纯整数本金）、`presale_orders` 为 `COMPLETED`、`presale_payouts` 为 `CONFIRMED`、`user_chests` 生成对应 `SHOP_BOOST` 暴击宝箱（随机纯整数暴击最高 `+500 A9`，实得 `1,500–2,000 A9`）、`presale_referral_credits` 记账推荐人 6% 佣金并同步扣减 `promo_budget_ledger`（`presale_promo` 槽位）后入 `promo_balances`（同时为邀请人进行中的免费箱幂等 `+3` 助力）；
-   - **宝箱开箱入账对账**：实测免费新手青铜宝箱（`200 A9`，0 助力免门槛秒开）与商城膨胀箱调用 `POST /api/chests/:id/open` 返回 `200`（非 `403 CHEST_OPEN_DISABLED`），核对 `user_chests.status = 'OPENED'`、`chest_open_credits` 与 `promo_budget_ledger` 留痕、免费青铜箱精确入账 `prediction_rewards.pending_activation_raw`（且白银箱转为 `ACTIVE`）、商城膨胀箱纯整数暴击增量精确入账 `promo_balances.claimable_raw`；
+   - `0.99 GRAM`（实付 `1.05 GRAM` 含 `0.06 GRAM` 发币 Gas）青铜箱购箱 → 买家链上 A9 `JettonWallet` 实测收到合并直发的一笔 TEP-74（`1,500 A9` 保底本金 + 区间随机加赠 `0–1,000 A9`，实得 `1,500–2,500 A9`）、`presale_orders` 为 `COMPLETED`、`presale_payouts` 为 `CONFIRMED`、`presale_referral_credits` 记账推荐人 6% 佣金并同步扣减 `promo_budget_ledger`（`presale_promo` 槽位）后入 `promo_balances`（同时为邀请人进行中的免费箱幂等 `+3` 助力）；
+   - **免费宝箱开箱入账对账**：实测免费新手青铜宝箱（`200 A9`，0 助力免门槛秒开）调用 `POST /api/chests/:id/open` 返回 `200`（非 `403 CHEST_OPEN_DISABLED`），核对 `user_chests.status = 'OPENED'`、`chest_open_credits` 与 `promo_budget_ledger` 留痕、免费青铜箱精确入账 `prediction_rewards.pending_activation_raw`（且白银箱转为 `ACTIVE`）；
    - 过期单晚付 / 异常直转退款 → 实测 `gram_refund_v15.tolk` 按退款规则扣除 `0.03 GRAM` 链上退回 Gas 后原路退回（支付 `1.05 GRAM` 退回 `1.02 GRAM`；异常直转 `0.99 GRAM` 退回 `0.96 GRAM`），`presale_orders` 为 `REFUNDED`、`presale_payouts` 为 `CONFIRMED`；
    - **推广 0.06 GRAM 领币与最终到账对账**：推荐人/开箱领取人付 `0.06 GRAM` 发起领取 → 核对 `promo_claims.status = 'COMPLETED'`（带真实链上入账 `fee_tx_hash` 与出账 `payout_tx_hash`）、`promo_payouts.status = 'CONFIRMED'`（且 `promo_payouts.tx_hash === promo_claims.payout_tx_hash`）、`promo_balances.claimable_raw` 精确扣减且 `total_claimed_raw` 等额增加、**领取人主网 A9 `JettonWallet` 实测收到对应全部 A9 余额**、且 `promoHotWallet` GRAM 净增加（项目方 0 Gas 支出）。
 3. **第二步（Bot 注册冒烟 + 账实对平后开启 TG 播报）**：
@@ -153,7 +155,7 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES node scripts/setup-tg-bot.mjs --execute \
   --webhook-url https://api.<domain>/api/telegram/webhook \
   --app-url https://app.<domain>
 ```
-   - 冒烟 3 项必过：`POST /api/telegram/webhook` 缺或错 `X-Telegram-Bot-Api-Secret-Token` 必返 `401`；私聊 Bot 发送 `/start`、`/status`、`/help` 均收到零 Emoji 回复且 `/status` 无轮次时明确显示待核验；打开小程序【我的 -> 系统设置】验证「轮次结算与领取提醒」开关持久化、`整点 1H 时段收盘推送` 显示战队 TG 群自动播报说明并置灰。
+   - 冒烟 3 项必过：`POST /api/telegram/webhook` 缺或错 `X-Telegram-Bot-Api-Secret-Token` 必返 `401`；私聊 Bot 发送 `/start`、`/status`、`/help` 均收到零 Emoji 回复且 `/status` 无轮次时明确显示待核验；打开小程序【我的 -> 提醒与设置】验证「结算与领取」开关持久化、整点推送行显示「个人整点推送暂未开放」并置灰。
    - 核验 D1 真实表 `presale_orders`、`presale_payouts`、`presale_referral_credits`、`user_chests`、`chest_assists`、`chest_open_credits`、`prediction_rewards`、`promo_balances`、`promo_claims`、`promo_payouts`、`user_notification_prefs`、`runner_heartbeats` 与链上余额 100% 一致后，再将 `A9_BROADCAST_ENABLED = "1"`（`A9_BROADCAST_WHALE_MIN_GRAM` 先保持 `"50"`）部署并正式放量。
 
 ---

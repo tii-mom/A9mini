@@ -984,4 +984,24 @@ export class ChestEngine {
     }
     return { granted: true, amountRaw: rec.amountRaw, bonus: rec };
   }
+
+  /** 只读查询队长 5,000 A9 创世金库真实发放状态（内存态单源真值）。 */
+  async getCaptainFoundingBonusStatus({ teamId = null, captainWallet = null } = {}) {
+    const tId = String(teamId || '').trim();
+    const wKey = captainWallet ? addressKey(captainWallet) : null;
+    let rec = tId ? this.captainBonuses.get(tId) || null : null;
+    if (!rec && wKey) {
+      for (const item of this.captainBonuses.values()) {
+        if (item.captainWalletKey === wKey) {
+          rec = item;
+          break;
+        }
+      }
+    }
+    return {
+      paid: Boolean(rec),
+      amountRaw: rec ? String(rec.amountRaw || CAPTAIN_FOUNDING_BONUS_RAW.toString()) : '0',
+      createdAt: rec ? Number(rec.createdAt || 0) || null : null,
+    };
+  }
 }

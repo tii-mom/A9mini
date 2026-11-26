@@ -115,17 +115,21 @@ export function copyText(text, label) {
   A9Haptic.light();
   const str = String(text ?? '');
   const prefix = label || L('已复制', 'Copied');
+  const oneLine = str.replace(/\s+/g, ' ').trim();
+  const toastMsg = oneLine.length > 36 || str.includes('\n')
+    ? prefix
+    : `${prefix}: ${oneLine}`;
   if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(str).then(
-      () => showToast(`${prefix}: ${str}`),
+      () => showToast(toastMsg),
       () => {
         legacyCopy(str);
-        showToast(`${prefix}: ${str}`);
+        showToast(toastMsg);
       }
     );
   } else {
     legacyCopy(str);
-    showToast(`${prefix}: ${str}`);
+    showToast(toastMsg);
   }
 }
 
@@ -490,7 +494,7 @@ function buildInspectorHtml(slotInfo, targetPrice, activeCandleSec) {
   }
 
   const rightTimer = status === 'active'
-    ? `<span class="text-gold mono" id="active-candle-cd">${L('进行中', 'Live')} · ${formatTimer(activeCandleSec || 0).slice(3)}</span>`
+    ? `<span class="text-gold mono" id="active-candle-cd">${L('进行中', 'Live')} · ${activeCandleSec > 0 ? formatTimer(activeCandleSec).slice(activeCandleSec >= 3600 ? 0 : 3) : L('待确认', 'Awaiting confirmation')}</span>`
     : `<span class="mono ${verdictCls}">${verdictText}</span>`;
 
   return `
@@ -689,12 +693,15 @@ export function bindCorridorRadarEvents(root) {
     cell.setAttribute('aria-pressed', 'true');
     const insp = root.querySelector('#candle-inspector');
     if (insp) {
+      const activeTimer = insp.querySelector('#active-candle-cd')?.textContent;
       insp.innerHTML = buildInspectorHtml({
         index: idx,
         status: cell.dataset.candleStatus,
         bull: isBull,
         priceText: cell.dataset.candlePrice
-      }, targetPrice, 0);
+      }, targetPrice, null);
+      const timer = insp.querySelector('#active-candle-cd');
+      if (timer && activeTimer) timer.textContent = activeTimer;
     }
   };
 

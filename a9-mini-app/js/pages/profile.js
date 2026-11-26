@@ -17,7 +17,7 @@ import { openXShareSheet, triggerStoryShare } from '../share.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
-import { fetchUserPortfolio, fetchPromoBalance, fetchPredictionUser, fetchPresaleOrders, fetchMyStakeReferrals, fetchNotificationPrefs, updateNotificationPrefs, getEffectiveUserId, rawToA9 } from '../data.js';
+import { fetchUserPortfolio, fetchPromoBalance, fetchPredictionUser, fetchPresaleOrders, fetchMyStakeReferrals, getEffectiveUserId, rawToA9 } from '../data.js';
 import { pendingTxManager, buildTonviewerUrl } from '../tx-ux.js';
 
 function renderMiniBarcode() {
@@ -175,7 +175,7 @@ function renderProfileSwitchView({
         <a class="sw-menu-row" href="#/round?panel=prediction">
           <div class="sw-menu-left">
             <span class="sw-menu-title">${L('预言奖励', 'Prediction Rewards')}</span>
-            <span class="sw-menu-sub">${L('待激活', 'Pending activation')}</span>
+            <span class="sw-menu-sub">${Number(predPendingA9) > 0 ? L('待激活', 'Pending activation') : L('待激活', 'Pending activation')}</span>
           </div>
           <div class="sw-menu-right">
             <span class="sw-menu-amount ${predAmtCls}">${predAmtText}</span>
@@ -213,10 +213,8 @@ function renderProfileSwitchView({
   return `
     <div class="col-gap anim-page-enter">
       <section class="sw-asset-card" id="profile-asset-card">
-        <span class="sw-asset-token">
-          <img src="./assets/token/a9-token-2048.png" alt="A9" width="44" height="44" decoding="async" />
-        </span>
         <div class="sw-asset-body">
+          <span class="sw-section-label profile-asset-label">${L('我的资产', 'My Assets')}</span>
           ${assetMainHtml}
           <div class="sw-asset-sub">${escapeHtml(gramText)}</div>
         </div>
@@ -384,15 +382,15 @@ export function renderClaimPage(root, _navigate, _param, query = {}) {
           <div class="sw-menu-group">
             <div class="sw-menu-row is-static">
               <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('普通领奖 Gas', 'Standard Claim Gas')}</span>
-                <span class="sw-menu-sub">${L('余量原路退回钱包', 'Unused gas refunded')}</span>
+                <span class="sw-menu-title">${L('普通领奖预附', 'Standard Claim Attachment')}</span>
+                <span class="sw-menu-sub">${L('扣除链上费用和必要留存后退回可退余量', 'Refundable excess returns after fees and reserves')}</span>
               </div>
               <div class="sw-menu-right"><span class="sw-menu-amount">0.22 GRAM</span></div>
             </div>
             <div class="sw-menu-row is-static">
               <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('3 折急提 / 提前解押 Gas', 'Instant Cashout / Early Exit')}</span>
-                <span class="sw-menu-sub">${L('含发币与销毁双动作 Gas', 'Dual-action gas, excess refunded')}</span>
+                <span class="sw-menu-title">${L('3 折急提 / 提前解押预附', 'Instant Cashout / Early Exit')}</span>
+                <span class="sw-menu-sub">${L('覆盖发币与销毁所需链上费用', 'Covers payout and burn network costs')}</span>
               </div>
               <div class="sw-menu-right"><span class="sw-menu-amount">0.34 GRAM</span></div>
             </div>
@@ -425,6 +423,13 @@ export function renderClaimPage(root, _navigate, _param, query = {}) {
         <div class="sw-menu-group">
           <a class="sw-menu-row" href="#/rewards">
             <div class="sw-menu-left"><span class="sw-menu-title">${L('查看 14 天逐秒解锁详情', 'View 14D Unlock Details')}</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          </a>
+          <a class="sw-menu-row" href="#/risk/audit">
+            <div class="sw-menu-left">
+              <span class="sw-menu-title">${L('v17.0 合约安全核验', 'v17.0 Contract Audit')}</span>
+              <span class="sw-menu-sub">${L('admin_address 已弃权 · 7 天 AbortRound 逃生舱', 'Renounced admin · 7d AbortRound escape hatch')}</span>
+            </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
           <a class="sw-menu-row" href="#/profile">
@@ -558,7 +563,7 @@ export function renderClaimPage(root, _navigate, _param, query = {}) {
             <div class="sw-menu-row is-static">
               <div class="sw-menu-left">
                 <span class="sw-menu-title">${L('实盘链上 Gas 说明', 'On-Chain Gas Spec')}</span>
-                <span class="sw-menu-sub">${L('普通领奖 0.22 GRAM · 3 折急提/提前解押 0.34 GRAM（余量全退）', 'Standard 0.22 GRAM · Instant Cashout / Early Exit 0.34 GRAM')}</span>
+                <span class="sw-menu-sub">${L('普通领奖预附 0.22 GRAM · 3 折急提或提前解押预附 0.34 GRAM', 'Standard 0.22 GRAM · Instant Cashout / Early Exit 0.34 GRAM')}</span>
               </div>
               <div class="sw-menu-right"><span class="sw-menu-amount is-muted">0.22 GRAM</span></div>
             </div>
@@ -587,6 +592,13 @@ export function renderClaimPage(root, _navigate, _param, query = {}) {
             <div class="sw-menu-left"><span class="sw-menu-title">${L('查看 14 天逐秒解锁详情', 'View 14D Unlock Details')}</span></div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
+          <a class="sw-menu-row" href="#/risk/audit">
+            <div class="sw-menu-left">
+              <span class="sw-menu-title">${L('v17.0 合约安全核验', 'v17.0 Contract Audit')}</span>
+              <span class="sw-menu-sub">${L('admin_address 已弃权 · 7 天 AbortRound 逃生舱', 'Renounced admin · 7d AbortRound escape hatch')}</span>
+            </div>
+            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          </a>
         </div>
       </div>
     `;
@@ -596,7 +608,6 @@ export function renderClaimPage(root, _navigate, _param, query = {}) {
       const hintEl = root.querySelector('#claim-chest-hint');
       const availPill = root.querySelector('#claim-avail-pill');
 
-      animateSlotCounter(root.querySelector('#claim-counter'), curClaimable, { duration: 550, suffix: ' A9' });
       mountSlider(root.querySelector('#claim-slider-mount'), {
         label: L(`右滑领取 · ${formatNum(curClaimable)} A9`, `Slide to Claim · ${formatNum(curClaimable)} A9`),
         silentConfirmAudio: true,
@@ -658,8 +669,8 @@ function renderLiveTicketClaimPage(root, selectedTicket) {
           </div>
           <div class="num-xs text-sec" style="line-height:1.5;">
             ${range && range.fromRound && range.toRound
-              ? L(`当前已扫描第 ${range.fromRound} 至第 ${range.toRound} 轮链上锁仓凭证；每笔领奖需附带 0.22 GRAM 链上 Gas（余量原路退回）。`, `Scanned rounds ${range.fromRound}–${range.toRound}. Each claim attaches 0.22 GRAM gas (excess refunded).`)
-              : L('每笔 StakeTicket 领奖需附带 0.22 GRAM 链上 Gas（余量原路退回）。', 'Each StakeTicket claim attaches 0.22 GRAM gas (excess refunded).')}
+              ? L(`当前已扫描第 ${range.fromRound} 至第 ${range.toRound} 轮链上锁仓凭证；普通领奖预附 0.22 GRAM，钱包发起费另计。`, `Scanned rounds ${range.fromRound}–${range.toRound}. Each claim attaches 0.22 GRAM. Wallet sending fees apply separately.`)
+              : L('普通领奖预附 0.22 GRAM，钱包发起费另计。', 'Each StakeTicket claim attaches 0.22 GRAM. Wallet sending fees apply separately.')}
           </div>
           ${loadError ? `<div class="num-xs text-red" style="margin-top:8px;">${escapeHtml(loadError)}</div>` : ''}
         </div>
@@ -813,7 +824,7 @@ function renderLiveTicketClaimPage(root, selectedTicket) {
           contractLabel: L('目标凭证 StakeTicket', 'Target StakeTicket'),
           targetAddress: ticketAddr,
           principalText: `${L(`第 ${ticket?.roundId ?? '—'} 轮`, `Round #${ticket?.roundId ?? '—'}`)} · ${formatNum(ticketTotalA9, 2)} A9${typeof ticket?.canClaim === 'boolean' ? ` (${L('本金', 'Prin')} ${formatNum(ticketPrincipalA9, 2)} + ${L('奖', 'Rew')} ${formatNum(ticketRewardA9, 2)})` : ''}`,
-          gasText: `0.22 GRAM (${L('余量原路退回', 'excess refunded')})`,
+          gasText: `0.22 GRAM (${L('预附 · 钱包发起费另计', 'attached · wallet sending fee separate')})`,
           totalText: '0.22 GRAM (Gas)',
           note: L('发送 TicketClaim 到 StakeTicket 合约，核销后由 RoundController 发放本金与已解锁 A9。', 'Sends TicketClaim to StakeTicket; RoundController disburses principal + unlocked A9.'),
           insufficientReason: ticket?.pending
@@ -898,7 +909,7 @@ function renderLiveTicketClaimPage(root, selectedTicket) {
       };
     });
 
-    // v17: 3 折急提（已解锁 100% 实发，仅未解锁余额按 30% 秒提 + 70% 直接销毁；0.34 GRAM 余量全退）
+    // v17: 3 折急提（已解锁 100% 实发，仅未解锁余额按 30% 秒提 + 70% 直接销毁；预附 0.34 GRAM）
     root.querySelectorAll('[data-instant-cashout-ticket]').forEach((btn) => {
       btn.onclick = async () => {
         const ticketAddr = btn.dataset.instantCashoutTicket;
@@ -919,7 +930,7 @@ function renderLiveTicketClaimPage(root, selectedTicket) {
           contractLabel: L('目标凭证 StakeTicket', 'Target StakeTicket'),
           targetAddress: ticketAddr,
           principalText: `${L(`第 ${ticket.roundId ?? '—'} 轮`, `Round #${ticket.roundId ?? '—'}`)} · ${L('立刻实拿', 'Receive Now')} ${formatNum(totalCashA9, 2)} A9 · ${L('永久销毁', 'Burn')} ${formatNum(burnA9, 2)} A9`,
-          gasText: `0.34 GRAM (${L('含发币+销毁双动作 Gas，余量全退', 'dual-action gas, excess refunded')})`,
+          gasText: `0.34 GRAM (${L('预附 · 钱包发起费另计', 'attached · wallet sending fee separate')})`,
           totalText: '0.34 GRAM (Gas)',
           note: L('已自然解锁的奖金按 100% 实发，仅尚未解锁的未来余额按 30% 秒提、70% 永久打入黑洞销毁且不可撤回。', 'Already-unlocked rewards pay 100%; only remaining unvested rewards split 30% instant / 70% permanent burn.'),
           confirmText: L('确认并签名 3 折急提', 'Confirm & Sign Instant Cashout'),
@@ -1013,7 +1024,7 @@ function renderLiveTicketClaimPage(root, selectedTicket) {
           contractLabel: L('目标凭证 StakeTicket', 'Target StakeTicket'),
           targetAddress: ticketAddr,
           principalText: `${L(`第 ${ticket.roundId ?? '—'} 轮`, `Round #${ticket.roundId ?? '—'}`)} · ${L('退回本金', 'Refund')} ${formatNum(refA9, 2)} A9 · ${L('扣除销毁', 'Burn')} ${formatNum(burnA9, 2)} A9`,
-          gasText: `0.34 GRAM (${L('余量原路退回', 'excess refunded')})`,
+          gasText: `0.34 GRAM (${L('预附 · 钱包发起费另计', 'attached · wallet sending fee separate')})`,
           totalText: '0.34 GRAM (Gas)',
           note: L('仅限 24H 锁仓期内可执行提前解押，扣除 15% 本金永久销毁，进入 12H 冲价期后将自动锁定禁止撤本。', 'Early Exit is only available during the 24H lock window (15% burned); locked once 12H push begins.'),
           confirmText: L('确认并签名提前解押', 'Confirm & Sign Early Exit'),
@@ -1118,13 +1129,21 @@ function liveTicketStatusText(t) {
 }
 
 export function renderProofDetail(root, navigate, certId) {
+  if (config.isDemo && certId && !store.state.certificates.some(cert => cert.id === certId)) {
+    root.innerHTML = `<section class="card col-gap"><strong>${L('找不到该凭证', 'Ticket not found')}</strong><a class="btn btn-secondary" href="#/proof">${L('返回凭证列表', 'Back to tickets')}</a></section>`;
+    return;
+  }
   if (!config.isDemo) {
     const seq = ++proofRenderSeq;
     const addr = store.state.user.address || null;
 
     const paintLive = ({ loading = false, error = false, data = null } = {}) => {
       if (seq !== proofRenderSeq || !root.isConnected) return;
-      const tickets = Array.isArray(data?.tickets) ? data.tickets : [];
+      const tickets = (data?.tickets || []).filter(ticket => !certId || ticket.ticketAddress === certId);
+      if (certId && data?.ticketsAvailable && tickets.length === 0) {
+        root.innerHTML = `<section class="card col-gap"><strong>${L('找不到该凭证', 'Ticket not found')}</strong><a class="btn btn-secondary" href="#/proof">${L('返回凭证列表', 'Back to tickets')}</a></section>`;
+        return;
+      }
       const range = data?.ticketRange || null;
       root.innerHTML = `
         <div class="col-gap anim-page-enter">
@@ -1231,7 +1250,7 @@ export function renderProofDetail(root, navigate, certId) {
   }
 
   const certs = Array.isArray(store.state.certificates) ? store.state.certificates : [];
-  const cert = certs.find(c => c.id === certId) || certs[0];
+  const cert = certId ? certs.find(c => c.id === certId) : certs[0];
   if (!cert) {
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
@@ -1453,217 +1472,6 @@ export function renderProofDetail(root, navigate, certId) {
       copyText(cert.txHash, L('已复制存证哈希', 'Proof hash copied'));
     };
   }
-}
-
-let liveRenewNotifCache = { fetched: false, settlementPush: null, error: null, saving: false };
-let renewRenderSeq = 0;
-
-export function renderRenewPage(root) {
-  const { user, round } = store.state;
-  const nextRoundNum = round.currentRound ? round.currentRound + 1 : null;
-  const nextRoundZh = nextRoundNum ? `第 ${nextRoundNum} 轮` : '下一轮';
-  const nextRoundEn = nextRoundNum ? `Round ${nextRoundNum}` : 'Next Round';
-  const isDemo = config.isDemo;
-  const hasInitData = !isDemo && Boolean(A9TMA.getRawInitData());
-  const seq = ++renewRenderSeq;
-  const isOn = isDemo
-    ? Boolean(user.autoRenew)
-    : Boolean(hasInitData && liveRenewNotifCache.fetched && liveRenewNotifCache.settlementPush === true);
-  const availFloor = user.a9Available !== null && user.a9Available !== undefined ? Math.floor(Number(user.a9Available) || 0) : 0;
-  const restakeHref = availFloor >= 100 ? `#/challenge/confirm?amt=${availFloor}` : '#/challenge/confirm';
-  const subText = isDemo
-    ? L(`${nextRoundZh}开盘第一时间推送 Bot 通知，锁头矿 5% 轻止损`, `Get instant Bot DM when ${nextRoundEn} opens for 5% Stop-Loss`)
-    : (!hasInitData
-        ? L('请在 Telegram 小程序内打开以管理 Bot 开盘与结算提醒', 'Open in Telegram Mini App to manage Bot opening & settlement alerts')
-        : (liveRenewNotifCache.saving
-            ? L('正在同步服务端提醒设置…', 'Saving alert preference…')
-            : (liveRenewNotifCache.error
-                ? L('提醒状态同步失败，点击开关重试', 'Failed to sync alert preference, tap to retry')
-                : (!liveRenewNotifCache.fetched
-                    ? L('正在同步服务端提醒状态…', 'Syncing alert preference…')
-                    : (isOn
-                        ? L(`已开启 Telegram Bot 私信提醒（${nextRoundZh}开盘 / 结算自动推送）`, `Telegram Bot DM alerts ON (${nextRoundEn} open & settle)`)
-                        : L('已关闭 Telegram Bot 私信提醒', 'Telegram Bot DM alerts OFF'))))));
-
-  root.innerHTML = `
-    <div class="col-gap anim-page-enter">
-      <section class="renew-hero-card ${isOn ? 'is-on' : ''}" id="renew-hero-card">
-        <div class="row-between">
-          <div class="settings-row-left">
-            <span class="nt-art-badge ${isOn ? 'tone-green' : 'tone-blue'}" style="width:46px;height:46px;border-radius:14px;">
-              ${icon('clock', 22, isOn ? 'text-green' : 'text-cyan')}
-            </span>
-            <div>
-              <div class="row-start" style="gap:6px;">
-                <strong style="font-size:16px;font-weight:900;">${L('头矿 6H 开盘 Bot 私信提醒', 'First 6H Bot Opening Alert')}</strong>
-                <span class="chip ${isOn ? 'chip-green' : 'chip-muted'}" id="renew-status-chip" style="min-height:20px;font-size:10px;">${isOn ? L('已开启', 'ACTIVE') : (!isDemo && !hasInitData ? L('仅 TG 内可用', 'TG ONLY') : L('已关闭', 'OFF'))}</span>
-              </div>
-              <div class="num-xs text-sec" id="renew-status-sub" style="margin-top:2px;">${subText}</div>
-            </div>
-          </div>
-          ${isDemo
-            ? `<div class="a9-switch ${isOn ? 'on' : ''}" id="global-renew-sw" role="switch" aria-checked="${isOn}" tabindex="0"></div>`
-            : (!hasInitData
-                ? `<div class="a9-switch disabled" id="global-renew-sw" role="switch" aria-checked="false" aria-disabled="true"></div>`
-                : `<div class="a9-switch ${isOn ? 'on' : ''}${liveRenewNotifCache.saving ? ' disabled' : ''}" id="global-renew-sw" role="switch" aria-checked="${isOn}" aria-disabled="${liveRenewNotifCache.saving ? 'true' : 'false'}" tabindex="0"></div>`)}
-        </div>
-
-        <div class="renew-preview-grid">
-          <div class="renew-preview-cell">
-            <small>${L('目标轮次', 'Target')}</small>
-            <strong>${nextRoundNum ? `R${String(nextRoundNum).padStart(2, '0')}` : L('下轮', 'Next')}</strong>
-          </div>
-          <div class="renew-preview-cell">
-            <small>${L('资金模式', 'Custody')}</small>
-            <strong>${L('纯非托管', 'Non-Custodial')}</strong>
-          </div>
-          <div class="renew-preview-cell">
-            <small>${L('头矿特权', 'First 6H')}</small>
-            <strong class="text-gold">${L('5% 轻止损', '5% Stop-Loss')}</strong>
-          </div>
-        </div>
-      </section>
-
-      <section class="card">
-        <div class="card-header">
-          <div class="card-title">${icon('bolt', 15, 'text-gold')} ${L('领奖后本金一键复投下一轮', '1-Tap Principal Re-Lock')}</div>
-        </div>
-        <p class="num-xs text-sec" style="margin:0 0 10px;line-height:1.5;">${L('A9 采用纯非托管链上架构，合约绝不代扣你的钱包本金。开盘提醒送达后，点下方按钮即可携带可用本金直通下一轮锁仓确认页。', 'A9 is strictly non-custodial and never auto-deducts your wallet. After claiming or receiving an alert, tap below to jump straight into next-round lock confirmation.')}</p>
-        <div class="grid-2" style="gap:8px;">
-          <a class="btn btn-primary btn-sm" href="${restakeHref}" style="width:100%;min-height:42px;">${icon('bolt', 14)} ${L('本金一键复投下一轮', '1-Tap Re-Lock')}</a>
-          <button class="btn btn-secondary btn-sm" data-nav="/warmup" type="button" style="width:100%;min-height:42px;">${icon('clock', 14)} ${L('去预热预约', 'Warm-Up Reserve')}</button>
-        </div>
-      </section>
-
-      <div class="sw-menu-group">
-        <a class="sw-menu-row" href="#/settings">
-          <div class="sw-menu-left">
-            <span class="sw-menu-title">${L('提醒与设置中心', 'Alerts & Settings')}</span>
-            <span class="sw-menu-sub">${L('统一管理结算推送、语言、音效与主题', 'Manage settlement alerts, language, sound & theme')}</span>
-          </div>
-          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-        </a>
-        <a class="sw-menu-row" href="#/round">
-          <div class="sw-menu-left"><span class="sw-menu-title">${L('查看本轮进度', 'View Current Round')}</span></div>
-          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-        </a>
-        <a class="sw-menu-row" href="#/profile">
-          <div class="sw-menu-left"><span class="sw-menu-title">${L('返回我的', 'Back to Me')}</span></div>
-          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-        </a>
-      </div>
-    </div>
-  `;
-
-  const sw = root.querySelector('#global-renew-sw');
-  if (!sw) return;
-
-  if (isDemo) {
-    const toggle = () => {
-      A9Haptic.tick();
-      A9Audio.tick();
-      store.update(s => { s.user.autoRenew = !s.user.autoRenew; });
-      showToast(store.state.user.autoRenew ? L('已开启头矿 6H 开盘提醒', 'First 6H opening alert enabled') : L('已关闭开盘提醒', 'Opening alert disabled'));
-      renderRenewPage(root);
-    };
-    sw.onclick = toggle;
-    sw.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
-    return;
-  }
-
-  if (!hasInitData) {
-    sw.onclick = () => {
-      A9Haptic.warning();
-      showToast(L('请在 Telegram 小程序内打开以管理 Bot 提醒', 'Open inside Telegram Mini App to manage Bot alerts'), 'amber');
-    };
-    return;
-  }
-
-  const applyLiveUi = () => {
-    if (seq !== renewRenderSeq || root.isConnected === false || !sw || sw.isConnected === false) return;
-    const curOn = Boolean(liveRenewNotifCache.fetched && liveRenewNotifCache.settlementPush === true);
-    const hero = root.querySelector('#renew-hero-card');
-    const chip = root.querySelector('#renew-status-chip');
-    const sub = root.querySelector('#renew-status-sub');
-    if (hero) hero.classList.toggle('is-on', curOn);
-    sw.classList.toggle('on', curOn);
-    sw.classList.toggle('disabled', Boolean(liveRenewNotifCache.saving));
-    sw.setAttribute('aria-checked', String(curOn));
-    sw.setAttribute('aria-disabled', String(Boolean(liveRenewNotifCache.saving)));
-    if (chip) {
-      chip.className = `chip ${curOn ? 'chip-green' : 'chip-muted'}`;
-      chip.textContent = curOn ? L('已开启', 'ACTIVE') : L('已关闭', 'OFF');
-    }
-    if (sub) {
-      if (liveRenewNotifCache.saving) {
-        sub.textContent = L('正在同步服务端提醒设置…', 'Saving alert preference…');
-      } else if (liveRenewNotifCache.error && liveRenewNotifCache.settlementPush === null) {
-        sub.textContent = L('提醒状态同步失败，点击开关重试', 'Failed to sync alert preference, tap to retry');
-      } else if (!liveRenewNotifCache.fetched) {
-        sub.textContent = L('正在同步服务端提醒状态…', 'Syncing alert preference…');
-      } else {
-        sub.textContent = curOn
-          ? L(`已开启 Telegram Bot 私信提醒（${nextRoundZh}开盘 / 结算自动推送）`, `Telegram Bot DM alerts ON (${nextRoundEn} open & settle)`)
-          : L('已关闭 Telegram Bot 私信提醒', 'Telegram Bot DM alerts OFF');
-      }
-    }
-  };
-
-  const syncLivePrefs = () => {
-    fetchNotificationPrefs()
-      .then((res) => {
-        const on = Boolean(res?.settlementPush);
-        liveRenewNotifCache = { fetched: true, settlementPush: on, error: null, saving: false };
-        store.update(s => {
-          s.user.autoRenew = on;
-          s.settings.settlementPush = on;
-        });
-        applyLiveUi();
-      })
-      .catch(() => {
-        liveRenewNotifCache = { fetched: true, settlementPush: null, error: 'SYNC_FAILED', saving: false };
-        applyLiveUi();
-      });
-  };
-
-  if (!liveRenewNotifCache.fetched && !liveRenewNotifCache.saving) {
-    syncLivePrefs();
-  }
-
-  const toggleLive = async () => {
-    if (liveRenewNotifCache.saving) return;
-    if (!liveRenewNotifCache.fetched || (liveRenewNotifCache.error && liveRenewNotifCache.settlementPush === null)) {
-      liveRenewNotifCache = { fetched: false, settlementPush: null, error: null, saving: false };
-      applyLiveUi();
-      syncLivePrefs();
-      return;
-    }
-    A9Haptic.tick();
-    A9Audio.tick();
-    const prev = Boolean(liveRenewNotifCache.settlementPush);
-    const next = !prev;
-    liveRenewNotifCache = { fetched: true, settlementPush: next, error: null, saving: true };
-    applyLiveUi();
-    try {
-      const res = await updateNotificationPrefs({ settlementPush: next });
-      const saved = Boolean(res?.settlementPush);
-      liveRenewNotifCache = { fetched: true, settlementPush: saved, error: null, saving: false };
-      store.update(s => {
-        s.user.autoRenew = saved;
-        s.settings.settlementPush = saved;
-      });
-      applyLiveUi();
-      showToast(saved
-        ? L('已开启 Telegram Bot 开盘与结算提醒', 'Telegram Bot opening & settlement alerts enabled')
-        : L('已关闭 Telegram Bot 提醒', 'Telegram Bot alerts disabled'));
-    } catch (e) {
-      liveRenewNotifCache = { fetched: true, settlementPush: prev, error: 'SAVE_FAILED', saving: false };
-      applyLiveUi();
-      showToast(e?.message || L('提醒设置保存失败，请重试', 'Failed to save alert preference'), 'error');
-    }
-  };
-  sw.onclick = toggleLive;
-  sw.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleLive(); } };
 }
 
 let ledgerRenderSeq = 0;

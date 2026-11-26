@@ -1,3 +1,4 @@
+import { DEMO_SQUADS } from '../demo-data.js';
 /**
  * 战队与推广页 — 任天堂 Switch 视觉与交互统一升级
  * - 统一战队队徽，彻底区分「未加入 / 队员 / 队长」三种首屏
@@ -29,11 +30,12 @@ function formatExactGramFromNano(nano) {
 }
 import { pendingTxManager } from '../tx-ux.js';
 import { A9Haptic, A9TMA } from '../tma.js';
-import { escapeHtml, formatNum, showToast, copyText, openChoiceSheet } from '../components.js';
+import { escapeHtml, formatNum, formatTimer, showToast, copyText, openChoiceSheet } from '../components.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { renderReferralPoster, renderProofFlexPoster, renderStoryPoster, renderScenarioPoster, downloadPosterPng } from '../poster.js';
-import { triggerStoryShare, buildTmaDeepLink, getShareRef } from '../share.js';
+import { triggerStoryShare, buildTmaDeepLink, getShareRef, openXShareSheet } from '../share.js';
+import { computeRoundPriceMetrics, buildBattleRallyCopy } from './round_stages.js';
 
 function fmtA9OrDash(val, { loading = false } = {}) {
   if (val === null || val === undefined || !Number.isFinite(Number(val))) {
@@ -205,7 +207,7 @@ function computeCaptainTodo({ tgMembers, memberCount, verified, rewardPaid }) {
   if (!rewardPaid) {
     return {
       conditionMet,
-      text: L('核验已通过，5,000 A9 创世金库待发放', 'Verified · 5,000 A9 captain vault pending payout'),
+      text: rewardPaid === null ? L('核验已通过，创世金库到账待核验', 'Verified · captain vault credit unconfirmed') : L('核验已通过，创世金库待发放', 'Verified · captain vault pending payout'),
       ctaLabel: L('查看推广奖励', 'View Referral Rewards'),
       ctaHref: '#/team/invite',
       done: false,
@@ -242,7 +244,7 @@ function renderCaptainHomeHtml({
         <div class="sw-squad-head">
           <span class="sw-squad-emblem" aria-hidden="true">${icon('squadEmblem', 24)}</span>
           <div class="sw-squad-meta">
-            <h2 class="sw-squad-name">${escapeHtml(squadName || L('我的战队', 'My Squad'))}</h2>
+            <h2 class="sw-squad-name">${escapeHtml(config.isDemo && squadName === 'A9 冒险战队' ? L('A9 冒险战队', 'A9 Quest Squad') : (squadName || L('我的战队', 'My Squad')))}</h2>
             <div class="num-xs text-muted">${L('队长', 'Captain')}</div>
           </div>
         </div>
@@ -284,7 +286,7 @@ function renderCaptainHomeHtml({
         </div>
         <div class="sw-status-step ${rewardPaid ? 'is-done' : (verified ? 'is-active' : '')}">
           <small>${L('奖励到账', 'Credited')}</small>
-          <strong>${rewardPaid ? L('已到账', 'Paid') : L('未到账', 'Pending')}</strong>
+          <strong>${rewardPaid ? L('已到账', 'Paid') : (rewardPaid === null ? L('待核验', 'Unconfirmed') : L('未到账', 'Pending'))}</strong>
         </div>
       </div>
     </section>
@@ -315,7 +317,7 @@ function renderMemberHomeHtml({
         <div class="sw-squad-head">
           <span class="sw-squad-emblem" aria-hidden="true">${icon('squadEmblem', 24)}</span>
           <div class="sw-squad-meta">
-            <h2 class="sw-squad-name">${escapeHtml(squadName || L('我的战队', 'My Squad'))}</h2>
+            <h2 class="sw-squad-name">${escapeHtml(config.isDemo && squadName === 'A9 冒险战队' ? L('A9 冒险战队', 'A9 Quest Squad') : (squadName || L('我的战队', 'My Squad')))}</h2>
             <div class="num-xs text-muted">${L('队员', 'Member')}</div>
           </div>
         </div>
@@ -435,8 +437,182 @@ function renderUnjoinedHomeHtml({
 }
 
 let teamRenderSeq = 0;
+let activeRallyTpl = 'push';
 
-export function renderTeamHome(root, navigate) {
+function getTeamInviteLink(teamId) {
+  const shareRef = getShareRef();
+  const squadId = typeof teamId === 'string' && /^(?:G|T|TM|TEAM)-[A-Za-z0-9-]+$/i.test(teamId) ? teamId : '';
+  const startParam = squadId ? `invite_${squadId}_${shareRef}` : `invite_${shareRef}`;
+  return config.isDemo
+    ? `${window.location.origin}${window.location.pathname}?mode=${config.mode}&startapp=${encodeURIComponent(startParam)}`
+    : buildTmaDeepLink(startParam);
+}
+
+function renderSquadBattleStrip(round) {
+  const r = round || {};
+  const m = computeRoundPriceMetrics(r);
+  const stageMap = {
+    warmup: L('下轮预热', 'Warm-Up'),
+    participation: L('24H 锁仓', '24H Lock'),
+    observation: L('12H 冲价', '12H Push'),
+    settlement_success: L('已通关', 'Passed'),
+    settlement_burn: L('自动止损', 'Stop-Loss'),
+    halted: L('异常退本', 'Aborted'),
+  };
+  const stageText = stageMap[r.stage] || L('实时战况', 'Live Round');
+  const roundLabel = r.currentRound != null ? L(`第 ${r.currentRound} 轮`, `R${r.currentRound}`) : L('本轮', 'Round');
+  if (['settlement_success', 'settlement_burn', 'halted'].includes(r.stage)) {
+    return `<a class="sw-battle-strip" href="#/round"><strong>${roundLabel} · ${stageText}</strong><span class="sw-battle-strip-right">${L('查看本轮结果', 'View round result')} ›</span></a>`;
+  }
+  const qualText = r.qualifiedCandles != null ? `${r.qualifiedCandles}/${r.minQualifiedCandles ?? 8}` : '—';
+  const poolText = r.rewardBudgetA9 != null && Number.isFinite(Number(r.rewardBudgetA9)) ? `${formatNum(r.rewardBudgetA9)} A9` : '—';
+  const cdText = r.countdownSec == null ? '—' : formatTimer(r.countdownSec);
+  const deltaChip = m.deltaPct === null
+    ? `<span class="chip chip-muted mono" id="team-battle-delta" style="min-height:19px;font-size:10px;padding:0 6px;">—</span>`
+    : `<span class="chip ${m.isAbove ? 'chip-green' : 'chip-red'} mono" id="team-battle-delta" style="min-height:19px;font-size:10px;padding:0 6px;">${m.isAbove ? '+' : ''}${m.deltaPct.toFixed(1)}%</span>`;
+
+  return `
+    <a class="sw-battle-strip" href="#/round" id="team-battle-strip">
+      <div class="sw-battle-strip-left">
+        <div class="sw-battle-strip-top">
+          <span class="sw-pulse-dot ${m.deltaPct === null ? '' : (m.isAbove ? 'is-up' : 'is-down')}" aria-hidden="true"></span>
+          <strong class="num-xs">${r.currentRound != null ? L(`第 ${r.currentRound} 轮`, `R${r.currentRound}`) : L('本轮', 'Round')} · ${stageText}</strong>
+          <span class="mono num-xs" id="team-battle-price" style="font-weight:900;">${m.liveText}</span>
+          ${deltaChip}
+        </div>
+        <div class="num-xs text-muted mono">
+          ${L('目标', 'Target')} ${m.targetText} · ${L('达标', 'Met')} ${qualText} · ${L('奖池', 'Pool')} <span style="white-space:nowrap">${poolText}</span> · <span id="team-battle-cd">${cdText}</span>
+        </div>
+      </div>
+      <span class="sw-battle-strip-right">${L('去盯盘', 'Arena')} ›</span>
+    </a>
+  `;
+}
+
+function renderRallyCommandCard(round, tpl, inviteLink) {
+  const copyTextVal = buildBattleRallyCopy(round, inviteLink, tpl);
+  return `
+    <section class="card col-gap" id="team-rally-center">
+      <div class="row-between">
+        <span class="card-title">${icon('send', 15, 'text-red')} ${L('一键动员喊单中心', '1-Tap Rally Command')}</span>
+        <a class="text-link-btn" href="#/team/invite">${L('招募海报', 'Posters')} ›</a>
+      </div>
+      <div class="seg-tabs" role="tablist" aria-label="${L('选择喊单模板', 'Select rally template')}">
+        <button type="button" class="seg-tab ${tpl === 'push' ? 'active' : ''}" data-rally-tpl="push">${L('冲线喊单', 'Push Call')}</button>
+        <button type="button" class="seg-tab ${tpl === 'first6h' ? 'active' : ''}" data-rally-tpl="first6h">${L('头矿 6H', 'First 6H')}</button>
+        <button type="button" class="seg-tab ${tpl === 'free' ? 'active' : ''}" data-rally-tpl="free">${L('0 GRAM 拉新', 'Free Box')}</button>
+      </div>
+      <div class="share-copy-box" id="team-rally-preview">${escapeHtml(copyTextVal)}</div>
+      <div class="grid-3" style="gap:7px;">
+        <button type="button" class="btn btn-primary btn-sm" id="btn-rally-copy" style="width:100%;min-height:40px;">${icon('copy', 13)} ${L('复制战报', 'Copy')}</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-rally-tg" style="width:100%;min-height:40px;">${icon('send', 13)} Telegram</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-rally-x" style="width:100%;min-height:40px;">${icon('xBrand', 12)} X</button>
+      </div>
+      <div class="sw-menu-group">
+        <div class="sw-menu-row is-static">
+          <div class="sw-menu-left">
+            <span class="sw-menu-title">${L('动员冲线收益闭环', 'Mobilization Rewards')}</span>
+            <span class="sw-menu-sub">${L('共推本轮冲价解锁奖池 · 商城直推 6% · 好友通关 8%（独立计入）· 队长 5,000 A9', 'Push round unlock · 6% mall direct · 8% friend pass (separate) · 5,000 A9 captain vault')}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function bindRallyCommandEvents(root, teamId) {
+  const card = root.querySelector('#team-rally-center');
+  if (!card) return;
+  const inviteLink = getTeamInviteLink(teamId);
+  const refreshPreview = () => {
+    const preview = card.querySelector('#team-rally-preview');
+    if (preview) preview.textContent = buildBattleRallyCopy(store.state.round, inviteLink, activeRallyTpl);
+    card.querySelectorAll('[data-rally-tpl]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.rallyTpl === activeRallyTpl);
+    });
+  };
+  card.querySelectorAll('[data-rally-tpl]').forEach((btn) => {
+    btn.onclick = () => {
+      A9Haptic.light();
+      activeRallyTpl = btn.dataset.rallyTpl || 'push';
+      refreshPreview();
+    };
+  });
+  const copyBtn = card.querySelector('#btn-rally-copy');
+  if (copyBtn) {
+    copyBtn.onclick = () => {
+      A9Haptic.light();
+      copyText(buildBattleRallyCopy(store.state.round, inviteLink, activeRallyTpl), L('已复制战报喊单', 'Copied battle call'));
+    };
+  }
+  const tgBtn = card.querySelector('#btn-rally-tg');
+  if (tgBtn) {
+    tgBtn.onclick = () => {
+      A9Haptic.light();
+      A9TMA.shareInvite(inviteLink, buildBattleRallyCopy(store.state.round, inviteLink, activeRallyTpl));
+      showToast(L('已调起 Telegram 群分享', 'Opened Telegram share'));
+    };
+  }
+  const xBtn = card.querySelector('#btn-rally-x');
+  if (xBtn) {
+    xBtn.onclick = () => {
+      A9Haptic.light();
+      const r = store.state.round || {};
+      openXShareSheet({
+        type: 'round',
+        id: r.currentRound || 1,
+        context: { roundId: r.currentRound, qualified: r.qualifiedCandles, required: r.minQualifiedCandles },
+      });
+    };
+  }
+}
+
+function renderSquadInvitation(root, navigate, teamId) {
+  const squad = config.isDemo ? DEMO_SQUADS.find(item => item.id === teamId) : null;
+  const title = squad ? L(squad.zh, squad.en) : L('受邀战队', 'Invited Squad');
+  const existingTeam = config.isDemo && store.state.team.role !== 'none' && store.state.team.id === teamId;
+  root.innerHTML = `<section class="card card-hero col-gap">
+    <div class="card-title">${L('战队邀请', 'Squad invitation')}</div>
+    <h2>${escapeHtml(title)} <span class="mono">#${escapeHtml(teamId)}</span></h2>
+    ${squad ? `<p>${L('战队成员', 'Members')} ${squad.memberCount} / ${squad.capacity}</p>` : ''}
+    <button class="btn btn-primary" id="btn-accept-squad" type="button">${existingTeam ? L('查看我的战队', 'Open my squad') : L('确认加入', 'Confirm join')}</button>
+    <p class="num-xs text-red" role="status" id="squad-invite-status"></p>
+    <a class="btn btn-secondary" href="#/team">${L('返回战队', 'Back to squads')}</a>
+  </section>`;
+  const button = root.querySelector('#btn-accept-squad');
+  button.onclick = async () => {
+    if (existingTeam) { navigate('/team', { replace: true }); return; }
+    const walletAddress = store.state.user.address;
+    if (!config.isDemo && !walletAddress) {
+      tonConnect.openConnectModal(() => {
+        if (root.isConnected) renderSquadInvitation(root, navigate, teamId);
+      });
+      return;
+    }
+    button.disabled = true;
+    try {
+      if (config.isDemo) {
+        store.update(state => { state.team.role = 'member'; state.team.id = teamId; });
+      } else {
+        await joinTeam({
+          teamId, walletAddress, userId: getEffectiveUserId(store.state.user),
+          referrerId: store.state.referral.referrerId,
+        });
+      }
+      if (root.isConnected) navigate('/team', { replace: true });
+    } catch (error) {
+      if (!root.isConnected) return;
+      root.querySelector('#squad-invite-status').textContent = error?.message || L('加入失败，请重试', 'Could not join. Try again.');
+      button.disabled = false;
+    }
+  };
+}
+
+export function renderTeamHome(root, navigate, _param = null, query = {}) {
+  if (typeof query.invite === 'string' && /^[A-Za-z0-9-]{1,48}$/.test(query.invite)) {
+    renderSquadInvitation(root, navigate, query.invite);
+    return;
+  }
   if (!config.isDemo) {
     const seq = ++teamRenderSeq;
     const addr = store.state.user.address || null;
@@ -460,10 +636,10 @@ export function renderTeamHome(root, navigate) {
           hasWallet: Boolean(addr),
         });
       } else if (isCaptain) {
-        const tgCount = Number.isFinite(Number(teamData.tgMemberCount)) ? Number(teamData.tgMemberCount) : null;
-        const memCount = Number.isFinite(Number(teamData.memberCount)) ? Number(teamData.memberCount) : null;
-        const verified = teamData.tgBindStatus === 'bound' || teamData.tgGroupVerified === true;
-        const rewardPaid = Boolean(teamData.captainVaultPaid || teamData.foundingBonusPaid);
+        const tgCount = teamData.tgMemberCount ?? null;
+        const memCount = teamData.memberCount ?? null;
+        const verified = teamData.bindStatus === 'bound';
+        const rewardPaid = teamData.captainVaultPaid ?? teamData.foundingBonusPaid ?? null;
         bodyHtml = renderCaptainHomeHtml({
           squadName: teamData.name,
           tgMembers: tgCount,
@@ -486,9 +662,12 @@ export function renderTeamHome(root, navigate) {
         });
       }
 
+      const rallyCardHtml = teamData ? renderRallyCommandCard(store.state.round, activeRallyTpl, getTeamInviteLink(teamData.teamId)) : '';
       root.innerHTML = `
         <div class="col-gap anim-page-enter">
+          ${renderSquadBattleStrip(store.state.round)}
           ${bodyHtml}
+          ${rallyCardHtml}
           ${error ? `
             <div class="sw-menu-group">
               <div class="sw-menu-error" role="alert">
@@ -530,7 +709,11 @@ export function renderTeamHome(root, navigate) {
           }
         };
       }
+      bindRallyCommandEvents(root, teamData?.teamId);
       mountTeamStakeReferrals(root);
+      if (query?.action === 'rally') {
+        requestAnimationFrame(() => root.querySelector('#team-rally-center')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      }
     };
 
     paintLive({ loading: Boolean(addr) });
@@ -570,7 +753,7 @@ export function renderTeamHome(root, navigate) {
   let html = '';
   if (role === 'captain') {
     const tgMembers = Number.isFinite(Number(team.tgGroupMembers)) ? Number(team.tgGroupMembers) : 0;
-    const memberCount = Number.isFinite(Number(team.membersTotal)) ? Number(team.membersTotal) : 0;
+    const memberCount = team.membersActive;
     html = renderCaptainHomeHtml({
       squadName: team.name,
       tgMembers,
@@ -584,8 +767,9 @@ export function renderTeamHome(root, navigate) {
       broadcastEnabled: false,
     });
   } else if (role === 'member') {
+    const squad = DEMO_SQUADS.find(item => item.id === team.id);
     html = renderMemberHomeHtml({
-      squadName: L('星航冲锋战队', 'Star Voyagers'),
+      squadName: squad ? L(squad.zh, squad.en) : team.id,
       validInvites: team.directInvites ?? 16,
       promoClaimableA9: promoDemoA9,
       topMembers: team.topMembers || [],
@@ -594,13 +778,12 @@ export function renderTeamHome(root, navigate) {
       isDemo: true,
     });
   } else {
-    const squads = [
-      { id: 'TM-0001', name: L('A9 冒险战队', 'A9 Quest Squad'), lv: 'Lv.4', members: '412/500' },
-      { id: 'TM-8829', name: L('星航冲锋战队', 'Star Voyagers'), lv: 'Lv.3', members: '84/100' },
-      { id: 'TM-3042', name: L('金箔典藏战队', 'Gold Foil Collectors'), lv: 'Lv.3', members: '66/100' },
-    ];
+    const squads = DEMO_SQUADS.map(squad => ({
+      id: squad.id, name: L(squad.zh, squad.en), lv: 'Lv.' + squad.level,
+      members: squad.memberCount + '/' + squad.capacity,
+    }));
     const refId = store.state.referral?.referrerId || null;
-    const inviteContext = refId ? { teamId: 'TM-0001', name: L('A9 冒险战队', 'A9 Quest Squad'), referrer: refId } : null;
+    const inviteContext = refId ? { referrer: refId } : null;
     html = renderUnjoinedHomeHtml({
       inviteContext,
       rolePill,
@@ -610,8 +793,13 @@ export function renderTeamHome(root, navigate) {
     });
   }
 
-  root.innerHTML = `<div class="col-gap anim-page-enter">${html}</div>`;
+  const demoRallyHtml = role !== 'none' ? renderRallyCommandCard(store.state.round, activeRallyTpl, getTeamInviteLink(team.id)) : '';
+  root.innerHTML = `<div class="col-gap anim-page-enter">${renderSquadBattleStrip(store.state.round)}${html}${demoRallyHtml}</div>`;
+  bindRallyCommandEvents(root, team.id);
   mountTeamStakeReferrals(root);
+  if (query?.action === 'rally') {
+    requestAnimationFrame(() => root.querySelector('#team-rally-center')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }
 
   const roleBtn = root.querySelector('#btn-role-sheet');
   if (roleBtn) {
@@ -737,7 +925,7 @@ export function renderTeamProfile(root, navigate, id) {
     fetchUserPortfolio(addr)
       .then((res) => {
         if (seq !== teamProfileSeq || !root.isConnected || store.state.user.address !== addr) return;
-        paintLive({ loading: false, teamData: res?.team || null });
+        paintLive({ loading: false, teamData: id && id !== res?.team?.teamId ? null : res?.team || null });
       })
       .catch(() => {
         if (seq !== teamProfileSeq || !root.isConnected || store.state.user.address !== addr) return;
@@ -746,32 +934,34 @@ export function renderTeamProfile(root, navigate, id) {
     return;
   }
 
-  const safeId = escapeHtml(id || 'TM-0001');
+  const selectedId = id || store.state.team.id;
+  const squad = DEMO_SQUADS.find(item => item.id === selectedId);
+  const safeId = escapeHtml(selectedId);
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
       <section class="card card-hero col-gap">
         <div class="sw-squad-head">
           <span class="sw-squad-emblem" aria-hidden="true">${icon('squadEmblem', 24)}</span>
           <div class="sw-squad-meta">
-            <h2 class="sw-squad-name">${L('A9 冒险战队', 'A9 Quest Squad')}</h2>
-            <div class="num-xs text-muted mono">#${safeId} · Lv.4</div>
+            <h2 class="sw-squad-name">${squad ? L(squad.zh, squad.en) : L('战队名片', 'Squad Card')}</h2>
+            <div class="num-xs text-muted mono">#${safeId}${squad ? ` · Lv.${squad.level}` : ''}</div>
           </div>
         </div>
         <div class="sw-menu-group">
           <div class="sw-menu-row is-static">
             <div class="sw-menu-left"><span class="sw-menu-title">${L('战队成员', 'Members')}</span></div>
-            <div class="sw-menu-right"><span class="sw-menu-amount">412</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-amount">${squad?.memberCount ?? '—'}</span></div>
           </div>
           <div class="sw-menu-row is-static">
             <div class="sw-menu-left"><span class="sw-menu-title">${L('累计锁仓', 'Total Locked')}</span></div>
-            <div class="sw-menu-right"><span class="sw-menu-amount">580,000 A9</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-amount">${squad?.lockedA9 != null ? formatNum(squad.lockedA9) + ' A9' : '—'}</span></div>
           </div>
           <div class="sw-menu-row is-static">
             <div class="sw-menu-left"><span class="sw-menu-title">${L('商城直推 / 通关返佣', 'Mall / Pass Referral')}</span></div>
             <div class="sw-menu-right"><span class="sw-menu-amount is-green">6% / 8%</span></div>
           </div>
         </div>
-        <button class="btn btn-primary" data-nav="/challenge/confirm" type="button">${icon('bolt', 16)} ${L('加入并参与锁仓', 'Join & Lock')}</button>
+        <a class="btn btn-primary" href="#/team?invite=${encodeURIComponent(selectedId)}">${L('查看加入选项', 'View join options')}</a>
       </section>
       <div class="sw-menu-group">
         <a class="sw-menu-row" href="#/team">
@@ -911,7 +1101,7 @@ export function renderBindTgGroup(root) {
 
   const paint = () => {
     const meta = stateMeta[bindState];
-    const condMet = Number(team.tgGroupMembers || 0) >= 50 && Number(team.membersTotal || 0) >= 3;
+    const condMet = Number(team.tgGroupMembers || 0) >= 50 && Number(team.membersActive || 0) >= 3;
     const isVerified = bindState === 'bound';
     const isPaid = condMet && isVerified;
     root.innerHTML = `
@@ -966,10 +1156,7 @@ export function renderBindTgGroup(root) {
 
 export function renderInviteShare(root) {
   const { user, team } = store.state;
-  const shareRef = getShareRef();
-  const inviteLink = config.isDemo
-    ? `${window.location.origin}${window.location.pathname}?mode=${config.mode}&startapp=invite_${encodeURIComponent(shareRef)}`
-    : buildTmaDeepLink(`invite_${shareRef}`);
+  let inviteLink = getTeamInviteLink(config.isDemo && team.role !== 'none' ? team.id : null);
   let template = 'push';
   let livePromo = null;
   let livePromoErr = null;
@@ -1003,7 +1190,7 @@ export function renderInviteShare(root) {
     if (tpl === 'win') {
       return L(
         `A9 ${roundLabel} 涨价解锁机制：70% 奖池 + 12% 团队全锁价格，100 A9 起锁仓永不爆仓（头矿 6H 仅 5% 止损退 95%），12H 冲价达标 ≥ 8/12 段通关分 ${poolStr}，最高 5 倍币、20% 秒提 + 14 天逐秒解锁：${inviteLink}`,
-        `A9 ${roundLabel} Price-Unlock: 70% pool + 12% team locked on price, lock from 100 A9 with zero liquidation (First 6H 5% Stop-Loss / 95% refund), pass 8/12 slots to split ${poolStr} up to 5x: ${inviteLink}`
+        `A9 ${roundLabel} Price-Unlock: 70% pool + 12% team locked on price, lock from 100 A9 with no liquidation (First 6H 5% Stop-Loss / 95% refund), pass 8/12 slots to split ${poolStr} up to 5x: ${inviteLink}`
       );
     }
     return L(
@@ -1011,6 +1198,15 @@ export function renderInviteShare(root) {
       `[A9 ${roundLabel} Price-Push] ${gapLineEn}! 70% pool (${poolStr}) + 12% team locked on price—hold 8/12 hourly slots to split rewards, 95%/90% refund if missed. Join from 0.99 GRAM chest or 100 A9 lock: ${inviteLink}`
     );
   };
+
+  if (!config.isDemo && user.address) {
+    const addr = user.address;
+    fetchUserPortfolio(addr).then(data => {
+      if (!root.isConnected || addr !== store.state.user.address || !data?.team?.teamId) return;
+      inviteLink = getTeamInviteLink(data.team.teamId);
+      paint();
+    }).catch(() => {});
+  }
 
   const loadLivePromo = async () => {
     if (config.isDemo) return;
@@ -1049,7 +1245,7 @@ export function renderInviteShare(root) {
             </div>
             <div class="sw-menu-row is-static">
               <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('链上发币 Gas', 'Delivery Gas')}</span>
+                <span class="sw-menu-title">${L('固定领币费', 'Fixed Claim Fee')}</span>
                 <span class="sw-menu-sub">${L('热钱包自动核验并转入当前钱包', 'Auto-verified hot wallet payout')}</span>
               </div>
               <div class="sw-menu-right"><span class="sw-menu-amount">0.06 GRAM</span></div>
@@ -1064,7 +1260,7 @@ export function renderInviteShare(root) {
                   ? L('推广发放确认中（防重锁）', 'Promo Payout Confirming…')
                   : promoClaimBusy
                     ? L('等待 0.06 GRAM 签名确认…', 'Waiting for 0.06 GRAM tx…')
-                    : L('领取推广 A9（付 0.06 GRAM 链上 Gas）', 'Claim Referral A9 (0.06 GRAM Gas)'))
+                    : L('领取推广 A9（固定费 0.06 GRAM）', 'Claim Referral A9 (0.06 GRAM fee)'))
               : L('当前只读 · 推广领奖暂未开放', 'Read-Only · Referral Claim Disabled')}</button>
           ${!config.isDemo && !canLiveClaim ? `<div class="num-xs text-muted" id="live-readonly-promo-notice">${L('当前真实模式仅支持只读浏览与连接钱包，暂不创建 0.06 GRAM 付款单或发起签名。', 'Live mode is read-only; no 0.06 GRAM payment intent or signature will be created.')}</div>` : ''}
         </section>
@@ -1222,10 +1418,10 @@ export function renderInviteShare(root) {
             contractLabel: L('推广热钱包 PromoHotWallet', 'PromoHotWallet'),
             targetAddress: intent.payTo,
             principalText: `${formatNum(payoutA9, 2)} A9 (${L('热钱包发放', 'Hot wallet payout')})`,
-            gasText: `${feeGramText} GRAM (${L('覆盖链上发放 Gas', 'delivery fee')})`,
+            gasText: `${feeGramText} GRAM (${L('固定领币费', 'fixed claim fee')})`,
             totalText: `${feeGramText} GRAM`,
             memo: intent.memo,
-            note: L(`确认支付 ${feeGramText} GRAM 后，推广热钱包将自动核验回执并向当前钱包转入全部可领 A9（项目方 0 Gas）。`, `After paying ${feeGramText} GRAM, PromoHotWallet automatically verifies and sends your A9.`),
+            note: L(`钱包发起费另计。固定领币费按单收取，发放成功后不按实际成本退差。`, `Wallet sending fees apply separately. The fixed claim fee is charged per order without a cost-based rebate after payout.`),
             confirmText: L(`确认并支付 ${feeGramText} GRAM 领币`, `Confirm & Pay ${feeGramText} GRAM`),
           });
           if (!ok) return;

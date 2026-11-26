@@ -1,4 +1,3 @@
-import { renderNintendoGateIcon } from '../paper-art.js';
 /**
  * System Settings, 22-State Risk Matrix, On-Chain Audit Log & Protocol Rules Pages
  * Zero-Emoji + Real Bilingual Switcher + /rules Manual
@@ -37,7 +36,7 @@ const RISK_STATES = [
   { id: '08', code: 'ERR_0x2208_OBSERVE_FAILED_SL', cat: 'quota', titleZh: '12H 冲价未达标 (< 8/12 格)', titleEn: '12H Push Missed (< 8/12 Slots)', descZh: '永不爆仓：头矿 6H 退 95%（烧 5%）、普通退 90%（烧 10%），另烧半池并滚存另一半。', descEn: 'No liquidation: First 6H refunds 95% (5% burn), late refunds 90% (10% burn) + half-pool burn.', actionZh: '前往领回止损退本', actionEn: 'Claim Stop-Loss Refund' },
   { id: '09', code: 'ERR_0x2209_ORACLE_CIRCUIT_BREAK', cat: 'quota', titleZh: '预言机喂价异常熔断 (Pyth/RedStone)', titleEn: 'Oracle Deviation Circuit Breaker', descZh: '跨链报价偏差超阈值，系统自动开启安全隔离并 100% 退还本金。', descEn: 'Oracle price feed deviation triggered safety halt; 100% principal refunded.', actionZh: '查看熔断审计报告', actionEn: 'View Audit Report' },
   { id: '10', code: 'ERR_0x2210_NO_CLAIMABLE_BAL', cat: 'quota', titleZh: '待领取奖金为空', titleEn: 'No Claimable Rewards', descZh: '当前可提取额度为 0，其余奖金正按 14 天（每日 5.71%）逐秒解锁中，亦可走 3 折急提。', descEn: 'Claimable balance is 0; remaining rewards unlock per second over 14 days (5.71%/day), or use 30% Instant Cashout.', actionZh: '查看解锁节奏', actionEn: 'View Unlock Schedule' },
-  { id: '11', code: 'ERR_0x2211_GAS_ESTIMATE_FAIL', cat: 'quota', titleZh: '智能合约领取 Gas 估算失败', titleEn: 'Claim Gas Estimation Failed', descZh: '普通领奖需附带 0.22 GRAM，提前解押/3 折急提需附带 0.34 GRAM（余量原路退回）。', descEn: 'Attach 0.22 GRAM for normal claim or 0.34 GRAM for Early Exit / Instant Cashout (excess refunded).', actionZh: '核对附带 Gas 重试', actionEn: 'Retry with Gas' },
+  { id: '11', code: 'ERR_0x2211_GAS_ESTIMATE_FAIL', cat: 'quota', titleZh: '智能合约领取 Gas 估算失败', titleEn: 'Claim Gas Estimation Failed', descZh: '普通领奖需附带 0.22 GRAM，提前解押/3 折急提需附带 0.34 GRAM，扣除链上费用和必要留存后退回可退余量。', descEn: 'Attach 0.22 GRAM for normal claim or 0.34 GRAM for Early Exit / Instant Cashout (excess refunded).', actionZh: '核对附带 Gas 重试', actionEn: 'Retry with Gas' },
   { id: '12', code: 'ERR_0x3312_TG_AUTH_REQUIRED', cat: 'market', titleZh: '未绑定 TG 账号阻断宝箱商城操作', titleEn: 'Telegram Binding Required for Chest Mall', descZh: '独立外部钱包缺少 Telegram InitData 签名校验。', descEn: 'External wallet session lacks Telegram InitData verification.', actionZh: '绑定 Telegram 账号', actionEn: 'Bind Telegram Account' },
   { id: '13', code: 'ERR_0x3313_PRESALE_SOLD_OUT', cat: 'market', titleZh: '宝箱商城当期额度已售罄 (Sold Out)', titleEn: 'Chest Mall Round Quota Sold Out', descZh: '当期宝箱库存已抢空，后发交易扣除 0.03 GRAM 链上退款 Gas 后原路退还。', descEn: 'Current chest allocation is sold out; late txs are refunded minus 0.03 GRAM gas.', actionZh: '查询自动退款流水', actionEn: 'Check Refund Log' },
   { id: '14', code: 'ERR_0x3314_USER_CANCELLATION', cat: 'market', titleZh: '用户主动取消宝箱商城订单', titleEn: 'Chest Mall Order Cancelled by User', descZh: '锁仓前主动撤单，扣除固定链上计算损耗后退回余额。', descEn: 'Order cancelled before lock; balance returned minus gas overhead.', actionZh: '确认撤单规则', actionEn: 'Confirm Cancel Rules' },
@@ -61,7 +60,7 @@ export function renderSettingsPage(root) {
   const seq = ++settingsRenderSeq;
 
   const tgRealUser = !isDemo && hasInitData ? (A9TMA.getUser?.() || null) : null;
-  const tgVerifiedLive = !isDemo && hasInitData;
+  const tgVerifiedLive = !isDemo && hasInitData && user.tgBound;
   const tgStatusText = isDemo
     ? (user.tgBound ? L('已绑定', 'Bound') : L('去绑定', 'Bind'))
     : (tgVerifiedLive ? L('已核验', 'Verified') : L('待核验', 'Unverified'));
@@ -75,7 +74,7 @@ export function renderSettingsPage(root) {
   const liveSettleActive = Boolean(hasInitData && liveNotifCache.fetched && liveNotifCache.settlementPush === true);
   const hourlySubText = isDemo
     ? L('12H 冲价每小时定盘达标实时提醒', 'Alert on each hourly 12H Push check')
-    : L('由战队 TG 群自动播报（个人私聊待开放）', 'Auto-posted in Squad TG group (DM coming soon)');
+    : L('个人整点推送暂未开放', 'Personal hourly push is unavailable');
   const settleSubText = isDemo
     ? L('轮次结算结果与金库可领通知', 'Notify when rounds settle or rewards unlock')
     : (!hasInitData
@@ -87,8 +86,8 @@ export function renderSettingsPage(root) {
                 : (!liveNotifCache.fetched
                     ? L('正在同步服务端提醒状态…', 'Syncing alert preference…')
                     : (liveSettleActive
-                        ? L('已开启 Telegram 私聊结算与领取提醒', 'Telegram DM settlement & claim alerts ON')
-                        : L('已关闭 Telegram 私聊结算与领取提醒', 'Telegram DM settlement & claim alerts OFF'))))));
+                        ? L('结算与领取提醒偏好已开启', 'Settlement & claim preference on')
+                        : L('结算与领取提醒偏好已关闭', 'Settlement & claim preference off'))))));
 
   const envLabel = config.isDemo
     ? L('演示沙盒', 'DEMO SANDBOX')
@@ -96,6 +95,43 @@ export function renderSettingsPage(root) {
 
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
+      <div>
+        <div class="sw-section-label">${L('提醒', 'Alerts')}</div>
+        <div class="sw-menu-group">
+          ${isDemo ? `<div class="sw-menu-row is-static">
+            <span class="sw-menu-title">${L('下轮开盘', 'Next Round Opening')}</span>
+            <div class="a9-switch ${user.autoRenew ? 'on' : ''}" id="set-opening-demo" role="switch" aria-label="${L('下轮开盘', 'Next Round Opening')}" aria-checked="${Boolean(user.autoRenew)}" tabindex="0"></div>
+          </div>` : ''}
+          <div class="sw-menu-row is-static">
+            <div class="sw-menu-left">
+              <span class="sw-menu-title">${L('整点冲价', 'Hourly Price Check')}</span>
+              <span class="sw-menu-sub">${hourlySubText}</span>
+            </div>
+            <div class="sw-menu-right">
+              ${isDemo
+                ? `<div class="a9-switch ${settings.hourlyCandlePush ? 'on' : ''}" id="set-hourly-push-switch" aria-label="${L('整点冲价', 'Hourly price checks')}" data-pref="hourlyCandlePush" role="switch" aria-checked="${Boolean(settings.hourlyCandlePush)}" tabindex="0"></div>`
+                : `<div class="a9-switch disabled" id="set-hourly-push-switch" role="switch" aria-checked="false" aria-disabled="true" aria-label="${L('整点冲价', 'Hourly price checks')}"></div>`}
+            </div>
+          </div>
+          <div class="sw-menu-row is-static">
+            <div class="sw-menu-left">
+              <span class="sw-menu-title">${L('结算与领取', 'Settlement & Claims')}</span>
+              <span class="sw-menu-sub" id="set-settlement-push-sub">${settleSubText}</span>
+            </div>
+            <div class="sw-menu-right">
+              ${isDemo
+                ? `<div class="a9-switch ${settings.settlementPush ? 'on' : ''}" id="set-settlement-push-switch" aria-label="${L('结算与领取', 'Settlement and claims')}" data-pref="settlementPush" role="switch" aria-checked="${Boolean(settings.settlementPush)}" tabindex="0"></div>`
+                : (!hasInitData
+                    ? `<div class="a9-switch disabled" id="set-settlement-push-switch" aria-label="${L('结算与领取', 'Settlement and claims')}" role="switch" aria-checked="false" aria-disabled="true"></div>`
+                    : `<div class="a9-switch ${liveSettleActive ? 'on' : ''}${liveNotifCache.saving ? ' disabled' : ''}" id="set-settlement-push-switch" aria-label="${L('结算与领取', 'Settlement and claims')}" role="switch" aria-checked="${liveSettleActive}" aria-disabled="${liveNotifCache.saving ? 'true' : 'false'}" tabindex="0"></div>`)}
+            </div>
+          </div>
+        </div>
+        <p class="num-xs text-sec" style="margin:8px 4px 0;">${isDemo
+          ? L('演示设置仅在本地生效。', 'Demo preferences apply locally.')
+          : L('结算开关保存你的偏好。实际通知取决于服务是否开放。', 'The switch saves your preference. Delivery depends on service availability.')}</p>
+      </div>
+
       <div>
         <div class="sw-section-label">${L('外观与语言', 'Appearance & Language')}</div>
         <div class="settings-theme-grid" role="group" aria-label="${L('选择界面主题', 'Select theme')}">
@@ -124,17 +160,16 @@ export function renderSettingsPage(root) {
         <div class="sw-menu-group">
           <div class="sw-menu-row is-static">
             <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('触感交互音效', 'Tactile UI Sound')}</span>
+              <span class="sw-menu-title">${L('交互音效', 'Sound Effects')}</span>
               <span class="sw-menu-sub">${L('切页、盖章与确认操作时播放反馈音', 'Crisp chime feedback on tabs, stamps & confirms')}</span>
             </div>
             <div class="sw-menu-right">
-              <div class="a9-switch ${soundOn ? 'on' : ''}" id="set-sound-switch" role="switch" aria-checked="${soundOn}" tabindex="0"></div>
+              <div class="a9-switch ${soundOn ? 'on' : ''}" id="set-sound-switch" aria-label="${L('交互音效', 'Sound effects')}" role="switch" aria-checked="${soundOn}" tabindex="0"></div>
             </div>
           </div>
           <button type="button" class="sw-menu-row" id="set-lang-row">
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('界面语言', 'Language')}</span>
-              <span class="sw-menu-sub">${L('中英双语实时切换', 'Instant Chinese / English switch')}</span>
             </div>
             <div class="sw-menu-right">
               <span class="sw-menu-amount">${escapeHtml(curLangObj.label)}</span>
@@ -149,7 +184,7 @@ export function renderSettingsPage(root) {
         <div class="sw-menu-group">
           <button type="button" class="sw-menu-row" id="set-wallet-row">
             <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('TON 钱包管理', 'TON Wallet')}</span>
+              <span class="sw-menu-title">${L('钱包管理', 'Manage Wallet')}</span>
               <span class="sw-menu-sub mono">${escapeHtml(user.connected ? (user.shortAddress || shortAddress(user.address) || user.address) : L('未连接 · TON Connect 2.0', 'Not connected · TON Connect 2.0'))}</span>
             </div>
             <div class="sw-menu-right">
@@ -157,58 +192,16 @@ export function renderSettingsPage(root) {
               <span class="sw-menu-arrow" aria-hidden="true">›</span>
             </div>
           </button>
-          ${user.connected && user.address ? `
-            <button type="button" class="sw-menu-row" id="set-copy-addr-row">
-              <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('复制钱包地址', 'Copy Wallet Address')}</span>
-                <span class="sw-menu-sub mono">${escapeHtml(shortAddress(user.address) || user.address)}</span>
-              </div>
-              <div class="sw-menu-right">
-                <span class="sw-menu-amount is-muted">${L('复制', 'Copy')}</span>
-                <span class="sw-menu-arrow" aria-hidden="true">›</span>
-              </div>
-            </button>
-          ` : ''}
-          <button type="button" class="sw-menu-row" id="set-tg-row">
+          <${isDemo ? 'button type="button" id="set-tg-row"' : 'div'} class="sw-menu-row${isDemo ? '' : ' is-static'}">
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('Telegram 身份核验', 'Telegram Identity')}</span>
               <span class="sw-menu-sub">${escapeHtml(tgSubText)}</span>
             </div>
             <div class="sw-menu-right">
               <span class="sw-menu-amount ${tgStatusCls}">${tgStatusText}</span>
-              <span class="sw-menu-arrow" aria-hidden="true">›</span>
+              ${isDemo ? '<span class="sw-menu-arrow" aria-hidden="true">›</span>' : ''}
             </div>
-          </button>
-        </div>
-      </div>
-
-      <div>
-        <div class="sw-section-label">${L('结算与推送提醒', 'Settlement & Alerts')}</div>
-        <div class="sw-menu-group">
-          <div class="sw-menu-row is-static">
-            <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('整点 1H 时段收盘推送', 'Hourly Slot Close Push')}</span>
-              <span class="sw-menu-sub">${hourlySubText}</span>
-            </div>
-            <div class="sw-menu-right">
-              ${isDemo
-                ? `<div class="a9-switch ${settings.hourlyCandlePush ? 'on' : ''}" id="set-hourly-push-switch" data-pref="hourlyCandlePush" role="switch" aria-checked="${Boolean(settings.hourlyCandlePush)}" tabindex="0"></div>`
-                : `<div class="a9-switch disabled" id="set-hourly-push-switch" role="switch" aria-checked="false" aria-disabled="true"></div>`}
-            </div>
-          </div>
-          <div class="sw-menu-row is-static">
-            <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('轮次结算与领取提醒', 'Settlement & Claim Alerts')}</span>
-              <span class="sw-menu-sub" id="set-settlement-push-sub">${settleSubText}</span>
-            </div>
-            <div class="sw-menu-right">
-              ${isDemo
-                ? `<div class="a9-switch ${settings.settlementPush ? 'on' : ''}" id="set-settlement-push-switch" data-pref="settlementPush" role="switch" aria-checked="${Boolean(settings.settlementPush)}" tabindex="0"></div>`
-                : (!hasInitData
-                    ? `<div class="a9-switch disabled" id="set-settlement-push-switch" role="switch" aria-checked="false" aria-disabled="true"></div>`
-                    : `<div class="a9-switch ${liveSettleActive ? 'on' : ''}${liveNotifCache.saving ? ' disabled' : ''}" id="set-settlement-push-switch" role="switch" aria-checked="${liveSettleActive}" aria-disabled="${liveNotifCache.saving ? 'true' : 'false'}" tabindex="0"></div>`)}
-            </div>
-          </div>
+          </${isDemo ? 'button' : 'div'}>
         </div>
       </div>
 
@@ -217,8 +210,8 @@ export function renderSettingsPage(root) {
         <div class="sw-menu-group">
           <a class="sw-menu-row" href="#/rules">
             <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('闯关指南', 'How to Play')}</span>
-              <span class="sw-menu-sub">${L('30 秒看懂涨价解锁、止损与 14 天解锁', 'Price-Unlock, Stop-Loss & 14D Unlock guide')}</span>
+              <span class="sw-menu-title">${L('用户指南', 'User Guide')}</span>
+              <span class="sw-menu-sub">${L('找宝箱、看冲价、领 A9', 'Chests, price checks and claiming A9')}</span>
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
@@ -236,12 +229,13 @@ export function renderSettingsPage(root) {
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
-          <a class="sw-menu-row" href="#/gallery">
-            <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('官方角色图鉴', 'Official Character Gallery')}</span>
-              <span class="sw-menu-sub">${L('18 阶收藏展示、3D 翻卡与海报保存', '18-tier showcase, 3D card flip & poster save')}</span>
-            </div>
-            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          <a class="sw-menu-row" href="./privacy.html">
+            <span class="sw-menu-title">${L('隐私政策', 'Privacy Policy')}</span>
+            <span class="sw-menu-arrow" aria-hidden="true">›</span>
+          </a>
+          <a class="sw-menu-row" href="./terms.html">
+            <span class="sw-menu-title">${L('使用条款', 'Terms of Use')}</span>
+            <span class="sw-menu-arrow" aria-hidden="true">›</span>
           </a>
         </div>
       </div>
@@ -256,9 +250,8 @@ export function renderSettingsPage(root) {
             <p class="num-xs text-sec" style="margin:3px 0 0;line-height:1.45;">${L('TON 涨价解锁协议 · 10,000,000,000 A9 恒定发行 · 合约永久弃权', 'TON Price-Unlock Protocol · 10,000,000,000 A9 Fixed Supply · Renounced Contracts')}</p>
           </div>
         </div>
-        <div class="grid-2" style="gap:8px;">
+        <div>
           <button type="button" class="btn btn-secondary btn-sm" id="set-open-x">${icon('xBrand', 13)} ${L('官方 X (@A9_Ton)', 'Official X (@A9_Ton)')}</button>
-          <a class="btn btn-secondary btn-sm" href="#/risk/audit">${icon('shieldCheck', 13)} ${L('核验链上合约', 'Verify Contracts')}</a>
         </div>
       </section>
       <div class="settings-version-strip">
@@ -274,16 +267,11 @@ export function renderSettingsPage(root) {
       if (target === getTheme()) return;
       const next = toggleTheme(e);
       showToast(next === 'dark' ? L('已切换石墨暗夜主题', 'Switched to Switch Dark') : L('已切换雪白亮色主题', 'Switched to Crisp Light'));
-      renderSettingsPage(root);
     };
   });
 
   const walletRow = root.querySelector('#set-wallet-row');
   if (walletRow) walletRow.onclick = () => tonConnect.openConnectModal(renderCurrentRoute);
-  const copyAddrRow = root.querySelector('#set-copy-addr-row');
-  if (copyAddrRow && user.address) {
-    copyAddrRow.onclick = () => copyText(user.address, L('已复制钱包地址', 'Wallet address copied'));
-  }
   const openXBtn = root.querySelector('#set-open-x');
   if (openXBtn) {
     openXBtn.onclick = () => {
@@ -294,15 +282,6 @@ export function renderSettingsPage(root) {
   const tgRow = root.querySelector('#set-tg-row');
   if (tgRow) {
     tgRow.onclick = () => {
-      if (!config.isDemo) {
-        if (hasInitData) {
-          A9Haptic.light();
-          showToast(L('已通过 Telegram 安全身份核验', 'Verified via Telegram Mini App'));
-        } else {
-          showToast(L('请在 Telegram 小程序内打开以自动核验身份', 'Open inside Telegram Mini App to verify'));
-        }
-        return;
-      }
       A9Haptic.success();
       store.update(s => { s.user.tgBound = !s.user.tgBound; });
       showToast(store.state.user.tgBound ? L('Telegram 已绑定', 'Telegram bound') : L('已模拟解绑 Telegram', 'Telegram unbound'));
@@ -334,6 +313,22 @@ export function renderSettingsPage(root) {
     soundSw.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSound(); } };
   }
   if (isDemo) {
+    const opening = root.querySelector('#set-opening-demo');
+    if (opening) {
+      const toggleOpening = () => {
+        A9Haptic.tick();
+        store.update(state => { state.user.autoRenew = !state.user.autoRenew; });
+        opening.setAttribute('aria-checked', String(store.state.user.autoRenew));
+        opening.classList.toggle('on', store.state.user.autoRenew);
+      };
+      opening.onclick = toggleOpening;
+      opening.onkeydown = event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          toggleOpening();
+        }
+      };
+    }
     root.querySelectorAll('[data-pref]').forEach(el => {
       const togglePref = () => { A9Haptic.tick(); const k = el.dataset.pref; store.update(s => { s.settings[k] = !s.settings[k]; }); renderSettingsPage(root); };
       el.onclick = togglePref;
@@ -360,8 +355,8 @@ export function renderSettingsPage(root) {
           settleSub.textContent = L('正在同步服务端提醒状态…', 'Syncing alert preference…');
         } else {
           settleSub.textContent = curOn
-            ? L('已开启 Telegram 私聊结算与领取提醒', 'Telegram DM settlement & claim alerts ON')
-            : L('已关闭 Telegram 私聊结算与领取提醒', 'Telegram DM settlement & claim alerts OFF');
+            ? L('结算与领取提醒偏好已开启', 'Settlement & claim preference on')
+            : L('结算与领取提醒偏好已关闭', 'Settlement & claim preference off');
         }
       }
     };
@@ -464,6 +459,21 @@ export function renderRiskMatrix(root) {
             </div>
           `).join('')}
         </div>
+
+        <div class="sw-menu-group">
+          <a class="sw-menu-row" href="#/risk/audit">
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('v17.0 链上防 Rug 验真', 'v17.0 On-Chain Audit')}</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          </a>
+          <a class="sw-menu-row" href="#/rules">
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回闯关指南', 'Back to Guide')}</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          </a>
+          <a class="sw-menu-row" href="#/settings">
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回提醒与设置', 'Back to Settings')}</span></div>
+            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          </a>
+        </div>
       </div>
     `;
 
@@ -511,17 +521,45 @@ export function renderRiskAudit(root) {
   const jettonAddr = contracts.a9JettonMaster || contracts.jettonMaster || null;
   const poolRemA9 = round?.poolState?.poolRemainingRaw ? rawToA9(round.poolState.poolRemainingRaw) : (round?.rewardPoolA9 ?? null);
   const codeHash = cfg.roundControllerCodeHash || cfg.codeHash || null;
+  const isDemo = config.isDemo;
+  const hasContractAddr = Boolean(rcAddr);
+  const verifiedOnchain = !isDemo && hasContractAddr;
+
+  const formatSyncTime = (ts) => {
+    const n = Number(ts);
+    if (!Number.isFinite(n) || n <= 0) return L('待同步', 'Pending sync');
+    const ms = n > 1e12 ? n : n * 1000;
+    const d = new Date(ms);
+    if (Number.isNaN(d.getTime())) return L('待同步', 'Pending sync');
+    const pad = (x) => String(x).padStart(2, '0');
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
+  };
+  const lastSyncedLabel = isDemo
+    ? L('演示数据', 'Demo Sandbox')
+    : formatSyncTime(round?.lastSyncedAt || round?.updatedAt || round?.syncedAt || cfg?.syncedAt || null);
+
+  const badgeHtml = isDemo
+    ? `<span class="chip chip-muted">DEMO · v17.0</span>`
+    : verifiedOnchain
+      ? `<span class="chip chip-green">${escapeHtml(String(network || 'mainnet').toUpperCase())} · v17.0</span>`
+      : `<span class="chip chip-amber">${L('待核验', 'Pending Verification')}</span>`;
+
+  const adminHtml = !isDemo && !hasContractAddr
+    ? `<span class="mono num-xs text-muted">${L('待核验（主网部署后按 addr_none 验真）', 'Pending verification (addr_none after deploy)')}</span>`
+    : `<span class="mono text-green" style="font-weight:800;">addr_none · ${L('已弃权', 'Renounced')}</span>`;
+
+  const hasPoolRem = poolRemA9 !== null && poolRemA9 !== undefined && Number.isFinite(Number(poolRemA9));
 
   const invariantsBoardHtml = `
     <section class="card card-hero" id="v16-invariants-board">
       <div class="row-between" style="margin-bottom:8px;">
-        <div class="card-title">${icon('shieldCheck', 16, 'text-green')} ${L('v17.0 链上防 Rug 安全不变量看板', 'v17.0 On-Chain Security Invariants')}</div>
-        <span class="chip chip-green">${config.isDemo ? 'DEMO · v17.0' : 'TVM · v17.0'}</span>
+        <div class="card-title">${icon('shieldCheck', 16, hasContractAddr || isDemo ? 'text-green' : 'text-gold')} ${L('v17.0 链上防 Rug 安全不变量看板', 'v17.0 On-Chain Security Invariants')}</div>
+        ${badgeHtml}
       </div>
       <div class="check-list">
         <div class="check-row">
           <span class="text-sec">${L('管理员权限（admin_address）', 'Admin Address')}</span>
-          <span class="mono text-green" style="font-weight:800;">addr_none · ${L('已弃权', 'Renounced')}</span>
+          ${adminHtml}
         </div>
         <div class="check-row">
           <span class="text-sec">${L('无许可逃生舱（AbortRound）', 'Permissionless Escape Hatch')}</span>
@@ -529,7 +567,7 @@ export function renderRiskAudit(root) {
         </div>
         <div class="check-row">
           <span class="text-sec">${L('链上剩余奖池（poolRemaining）', 'On-Chain Pool Remaining')}</span>
-          <span class="mono text-green" style="font-weight:800;">${poolRemA9 !== null && Number.isFinite(Number(poolRemA9)) ? `${formatNum(Math.round(Number(poolRemA9)))} A9` : L('待同步', 'Pending sync')}</span>
+          <span class="mono ${hasPoolRem ? 'text-green' : 'text-muted'}" style="font-weight:800;">${hasPoolRem ? `${formatNum(Math.round(Number(poolRemA9)))} A9` : L('待同步', 'Pending sync')}</span>
         </div>
         <div class="check-row">
           <span class="text-sec">${L('全局推广预算熔断硬顶', 'Global Promo Budget Cap')}</span>
@@ -538,6 +576,14 @@ export function renderRiskAudit(root) {
         <div class="check-row">
           <span class="text-sec">${L('结算红线 / 奖励上限 / 直推', 'Pass Line / Cap / Referral')}</span>
           <span class="mono num-xs">${PROTOCOL_SPECS.passRequired}/${PROTOCOL_SPECS.passTotal} · ${PROTOCOL_SPECS.maxRewardMultiplier}× · ${PROTOCOL_SPECS.referralPct}%</span>
+        </div>
+        <div class="check-row">
+          <span class="text-sec">${L('核验网络', 'Network')}</span>
+          <span class="mono num-xs">${escapeHtml(String(network || 'mainnet'))}</span>
+        </div>
+        <div class="check-row">
+          <span class="text-sec">${L('最近同步时间', 'Last Synced')}</span>
+          <span class="mono num-xs">${escapeHtml(lastSyncedLabel)}</span>
         </div>
         <div class="check-row">
           <span class="text-sec">RoundController</span>
@@ -558,7 +604,7 @@ export function renderRiskAudit(root) {
         ${rcAddr
           ? `<a class="btn btn-primary btn-sm" href="${escapeHtml(buildTonviewerUrl(rcAddr, network))}" target="_blank" rel="noopener noreferrer">${icon('external', 13)} ${L('Tonviewer 查主合约', 'Inspect on Tonviewer')}</a>
              <button class="btn btn-secondary btn-sm" id="btn-audit-copy-rc" type="button">${icon('copy', 13)} ${L('复制合约地址', 'Copy Address')}</button>`
-          : `<a class="btn btn-secondary btn-sm" href="#/rules">${icon('book', 13)} ${L('查看 v17.0 规则', 'View v17.0 Rules')}</a>
+          : `<a class="btn btn-secondary btn-sm" href="#/rules">${icon('book', 13)} ${L('查看用户指南', 'View User Guide')}</a>
              <a class="btn btn-secondary btn-sm" href="#/challenge">${icon('arrowLeft', 13)} ${L('返回广场', 'Back to Plaza')}</a>`}
       </div>
     </section>
@@ -571,9 +617,11 @@ export function renderRiskAudit(root) {
         <section class="card">
           <div class="row-between" style="margin-bottom:6px;">
             <div class="card-title">${icon('radar', 15, 'text-cyan')} ${L('动态结算与预言机事件流', 'Live Settlement & Oracle Stream')}</div>
-            <span class="chip chip-muted">${L('链上同步中', 'SYNCING')}</span>
+            <span class="chip ${hasContractAddr ? 'chip-muted' : 'chip-amber'}">${hasContractAddr ? L('链上同步中', 'SYNCING') : L('待部署核验', 'PENDING DEPLOY')}</span>
           </div>
-          <p class="num-xs text-sec" style="margin:0;line-height:1.5;">${L('每小时 1H TWAP 定盘与轮次结算哈希将在链上出块后自动归档展示；上方 v17.0 合约不可变安全参数已可直接核验。', 'Hourly TWAP seals and round settlement hashes archive here as blocks finalize; the v17.0 immutable invariants above are live-verifiable now.')}</p>
+          <p class="num-xs text-sec" style="margin:0;line-height:1.5;">${hasContractAddr
+            ? L('每小时 1H TWAP 定盘与轮次结算哈希将在链上出块后自动归档展示；上方 v17.0 合约地址与不可变安全参数可在 Tonviewer 直查核验。', 'Hourly TWAP seals and round settlement hashes archive here as blocks finalize; verify live contract state directly on Tonviewer above.')
+            : L('主网合约地址尚未注入，上方仅展示 v17.0 协议设计规格；主网部署并注入合约地址后即可直查链上不变量与事件流。', 'Mainnet contract addresses are not yet configured. Above reflects v17.0 protocol specifications; live invariants and event streams activate once contracts are deployed.')}</p>
         </section>
         <div class="sw-menu-group">
           <a class="sw-menu-row" href="#/challenge">
@@ -632,193 +680,6 @@ export function renderRiskAudit(root) {
   if (cp && rcAddr) cp.onclick = () => copyText(rcAddr, L('已复制 RoundController 地址', 'Copied RoundController address'));
 }
 
-export function renderRulesPage(root) {
-  root.innerHTML = `
-    <div class="col-gap anim-page-enter">
-      <div class="card card-hero">
-        <div class="row-between">
-          <div>
-            <span class="diorama-kicker">A9 / RULEBOOK</span>
-            <h2 style="margin:3px 0 4px;font-size:18px;font-weight:900;">${L('30 秒看懂 A9 涨价解锁', 'Understand A9 Price-Unlock in 30s')}</h2>
-            <p class="num-xs text-sec" style="margin:0;">${L('70% 奖池 + 12% 团队全锁链上：涨不到目标价不解锁，永不爆仓，头矿 6H 仅 5% 止损。', '70% pool + 12% team locked on-chain: pump-to-unlock, no liquidation, First 6H 5% Stop-Loss.')}</p>
-          </div>
-          <span class="nt-art-badge tone-green" style="width:50px;height:50px;" aria-hidden="true">${renderNintendoGateIcon('rules', 32)}</span>
-        </div>
-      </div>
-
-      <!-- 交互图解卡 1：头矿 6H 5% 止损 vs 普通 10% 止损 vs 提前解押 15% -->
-      <section class="card rule-sim-card" id="rule-weight-sim">
-        <div class="row-between">
-          <div class="card-title">${icon('shieldCheck', 15, 'text-gold')} ${L('交互图解 · 止损与提前解押对比', 'Interactive · Stop-Loss & Early Exit')}</div>
-          <span class="chip chip-gold mono">${L('全员 1:1 · 5× 封顶', '1:1 Fair · 5× Cap')}</span>
-        </div>
-        <div class="weight-fold-grid" role="group" aria-label="${L('选择进池时机', 'Select entry window')}">
-          <button type="button" class="weight-fold-btn active" data-rule-weight="95" aria-pressed="true">
-            <strong>-5%</strong>
-            <small>${L('头矿 6H', 'First 6H')}</small>
-          </button>
-          <button type="button" class="weight-fold-btn" data-rule-weight="90" aria-pressed="false">
-            <strong>-10%</strong>
-            <small>${L('6H–24H', '6H–24H')}</small>
-          </button>
-          <button type="button" class="weight-fold-btn" data-rule-weight="85" aria-pressed="false">
-            <strong>-15%</strong>
-            <small>${L('提前解押', 'Early Exit')}</small>
-          </button>
-        </div>
-        <div class="rule-verdict-box" id="rule-weight-output">
-          <div class="row-between num-xs">
-            <span class="text-sec">${L('假设锁仓 1,000 A9 未达标 / 解押', '1,000 A9 on fail / exit')}</span>
-            <b class="mono text-green" id="rule-weight-val">${L('退回 950 A9（仅止损 50 A9 销毁）', 'Refund 950 A9 (50 A9 burned)')}</b>
-          </div>
-          <div class="num-xs text-muted" id="rule-weight-desc">${L('头矿前 6 小时锁仓享 5% 轻止损（退 95%）；通关后全员 1 A9 = 1 份公平分 700,000,000 A9 奖池，绝不稀释。', 'First 6H locks get 5% Stop-Loss (95% refund); passing rounds split the 700,000,000 A9 pool 1:1 fairly.')}</div>
-        </div>
-      </section>
-
-      <!-- 交互图解卡 2：12H 冲价 8/12 通关线推演滑杆 -->
-      <section class="card rule-sim-card" id="rule-slot-sim">
-        <div class="row-between">
-          <div class="card-title">${icon('radar', 15, 'text-cyan')} ${L('交互图解 · 12H 冲价 8/12 通关线', 'Interactive · 12H Push (8/12 Goal)')}</div>
-          <span class="chip chip-green mono" id="rule-slot-pill">8 / 12</span>
-        </div>
-        <div class="rule-range-wrap">
-          <input class="rule-range-input" id="rule-slot-range" type="range" min="0" max="12" step="1" value="8" aria-label="${L('模拟达标时段数', 'Simulate qualified slots')}">
-          <div class="row-between num-xs text-muted mono">
-            <span>0</span>
-            <span class="text-gold" style="font-weight:800;">★ 8 ${L('达标线', 'Goal')}</span>
-            <span>12</span>
-          </div>
-        </div>
-        <div class="rule-verdict-box pass" id="rule-slot-output">
-          <div class="row-between num-xs">
-            <b id="rule-slot-title" class="text-green">${L('冲价通关 ✓ · 全员 1:1 分奖池', 'Passed ✓ · 1:1 Pool Split')}</b>
-            <span class="mono text-sec" id="rule-slot-sub">8 ≥ 8</span>
-          </div>
-          <div class="num-xs text-sec" id="rule-slot-desc">${L('通关立刻退 100% 本金 + 20% 秒提奖金，余下 80% 分 14 天逐秒解锁（每日 5.71%）；急用钱可随时走 3 折急提（7 折销毁）。', 'Pass refunds 100% principal + 20% instant reward; remaining 80% unlocks per second over 14 days (5.71%/day), with optional 30% Instant Cashout (70% burn).')}</div>
-        </div>
-      </section>
-
-      <div class="card">
-        <details class="faq-item" open>
-          <summary><span>${L('1. 什么是「涨价解锁」和「头矿 6H · 5% 止损」？', '1. What is Price-Unlock & First 6H 5% Stop-Loss?')}</span><span class="faq-arrow">${icon('chevronDown', 15)}</span></summary>
-          <div class="faq-body">
-            ${L('全员 1 A9 = 1 份公平分 700,000,000 A9 奖池（100 A9 起投，取消权重套路）。每轮 24H 锁仓期内，前 6 小时进池享 5% 轻止损（未通关退 95%），6 小时后进池享 10% 止损（未通关退 90%），永不爆仓归零！同地址前 6H 与 6H 后分账精确计算。', '1 A9 = 1 fair share of the 700,000,000 A9 pool (100 A9 min, no confusing weight multipliers). Lock in the First 6H for 5% Stop-Loss (95% refund on fail), or 10% Stop-Loss (90% refund) after 6H — no liquidation.')}
-          </div>
-        </details>
-
-        <details class="faq-item">
-          <summary><span>${L('2. 24H 锁仓、提前解押与 12H 冲价怎么运转？', '2. How do 24H Lock, Early Exit & 12H Push work?')}</span><span class="faq-arrow">${icon('chevronDown', 15)}</span></summary>
-          <div class="faq-body">
-            ${L('24H 锁仓期内随时可发起「提前解押」：退回 85% 本金，扣 15% 直接进黑洞销毁。24H 到点自动封盘（禁进禁出，防巨鲸尾盘偷袭），进入 12H 冲价，只要有 ≥ 8/12 根 1H K 线站上目标价（首轮仅 +30%）即刻通关，单轮最高赚 5 倍币，未分完奖池 100% 滚入下轮。', 'During the 24H lock window you may Early Exit anytime (85% refunded, 15% burned). Once locked for the 12H Push, entry/exit pauses to block whale sniping; ≥ 8/12 hourly slots at target (+30% min) passes with a 5× cap (surplus rolls over 100%).')}
-          </div>
-        </details>
-
-        <details class="faq-item">
-          <summary><span>${L('3. 通关后 20% 秒提 + 14 天逐秒解锁与「3 折急提（7 折销毁）」怎么用？', '3. How do 20% Instant + 14D Per-Second Unlock & Instant Cashout work?')}</span><span class="faq-arrow">${icon('chevronDown', 15)}</span></summary>
-          <div class="faq-body">
-            ${L('通关即退 100% 本金 + 20% 秒提，余下 80% 分 14 天逐秒解锁（每日 5.71%，永久累计不倒扣）。若急用钱，任意一天可一键走「3 折急提（7 折销毁）」：已自然解锁部分按 100% 实发，仅对尚未解锁余额按 30% 立刻秒提、70% 永久销毁（满 14 天后误点也不销毁）。', 'Pass gives 100% principal + 20% Instant + 14D Per-Second Unlock (5.71%/day, never forfeited). Need cash fast? Instant Cashout (30% Now / 70% Burn) pays 100% of already-unlocked rewards + 30% of unvested balance immediately (70% burned; 0% burned after Day 14).')}
-          </div>
-        </details>
-
-        <details class="faq-item">
-          <summary><span>${L('4. 好友 8% 返佣 · 每轮空投与免费宝箱如何领取？', '4. How do 8% Referral Rebate · Round Airdrop & Free Chests work?')}</span><span class="faq-arrow">${icon('chevronDown', 15)}</span></summary>
-          <div class="faq-body">
-            ${L('新人 0 GRAM 可秒开青铜新手箱上车；拉好友锁仓通关享好友奖金 8% 额外返佣（18% 生态池出，不扣好友）+ 每轮等权空投抽奖，商城直推另享 6% 返佣。领取时付 0.06 GRAM 网络费由推广热钱包自动发 A9（当前只读验收阶段暂未开放真实领取）。', 'Claim a 0 GRAM Starter Chest to join; invite friends for 8% Referral Rebate · Round Airdrop (from ecosystem pool, zero cut from friends), plus 6% Chest Mall referrals. Payouts use the 0.06 GRAM hot wallet (currently disabled in read-only mode).')}
-          </div>
-        </details>
-      </div>
-
-      <div class="sw-menu-group">
-        <a class="sw-menu-row" href="#/risk/audit">
-          <div class="sw-menu-left"><span class="sw-menu-title">${L('v17.0 链上防 Rug 验真', 'v17.0 On-Chain Audit')}</span></div>
-          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-        </a>
-        <a class="sw-menu-row" href="#/risk/matrix">
-          <div class="sw-menu-left"><span class="sw-menu-title">${L('查看 22 项链上风控保护', 'View 22 On-Chain Risk Guards')}</span></div>
-          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-        </a>
-        <a class="sw-menu-row" href="#/challenge">
-          <div class="sw-menu-left"><span class="sw-menu-title">${L('返回广场', 'Back to Plaza')}</span></div>
-          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-        </a>
-      </div>
-    </div>
-  `;
-
-  // 绑定交互图解卡 1：止损档位切换
-  const wVal = root.querySelector('#rule-weight-val');
-  const wDesc = root.querySelector('#rule-weight-desc');
-  root.querySelectorAll('[data-rule-weight]').forEach((btn) => {
-    btn.onclick = () => {
-      A9Haptic.tick();
-      A9Audio.pageTurn();
-      const refundPct = Number(btn.dataset.ruleWeight) || 90;
-      const burnPct = 100 - refundPct;
-      root.querySelectorAll('[data-rule-weight]').forEach((b) => {
-        const on = b === btn;
-        b.classList.toggle('active', on);
-        b.setAttribute('aria-pressed', String(on));
-      });
-      if (wVal) {
-        wVal.textContent = L(
-          `退回 ${refundPct * 10} A9（仅销毁 ${burnPct * 10} A9）`,
-          `Refund ${refundPct * 10} A9 (${burnPct * 10} A9 burned)`
-        );
-      }
-      if (wDesc) {
-        wDesc.textContent = refundPct === 95
-          ? L('头矿前 6 小时锁仓享 5% 轻止损（退 95%）；通关后全员 1 A9 = 1 份公平分 700,000,000 A9 奖池，绝不稀释。', 'First 6H locks get 5% Stop-Loss (95% refund); passing rounds split the 700,000,000 A9 pool 1:1 fairly.')
-          : refundPct === 90
-            ? L('6H–24H 普通锁仓享 10% 自动止损（退 90%），永不爆仓，留 90% 筹码继续冲下一轮。', '6H–24H locks get 10% Stop-Loss (90% refund), never liquidated.')
-            : L('24H 锁仓期内随时可提前解押，退回 85% 本金、扣 15% 销毁；进入 12H 冲价后封盘禁出。', 'Early Exit inside 24H Lock refunds 85% and burns 15%; locked once 12H Push starts.');
-      }
-    };
-  });
-
-  // 绑定交互图解卡 2：12H 冲价 8/12 通关线滑杆
-  const rangeEl = root.querySelector('#rule-slot-range');
-  const slotPill = root.querySelector('#rule-slot-pill');
-  const slotOut = root.querySelector('#rule-slot-output');
-  const slotTitle = root.querySelector('#rule-slot-title');
-  const slotSub = root.querySelector('#rule-slot-sub');
-  const slotDesc = root.querySelector('#rule-slot-desc');
-  if (rangeEl) {
-    let prevSlot = Number(rangeEl.value);
-    rangeEl.oninput = () => {
-      const v = Number(rangeEl.value);
-      if (v !== prevSlot) {
-        A9Haptic.tick();
-        if (v === 8) A9Audio.scaleChime(12);
-        else A9Audio.ratchet(Math.max(1, Math.min(9, Math.ceil((v / 12) * 9))));
-        prevSlot = v;
-      }
-      const pass = v >= 8;
-      if (slotPill) {
-        slotPill.textContent = `${v} / 12`;
-        slotPill.className = `chip ${pass ? 'chip-green' : 'chip-red'} mono`;
-      }
-      if (slotOut) {
-        slotOut.classList.toggle('pass', pass);
-        slotOut.classList.toggle('burn', !pass);
-      }
-      if (slotTitle) {
-        slotTitle.className = pass ? 'text-green' : 'text-red';
-        slotTitle.textContent = pass
-          ? L('冲价通关 ✓ · 全员 1:1 分奖池', 'Passed ✓ · 1:1 Pool Split')
-          : L('未达 8/12 · 永不爆仓自动止损', 'Below 8/12 · Auto Stop-Loss');
-      }
-      if (slotSub) {
-        slotSub.textContent = pass ? `${v} ≥ 8` : `${v} < 8（${L(`差 ${8 - v} 段`, `${8 - v} short`)}）`;
-      }
-      if (slotDesc) {
-        slotDesc.textContent = pass
-          ? L('通关立刻退 100% 本金 + 20% 秒提奖金，余下 80% 分 14 天逐秒解锁（每日 5.71%）；急用钱可随时走 3 折急提（7 折销毁）。', 'Pass refunds 100% principal + 20% instant reward; remaining 80% unlocks per second over 14 days (5.71%/day), with optional 30% Instant Cashout (70% burn).')
-          : L('永不爆仓：未通关自动退回 95%（头矿 6H）/ 90%（普通）本金，仅销毁 5%/10% 止损 + 半数奖池，另一半奖池滚存下一轮。', 'No liquidation: auto-refunds 95% (First 6H) / 90% (late) principal, burning only 5%/10% stop-loss + half the round pool.');
-      }
-    };
-  }
-}
-
 export function renderNotFoundPage(root) {
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
@@ -827,6 +688,16 @@ export function renderNotFoundPage(root) {
         <div class="num-xl" style="margin-top:4px;">404</div>
         <div class="text-sec" style="font-size:12px;">${L('该页面不存在或路由链接已失效', 'This page was not found or the link has expired')}</div>
         <button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/challenge">${icon('arrowLeft', 14)} ${L('返回 A9 广场', 'Back to Plaza')}</button>
+      </div>
+      <div class="sw-menu-group">
+        <a class="sw-menu-row" href="#/round">
+          <div class="sw-menu-left"><span class="sw-menu-title">${L('进入闯关战场', 'Enter Quest Arena')}</span></div>
+          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+        </a>
+        <a class="sw-menu-row" href="#/internal/market">
+          <div class="sw-menu-left"><span class="sw-menu-title">${L('前往宝箱商城', 'Go to Chest Mall')}</span></div>
+          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+        </a>
       </div>
     </div>
   `;

@@ -104,7 +104,7 @@ export const A9TMA = {
           id: sanitizeToken(teamMatch[1], 48),
           teamId: sanitizeToken(teamMatch[1], 48),
           ref: sanitizeToken(teamMatch[2], 64),
-          route: '/team/invite',
+          route: '/team?invite=' + encodeURIComponent(sanitizeToken(teamMatch[1], 48)),
           scrollTarget: null,
           isAttribution: true,
         };

@@ -1022,4 +1022,35 @@ export class D1ChestEngine {
 
     throw new ChestError('CONCURRENT_GRANT', '待激活金库余额刚发生并发变动，请重试发放队长创世金库');
   }
+
+  /** 只读查询队长 5,000 A9 创世金库真实发放状态（直查 captain_founding_bonuses 表）。 */
+  async getCaptainFoundingBonusStatus({ teamId = null, captainWallet = null } = {}) {
+    const tId = String(teamId || '').trim();
+    const wKey = captainWallet ? addressKey(captainWallet) : null;
+    if (!tId && !wKey) {
+      return { paid: false, amountRaw: '0', createdAt: null };
+    }
+    let row = null;
+    if (tId && wKey) {
+      row = await this.db
+        .prepare('SELECT team_id, amount_raw, created_at FROM captain_founding_bonuses WHERE team_id = ? OR captain_wallet_key = ? LIMIT 1')
+        .bind(tId, wKey)
+        .first();
+    } else if (tId) {
+      row = await this.db
+        .prepare('SELECT team_id, amount_raw, created_at FROM captain_founding_bonuses WHERE team_id = ? LIMIT 1')
+        .bind(tId)
+        .first();
+    } else {
+      row = await this.db
+        .prepare('SELECT team_id, amount_raw, created_at FROM captain_founding_bonuses WHERE captain_wallet_key = ? LIMIT 1')
+        .bind(wKey)
+        .first();
+    }
+    return {
+      paid: Boolean(row),
+      amountRaw: row ? String(row.amount_raw || CAPTAIN_FOUNDING_BONUS_RAW.toString()) : '0',
+      createdAt: row ? Number(row.created_at || 0) || null : null,
+    };
+  }
 }
