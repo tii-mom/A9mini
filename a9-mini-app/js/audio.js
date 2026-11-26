@@ -7,6 +7,7 @@
  */
 
 import { store } from './store.js';
+import { isReducedMotion } from './tma.js';
 
 const PENTA_SCALE = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5, 1174.66, 1318.51];
 
@@ -301,6 +302,7 @@ export const A9Audio = {
 
 let kineticAbort = null;
 let kineticRaf = 0;
+let kineticCards = [];
 
 export function cleanupKineticSurfaces() {
   if (kineticRaf) {
@@ -311,17 +313,27 @@ export function cleanupKineticSurfaces() {
     kineticAbort.abort();
     kineticAbort = null;
   }
+  for (const card of kineticCards) {
+    try {
+      card.style.removeProperty('--glare-o');
+      card.style.removeProperty('--glare-x');
+      card.style.removeProperty('--glare-y');
+      card.style.transform = '';
+    } catch (_) {}
+  }
+  kineticCards = [];
 }
 
 /** 精细鼠标指针下的典藏卡微倾角反光 */
 export function bindKineticSurfaces(root = document) {
   cleanupKineticSurfaces();
-  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  if (isReducedMotion()) return;
   if (!window.matchMedia?.('(hover: hover) and (pointer: fine)').matches) return;
 
   const cards = root.querySelectorAll('.cert-pass.cert-detail-card');
   if (!cards.length) return;
 
+  kineticCards = Array.from(cards);
   kineticAbort = new AbortController();
   const { signal } = kineticAbort;
 

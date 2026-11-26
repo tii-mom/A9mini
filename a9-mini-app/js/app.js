@@ -1,5 +1,5 @@
 import { paintScene } from './game-scenes.js';
-import { tickDemoPrice, setDemoRoundStage } from './demo-data.js';
+import { peekDemoModule } from './demo-loader.js';
 /**
  * A9 Telegram Mini App Bootstrapper — Slim Header, Race-Safe Dual-Theme & Quiet Telemetry
  */
@@ -7,9 +7,9 @@ import { tickDemoPrice, setDemoRoundStage } from './demo-data.js';
 import { store } from './store.js';
 import { config } from './config.js';
 import { loadSnapshot, mapRoundView, submitStartAppAttribution, fetchChestById, assistChestById, rawToA9, fetchMe, serverNowMs } from './data.js';
-import { A9TMA, A9Haptic } from './tma.js';
+import { A9TMA, A9Haptic, isReducedMotion } from './tma.js';
 import { A9Audio, bindKineticSurfaces, cleanupKineticSurfaces } from './audio.js';
-import { matchRoute } from './router.js';
+import { matchRoute, getCachedRouteHandler, loadRouteHandler } from './router.js';
 import { escapeHtml, formatNum, formatTimer, showToast, cleanupActiveInteractions, buildSparklineSvgPath, syncRadarInPlace, syncSlidingSegTabs, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
 import { t, L, initAutoLanguage, syncDocumentLang } from './i18n.js';
@@ -98,6 +98,37 @@ export function applyTheme(mode) {
   tonConnect.syncTheme(next);
 }
 
+export function applyHapticsPref(enabled) {
+  const next = enabled !== false;
+  A9Haptic.setEnabled(next);
+  store.update(s => { s.settings.hapticsEnabled = next; });
+  return next;
+}
+
+function syncRunningMotionState() {
+  if (isReducedMotion()) {
+    cleanupKineticSurfaces();
+    if (activeViewTransition) {
+      try { activeViewTransition.skipTransition?.(); } catch (_) {}
+      activeViewTransition = null;
+    }
+    try {
+      document.querySelectorAll?.('.spark-particle, .flying-coin').forEach((el) => el.remove());
+    } catch (_) {}
+  } else if (mainEl) {
+    bindKineticSurfaces(mainEl);
+  }
+}
+
+export function applyMotionPref(reduced) {
+  const next = Boolean(reduced);
+  if (next) document.documentElement.dataset.reducedMotion = 'true';
+  else delete document.documentElement.dataset.reducedMotion;
+  store.update(s => { s.settings.reducedMotion = next; });
+  syncRunningMotionState();
+  return next;
+}
+
 /** 圆形径向主题切换（设置页调用） */
 export function toggleTheme(e) {
   const next = getTheme() === 'dark' ? 'light' : 'dark';
@@ -109,7 +140,7 @@ export function toggleTheme(e) {
   A9Haptic.light();
   A9Audio.confirm();
 
-  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const reduced = isReducedMotion();
   if (document.startViewTransition && !reduced) {
     if (activeViewTransition) {
       try { activeViewTransition.skipTransition?.(); } catch (_) {}
@@ -308,7 +339,7 @@ function renderDataError(error) {
     </div>
   `;
   const btn = mainEl.querySelector('#data-retry');
-  if (btn) btn.onclick = () => syncData({ forceRender: true });
+  if (btn) btn.onclick = () => (!dataReady ? bootApp() : syncData({ forceRender: true }));
 }
 
 function staleBanner() {
@@ -378,20 +409,27 @@ export async function renderCurrentRoute() {
     renderTarget = viewHost;
   }
   try {
-    renderTarget.setAttribute?.('aria-busy', 'true');
-    renderTarget.textContent = L('正在打开页面…', 'Opening page…');
-    const render = await route.load();
-    if (seq !== routeRenderSeq) return;
-    renderTarget.removeAttribute?.('aria-busy');
-    renderTarget.textContent = '';
-    render(renderTarget, navigate, param, query);
+    const cachedRender = getCachedRouteHandler(route);
+    if (cachedRender) {
+      cachedRender(renderTarget, navigate, param, query);
+    } else {
+      renderTarget.setAttribute?.('aria-busy', 'true');
+      renderTarget.innerHTML = route.shell === 'tab'
+        ? `<div class="nt-boot-skeleton" role="status" aria-label="${L('正在加载页面', 'Loading page')}"><div class="nt-skel-card nt-skel-hero"></div><div class="nt-skel-grid"><i></i><i></i><i></i><i></i></div><div class="nt-skel-card"></div></div>`
+        : `<div class="nt-boot-skeleton" role="status" aria-label="${L('正在加载页面', 'Loading page')}"><div class="nt-skel-card nt-skel-hero"></div><div class="nt-skel-card"></div></div>`;
+      const render = await loadRouteHandler(route);
+      if (seq !== routeRenderSeq) return;
+      renderTarget.removeAttribute?.('aria-busy');
+      renderTarget.innerHTML = '';
+      render(renderTarget, navigate, param, query);
+    }
   } catch (error) {
     if (seq === routeRenderSeq) renderDataError(error);
     return;
   }
   if (prevPath && route.path !== prevPath) {
     if (route.shell === 'stack') A9Audio.pageTurn();
-    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (!isReducedMotion()) {
       renderTarget.animate?.([{opacity:0.7, transform:'translateY(5px)'},{opacity:1, transform:'none'}],{duration:180,easing:'ease-out'});
     }
   }
@@ -516,8 +554,41 @@ function simulateRadarEvent(type) {
 }
 
 function openSimDrawer() {
-  const { round, team, user } = store.state;
+  const closeSimDrawer = () => {
+    simDrawerEl.classList.add('hidden');
+    flushDeferredRender();
+  };
   simDrawerEl.classList.remove('hidden');
+  if (!store.demoReady) {
+    const failed = Boolean(lastLoadError);
+    simDrawerEl.innerHTML = `
+      <div class="modal-sheet">
+        <div class="sheet-handle"></div>
+        <div class="row-between">
+          <div class="card-title">${icon('sliders', 16, failed ? 'text-red' : 'text-gold')} ${L('演示控制台暂不可用', 'Demo Console Unavailable')}</div>
+          <button class="icon-btn" id="sim-close" aria-label="Close">${icon('x', 15)}</button>
+        </div>
+        <div class="text-sec" style="font-size:12px;line-height:1.6;">
+          ${failed
+            ? escapeHtml(lastLoadError?.message || L('演示数据模块加载失败，阶段、身份与资金模拟操作已锁定，请重试加载。', 'Demo data failed to load. Stage, role, and fund controls are locked; please retry.'))
+            : L('演示数据正在加载中，加载完成后自动开放阶段、身份与资金模拟操作。', 'Demo data is loading. Stage, role, and fund controls will unlock once ready.')}
+        </div>
+        ${failed ? `<button class="btn btn-primary" id="sim-retry-demo" type="button">${icon('refresh', 15)} ${L('重试加载演示数据', 'Retry Loading Demo Data')}</button>` : ''}
+      </div>
+    `;
+    simDrawerEl.onclick = (e) => { if (e.target === simDrawerEl) closeSimDrawer(); };
+    simDrawerEl.querySelector('#sim-close').onclick = closeSimDrawer;
+    const retryBtn = simDrawerEl.querySelector('#sim-retry-demo');
+    if (retryBtn) {
+      retryBtn.onclick = () => {
+        lastLoadError = null;
+        openSimDrawer();
+        bootApp();
+      };
+    }
+    return;
+  }
+  const { round, team, user } = store.state;
   simDrawerEl.innerHTML = `
     <div class="modal-sheet">
       <div class="sheet-handle"></div>
@@ -570,18 +641,17 @@ function openSimDrawer() {
     </div>
   `;
 
-  const closeSimDrawer = () => {
-    simDrawerEl.classList.add('hidden');
-    flushDeferredRender();
-  };
   simDrawerEl.onclick = (e) => { if (e.target === simDrawerEl) closeSimDrawer(); };
   simDrawerEl.querySelector('#sim-close').onclick = closeSimDrawer;
 
   simDrawerEl.querySelectorAll('[data-sim-stage]').forEach(b => {
     b.onclick = () => {
-      store.update(s => {
-        setDemoRoundStage(s.round, b.dataset.simStage);
-      });
+      const demoMod = peekDemoModule();
+      if (demoMod) {
+        store.update(s => {
+          demoMod.setDemoRoundStage(s.round, b.dataset.simStage);
+        });
+      }
       simDrawerEl.classList.add('hidden');
       navigate('/round');
     };
@@ -771,8 +841,10 @@ function startDisplayLoop() {
 
   setInterval(() => {
     if (document.hidden) return;
+    const demoMod = peekDemoModule();
+    if (!demoMod) return;
     const r = store.state.round;
-    const nextPrice = tickDemoPrice(r);
+    const nextPrice = demoMod.tickDemoPrice(r);
 
     const sLine = document.getElementById('spark-line');
     const sArea = document.getElementById('spark-area');
@@ -799,6 +871,15 @@ window.addEventListener('scroll', () => {
 // Bootstrap — 默认任天堂雪白亮色主题（尊重用户已保存于 a9_ui_prefs_v1 的 Switch 暗夜偏好）
 initAutoLanguage();
 applyTheme(store.state.settings?.themeMode || 'light');
+applyHapticsPref(store.state.settings?.hapticsEnabled !== false);
+applyMotionPref(Boolean(store.state.settings?.reducedMotion));
+try {
+  const motionMql = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  if (motionMql) {
+    if (typeof motionMql.addEventListener === 'function') motionMql.addEventListener('change', syncRunningMotionState);
+    else if (typeof motionMql.addListener === 'function') motionMql.addListener(syncRunningMotionState);
+  }
+} catch (_) {}
 A9TMA.init();
 tonConnect.restoreOnStartup(renderCurrentRoute);
 
@@ -943,11 +1024,39 @@ window.addEventListener('hashchange', renderCurrentRoute);
 pendingTxManager.subscribe(() => syncPendingTxBanner());
 window.addEventListener('a9:interaction-idle', flushDeferredRender);
 document.addEventListener('focusout', () => setTimeout(flushDeferredRender, 0));
-syncData({ forceRender: true }).then(() => {
-  if (startParsed?.type === 'chest' && startParsed?.chestId) {
-    openChestAssistModal(startParsed.chestId);
+let displayLoopStarted = false;
+let bootInFlight = false;
+async function bootApp() {
+  if (bootInFlight) return;
+  bootInFlight = true;
+  try {
+    if (config.isDemo) {
+      await store.ensureDemoReady();
+    }
+    await syncData({ forceRender: true });
+    if (startParsed?.type === 'chest' && startParsed?.chestId) {
+      openChestAssistModal(startParsed.chestId);
+    }
+    if (!displayLoopStarted) {
+      displayLoopStarted = true;
+      startDisplayLoop();
+    }
+    if (simDrawerEl && !simDrawerEl.classList.contains('hidden')) {
+      openSimDrawer();
+    }
+  } catch (error) {
+    lastLoadError = error;
+    dataReady = false;
+    renderDataError(error);
+    if (simDrawerEl && !simDrawerEl.classList.contains('hidden')) {
+      openSimDrawer();
+    }
+  } finally {
+    bootInFlight = false;
   }
-});
+}
+
+bootApp();
 if (!config.isDemo) {
   setInterval(() => {
     if (!document.hidden) syncData();
@@ -956,4 +1065,3 @@ if (!config.isDemo) {
     if (!document.hidden) syncData();
   });
 }
-startDisplayLoop();

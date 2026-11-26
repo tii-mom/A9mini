@@ -10,7 +10,7 @@
  */
 
 import { config } from './config.js';
-import { demoFundsStake, demoFundsClaim, demoFundsBuy, demoFundsClaimPromo, applyDemoInitialState, resetDemoPrediction } from './demo-data.js';
+import { isDemoReady, loadDemoModule, peekDemoModule } from './demo-loader.js';
 
 const STORAGE_KEY = 'a9_ui_prefs_v1';
 const REF_SESSION_KEY = 'a9_referrer_id_v1';
@@ -165,10 +165,11 @@ const DEFAULT_STATE = {
   }
 };
 
-/** 仅恢复 UI 偏好，绝不恢复任何资金/轮次数据。演示模式下注入内存态演示样本。 */
+/** 仅恢复 UI 偏好，绝不恢复任何资金/轮次数据。演示模式样本通过 ensureDemoReady() 异步注入。 */
 function loadState() {
   const state = structuredClone(DEFAULT_STATE);
-  if (config.isDemo) applyDemoInitialState(state);
+  const demoMod = peekDemoModule();
+  if (demoMod) demoMod.applyDemoInitialState(state);
   try {
     const savedRef = sessionStorage.getItem(REF_SESSION_KEY);
     if (savedRef) state.referral.referrerId = savedRef;
@@ -220,6 +221,52 @@ class A9Store {
   constructor() {
     this.state = loadState();
     this.listeners = new Set();
+    this._demoHydrated = Boolean(peekDemoModule());
+    this._demoReadyPromise = null;
+    this._resetPendingDuringLoad = false;
+  }
+
+  get demoReady() {
+    return Boolean(config.isDemo && this._demoHydrated && isDemoReady());
+  }
+
+  /**
+   * Demo 模式异步按需加载并注入演示初始态（并发共享同一 Promise；失败后清理以便重试）。
+   * Live 模式永不加载 demo-data.js，直接返回 false。
+   */
+  async ensureDemoReady(importer = null) {
+    if (!config.isDemo) return false;
+    if (this._demoHydrated && isDemoReady()) return true;
+    if (this._demoReadyPromise) return this._demoReadyPromise;
+    this._demoReadyPromise = loadDemoModule(importer)
+      .then((mod) => {
+        if (!mod) return false;
+        if (!this._demoHydrated) {
+          const savedSettings = structuredClone(this.state.settings);
+          const savedProfileMode = this.state.user.profileMode;
+          const savedAutoRenew = this.state.user.autoRenew;
+          const savedRef = this.state.referral.referrerId;
+          const savedPendingScroll = this.state.referral.pendingScrollTarget;
+          if (this._resetPendingDuringLoad) {
+            this._resetPendingDuringLoad = false;
+            mod.resetDemoPrediction();
+          }
+          mod.applyDemoInitialState(this.state);
+          this.state.settings = { ...this.state.settings, ...savedSettings };
+          if (typeof savedProfileMode === 'string') this.state.user.profileMode = savedProfileMode;
+          if (typeof savedAutoRenew === 'boolean') this.state.user.autoRenew = savedAutoRenew;
+          if (savedRef) this.state.referral.referrerId = savedRef;
+          if (savedPendingScroll) this.state.referral.pendingScrollTarget = savedPendingScroll;
+          this._demoHydrated = true;
+          this.notify();
+        }
+        return true;
+      })
+      .catch((err) => {
+        this._demoReadyPromise = null;
+        throw err;
+      });
+    return this._demoReadyPromise;
   }
 
   subscribe(fn) {
@@ -268,12 +315,24 @@ class A9Store {
     const lang = this.state.settings.language;
     const ref = this.state.referral.referrerId;
     this.state = structuredClone(DEFAULT_STATE);
-    if (config.isDemo) {
-      resetDemoPrediction();
-      applyDemoInitialState(this.state);
-    }
     this.state.settings.language = lang;
     this.state.referral.referrerId = ref;
+    if (config.isDemo) {
+      const demoMod = peekDemoModule();
+      if (demoMod) {
+        demoMod.resetDemoPrediction();
+        demoMod.applyDemoInitialState(this.state);
+        this.state.settings.language = lang;
+        this.state.referral.referrerId = ref;
+        this._demoHydrated = true;
+      } else {
+        this._demoHydrated = false;
+        this._resetPendingDuringLoad = true;
+        if (!this._demoReadyPromise) {
+          this.ensureDemoReady().catch(() => {});
+        }
+      }
+    }
     this.notify();
   }
 
@@ -285,34 +344,46 @@ class A9Store {
 
   stakeTon(amount) {
     if (!config.isDemo) return null;
-    const cert = demoFundsStake(this.state, amount);
+    const demoMod = peekDemoModule();
+    if (!demoMod || !this._demoHydrated) return null;
+    const cert = demoMod.demoFundsStake(this.state, amount);
     if (cert) this.notify();
     return cert;
   }
 
   claimRewards() {
     if (!config.isDemo) return 0;
-    const claimed = demoFundsClaim(this.state);
+    const demoMod = peekDemoModule();
+    if (!demoMod || !this._demoHydrated) return 0;
+    const claimed = demoMod.demoFundsClaim(this.state);
     if (claimed > 0) this.notify();
     return claimed;
   }
 
   claimPromoDemo() {
+    const en = this.state.settings?.language === 'en-US';
     if (!config.isDemo) {
-      const en = this.state.settings?.language === 'en-US';
       return { error: en ? 'Live mode is read-only; promo claims and payments are disabled' : '当前真实模式为只读阶段，邀友奖励领取与资金支付暂未开放' };
     }
-    const result = demoFundsClaimPromo(this.state);
+    const demoMod = peekDemoModule();
+    if (!demoMod || !this._demoHydrated) {
+      return { error: en ? 'Demo data is still loading; retry shortly' : '演示数据正在加载，请稍后重试' };
+    }
+    const result = demoMod.demoFundsClaimPromo(this.state);
     this.notify();
     return result;
   }
 
   buyInternalMarket(tonAmount) {
+    const en = this.state.settings?.language === 'en-US';
     if (!config.isDemo) {
-      const en = this.state.settings?.language === 'en-US';
       return { error: en ? 'Live mode is read-only; Chest Mall purchases are disabled' : '当前真实模式为只读阶段，宝箱商城购买与资金支付暂未开放' };
     }
-    const result = demoFundsBuy(this.state, tonAmount);
+    const demoMod = peekDemoModule();
+    if (!demoMod || !this._demoHydrated) {
+      return { error: en ? 'Demo data is still loading; retry shortly' : '演示数据正在加载，请稍后重试' };
+    }
+    const result = demoMod.demoFundsBuy(this.state, tonAmount);
     if (!result.error) this.notify();
     return result;
   }

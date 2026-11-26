@@ -36,6 +36,38 @@ export const ROUTES = [
   { path: '/rules',               title: () => L('用户指南', 'User Guide'),                      shell: 'stack', tab: 'profile',     ticker: false, load: () => import('./pages/user-guide.js').then(m => m.renderUserGuide) }
 ];
 
+const loadedRouteHandlers = new Map();
+const loadingRouteHandlers = new Map();
+
+export function getCachedRouteHandler(route) {
+  if (!route?.path) return null;
+  return loadedRouteHandlers.get(route.path) || null;
+}
+
+export function loadRouteHandler(route) {
+  if (!route || typeof route.load !== 'function') {
+    return Promise.reject(new Error('Invalid route loader'));
+  }
+  const key = route.path;
+  const cached = loadedRouteHandlers.get(key);
+  if (cached) return Promise.resolve(cached);
+  const pending = loadingRouteHandlers.get(key);
+  if (pending) return pending;
+  const promise = Promise.resolve()
+    .then(() => route.load())
+    .then((handler) => {
+      loadedRouteHandlers.set(key, handler);
+      loadingRouteHandlers.delete(key);
+      return handler;
+    })
+    .catch((err) => {
+      loadingRouteHandlers.delete(key);
+      throw err;
+    });
+  loadingRouteHandlers.set(key, promise);
+  return promise;
+}
+
 export function matchRoute(rawPath) {
   const rawClean = (rawPath || '/challenge').replace(/^#/, '') || '/challenge';
   const qIdx = rawClean.indexOf('?');

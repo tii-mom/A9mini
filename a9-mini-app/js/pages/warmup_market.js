@@ -1,4 +1,4 @@
-import { personalRanks, teamRanks, DEMO_CHEST_SKUS, demoBuyChest } from '../demo-data.js';
+import { peekDemoModule } from '../demo-loader.js';
 import {
   fetchWarmupCurrent,
   fetchPredictionUser,
@@ -533,7 +533,8 @@ export function renderWarmupRank(root) {
   }
   let tab = 'personal';
   const paint = () => {
-    const rows = tab === 'personal' ? personalRanks : teamRanks;
+    const demo = peekDemoModule();
+    const rows = tab === 'personal' ? (demo?.personalRanks || []) : (demo?.teamRanks || []);
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         <section class="card card-hero">
@@ -712,7 +713,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
   };
 
   const resolveChestSkus = () => {
-    if (config.isDemo) return DEMO_CHEST_SKUS;
+    if (config.isDemo) return peekDemoModule()?.DEMO_CHEST_SKUS || [];
     const serverSkus = store.state.round?.chestMall?.skus;
     if (Array.isArray(serverSkus) && serverSkus.length) {
       return serverSkus.map((s) => {
@@ -1144,7 +1145,8 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
           return;
         }
         if (config.isDemo) {
-          const res = demoBuyChest(store.state, selectedSkuId, 'INSTANT', getEffectiveUserId(store.state.user));
+          const demo = peekDemoModule();
+          const res = demo ? demo.demoBuyChest(store.state, selectedSkuId, 'INSTANT', getEffectiveUserId(store.state.user)) : { error: L('演示数据尚未就绪，请重试', 'Demo data not ready, please retry') };
           if (res.error) {
             A9Haptic.error();
             showToast(res.error, 'error');

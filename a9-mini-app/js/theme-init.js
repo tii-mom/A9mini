@@ -7,7 +7,10 @@
     if (t === 'dark' || t === 'light') {
       document.documentElement.dataset.theme = t;
       var m = document.querySelector('meta[name="theme-color"]');
-      if (m) m.setAttribute('content', t === 'dark' ? '#15161A' : '#F4F5F8');
+      if (m) m.setAttribute('content', t === 'dark' ? '#121318' : '#F4F5F8');
+    }
+    if (p && p.settings && p.settings.reducedMotion === true) {
+      document.documentElement.dataset.reducedMotion = 'true';
     }
   } catch (e) {}
 })();

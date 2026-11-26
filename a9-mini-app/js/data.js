@@ -8,28 +8,7 @@
  */
 
 import { config, apiUrl } from './config.js';
-import {
-  demoFixture,
-  demoPredictionRound,
-  demoPredictionUser,
-  demoPredictionBet,
-  demoPredictionActivate,
-  demoProgressionUser,
-  demoProgressionClaim,
-  demoChestsMe,
-  demoClaimStarterChests,
-  demoGetChest,
-  demoAssistChest,
-  demoOpenChest,
-  demoOpenAllChests,
-  demoChestCritFeed,
-  demoWarmupCurrent,
-  demoWarmupRegister,
-  demoWarmupCancel,
-  demoOpenWarmupChest,
-  demoStakeReferralsMe,
-  demoRoundAirdropDraws
-} from './demo-data.js';
+import { loadDemoModule } from './demo-loader.js';
 import { A9TMA } from './tma.js';
 import { L } from './i18n.js';
 
@@ -194,7 +173,8 @@ let currentView = null;
 /** 读取只读快照。失败时保留上一次成功数据并标记 stale，交由页面提示重试。 */
 export async function loadSnapshot() {
   if (config.isDemo) {
-    const fixture = demoFixture();
+    const demo = await loadDemoModule();
+    const fixture = demo.demoFixture();
     lastGoodSnapshot = fixture;
     return fixture;
   }
@@ -444,14 +424,20 @@ export async function submitTonProof({ address, network, publicKey, walletStateI
 
 /** 12H 预言擂台：读取本轮多空实时比例 */
 export async function fetchPredictionRound(roundId, stage = 'observation') {
-  if (config.isDemo) return demoPredictionRound(roundId, stage);
+  if (config.isDemo) {
+    const demo = await loadDemoModule();
+    return demo.demoPredictionRound(roundId, stage);
+  }
   return request(ENDPOINTS.predictionRound(roundId));
 }
 
 /** 12H 预言擂台：读取当前用户本轮下注与待激活奖励 */
 export async function fetchPredictionUser(userId, roundId) {
   if (!userId) return { userId: null, pendingActivationRaw: '0', activatedRaw: '0', currentBet: null };
-  if (config.isDemo) return demoPredictionUser(userId, roundId);
+  if (config.isDemo) {
+    const demo = await loadDemoModule();
+    return demo.demoPredictionUser(userId, roundId);
+  }
   return request(ENDPOINTS.predictionUser(userId, roundId));
 }
 
@@ -459,8 +445,9 @@ export async function fetchPredictionUser(userId, roundId) {
 export async function submitPredictionBet({ roundId, userId, side, guessSlots, referrerId }) {
   if (!userId) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 内打开或先连接 TON 钱包后再提交预言', 'Open inside Telegram or connect a TON wallet before predicting'));
   if (config.isDemo) {
+    const demo = await loadDemoModule();
     try {
-      return demoPredictionBet({ roundId, userId, side, guessSlots, referrerId });
+      return demo.demoPredictionBet({ roundId, userId, side, guessSlots, referrerId });
     } catch (e) {
       throw new ApiError('DEMO_BET_ERR', e.message);
     }
@@ -478,8 +465,9 @@ export async function activatePredictionReward(userId, walletAddress, activation
   if (!userId) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 内打开或先连接 TON 钱包', 'Open inside Telegram or connect a TON wallet'));
   if (!walletAddress) throw new ApiError('WALLET_REQUIRED', L('请先连接 TON 钱包以激活奖励', 'Connect a TON wallet to activate rewards'));
   if (config.isDemo) {
+    const demo = await loadDemoModule();
     try {
-      return demoPredictionActivate(userId, walletAddress);
+      return demo.demoPredictionActivate(userId, walletAddress);
     } catch (e) {
       throw new ApiError('DEMO_ACTIVATE_ERR', e.message);
     }
@@ -495,7 +483,10 @@ export async function activatePredictionReward(userId, walletAddress, activation
 
 /** 阶段三：每日集章成长进度读取（非金融成长数据） */
 export async function fetchProgressionUser(userId, roundId = null) {
-  if (config.isDemo) return demoProgressionUser(userId || 'demo_user_01', roundId);
+  if (config.isDemo) {
+    const demo = await loadDemoModule();
+    return demo.demoProgressionUser(userId || 'demo_user_01', roundId);
+  }
   if (!A9TMA.getRawInitData()) return null;
   return request(ENDPOINTS.progressionMe(roundId));
 }
@@ -503,8 +494,9 @@ export async function fetchProgressionUser(userId, roundId = null) {
 /** 阶段三：每日集章任务与成就领取（服务端幂等防重领） */
 export async function claimProgressionTask({ userId, taskKey, roundId = null }) {
   if (config.isDemo) {
+    const demo = await loadDemoModule();
     try {
-      return demoProgressionClaim({ userId: userId || 'demo_user_01', taskKey, roundId });
+      return demo.demoProgressionClaim({ userId: userId || 'demo_user_01', taskKey, roundId });
     } catch (e) {
       throw new ApiError('DEMO_CLAIM_ERR', e.message);
     }
@@ -578,13 +570,16 @@ export function normalizeWarmupCurrent(raw) {
 
 /** 读取当前/下一轮预热预约总人数、目标进度与个人预热宝箱状态 */
 export async function fetchWarmupCurrent(roundId = null) {
-  const raw = config.isDemo ? demoWarmupCurrent() : await request(ENDPOINTS.warmupCurrent(roundId));
+  const raw = config.isDemo ? (await loadDemoModule()).demoWarmupCurrent() : await request(ENDPOINTS.warmupCurrent(roundId));
   return normalizeWarmupCurrent(raw);
 }
 
 /** 预热报名（零门槛 TG 预约，支持透传 roundId、referrerId、可选 intentTier 与 remindEnabled） */
 export async function registerWarmup({ roundId = null, walletAddress = null, userId = null, referrerId = null, intentTier = undefined, remindEnabled = undefined } = {}) {
-  if (config.isDemo) return demoWarmupRegister({ intentTier, remindEnabled });
+  if (config.isDemo) {
+    const demo = await loadDemoModule();
+    return demo.demoWarmupRegister({ intentTier, remindEnabled });
+  }
   const payload = {
     roundId: roundId ? Number(roundId) : undefined,
     walletAddress: walletAddress || null,
@@ -600,7 +595,10 @@ export async function registerWarmup({ roundId = null, walletAddress = null, use
 
 /** 取消本轮开局预热报名 */
 export async function cancelWarmup({ roundId = null, walletAddress = null, userId = null } = {}) {
-  if (config.isDemo) return demoWarmupCancel();
+  if (config.isDemo) {
+    const demo = await loadDemoModule();
+    return demo.demoWarmupCancel();
+  }
   return request(ENDPOINTS.warmupCancel, {
     method: 'POST',
     body: { roundId: roundId ? Number(roundId) : undefined, walletAddress: walletAddress || null, userId: userId || null }
@@ -685,28 +683,38 @@ export function fetchWarmupRank(roundId) {
 
 /** 宝箱商城：读取当前用户的免费宝箱链与商城膨胀宝箱 */
 export async function fetchMyChests() {
-  if (config.isDemo) return demoChestsMe();
+  if (config.isDemo) {
+    const demo = await loadDemoModule();
+    return demo.demoChestsMe();
+  }
   if (!A9TMA.getRawInitData()) return null;
   return request(ENDPOINTS.chestsMe);
 }
 
 /** 宝箱商城：首次领取新手青铜宝箱（激活免费宝箱链） */
 export async function claimStarterChests() {
-  if (config.isDemo) return demoClaimStarterChests();
+  if (config.isDemo) {
+    const demo = await loadDemoModule();
+    return demo.demoClaimStarterChests();
+  }
   if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 小程序内打开', 'Open inside Telegram Mini App'));
   return request(ENDPOINTS.chestsStarter, { method: 'POST', body: {} });
 }
 
 /** 宝箱助力落地页：公开读取指定宝箱进度 */
 export async function fetchChestById(chestId) {
-  if (config.isDemo) return demoGetChest(chestId);
+  if (config.isDemo) {
+    const demo = await loadDemoModule();
+    return demo.demoGetChest(chestId);
+  }
   return request(ENDPOINTS.chestDetail(chestId));
 }
 
 /** 宝箱助力：连接已激活 TON 钱包为好友助力，立得可秒开的 200 A9 新手青铜宝箱 */
 export async function assistChestById(chestId, walletAddress = null) {
   if (config.isDemo) {
-    try { return demoAssistChest(chestId); } catch (e) { throw new ApiError('DEMO_ASSIST_ERR', e.message); }
+    const demo = await loadDemoModule();
+    try { return demo.demoAssistChest(chestId); } catch (e) { throw new ApiError('DEMO_ASSIST_ERR', e.message); }
   }
   if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 小程序内打开后助力', 'Open inside Telegram Mini App to assist'));
   return request(ENDPOINTS.chestAssist(chestId), { method: 'POST', body: { walletAddress: walletAddress || null } });
@@ -716,11 +724,12 @@ export async function assistChestById(chestId, walletAddress = null) {
 export async function openChestById(chestId, stateForDemo = null, walletAddress = null) {
   const cid = String(chestId || '').trim();
   if (config.isDemo) {
+    const demo = await loadDemoModule();
     try {
       if (cid.startsWith('ch_demo_wu_') || cid.startsWith('demo_warmup_chest_')) {
-        return demoOpenWarmupChest(stateForDemo, cid);
+        return demo.demoOpenWarmupChest(stateForDemo, cid);
       }
-      return demoOpenChest(stateForDemo, cid);
+      return demo.demoOpenChest(stateForDemo, cid);
     } catch (e) { throw new ApiError('DEMO_OPEN_ERR', e.message); }
   }
   if (cid.startsWith('ch_demo_') || cid.startsWith('demo_')) {
@@ -734,7 +743,8 @@ export async function openChestById(chestId, stateForDemo = null, walletAddress 
 /** 宝箱批量一键开启（支持全开或按档位全开；live 只读阶段统一拦截） */
 export async function openAllChests({ tier = null, stateForDemo = null, walletAddress = null } = {}) {
   if (config.isDemo) {
-    try { return demoOpenAllChests(stateForDemo, tier); } catch (e) { throw new ApiError('DEMO_OPEN_ALL_ERR', e.message); }
+    const demo = await loadDemoModule();
+    try { return demo.demoOpenAllChests(stateForDemo, tier); } catch (e) { throw new ApiError('DEMO_OPEN_ALL_ERR', e.message); }
   }
   assertFundsAllowedInMode();
   if (!A9TMA.getRawInitData()) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 小程序内打开后一键开箱', 'Open inside Telegram Mini App to open all chests'));
@@ -746,13 +756,16 @@ export async function openAllChests({ tier = null, stateForDemo = null, walletAd
 
 /** 宝箱商城实时手气爆棚捷报（公开只读；Live 模式空态返回空数组，绝不伪造） */
 export async function fetchChestCritFeed(limit = 12) {
-  if (config.isDemo) return demoChestCritFeed(limit)?.items || [];
+  if (config.isDemo) {
+    const demo = await loadDemoModule();
+    return demo.demoChestCritFeed(limit)?.items || [];
+  }
   const data = await request(ENDPOINTS.chestsCritFeed(limit));
   return Array.isArray(data?.items) ? data.items : [];
 }
 
 /** 宝箱商城下单（live 只读阶段统一拦截，不发网络订单请求） */
-export async function requestChestPurchaseIntent({ walletAddress, skuId, openMode = 'BOOST', referrerId = null }) {
+export async function requestChestPurchaseIntent({ walletAddress, skuId, openMode = 'INSTANT', referrerId = null }) {
   assertFundsAllowedInMode();
   return request(ENDPOINTS.presaleIntent, {
     method: 'POST',
@@ -795,13 +808,19 @@ export async function updateNotificationPrefs({ settlementPush }) {
 
 /** v17.0 好友通关 8% 返佣明细（Demo 返回演示数据；Live 严格读取服务端真实数据，无 initData 返回 null） */
 export async function fetchMyStakeReferrals(limit = 50) {
-  if (config.isDemo) return demoStakeReferralsMe(limit);
+  if (config.isDemo) {
+    const demo = await loadDemoModule();
+    return demo.demoStakeReferralsMe(limit);
+  }
   if (!A9TMA.getRawInitData()) return null;
   return request(ENDPOINTS.v17StakeReferralMe(limit));
 }
 
 /** v17.0 每轮等权空投抽奖公示（公开只读；Live 空态返回空数组，绝不回退演示数据） */
 export async function fetchRoundAirdropDraws({ roundId = null, limit = 10 } = {}) {
-  if (config.isDemo) return demoRoundAirdropDraws(limit);
+  if (config.isDemo) {
+    const demo = await loadDemoModule();
+    return demo.demoRoundAirdropDraws(limit);
+  }
   return request(ENDPOINTS.v17AirdropDraws({ roundId, limit }));
 }

@@ -14,9 +14,11 @@
 
 :root,
 [data-theme="light"] {
-  /* Telegram & iOS 安全区 */
+  /* Telegram & iOS 安全区（四向） */
   --wv-safe-top: max(env(safe-area-inset-top, 0px), var(--tg-safe-area-inset-top, 0px), var(--tg-content-safe-area-inset-top, 0px));
   --wv-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px), var(--tg-content-safe-area-inset-bottom, 0px));
+  --wv-safe-left: max(env(safe-area-inset-left, 0px), var(--tg-safe-area-inset-left, 0px), var(--tg-content-safe-area-inset-left, 0px));
+  --wv-safe-right: max(env(safe-area-inset-right, 0px), var(--tg-safe-area-inset-right, 0px), var(--tg-content-safe-area-inset-right, 0px));
 
   /* 90% 洁净中性底色与精工实体表面（双端统一） */
   --paper-bg: #F4F5F8;
@@ -135,7 +137,7 @@
   --ink: #F2F4F8;
   --nt-svg-stroke: #121318;
   --ink-soft: #A8B0C2;
-  --ink-muted: #788094;
+  --ink-muted: #8E97AD;
 
   --nt-red: #F02232;
   --nt-red-top: #F02232;

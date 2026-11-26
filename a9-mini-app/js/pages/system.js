@@ -12,7 +12,7 @@ import { icon } from '../icons.js';
 import { L, LANGUAGES } from '../i18n.js';
 import { openChoiceSheet } from '../components.js';
 import { tonConnect } from '../tonconnect.js';
-import { renderCurrentRoute, getTheme, toggleTheme } from '../app.js';
+import { renderCurrentRoute, getTheme, toggleTheme, applyHapticsPref, applyMotionPref } from '../app.js';
 import { PROTOCOL_SPECS, rawToA9, fetchNotificationPrefs, updateNotificationPrefs } from '../data.js';
 import { buildTonviewerUrl, shortAddress } from '../tx-ux.js';
 
@@ -55,6 +55,8 @@ export function renderSettingsPage(root) {
   const curLangObj = LANGUAGES.find(l => l.code === settings.language) || LANGUAGES[0];
   const isDark = getTheme() === 'dark';
   const soundOn = A9Audio.isEnabled();
+  const hapticsOn = settings.hapticsEnabled !== false;
+  const reducedMotionOn = Boolean(settings.reducedMotion);
   const isDemo = config.isDemo;
   const hasInitData = !isDemo && Boolean(A9TMA.getRawInitData());
   const seq = ++settingsRenderSeq;
@@ -165,6 +167,24 @@ export function renderSettingsPage(root) {
             </div>
             <div class="sw-menu-right">
               <div class="a9-switch ${soundOn ? 'on' : ''}" id="set-sound-switch" aria-label="${L('交互音效', 'Sound effects')}" role="switch" aria-checked="${soundOn}" tabindex="0"></div>
+            </div>
+          </div>
+          <div class="sw-menu-row is-static">
+            <div class="sw-menu-left">
+              <span class="sw-menu-title">${L('触感震动', 'Haptic Feedback')}</span>
+              <span class="sw-menu-sub">${L('按键、滑块与结果确认时的轻震反馈', 'Tactile vibration on taps, sliders & results')}</span>
+            </div>
+            <div class="sw-menu-right">
+              <div class="a9-switch ${hapticsOn ? 'on' : ''}" id="set-haptics-switch" aria-label="${L('触感震动', 'Haptic feedback')}" role="switch" aria-checked="${hapticsOn}" tabindex="0"></div>
+            </div>
+          </div>
+          <div class="sw-menu-row is-static">
+            <div class="sw-menu-left">
+              <span class="sw-menu-title">${L('减弱动态效果', 'Reduce Motion')}</span>
+              <span class="sw-menu-sub">${L('关闭开箱粒子、切页位移与脉冲动画', 'Disable chest particles, transitions & pulse animations')}</span>
+            </div>
+            <div class="sw-menu-right">
+              <div class="a9-switch ${reducedMotionOn ? 'on' : ''}" id="set-reduced-motion-switch" aria-label="${L('减弱动态效果', 'Reduce motion')}" role="switch" aria-checked="${reducedMotionOn}" tabindex="0"></div>
             </div>
           </div>
           <button type="button" class="sw-menu-row" id="set-lang-row">
@@ -286,6 +306,7 @@ export function renderSettingsPage(root) {
       store.update(s => { s.user.tgBound = !s.user.tgBound; });
       showToast(store.state.user.tgBound ? L('Telegram 已绑定', 'Telegram bound') : L('已模拟解绑 Telegram', 'Telegram unbound'));
       renderSettingsPage(root);
+      try { root.querySelector('#set-tg-row')?.focus?.({ preventScroll: true }); } catch (_) {}
     };
   }
   const langRow = root.querySelector('#set-lang-row');
@@ -306,11 +327,36 @@ export function renderSettingsPage(root) {
     const toggleSound = () => {
       A9Haptic.light();
       const on = A9Audio.toggle();
+      soundSw.classList.toggle('on', on);
+      soundSw.setAttribute('aria-checked', String(on));
       showToast(on ? L('触感交互音效已开启', 'Tactile UI Sound On') : L('交互音效已静音', 'Sound Muted'));
-      renderSettingsPage(root);
     };
     soundSw.onclick = toggleSound;
     soundSw.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSound(); } };
+  }
+  const hapticsSw = root.querySelector('#set-haptics-switch');
+  if (hapticsSw) {
+    const toggleHaptics = () => {
+      const next = applyHapticsPref(!(store.state.settings.hapticsEnabled !== false));
+      hapticsSw.classList.toggle('on', next);
+      hapticsSw.setAttribute('aria-checked', String(next));
+      if (next) A9Haptic.light();
+      showToast(next ? L('触感震动已开启', 'Haptic Feedback On') : L('触感震动已关闭', 'Haptic Feedback Off'));
+    };
+    hapticsSw.onclick = toggleHaptics;
+    hapticsSw.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleHaptics(); } };
+  }
+  const motionSw = root.querySelector('#set-reduced-motion-switch');
+  if (motionSw) {
+    const toggleMotion = () => {
+      A9Haptic.light();
+      const next = applyMotionPref(!store.state.settings.reducedMotion);
+      motionSw.classList.toggle('on', next);
+      motionSw.setAttribute('aria-checked', String(next));
+      showToast(next ? L('已开启减弱动态效果', 'Reduce Motion On') : L('已恢复标准动态效果', 'Standard Motion Restored'));
+    };
+    motionSw.onclick = toggleMotion;
+    motionSw.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMotion(); } };
   }
   if (isDemo) {
     const opening = root.querySelector('#set-opening-demo');
@@ -330,7 +376,14 @@ export function renderSettingsPage(root) {
       };
     }
     root.querySelectorAll('[data-pref]').forEach(el => {
-      const togglePref = () => { A9Haptic.tick(); const k = el.dataset.pref; store.update(s => { s.settings[k] = !s.settings[k]; }); renderSettingsPage(root); };
+      const togglePref = () => {
+        A9Haptic.tick();
+        const k = el.dataset.pref;
+        const next = !store.state.settings[k];
+        store.update(s => { s.settings[k] = next; });
+        el.classList.toggle('on', next);
+        el.setAttribute('aria-checked', String(next));
+      };
       el.onclick = togglePref;
       el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePref(); } };
     });

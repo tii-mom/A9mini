@@ -1,4 +1,4 @@
-import { DEMO_SQUADS } from '../demo-data.js';
+import { peekDemoModule } from '../demo-loader.js';
 /**
  * 战队与推广页 — 任天堂 Switch 视觉与交互统一升级
  * - 统一战队队徽，彻底区分「未加入 / 队员 / 队长」三种首屏
@@ -568,7 +568,8 @@ function bindRallyCommandEvents(root, teamId) {
 }
 
 function renderSquadInvitation(root, navigate, teamId) {
-  const squad = config.isDemo ? DEMO_SQUADS.find(item => item.id === teamId) : null;
+  const demoSquads = config.isDemo ? (peekDemoModule()?.DEMO_SQUADS || []) : [];
+  const squad = config.isDemo ? demoSquads.find(item => item.id === teamId) : null;
   const title = squad ? L(squad.zh, squad.en) : L('受邀战队', 'Invited Squad');
   const existingTeam = config.isDemo && store.state.team.role !== 'none' && store.state.team.id === teamId;
   root.innerHTML = `<section class="card card-hero col-gap">
@@ -767,7 +768,8 @@ export function renderTeamHome(root, navigate, _param = null, query = {}) {
       broadcastEnabled: false,
     });
   } else if (role === 'member') {
-    const squad = DEMO_SQUADS.find(item => item.id === team.id);
+    const demoSquads = peekDemoModule()?.DEMO_SQUADS || [];
+    const squad = demoSquads.find(item => item.id === team.id);
     html = renderMemberHomeHtml({
       squadName: squad ? L(squad.zh, squad.en) : team.id,
       validInvites: team.directInvites ?? 16,
@@ -778,7 +780,8 @@ export function renderTeamHome(root, navigate, _param = null, query = {}) {
       isDemo: true,
     });
   } else {
-    const squads = DEMO_SQUADS.map(squad => ({
+    const demoSquads = peekDemoModule()?.DEMO_SQUADS || [];
+    const squads = demoSquads.map(squad => ({
       id: squad.id, name: L(squad.zh, squad.en), lv: 'Lv.' + squad.level,
       members: squad.memberCount + '/' + squad.capacity,
     }));
@@ -935,7 +938,8 @@ export function renderTeamProfile(root, navigate, id) {
   }
 
   const selectedId = id || store.state.team.id;
-  const squad = DEMO_SQUADS.find(item => item.id === selectedId);
+  const demoSquads = peekDemoModule()?.DEMO_SQUADS || [];
+  const squad = demoSquads.find(item => item.id === selectedId);
   const safeId = escapeHtml(selectedId);
   root.innerHTML = `
     <div class="col-gap anim-page-enter">

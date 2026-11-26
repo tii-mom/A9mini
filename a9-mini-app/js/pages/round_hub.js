@@ -1,6 +1,6 @@
 import { store } from '../store.js';
 import { config } from '../config.js';
-import { setDemoRoundStage } from '../demo-data.js';
+import { peekDemoModule } from '../demo-loader.js';
 import {
   estimateRewardA9,
   fetchPredictionRound,
@@ -21,7 +21,7 @@ function formatExactA9FromRaw(raw) {
   const wholeStr = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return frac ? `${wholeStr}.${frac}` : wholeStr;
 }
-import { A9Haptic, A9TMA } from '../tma.js';
+import { A9Haptic, A9TMA, isReducedMotion } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { escapeHtml, formatNum, showToast, copyText, mountSlider, burstParticles, openChoiceSheet, openModal, closeModal, bindCorridorRadarEvents } from '../components.js';
 import { characterArt, getBoxheadItem } from '../wealth-art.js';
@@ -190,7 +190,7 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
         { value: 'halted',             label: L('6. 异常中止 · 退回本金', '6. Aborted · Refund'), sub: L('本金原路退回', 'Principal refunded') }
       ],
       onSelect: (val) => {
-        store.update(s => { setDemoRoundStage(s.round, val); });
+        store.update(s => { peekDemoModule()?.setDemoRoundStage(s.round, val); });
         renderChallengeHome(root, navigate);
       }
     });
@@ -1396,18 +1396,17 @@ export function renderParticipateSuccess(root, navigate, certId) {
   `;
 
   // 750ms 三拍出征演出：落位(0~260ms) -> 钢印砸落 + 纸屑(280ms) -> 伙伴立牌 360° 翻身欢呼(480ms)
-  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const sealEl = root.querySelector('#success-stamp-seal');
   const cheerImg = root.querySelector('#success-cheer-img');
-  if (!reduced) {
+  if (!isReducedMotion()) {
     setTimeout(() => {
-      if (!root.isConnected) return;
+      if (!root.isConnected || isReducedMotion()) return;
       A9Audio.sealSlam();
       A9Haptic.heavy();
       if (sealEl) burstParticles(sealEl);
     }, 280);
     setTimeout(() => {
-      if (!root.isConnected || !cheerImg) return;
+      if (!root.isConnected || !cheerImg || isReducedMotion()) return;
       cheerImg.classList.add('paper-flipping');
       setTimeout(() => cheerImg.classList.remove('paper-flipping'), 600);
     }, 480);
@@ -1418,9 +1417,11 @@ export function renderParticipateSuccess(root, navigate, certId) {
       A9Haptic.light();
       A9Audio.flip();
       burstParticles(cheerImg);
-      cheerImg.classList.remove('paper-flipping');
-      void cheerImg.offsetWidth;
-      cheerImg.classList.add('paper-flipping');
+      if (!isReducedMotion()) {
+        cheerImg.classList.remove('paper-flipping');
+        void cheerImg.offsetWidth;
+        cheerImg.classList.add('paper-flipping');
+      }
     };
   }
 

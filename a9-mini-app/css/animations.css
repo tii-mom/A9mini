@@ -1057,3 +1057,25 @@
     transform: none !important;
   }
 }
+
+:root[data-reduced-motion="true"] *,
+:root[data-reduced-motion="true"] *::before,
+:root[data-reduced-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+:root[data-reduced-motion="true"] .btn:active,
+:root[data-reduced-motion="true"] .sw-gate-tile:active,
+:root[data-reduced-motion="true"] .sw-record-tile:active,
+:root[data-reduced-motion="true"] .sw-menu-row:active,
+:root[data-reduced-motion="true"] .sw-stamp-cell:active,
+:root[data-reduced-motion="true"] .candle-cell:active,
+:root[data-reduced-motion="true"] .stamp-pad:active,
+:root[data-reduced-motion="true"] .icon-btn:active,
+:root[data-reduced-motion="true"] .wallet-pill:active,
+:root[data-reduced-motion="true"] .quick-btn:active,
+:root[data-reduced-motion="true"] .hero-amt-pill:active {
+  transform: none !important;
+}

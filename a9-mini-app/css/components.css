@@ -30,6 +30,12 @@ body {
   transition: background-color 0.24s ease, color 0.24s ease;
 }
 
+html.modal-open,
+body.modal-open {
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -49,6 +55,11 @@ img {
   outline-offset: 2px;
 }
 
+@keyframes nt-skel-shimmer {
+  0%   { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
 .nt-boot-skeleton {
   display: flex;
   flex-direction: column;
@@ -56,10 +67,16 @@ img {
   padding-top: 4px;
 }
 
+.nt-skel-card,
+.nt-skel-grid i {
+  background: linear-gradient(90deg, var(--card-bg) 25%, var(--paper-tray) 50%, var(--card-bg) 75%);
+  background-size: 220% 100%;
+  animation: nt-skel-shimmer 1.35s ease-in-out infinite;
+}
+
 .nt-skel-card {
   height: 112px;
   border-radius: 18px;
-  background: var(--card-bg);
   border: 1px solid var(--card-border);
   box-shadow: var(--surface-shadow);
 }
@@ -79,8 +96,21 @@ img {
   display: block;
   height: 76px;
   border-radius: 14px;
-  background: var(--card-bg);
   border: 1px solid var(--card-border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-skel-card,
+  .nt-skel-grid i {
+    animation: none;
+    background: var(--card-bg);
+  }
+}
+
+:root[data-reduced-motion="true"] .nt-skel-card,
+:root[data-reduced-motion="true"] .nt-skel-grid i {
+  animation: none;
+  background: var(--card-bg);
 }
 
 .hidden, [hidden] {
@@ -113,7 +143,7 @@ img {
   justify-content: space-between;
   gap: 8px;
   min-height: calc(50px + var(--wv-safe-top));
-  padding: var(--wv-safe-top) 12px 0;
+  padding: var(--wv-safe-top) calc(12px + var(--wv-safe-right)) 0 calc(12px + var(--wv-safe-left));
   background: var(--header-bg);
   border-bottom: 1px solid var(--card-border);
   transition: border-color 0.2s ease;
@@ -255,7 +285,7 @@ img {
 }
 
 @media (max-width: 374px) {
-  .app-header { padding-left: 11px; padding-right: 11px; gap: 6px; }
+  .app-header { padding-left: calc(11px + var(--wv-safe-left)); padding-right: calc(11px + var(--wv-safe-right)); gap: 6px; }
   .header-title { font-size: 14px; }
   .wallet-pill { padding: 0 8px; font-size: 10.5px; max-width: 118px; }
   .icon-btn { width: 30px; height: 30px; }
@@ -273,7 +303,7 @@ img {
 }
 
 .ticker-bar {
-  margin: 2px 14px 4px;
+  margin: 2px calc(14px + var(--wv-safe-right)) 4px calc(14px + var(--wv-safe-left));
   padding: 6px 12px;
   border-radius: 11px;
   background: var(--paper-tray);
@@ -289,7 +319,7 @@ img {
 .app-main {
   flex: 1;
   width: 100%;
-  padding: 6px 14px calc(98px + var(--wv-safe-bottom));
+  padding: 6px calc(14px + var(--wv-safe-right)) calc(98px + var(--wv-safe-bottom)) calc(14px + var(--wv-safe-left));
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1485,7 +1515,7 @@ img {
   left: 50%;
   transform: translateX(-50%);
   bottom: max(10px, var(--wv-safe-bottom));
-  width: min(calc(100% - 24px), 416px);
+  width: min(calc(100% - 24px - var(--wv-safe-left) - var(--wv-safe-right)), 416px);
   height: 58px;
   padding: 4px;
   border-radius: 20px;
@@ -1586,7 +1616,7 @@ img {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: 12px 12px max(12px, var(--wv-safe-bottom));
+  padding: 12px calc(12px + var(--wv-safe-right)) max(12px, var(--wv-safe-bottom)) calc(12px + var(--wv-safe-left));
 }
 
 .modal-sheet {
@@ -1617,7 +1647,7 @@ img {
   top: calc(60px + var(--wv-safe-top));
   left: 50%;
   transform: translateX(-50%);
-  width: min(calc(100% - 28px), 390px);
+  width: min(calc(100% - 28px - var(--wv-safe-left) - var(--wv-safe-right)), 390px);
   z-index: 95;
   display: flex;
   flex-direction: column;
@@ -2643,6 +2673,20 @@ img {
   .sw-stamp-grid .sw-stamp-cell:active {
     transform: none !important;
   }
+}
+
+:root[data-reduced-motion="true"] .sw-pulse-dot.is-up,
+:root[data-reduced-motion="true"] .sw-pulse-dot.is-down {
+  animation: none !important;
+}
+
+:root[data-reduced-motion="true"] .sw-menu-row:active,
+:root[data-reduced-motion="true"] .sw-gate-tile:active,
+:root[data-reduced-motion="true"] .sw-record-tile:active,
+:root[data-reduced-motion="true"] .sw-battle-strip:active,
+:root[data-reduced-motion="true"] .sw-roadmap-step:active,
+:root[data-reduced-motion="true"] .sw-stamp-grid .sw-stamp-cell:active {
+  transform: none !important;
 }
 
 .user-guide { display: grid; gap: 14px; padding-bottom: 4px; }

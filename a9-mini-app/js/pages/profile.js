@@ -6,7 +6,7 @@
 
 import { store } from '../store.js';
 import { config } from '../config.js';
-import { demoTxHash } from '../demo-data.js';
+import { peekDemoModule } from '../demo-loader.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { escapeHtml, formatNum, showToast, copyText, mountSlider, renderCorridorRadar, bindCorridorRadarEvents, animateSlotCounter, launchCoinArc, burstParticles, openModal, closeModal } from '../components.js';
@@ -512,7 +512,7 @@ export function renderClaimPage(root, _navigate, _param, query = {}) {
     const curClaimable = Number(store.state.user.a9Claimable || 0);
     const settledCert = (store.state.certificates || []).find((c) => c.status === 'settled');
     if (claimedAmount > 0) {
-      const txHash = demoTxHash('EQC');
+      const txHash = peekDemoModule()?.demoTxHash('EQC') || 'EQC_DEMO_TX';
       root.innerHTML = `
         <div class="col-gap anim-page-enter">
           <div class="card card-hero success-cert-stage anim-cert-drop" style="text-align:center;padding:24px 16px;">

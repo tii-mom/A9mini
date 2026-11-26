@@ -11,8 +11,61 @@ export const A9TMA = {
     return Boolean(tg && tg.initData && tg.initData.length > 0);
   },
 
+  _eventsBound: false,
+  _visualViewportBound: false,
+
+  syncSafeArea() {
+    if (typeof document === 'undefined' || !document.documentElement?.style) return;
+    const tg = getTg();
+    const rootStyle = document.documentElement.style;
+    const sides = ['top', 'bottom', 'left', 'right'];
+    const applyInsets = (prefix, obj) => {
+      for (const side of sides) {
+        const prop = `${prefix}-${side}`;
+        const raw = obj && typeof obj === 'object' ? obj[side] : undefined;
+        const n = (raw !== null && raw !== undefined && raw !== '') ? Number(raw) : NaN;
+        if (Number.isFinite(n) && n >= 0) {
+          rootStyle.setProperty(prop, `${Math.round(n)}px`);
+        } else {
+          rootStyle.removeProperty?.(prop);
+        }
+      }
+    };
+    try {
+      applyInsets('--tg-safe-area-inset', tg?.safeAreaInset);
+      applyInsets('--tg-content-safe-area-inset', tg?.contentSafeAreaInset);
+      const stableH = Number(tg?.viewportStableHeight);
+      if (Number.isFinite(stableH) && stableH > 0) {
+        rootStyle.setProperty('--tg-viewport-stable-height', `${Math.round(stableH)}px`);
+      } else {
+        rootStyle.removeProperty?.('--tg-viewport-stable-height');
+      }
+    } catch (_) {}
+  },
+
+  ensureFocusedInputVisible() {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
+    try {
+      const active = document.activeElement;
+      if (!active) return;
+      const tag = String(active.tagName || '').toUpperCase();
+      if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT' && active.isContentEditable !== true) return;
+      if (typeof active.getBoundingClientRect !== 'function' || typeof active.scrollIntoView !== 'function') return;
+      const rect = active.getBoundingClientRect();
+      const vvH = Number(window.visualViewport?.height) || Number(getTg()?.viewportHeight) || window.innerHeight || 0;
+      if (vvH > 0 && (rect.bottom > vvH - 16 || rect.top < 56)) {
+        active.scrollIntoView({ block: 'nearest', behavior: isReducedMotion() ? 'auto' : 'smooth' });
+      }
+    } catch (_) {}
+  },
+
   init() {
     const tg = getTg();
+    this.syncSafeArea();
+    if (!this._visualViewportBound && typeof window !== 'undefined' && typeof window.visualViewport?.addEventListener === 'function') {
+      this._visualViewportBound = true;
+      window.visualViewport.addEventListener('resize', () => this.ensureFocusedInputVisible());
+    }
     if (!tg) return;
     try {
       tg.ready();
@@ -20,13 +73,26 @@ export const A9TMA = {
       tg.disableVerticalSwipes?.();
       const theme = document.documentElement.dataset.theme || 'light';
       this.syncTheme(theme);
+      this.syncSafeArea();
+      if (!this._eventsBound && typeof tg.onEvent === 'function') {
+        this._eventsBound = true;
+        const onInsetChange = () => this.syncSafeArea();
+        tg.onEvent('viewportChanged', () => {
+          this.syncSafeArea();
+          this.ensureFocusedInputVisible();
+        });
+        tg.onEvent('safeAreaChanged', onInsetChange);
+        tg.onEvent('contentSafeAreaChanged', onInsetChange);
+      }
     } catch (_) {
       // Safe fallback in browser preview
     }
   },
 
   syncTheme(theme) {
-    const bg = theme === 'dark' ? '#121318' : '#F4F5F8';
+    const isDark = theme === 'dark';
+    const bg = isDark ? '#121318' : '#F4F5F8';
+    const bottomBg = isDark ? '#1C1E26' : '#FFFFFF';
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', bg);
     const tg = getTg();
@@ -34,6 +100,9 @@ export const A9TMA = {
     try {
       tg.setHeaderColor?.(bg);
       tg.setBackgroundColor?.(bg);
+      if (typeof tg.setBottomBarColor === 'function') {
+        tg.setBottomBarColor(bottomBg);
+      }
     } catch (_) {}
   },
 
@@ -234,21 +303,43 @@ export const A9TMA = {
   }
 };
 
+let hapticsEnabled = true;
+
 function fallbackVib(pattern) {
   try {
     if (!A9TMA.isTelegram() && navigator.vibrate) navigator.vibrate(pattern);
   } catch (_) {}
 }
 
+/** 统一减弱动态效果判断：同时尊重系统 prefers-reduced-motion 与应用内偏好开关 */
+export function isReducedMotion() {
+  try {
+    if (typeof document !== 'undefined' && document.documentElement?.dataset?.reducedMotion === 'true') {
+      return true;
+    }
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
 /**
  * A9 Native Haptic Engine (Telegram HapticFeedback + Web Vibration fallback)
  */
 export const A9Haptic = {
-  light()   { getTg()?.HapticFeedback?.impactOccurred?.('light');  fallbackVib(8); },
-  medium()  { getTg()?.HapticFeedback?.impactOccurred?.('medium'); fallbackVib(14); },
-  heavy()   { getTg()?.HapticFeedback?.impactOccurred?.('heavy');  fallbackVib(22); },
-  tick()    { getTg()?.HapticFeedback?.selectionChanged?.();       fallbackVib(5); },
-  success() { getTg()?.HapticFeedback?.notificationOccurred?.('success'); fallbackVib([10, 35, 18]); },
-  warning() { getTg()?.HapticFeedback?.notificationOccurred?.('warning'); fallbackVib([14, 30, 14]); },
-  error()   { getTg()?.HapticFeedback?.notificationOccurred?.('error');   fallbackVib([18, 40, 18]); }
+  isEnabled() {
+    return hapticsEnabled;
+  },
+  setEnabled(flag) {
+    hapticsEnabled = Boolean(flag);
+    return hapticsEnabled;
+  },
+  light()   { if (!hapticsEnabled) return; getTg()?.HapticFeedback?.impactOccurred?.('light');  fallbackVib(8); },
+  medium()  { if (!hapticsEnabled) return; getTg()?.HapticFeedback?.impactOccurred?.('medium'); fallbackVib(14); },
+  heavy()   { if (!hapticsEnabled) return; getTg()?.HapticFeedback?.impactOccurred?.('heavy');  fallbackVib(22); },
+  tick()    { if (!hapticsEnabled) return; getTg()?.HapticFeedback?.selectionChanged?.();       fallbackVib(5); },
+  success() { if (!hapticsEnabled) return; getTg()?.HapticFeedback?.notificationOccurred?.('success'); fallbackVib([10, 35, 18]); },
+  warning() { if (!hapticsEnabled) return; getTg()?.HapticFeedback?.notificationOccurred?.('warning'); fallbackVib([14, 30, 14]); },
+  error()   { if (!hapticsEnabled) return; getTg()?.HapticFeedback?.notificationOccurred?.('error');   fallbackVib([18, 40, 18]); }
 };

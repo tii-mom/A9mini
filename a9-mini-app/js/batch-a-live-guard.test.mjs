@@ -1312,7 +1312,7 @@ test('Batch C: lockMode blocks ?mode=demo, TON Connect enforces mainnet chain & 
   const appSrc = readFileSync(join(JS_DIR, 'app.js'), 'utf8');
   assert.ok(appSrc.includes("viewHost.className = 'route-view-host'"), 'app.js must mount each route in a fresh viewHost');
   assert.ok(appSrc.includes('mainEl.replaceChildren(viewHost)'), 'app.js must replace mainEl children so old root.isConnected turns false');
-  assert.ok(appSrc.includes('const render = await route.load()') && appSrc.includes('if (seq !== routeRenderSeq) return;') && appSrc.includes('render(renderTarget, navigate, param, query)'), 'app.js must pass isolated renderTarget to route.render');
+  assert.ok(appSrc.includes('getCachedRouteHandler(route)') && appSrc.includes('const render = await loadRouteHandler(route)') && appSrc.includes('if (seq !== routeRenderSeq) return;') && appSrc.includes('render(renderTarget, navigate, param, query)'), 'app.js must use loadRouteHandler/getCachedRouteHandler with routeRenderSeq guard and isolated renderTarget');
 
   const profileSrc = readFileSync(join(JS_DIR, 'pages/profile.js'), 'utf8');
   assert.ok(profileSrc.includes('${escapeHtml(txHash)}'), 'profile.js must escape txHash');
@@ -1422,4 +1422,351 @@ test('Global v17.1 terminology guardrail across Mini App, Bot, Official Web, and
   assert.deepEqual(violations, [], `Global terminology regressions found:\n${violations.join('\n')}`);
 });
 
+test('P1-cleanup: repeated A9TMA.init() registers visualViewport.resize listener only once', () => {
+  const out = runScenario(
+    { href: 'https://app.a9.lat/?mode=live' },
+    `
+      const vvListeners = [];
+      const tgEvents = [];
+      window.visualViewport = {
+        height: 640,
+        addEventListener(type, fn) { vvListeners.push({ type, fn }); },
+      };
+      document.documentElement.style = { setProperty() {}, removeProperty() {} };
+
+      const { A9TMA } = await import(JS_URL + '/tma.js');
+      A9TMA.init();
+      A9TMA.init();
+      const countWithoutTg = vvListeners.filter((x) => x.type === 'resize').length;
+
+      window.Telegram = {
+        WebApp: {
+          ready() {},
+          expand() {},
+          disableVerticalSwipes() {},
+          setHeaderColor() {},
+          setBackgroundColor() {},
+          setBottomBarColor() {},
+          onEvent(ev) { tgEvents.push(ev); },
+        },
+      };
+      A9TMA.init();
+      A9TMA.init();
+      const countWithTg = vvListeners.filter((x) => x.type === 'resize').length;
+      const tgViewportEvents = tgEvents.filter((ev) => ev === 'viewportChanged').length;
+
+      console.log(JSON.stringify({ countWithoutTg, countWithTg, tgViewportEvents }));
+    `,
+  );
+
+  assert.equal(out.countWithoutTg, 1);
+  assert.equal(out.countWithTg, 1);
+  assert.equal(out.tgViewportEvents, 1);
+});
+
+test('P2-1a: loadRouteHandler dedupes concurrent loads and retries cleanly after failure', () => {
+  const out = runScenario(
+    { href: 'https://app.a9.lat/?mode=live' },
+    `
+      const { getCachedRouteHandler, loadRouteHandler } = await import(JS_URL + '/router.js');
+
+      let dedupeLoadCalls = 0;
+      let resolveDedupe;
+      let markEntered;
+      const loaderEntered = new Promise((res) => { markEntered = res; });
+      const dedupeRoute = {
+        path: '/__test_dedupe',
+        load: () => {
+          dedupeLoadCalls += 1;
+          return new Promise((res) => {
+            resolveDedupe = () => res(() => 'DEDUPE_OK');
+            markEntered();
+          });
+        },
+      };
+      const p1 = loadRouteHandler(dedupeRoute);
+      const p2 = loadRouteHandler(dedupeRoute);
+      await loaderEntered;
+      resolveDedupe();
+      const [h1, h2] = await Promise.all([p1, p2]);
+      const dedupeCached = getCachedRouteHandler(dedupeRoute) === h1 && h1 === h2;
+
+      let retryLoadCalls = 0;
+      const retryRoute = {
+        path: '/__test_retry',
+        load: async () => {
+          retryLoadCalls += 1;
+          if (retryLoadCalls === 1) throw new Error('TEMP_NET_ERR');
+          return () => 'RETRY_OK';
+        },
+      };
+      let firstFailed = false;
+      try { await loadRouteHandler(retryRoute); } catch (_) { firstFailed = true; }
+      const cachedAfterFail = Boolean(getCachedRouteHandler(retryRoute));
+      const retryHandler = await loadRouteHandler(retryRoute);
+      const cachedAfterRetry = getCachedRouteHandler(retryRoute) === retryHandler;
+
+      console.log(JSON.stringify({
+        dedupeLoadCalls,
+        dedupeCached,
+        firstFailed,
+        cachedAfterFail,
+        retryLoadCalls,
+        cachedAfterRetry,
+      }));
+    `,
+  );
+
+  assert.equal(out.dedupeLoadCalls, 1);
+  assert.equal(out.dedupeCached, true);
+  assert.equal(out.firstFailed, true);
+  assert.equal(out.cachedAfterFail, false);
+  assert.equal(out.retryLoadCalls, 2);
+  assert.equal(out.cachedAfterRetry, true);
+});
+
+test('P2-3: demo-data.js is lazy-loaded only in Demo mode with failure retry, concurrent ensureDemoReady, reset, and sync fund contracts', () => {
+  // 1) Static import guard: zero static imports of demo-data.js across a9-mini-app/js/
+  const collectJs = (dir) => {
+    const out = [];
+    for (const entry of readdirSync(dir)) {
+      if (entry === 'vendor') continue;
+      const p = join(dir, entry);
+      if (statSync(p).isDirectory()) out.push(...collectJs(p));
+      else if (entry.endsWith('.js')) out.push(p);
+    }
+    return out;
+  };
+  const staticDemoImports = [];
+  for (const file of collectJs(JS_DIR)) {
+    const src = readFileSync(file, 'utf8');
+    if (/^\s*import\s+[\s\S]*?from\s+['"][^'"]*demo-data\.js['"]/m.test(src)) {
+      staticDemoImports.push(file);
+    }
+  }
+  assert.deepEqual(staticDemoImports, [], `Unexpected static demo-data.js imports: ${staticDemoImports.join(', ')}`);
+
+  // 2) Live mode never loads demo-data.js
+  const liveOut = runScenario(
+    {
+      href: 'https://app.a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat', liveFundsEnabled: false },
+    },
+    `
+      const { store } = await import(JS_URL + '/store.js');
+      const { isDemoReady, peekDemoModule, loadDemoModule } = await import(JS_URL + '/demo-loader.js');
+      const ensured = await store.ensureDemoReady();
+      const loaded = await loadDemoModule();
+      const stakeRes = store.stakeTon(100);
+      const claimRes = store.claimRewards();
+      const promoRes = store.claimPromoDemo();
+      const buyRes = store.buyInternalMarket(5);
+      console.log(JSON.stringify({
+        ensured,
+        loaded,
+        isReady: isDemoReady(),
+        peek: peekDemoModule(),
+        stakeRes,
+        claimRes,
+        promoHasError: Boolean(promoRes?.error),
+        buyHasError: Boolean(buyRes?.error),
+      }));
+    `,
+  );
+  assert.equal(liveOut.ensured, false);
+  assert.equal(liveOut.loaded, null);
+  assert.equal(liveOut.isReady, false);
+  assert.equal(liveOut.peek, null);
+  assert.equal(liveOut.stakeRes, null);
+  assert.equal(liveOut.claimRes, 0);
+  assert.equal(liveOut.promoHasError, true);
+  assert.equal(liveOut.buyHasError, true);
+
+  // 3) Demo mode: pre-ready sync contracts, failure retry, concurrent ensureDemoReady, UI pref & referrer preservation, reset, post-ready fund ops
+  const demoOut = runScenario(
+    {
+      href: 'http://127.0.0.1:8091/?mode=demo',
+    },
+    `
+      localStorage.setItem('a9_ui_prefs_v1', JSON.stringify({
+        settings: { themeMode: 'dark', language: 'en-US' },
+        user: { profileMode: 'empty', autoRenew: false },
+      }));
+      const { store } = await import(JS_URL + '/store.js');
+      const { isDemoReady, peekDemoModule } = await import(JS_URL + '/demo-loader.js');
+
+      store.setReferrerId('REF_DEEP_42');
+      const preReady = {
+        demoReady: store.demoReady,
+        isReady: isDemoReady(),
+        stake: store.stakeTon(100),
+        claim: store.claimRewards(),
+        promoHasError: Boolean(store.claimPromoDemo()?.error),
+        buyHasError: Boolean(store.buyInternalMarket(5)?.error),
+      };
+
+      let loadFailed = false;
+      try {
+        await store.ensureDemoReady(() => Promise.reject(new Error('DEMO_NET_FAIL')));
+      } catch (_) {
+        loadFailed = true;
+      }
+      const afterFail = {
+        loadFailed,
+        demoReady: store.demoReady,
+        isReady: isDemoReady(),
+      };
+
+      const [r1, r2] = await Promise.all([store.ensureDemoReady(), store.ensureDemoReady()]);
+      const hydrated = {
+        r1,
+        r2,
+        demoReady: store.demoReady,
+        isReady: isDemoReady(),
+        hasSquads: Array.isArray(peekDemoModule()?.DEMO_SQUADS) && peekDemoModule().DEMO_SQUADS.length > 0,
+        connected: store.state.user.connected,
+        themeMode: store.state.settings.themeMode,
+        language: store.state.settings.language,
+        profileMode: store.state.user.profileMode,
+        referrerId: store.state.referral.referrerId,
+        certsCount: store.state.certificates.length,
+      };
+
+      const balBeforeStake = store.state.user.a9Available;
+      const certsBeforeStake = store.state.certificates.length;
+      const belowMinCert = store.stakeTon(50);
+      const belowMinUnchanged = store.state.user.a9Available === balBeforeStake && store.state.certificates.length === certsBeforeStake;
+
+      const stakeCert = store.stakeTon(200);
+      const validStakeDeducted = store.state.user.a9Available === balBeforeStake - 200;
+      const buyRes = store.buyInternalMarket(5);
+      const promoRes = store.claimPromoDemo();
+
+      store.reset();
+      const afterReset = {
+        demoReady: store.demoReady,
+        connected: store.state.user.connected,
+        language: store.state.settings.language,
+        referrerId: store.state.referral.referrerId,
+        certsCount: store.state.certificates.length,
+      };
+
+      console.log(JSON.stringify({
+        preReady,
+        afterFail,
+        hydrated,
+        postOps: {
+          belowMinCert,
+          belowMinUnchanged,
+          staked: Boolean(stakeCert && stakeCert.id),
+          validStakeDeducted,
+          bought: Boolean(buyRes && !buyRes.error),
+          promoClaimed: Boolean(promoRes && !promoRes.error),
+        },
+        afterReset,
+      }));
+    `,
+  );
+
+  assert.equal(demoOut.preReady.demoReady, false);
+  assert.equal(demoOut.preReady.isReady, false);
+  assert.equal(demoOut.preReady.stake, null);
+  assert.equal(demoOut.preReady.claim, 0);
+  assert.equal(demoOut.preReady.promoHasError, true);
+  assert.equal(demoOut.preReady.buyHasError, true);
+
+  assert.equal(demoOut.afterFail.loadFailed, true);
+  assert.equal(demoOut.afterFail.demoReady, false);
+  assert.equal(demoOut.afterFail.isReady, false);
+
+  assert.equal(demoOut.hydrated.r1, true);
+  assert.equal(demoOut.hydrated.r2, true);
+  assert.equal(demoOut.hydrated.demoReady, true);
+  assert.equal(demoOut.hydrated.isReady, true);
+  assert.equal(demoOut.hydrated.hasSquads, true);
+  assert.equal(demoOut.hydrated.connected, true);
+  assert.equal(demoOut.hydrated.themeMode, 'dark');
+  assert.equal(demoOut.hydrated.language, 'en-US');
+  assert.equal(demoOut.hydrated.profileMode, 'empty');
+  assert.equal(demoOut.hydrated.referrerId, 'REF_DEEP_42');
+  assert.ok(demoOut.hydrated.certsCount > 0);
+
+  assert.equal(demoOut.postOps.belowMinCert, null);
+  assert.equal(demoOut.postOps.belowMinUnchanged, true);
+  assert.equal(demoOut.postOps.staked, true);
+  assert.equal(demoOut.postOps.validStakeDeducted, true);
+  assert.equal(demoOut.postOps.bought, true);
+  assert.equal(demoOut.postOps.promoClaimed, true);
+
+  assert.equal(demoOut.afterReset.demoReady, true);
+  assert.equal(demoOut.afterReset.connected, true);
+  assert.equal(demoOut.afterReset.language, 'en-US');
+  assert.equal(demoOut.afterReset.referrerId, 'REF_DEEP_42');
+  assert.equal(demoOut.afterReset.certsCount, demoOut.hydrated.certsCount);
+
+  // 4) Concurrent reset() during in-flight ensureDemoReady(): hydrates strictly once & preserves language + referrer
+  const raceOut = runScenario(
+    {
+      href: 'http://127.0.0.1:8091/?mode=demo',
+    },
+    `
+      const { store } = await import(JS_URL + '/store.js');
+      const realDemo = await import(JS_URL + '/demo-data.js');
+      let applyCalls = 0;
+      let resetPredCalls = 0;
+      let releaseImport;
+      let markEntered;
+      const entered = new Promise((res) => { markEntered = res; });
+      const wrappedDemo = {
+        ...realDemo,
+        applyDemoInitialState(s) {
+          applyCalls += 1;
+          return realDemo.applyDemoInitialState(s);
+        },
+        resetDemoPrediction() {
+          resetPredCalls += 1;
+          return realDemo.resetDemoPrediction();
+        },
+      };
+      const deferredImporter = () => new Promise((res) => {
+        releaseImport = () => res(wrappedDemo);
+        markEntered();
+      });
+
+      const p1 = store.ensureDemoReady(deferredImporter);
+      await entered;
+      store.state.settings.language = 'en-US';
+      store.setReferrerId('REF_RACE_99');
+      store.reset();
+      const p2 = store.ensureDemoReady();
+      releaseImport();
+      const [res1, res2] = await Promise.all([p1, p2]);
+
+      console.log(JSON.stringify({
+        res1,
+        res2,
+        applyCalls,
+        resetPredCalls,
+        demoReady: store.demoReady,
+        connected: store.state.user.connected,
+        language: store.state.settings.language,
+        referrerId: store.state.referral.referrerId,
+      }));
+    `,
+  );
+
+  assert.equal(raceOut.res1, true);
+  assert.equal(raceOut.res2, true);
+  assert.equal(raceOut.applyCalls, 1);
+  assert.equal(raceOut.resetPredCalls, 1);
+  assert.equal(raceOut.demoReady, true);
+  assert.equal(raceOut.connected, true);
+  assert.equal(raceOut.language, 'en-US');
+  assert.equal(raceOut.referrerId, 'REF_RACE_99');
+
+  // 5) Demo console guard: openSimDrawer locks controls when !store.demoReady and exposes retry button
+  const appSrc = readFileSync(join(JS_DIR, 'app.js'), 'utf8');
+  assert.ok(appSrc.includes('if (!store.demoReady)'), 'openSimDrawer must lock controls when Demo is not ready');
+  assert.ok(appSrc.includes('id="sim-retry-demo"'), 'openSimDrawer must provide retry button when Demo load failed');
+});
 

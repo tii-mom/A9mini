@@ -10,7 +10,7 @@ import { L } from '../i18n.js';
 import { openChoiceSheet, escapeHtml } from '../components.js';
 import { uiMemory } from '../app.js';
 import { config } from '../config.js';
-import { ROUND_META, DEMO_RANKS as DATA } from '../demo-data.js';
+import { peekDemoModule } from '../demo-loader.js';
 
 export function renderLeaderboard(root) {
   if (!config.isDemo) {
@@ -31,6 +31,9 @@ export function renderLeaderboard(root) {
     return;
   }
 
+  const demo = peekDemoModule();
+  const DATA = demo?.DEMO_RANKS || {};
+  const ROUND_META = demo?.ROUND_META || { R3: { zh: '第 3 轮', en: 'Round 3', target: '—', est: '—', bars: '—', pct: 0 }, R2: { zh: '第 2 轮', en: 'Round 2' }, R1: { zh: '第 1 轮', en: 'Round 1' } };
   let activeTab = uiMemory.leaderboardTab || 'personal';
   let activeRound = uiMemory.leaderboardRound || 'R3';
 

@@ -5,7 +5,7 @@
  * - Clean listener & rAF lifecycle teardown
  */
 
-import { A9Haptic } from './tma.js';
+import { A9Haptic, isReducedMotion } from './tma.js';
 import { A9Audio } from './audio.js';
 import { icon } from './icons.js';
 import { L } from './i18n.js';
@@ -52,7 +52,7 @@ export function formatTimer(totalSec) {
 }
 
 export function burstParticles(originEl) {
-  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  if (isReducedMotion()) return;
   const rect = originEl?.getBoundingClientRect();
   const cx = rect ? rect.left + rect.width * 0.8 : window.innerWidth / 2;
   const cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
@@ -133,29 +133,147 @@ export function copyText(text, label) {
   }
 }
 
+const MODAL_FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+let modalPrevFocus = null;
+let modalScrollLocked = false;
+
+function setModalScrollLock(locked) {
+  if (typeof document === 'undefined') return;
+  modalScrollLocked = Boolean(locked);
+  document.documentElement?.classList?.toggle?.('modal-open', modalScrollLocked);
+  document.body?.classList?.toggle?.('modal-open', modalScrollLocked);
+}
+
+function isElementFocusable(el, root) {
+  if (!el) return false;
+  if (el.disabled === true || el.hidden === true) return false;
+  if (el.getAttribute?.('aria-hidden') === 'true') return false;
+  const rawTabIndex = el.getAttribute?.('tabindex');
+  if (rawTabIndex !== null && rawTabIndex !== undefined && rawTabIndex !== '') {
+    const parsedTab = Number(rawTabIndex);
+    if (Number.isFinite(parsedTab) && parsedTab < 0) return false;
+  } else if (typeof el.tabIndex === 'number' && el.tabIndex < 0) {
+    return false;
+  }
+  if (typeof el.closest === 'function' && el.closest('.hidden, [hidden], [inert], [aria-hidden="true"]')) {
+    return false;
+  }
+  const getCS = typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
+    ? window.getComputedStyle
+    : null;
+  let cur = el;
+  while (cur && cur !== root) {
+    if (cur.inert === true || cur.hidden === true || cur.classList?.contains?.('hidden')) return false;
+    if (getCS) {
+      try {
+        const cs = getCS(cur);
+        if (cs) {
+          if (cs.display === 'none') return false;
+          if (cur === el && (cs.visibility === 'hidden' || cs.visibility === 'collapse')) return false;
+        }
+      } catch (_) {}
+    } else if (cur.style) {
+      if (cur.style.display === 'none') return false;
+      if (cur === el && (cur.style.visibility === 'hidden' || cur.style.visibility === 'collapse')) return false;
+    }
+    cur = cur.parentElement;
+  }
+  return true;
+}
+
+function getModalFocusables(root) {
+  if (!root || typeof root.querySelectorAll !== 'function') return [];
+  return Array.from(root.querySelectorAll(MODAL_FOCUSABLE_SELECTOR)).filter((el) => isElementFocusable(el, root));
+}
+
+function isModalOpen(root) {
+  return Boolean(root && typeof root.classList?.contains === 'function' && !root.classList.contains('hidden'));
+}
+
 export function openModal(html) {
   const root = document.getElementById('modal-root');
   if (!root) return;
-  // 若上一个弹层尚未关闭就被新弹层覆写，先触发 idle 信号，防止 openTxRiskConfirmModal 等等待弹层关闭的 Promise 永久悬挂
-  if (typeof root.classList?.contains === 'function' && !root.classList.contains('hidden') && root.innerHTML) {
+  const wasOpen = isModalOpen(root);
+  // 若上一个弹层尚未关闭就被新弹层覆写，先触发 idle 信号，防止 openTxRiskConfirmModal 等等待弹层关闭的 Promise 永久悬挂；同时保留原始打开前焦点
+  if (wasOpen && root.innerHTML) {
     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
       window.dispatchEvent(new CustomEvent('a9:interaction-idle'));
     }
+  } else {
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    modalPrevFocus = active && active !== document.body && active !== document.documentElement ? active : null;
+    setModalScrollLock(true);
   }
-  root.innerHTML = `<div class="modal-sheet">${html}</div>`;
+  root.innerHTML = `<div class="modal-sheet" tabindex="-1">${html}</div>`;
+  const sheet = typeof root.querySelector === 'function' ? root.querySelector('.modal-sheet') : null;
+  const titleEl = typeof sheet?.querySelector === 'function' ? sheet.querySelector('.card-title, h1, h2, h3') : null;
+  if (titleEl) {
+    if (!titleEl.id) titleEl.id = 'a9-modal-title';
+    root.setAttribute?.('aria-labelledby', titleEl.id);
+  } else {
+    root.removeAttribute?.('aria-labelledby');
+  }
   root.classList.remove('hidden');
   root.onclick = (e) => {
     if (e.target === root) closeModal();
   };
+  const focusables = getModalFocusables(root);
+  const initialTarget = focusables[0] || sheet;
+  try {
+    initialTarget?.focus?.({ preventScroll: true });
+  } catch (_) {
+    try { initialTarget?.focus?.(); } catch (_) {}
+  }
 }
 
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', (e) => {
+  const root = document.getElementById('modal-root');
+  if (!isModalOpen(root)) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeModal();
+    return;
+  }
+  if (e.key === 'Tab') {
+    const focusables = getModalFocusables(root);
+    if (!focusables.length) {
+      e.preventDefault();
+      root.querySelector?.('.modal-sheet')?.focus?.();
+      return;
+    }
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    const inside = typeof root.contains === 'function' ? root.contains(active) : true;
+    if (e.shiftKey) {
+      if (!inside || active === first) {
+        e.preventDefault();
+        last.focus?.();
+      }
+    } else if (!inside || active === last) {
+      e.preventDefault();
+      first.focus?.();
+    }
+  }
+});
 
 export function closeModal() {
   const root = document.getElementById('modal-root');
   if (!root) return;
+  const wasOpen = isModalOpen(root) || Boolean(root.innerHTML);
   root.classList.add('hidden');
+  root.removeAttribute?.('aria-labelledby');
   root.innerHTML = '';
+  if (modalScrollLocked) setModalScrollLock(false);
+  const toRestore = modalPrevFocus;
+  modalPrevFocus = null;
+  if (wasOpen && toRestore && toRestore.isConnected !== false && typeof toRestore.focus === 'function') {
+    try {
+      toRestore.focus({ preventScroll: true });
+    } catch (_) {
+      try { toRestore.focus(); } catch (_) {}
+    }
+  }
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
     window.dispatchEvent(new CustomEvent('a9:interaction-idle'));
   }
@@ -412,13 +530,19 @@ export function mountSlider(containerEl, { label = L('右滑确认', 'Slide to C
 
 export function animateSlotCounter(el, target, { duration = 420, decimals = 0, prefix = '', suffix = '' } = {}) {
   if (!el) return;
-  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-    el.textContent = `${prefix}${formatNum(target, decimals)}${suffix}`;
+  const finalText = `${prefix}${formatNum(target, decimals)}${suffix}`;
+  if (isReducedMotion()) {
+    el.textContent = finalText;
     return;
   }
   const t0 = performance.now();
   const easeOut = (p) => 1 - Math.pow(1 - p, 3);
   function frame(now) {
+    if (el.isConnected === false) return;
+    if (isReducedMotion()) {
+      el.textContent = finalText;
+      return;
+    }
     const p = Math.min(1, (now - t0) / duration);
     el.textContent = `${prefix}${formatNum(target * easeOut(p), decimals)}${suffix}`;
     if (p < 1) requestAnimationFrame(frame);
@@ -429,7 +553,7 @@ export function animateSlotCounter(el, target, { duration = 420, decimals = 0, p
 /** 领奖开箱抛物线金币动画（由宝箱飞向目标金额胶囊，尊重 reduced-motion） */
 export function launchCoinArc(fromEl, toEl, count = 6) {
   if (!fromEl || !toEl) return;
-  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  if (isReducedMotion()) return;
   const from = fromEl.getBoundingClientRect();
   const to = toEl.getBoundingClientRect();
   const sx = from.left + from.width / 2;
@@ -613,7 +737,7 @@ export function syncRadarInPlace(round, { batch = false } = {}) {
   const priceText = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) || Number(v) <= 0)
     ? '—' : `$${Number(v).toFixed(4)}`;
 
-  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const reduced = isReducedMotion();
 
   round.candles.forEach((c) => {
     const cell = grid.querySelector(`[data-candle-idx="${c.index}"]`);

@@ -8,7 +8,7 @@
 
 import { store } from './store.js';
 import { config } from './config.js';
-import { demoWalletSendResult } from './demo-data.js';
+import { loadDemoModule } from './demo-loader.js';
 import { A9Haptic } from './tma.js';
 import { escapeHtml, showToast, copyText, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
@@ -461,7 +461,8 @@ class A9TonConnect {
    */
   async _dispatch(tx, action = 'demo_tx') {
     if (config.isDemo) {
-      return demoWalletSendResult(action);
+      const demo = await loadDemoModule();
+      return demo.demoWalletSendResult(action);
     }
     // 实盘签发瞬间复验总闸、SDK、网络、ton_proof 与绑定钱包一致性，消除确认卡停留期间的 TOCTOU 窗口
     this.assertWalletReadyForLiveTx();
@@ -503,7 +504,7 @@ class A9TonConnect {
 
   /** v16 质押 A9 Jetton（demo 返回模拟回执；live 仅在 liveFundsEnabled=true 时真实签名）。 */
   async sendV15StakeA9({ userJettonWallet, roundController, userAddress, amountA9Raw, roundId, queryId = BigInt(Date.now()), protocolVersion = null }) {
-    if (config.isDemo) return demoWalletSendResult('demo_v15_stake');
+    if (config.isDemo) return (await loadDemoModule()).demoWalletSendResult('demo_v15_stake');
     if (!liveFundsReady()) throw createFundsDisabledError();
     if (!userJettonWallet || !roundController || !userAddress) {
       const err = new Error(L('缺少 A9 钱包或 RoundController 地址，无法构造锁仓交易', 'Missing A9 wallet or RoundController address'));
@@ -525,7 +526,7 @@ class A9TonConnect {
 
   /** v17 领取本金/止损退本 + 已解锁奖励，或勾选 3 折急提（普通 0.22 GRAM / 3 折急提 0.34 GRAM，余量全退）。 */
   async sendV15TicketClaim(ticketAddress, queryId = BigInt(Date.now()), { instantDiscount = false } = {}) {
-    if (config.isDemo) return demoWalletSendResult(instantDiscount ? 'demo_v17_instant_cashout' : 'demo_v15_claim');
+    if (config.isDemo) return (await loadDemoModule()).demoWalletSendResult(instantDiscount ? 'demo_v17_instant_cashout' : 'demo_v15_claim');
     if (!liveFundsReady()) throw createFundsDisabledError();
     const target = ticketAddress || '';
     if (!target) {
@@ -541,7 +542,7 @@ class A9TonConnect {
 
   /** v17 24H 锁仓期提前解押（退 85% 本金 / 扣 15% 销毁，附 0.34 GRAM Gas，余量全退；12H 冲价期合约自动禁止）。 */
   async sendV17TicketEarlyExit(ticketAddress, queryId = BigInt(Date.now())) {
-    if (config.isDemo) return demoWalletSendResult('demo_v17_early_exit');
+    if (config.isDemo) return (await loadDemoModule()).demoWalletSendResult('demo_v17_early_exit');
     if (!liveFundsReady()) throw createFundsDisabledError();
     const target = ticketAddress || '';
     if (!target) {
@@ -557,7 +558,7 @@ class A9TonConnect {
 
   /** v16 邀友奖励 0.06 GRAM 手续费转账（触发推广热钱包自动发 A9）。 */
   async sendV15PromoFee(intent) {
-    if (config.isDemo) return demoWalletSendResult('demo_v15_promo');
+    if (config.isDemo) return (await loadDemoModule()).demoWalletSendResult('demo_v15_promo');
     if (!liveFundsReady()) throw createFundsDisabledError();
     if (!intent?.payTo || !intent?.memo) {
       const err = new Error(L('邀友奖励支付单无效，请重新获取', 'Invalid promo claim intent; please refresh'));
@@ -569,7 +570,7 @@ class A9TonConnect {
 
   /** v16 宝箱商城 / A9 固定兑换 GRAM 支付（memo = buy:<orderId>，实付含 0.06 GRAM 发币 Gas）。 */
   async sendV15PresaleTx(order) {
-    if (config.isDemo) return demoWalletSendResult('demo_v15_presale');
+    if (config.isDemo) return (await loadDemoModule()).demoWalletSendResult('demo_v15_presale');
     if (!liveFundsReady()) throw createFundsDisabledError();
     const payNano = order?.payTonNano || order?.tonNano;
     if (!order?.payTo || !order?.memo || !payNano) {

@@ -97,7 +97,7 @@ export function renderPriceArenaBoard(round, { mode = 'observation' } = {}) {
       <div class="sw-price-arena-top">
         <div class="sw-price-live-block">
           <span class="sw-price-token">
-            <img src="./assets/token/a9-token-2048.png" alt="A9" width="28" height="28" decoding="async" />
+            <img src="./assets/token/a9-token.svg" alt="A9" width="28" height="28" decoding="async" />
           </span>
           <div style="min-width:0;">
             <div class="row-start" style="gap:5px;margin-bottom:2px;">

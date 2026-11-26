@@ -8,7 +8,7 @@
 
 import { renderChestSvg, renderA9CoinSvg, CHEST_TIER_META } from './chest-art.js';
 import { A9Audio } from './audio.js';
-import { A9Haptic, A9TMA } from './tma.js';
+import { A9Haptic, A9TMA, isReducedMotion } from './tma.js';
 import { openModal, closeModal, escapeHtml, formatNum, showToast } from './components.js';
 import { icon } from './icons.js';
 import { L } from './i18n.js';
@@ -249,7 +249,7 @@ export function openChestUnboxingTheater({
   const tierKey = THEATER_TIER_SPECS[tier] ? tier : 'gold';
   const spec = THEATER_TIER_SPECS[tierKey];
   const tierMeta = CHEST_TIER_META[tierKey] || CHEST_TIER_META.gold;
-  const reducedMotion = Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+  const isMotionReduced = () => isReducedMotion();
 
   const hasPaidSplit = Number(baseA9) > 0;
   const resolvedBaseA9 = hasPaidSplit ? Math.max(0, Math.round(Number(baseA9))) : 0;
@@ -519,6 +519,12 @@ export function openChestUnboxingTheater({
       cleanup();
       return;
     }
+    if (isMotionReduced()) {
+      const rect = elShell.getBoundingClientRect();
+      a2d.clearRect(0, 0, rect.width || 360, rect.height || 470);
+      ambRaf = 0;
+      return;
+    }
     const rect = elShell.getBoundingClientRect();
     const w = rect.width || 360;
     const h = rect.height || 470;
@@ -643,6 +649,11 @@ export function openChestUnboxingTheater({
     }
     const rect = elShell.getBoundingClientRect();
     c2d.clearRect(0, 0, rect.width, rect.height);
+    if (isMotionReduced()) {
+      coins = []; sparks = []; shockwaves = []; speedLines = []; dusts = [];
+      fxRaf = 0;
+      return;
+    }
 
     dusts = dusts.filter((d) => d.alpha > 0.03);
     for (const d of dusts) {
@@ -709,11 +720,11 @@ export function openChestUnboxingTheater({
   }
 
   function ensureFxLoop() {
-    if (!fxRaf && !reducedMotion) fxRaf = requestAnimationFrame(tickFx);
+    if (!fxRaf && !isMotionReduced()) fxRaf = requestAnimationFrame(tickFx);
   }
 
   function spawnLandingDust() {
-    if (reducedMotion) return;
+    if (isMotionReduced()) return;
     resizeCanvases();
     const { cx, pedestalY } = getAnchors();
     const n = tierKey === 'legendary' ? 18 : 10;
@@ -733,7 +744,7 @@ export function openChestUnboxingTheater({
   }
 
   function spawnTapSparks(step) {
-    if (reducedMotion) return;
+    if (isMotionReduced()) return;
     resizeCanvases();
     const { cx, cy, pedestalY } = getAnchors();
     shockwaves.push({ x: cx, y: cy, r: 16, maxR: 72 + step * 26, alpha: 0.85, lw: 3.4, color: spec.colors[0], delay: 0 });
@@ -815,7 +826,7 @@ export function openChestUnboxingTheater({
   }
 
   function spawnGrandBurstFx() {
-    if (reducedMotion) return;
+    if (isMotionReduced()) return;
     resizeCanvases();
     const anchors = getAnchors();
     const { cx, cy } = anchors;
@@ -903,7 +914,7 @@ export function openChestUnboxingTheater({
     phase = 'burst';
     elShell.classList.remove('is-cinema', 'is-fakeout', 'cam-step-1', 'cam-step-2', 'cam-step-3', 'shake-tap');
     void elShell.offsetWidth;
-    if (!immediate && !reducedMotion) {
+    if (!immediate && !isMotionReduced()) {
       elShell.classList.add(spec.shake);
       elFlash.classList.remove('fire');
       void elFlash.offsetWidth;
@@ -939,7 +950,7 @@ export function openChestUnboxingTheater({
     A9Audio.chestGrandBurst(tierKey, isJackpot, targetCoinCount);
     if (!immediate) spawnGrandBurstFx();
 
-    if (immediate || reducedMotion) {
+    if (immediate || isMotionReduced()) {
       elRoller.textContent = `+${formatNum(roundedTotal, 0)}`;
       if (elResBonus) elResBonus.textContent = `+${formatNum(resolvedBonusA9, 0)} A9`;
       elWalletToast.textContent = L(`已入账 +${formatNum(roundedTotal, 0)} A9`, `Credited +${formatNum(roundedTotal, 0)} A9`);
@@ -1000,7 +1011,7 @@ export function openChestUnboxingTheater({
 
   function enterClimaxAndBurst() {
     if (phase !== 'idle') return;
-    if (reducedMotion) {
+    if (isMotionReduced()) {
       revealBurst(true);
       return;
     }
@@ -1188,9 +1199,9 @@ export function openChestUnboxingTheater({
   updateSealedCopy();
   resizeCanvases();
   initAmbient();
-  if (!reducedMotion) ambRaf = requestAnimationFrame(tickAmbient);
+  if (!isMotionReduced()) ambRaf = requestAnimationFrame(tickAmbient);
 
-  if (reducedMotion) {
+  if (isMotionReduced()) {
     elRig.className = `ct-rig sm-idle tier-${tierKey}`;
   } else {
     A9Audio.chestDropSlam(tierKey);
