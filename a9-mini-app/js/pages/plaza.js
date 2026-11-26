@@ -7,25 +7,38 @@ import { getEffectiveUserId, fetchPredictionUser, fetchUserPortfolio, rawToA9 } 
 
 let prevPlazaSlotStates = {};
 
+function roundStatusChip(r) {
+  if (r.rawState === 'STAKING_CLOSED') return ['chip-gold', L('已封盘', 'Closed')];
+  if (r.rawState === 'ORACLE_PAUSED') return ['chip-amber', L('判定暂停', 'Paused')];
+  if (r.rawState?.startsWith('SETTLING_') || r.nextState === 'AWAITING_SETTLE') return ['chip-gold', L('等待结算', 'Settling')];
+  if (r.stage === 'observation') return ['chip-blue', L('12H 冲价', '12H Push')];
+  if (r.stage === 'participation') return ['chip-green', r.inFirst6h ? L('头矿 6H', 'First 6H') : L('24H 锁仓', '24H Lock')];
+  if (r.stage === 'settlement_success') return ['chip-green', L('本轮通关', 'Passed')];
+  if (r.stage === 'settlement_burn') return ['chip-red', L('未通关', 'Missed')];
+  if (r.stage === 'halted') return ['chip-amber', L('异常中止', 'Aborted')];
+  if (r.stage === 'warmup') return ['chip-gold', L('下轮预热', 'Warm-Up')];
+  return ['chip-muted', L('待同步', 'Syncing')];
+}
+
 function roundSummary(r) {
   const needed = r.minQualifiedCandles ?? 8;
   const passed = r.qualifiedCandles;
   if (r.rawState === 'STAKING_CLOSED') return L('已封盘 · 等待冲价开始', 'Entry closed · awaiting price push');
-  if (r.rawState === 'ORACLE_PAUSED') return L('价格判定暂停', 'Price observation paused');
-  if (r.rawState?.startsWith('SETTLING_')) return L('等待结算结果', 'Awaiting settlement');
+  if (r.rawState === 'ORACLE_PAUSED') return L('价格判定暂停 · 等待恢复', 'Price observation paused');
+  if (r.rawState?.startsWith('SETTLING_')) return L('12 个时段已采集 · 等待结算结果', 'Slots complete · awaiting settlement');
   if (r.stage === 'observation') {
-    if (r.nextState === 'AWAITING_SETTLE') return L('等待结算结果', 'Awaiting settlement');
+    if (r.nextState === 'AWAITING_SETTLE') return L('等待链上结算结果', 'Awaiting on-chain settlement');
     if (passed == null) return L('达标时段待核验', 'Awaiting confirmed slots');
-    if (passed >= needed) return L('已达通关门槛，等待结算', 'Goal reached · awaiting settlement');
+    if (passed >= needed) return L('已达任意 ≥ 8 格门槛 · 等待结算', '8+ qualifying slots met · awaiting settlement');
     return L(`还差 ${needed - passed} 个达标时段通关`, `${needed - passed} more qualifying slots needed`);
   }
   return ({
-    participation: r.inFirst6h ? L('头矿 6H · 5% 止损', 'First 6H · 5% stop-loss') : L('普通锁仓 · 10% 止损', 'Standard lock · 10% stop-loss'),
-    settlement_success: L('本轮通关 · 查看派奖', 'Round passed · view payout'),
-    settlement_burn: L('未通关 · 自动止损', 'Round missed · automatic stop-loss'),
-    halted: L('异常中止 · 退回本金', 'Aborted · principal refund'),
-    warmup: L('下轮预热中', 'Next round warm-up'),
-  })[r.stage] || L('等待轮次数据', 'Awaiting round data');
+    participation: r.inFirst6h ? L('头矿 6H · 5% 轻止损窗口', 'First 6H · 5% stop-loss window') : L('普通锁仓 · 10% 自动止损', 'Standard lock · 10% stop-loss'),
+    settlement_success: L('本轮通关 · 查看派奖与解锁', 'Round passed · view payout & unlock'),
+    settlement_burn: L('未通关 · 自动止损退本', 'Round missed · automatic stop-loss'),
+    halted: L('异常中止 · 100% 退回本金', 'Aborted · 100% principal refund'),
+    warmup: L('下轮预热开放预约', 'Next round warm-up open'),
+  })[r.stage] || L('等待轮次数据同步', 'Awaiting round data');
 }
 
 function renderPlazaStampStrip(candles = [], roundId = 'cur') {
@@ -50,7 +63,7 @@ function renderPlazaStampStrip(candles = [], roundId = 'cur') {
           : '';
     return `<i class="sw-stamp-cell is-${state}${justConfirmed ? ' anim-stamp-press' : ''}" data-plaza-slot="${n}" data-slot-status="${state}" aria-hidden="true">${mark}</i>`;
   });
-  return `<div class="sw-stamp-row" aria-label="${L('12 个冲价时段印章', '12 price-push stamps')}">${slots.join('')}</div>`;
+  return `<div class="sw-stamp-row" aria-label="${L('12 个冲价时段印章（任意至少 8 格达标）', '12 price-push stamps (any 8+ qualify)')}">${slots.join('')}</div>`;
 }
 
 function showActivity(root, { pendingRaw = null, portfolio = null, hasError = false, onRetry = null } = {}) {
@@ -68,24 +81,28 @@ function showActivity(root, { pendingRaw = null, portfolio = null, hasError = fa
   let rowHtml = '';
   if (amount > 0) {
     rowHtml = `
-      <a class="sw-menu-row" href="#/internal/market?from=activation">
+      <a class="sw-menu-row sw-amount-row" href="#/internal/market?from=activation">
+        <span class="sw-row-icon is-amber" aria-hidden="true">${icon('unlock', 16)}</span>
         <div class="sw-menu-left">
-          <span class="sw-menu-title"><span class="mono text-gold">${formatNum(amount, amount % 1 === 0 ? 0 : 2)} A9</span> ${L('待激活', 'pending activation')}</span>
-          <span class="sw-menu-sub">${L('去宝箱商城', 'Go to Chest Mall')}</span>
+          <span class="sw-menu-title">${L('待激活奖励', 'Pending Activation')}</span>
+          <span class="sw-menu-sub">${L('直达宝箱商城激活', 'Activate in Chest Mall')}</span>
         </div>
         <div class="sw-menu-right">
+          <span class="sw-menu-amount is-amber">${formatNum(amount, amount % 1 === 0 ? 0 : 2)} A9</span>
           <span class="sw-menu-arrow" aria-hidden="true">›</span>
         </div>
       </a>
     `;
   } else if (claimable > 0) {
     rowHtml = `
-      <a class="sw-menu-row" href="#/claim">
+      <a class="sw-menu-row sw-amount-row" href="#/claim">
+        <span class="sw-row-icon is-green" aria-hidden="true">${icon('trophy', 16)}</span>
         <div class="sw-menu-left">
-          <span class="sw-menu-title"><span class="mono text-green">${formatNum(claimable, claimable % 1 === 0 ? 0 : 2)} A9</span> ${L('可领取', 'claimable')}</span>
-          <span class="sw-menu-sub">${L('查看轮次奖励', 'View round rewards')}</span>
+          <span class="sw-menu-title">${L('可领取轮次奖励', 'Claimable Round Rewards')}</span>
+          <span class="sw-menu-sub">${L('前往领奖详情核验', 'Open claim details')}</span>
         </div>
         <div class="sw-menu-right">
+          <span class="sw-menu-amount is-green">${formatNum(claimable, claimable % 1 === 0 ? 0 : 2)} A9</span>
           <span class="sw-menu-arrow" aria-hidden="true">›</span>
         </div>
       </a>
@@ -97,9 +114,10 @@ function showActivity(root, { pendingRaw = null, portfolio = null, hasError = fa
     const roundNum = demoTicket ? demoTicket.round : liveActiveTicket.roundId;
     rowHtml = `
       <a class="sw-menu-row" href="${href}">
+        <span class="sw-row-icon is-blue" aria-hidden="true">${icon('shieldCheck', 16)}</span>
         <div class="sw-menu-left">
-          <span class="sw-menu-title">${L(`第 ${escapeHtml(String(roundNum ?? '—'))} 轮锁仓进行中`, `Round ${escapeHtml(String(roundNum ?? '—'))} lock active`)}</span>
-          <span class="sw-menu-sub">${L('查看我的凭证', 'View my pass')}</span>
+          <span class="sw-menu-title">${L(`第 ${escapeHtml(String(roundNum ?? '—'))} 轮锁仓进行中`, `Round ${escapeHtml(String(roundNum ?? '—'))} Lock Active`)}</span>
+          <span class="sw-menu-sub">${L('查看我的闯关凭证', 'View my pass')}</span>
         </div>
         <div class="sw-menu-right">
           <span class="sw-menu-arrow" aria-hidden="true">›</span>
@@ -121,7 +139,7 @@ function showActivity(root, { pendingRaw = null, portfolio = null, hasError = fa
       ${rowHtml}
       ${hasError ? `
         <div class="sw-menu-error" role="alert">
-          <span>${L('读取失败', 'Read failed')}</span>
+          <span>${L('动态读取失败', 'Activity read failed')}</span>
           <button type="button" class="sw-retry-link" id="plaza-activity-retry">${L('重试', 'Retry')}</button>
         </div>
       ` : ''}
@@ -141,6 +159,7 @@ export function renderCity(root) {
   const observing = r.stage === 'observation';
   const candles = r.candles || [];
   const confirmed = candles.filter((c) => c.confirmed || c.status === 'closed');
+  const lastConfirmedAvg = confirmed.at(-1)?.p ?? null;
   const price = (value) => (Number(value) > 0 ? '$' + Number(value).toFixed(4) : '—');
   const validLive = r.priceValid !== false && Number(r.livePrice ?? r.twap24h) > 0 ? Number(r.livePrice ?? r.twap24h) : null;
   const validTarget = Number(r.targetPrice) > 0 ? Number(r.targetPrice) : null;
@@ -149,41 +168,65 @@ export function renderCity(root) {
   const deltaText = deltaPct === null
     ? L('价格待同步', 'Syncing price')
     : isAbove
-      ? L(`已站上目标价 +${deltaPct.toFixed(1)}%`, `Above target +${deltaPct.toFixed(1)}%`)
-      : L(`距目标价差 ${deltaPct.toFixed(1)}%`, `Below target ${deltaPct.toFixed(1)}%`);
+      ? L(`高于目标 +${deltaPct.toFixed(1)}%`, `Above +${deltaPct.toFixed(1)}%`)
+      : L(`距目标 ${deltaPct.toFixed(1)}%`, `Gap ${deltaPct.toFixed(1)}%`);
+
+  const [statusChipCls, statusChipText] = roundStatusChip(r);
+  const isUrgent = typeof r.countdownSec === 'number' && r.countdownSec > 0 && r.countdownSec <= 3600;
+  const minQualified = r.minQualifiedCandles ?? 8;
 
   const gates = [
-    ['/internal/market', 'chest', '', L('宝箱商城', 'Chest Mall'), L('6 档 · 直发钱包', '6 tiers · wallet delivery')],
+    ['/internal/market', 'chest', 'is-red', L('宝箱商城', 'Chest Mall'), L('6 档 · 直发钱包', '6 tiers · direct')],
     ['/internal/market?tab=free', 'chestOpen', 'is-green', L('免费宝箱', 'Free Chests'), config.isDemo ? L('青铜箱可开', 'Bronze ready') : L('查看开启条件', 'Check eligibility')],
-    ['/round?panel=prediction', 'stamp', 'is-amber', L('12H 预言', '12H Prediction'), L('0 GRAM 参战', '0 GRAM arena')],
-    ['/warmup', 'clock', '', L('下轮预热', 'Next Warm-Up'), L('预约抢头矿', 'Reserve First 6H')],
+    ['/round?panel=prediction', 'radar', 'is-amber', L('12H 预言', '12H Arena'), L('0 GRAM 参战', '0 GRAM entry')],
+    ['/warmup', 'flame', 'is-blue', L('下轮预热', 'Next Warm-Up'), L('预约抢头矿', 'Reserve First 6H')],
   ];
 
   root.innerHTML = `<div class="col-gap anim-page-enter">
     <section class="card card-hero col-gap plaza-overview">
       <div class="row-between">
-        <strong class="num-sm">${r.currentRound == null ? L('本轮现场', 'Round Overview') : L(`第 ${r.currentRound} 轮`, `Round ${r.currentRound}`)}${observing ? L(' · 12H 冲价', ' · 12H Push') : ''}</strong>
-        <span id="round-cd" class="mono num-sm text-sec">${r.countdownSec == null ? '—' : formatTimer(r.countdownSec)}</span>
-      </div>
-      <h2>${roundSummary(r)}</h2>
-      <div class="row-between sub-tile" style="padding:8px 11px;flex-wrap:wrap;gap:6px 8px;">
-        <div class="row-start" style="gap:6px;flex-wrap:nowrap;min-width:0;">
-          <span class="sw-pulse-dot ${deltaPct === null ? '' : (isAbove ? 'is-up' : 'is-down')}" aria-hidden="true"></span>
-          <span class="num-xs text-muted" style="white-space:nowrap;flex-shrink:0;">A9</span>
-          <strong class="mono num-md" id="plaza-live-price" style="white-space:nowrap;word-break:normal;flex-shrink:0;">${price(validLive)}</strong>
-          <span class="num-xs text-muted mono" style="white-space:nowrap;flex-shrink:0;">/ ${L('目标', 'Goal')} ${price(validTarget)}</span>
+        <div class="row-start" style="gap:6px;flex-wrap:wrap;">
+          <strong class="num-sm">${r.currentRound == null ? L('本轮现场', 'Round Overview') : L(`第 ${r.currentRound} 轮`, `Round ${r.currentRound}`)}</strong>
+          <span class="chip ${statusChipCls}" style="min-height:20px;font-size:10.5px;padding:0 7px;">${statusChipText}</span>
         </div>
-        <span class="chip ${deltaPct === null ? 'chip-muted' : (isAbove ? 'chip-green' : 'chip-red')} mono" id="plaza-target-delta" style="min-height:20px;font-size:10.5px;padding:0 7px;white-space:nowrap;flex-shrink:0;">${deltaText}</span>
+        <span id="round-cd" class="mono num-sm ${isUrgent ? 'text-red' : 'text-sec'}" style="white-space:nowrap;flex-shrink:0;">${r.countdownSec == null ? '—' : formatTimer(r.countdownSec)}</span>
       </div>
+
+      <h2>${roundSummary(r)}</h2>
+
+      <div class="plaza-price-panel">
+        <div class="row-between" style="flex-wrap:wrap;gap:6px 8px;">
+          <div class="row-start" style="gap:6px;flex-wrap:wrap;min-width:0;">
+            <span class="sw-pulse-dot ${deltaPct === null ? '' : (isAbove ? 'is-up' : 'is-down')}" aria-hidden="true"></span>
+            <span class="num-xs text-muted">${L('当前参考价', 'Ref Price')}</span>
+            <strong class="mono num-md" id="plaza-live-price" style="white-space:nowrap;">${price(validLive)}</strong>
+            <span class="num-xs text-muted mono" style="white-space:nowrap;">/ ${L('目标', 'Goal')} ${price(validTarget)}</span>
+          </div>
+          <span class="chip ${deltaPct === null ? 'chip-muted' : (isAbove ? 'chip-green' : 'chip-red')} mono" id="plaza-target-delta" style="min-height:20px;font-size:10.5px;padding:0 7px;white-space:nowrap;">${deltaText}</span>
+        </div>
+        ${observing ? `
+          <div class="plaza-confirmed-row">
+            <span class="num-xs text-muted">${L('最近确认 1H 判定均价', 'Last Confirmed 1H TWAP')}</span>
+            <strong class="mono num-xs" style="color:var(--ink);">${price(lastConfirmedAvg)}</strong>
+          </div>
+        ` : ''}
+      </div>
+
       ${observing ? `
-        ${renderPlazaStampStrip(candles, r.currentRound ?? 'cur')}
-        <div class="num-sm text-sec mono">${L('已确认', 'Confirmed')} ${r.candlesSeen ?? '—'}/12 · ${L('已达标', 'Qualified')} ${r.qualifiedCandles ?? '—'}/${r.minQualifiedCandles ?? 8}</div>
-        <div class="num-xs text-muted mono">${L('最近确认均价', 'Last confirmed average')} ${price(confirmed.at(-1)?.p)}</div>
+        <div class="plaza-stamp-block">
+          ${renderPlazaStampStrip(candles, r.currentRound ?? 'cur')}
+          <div class="row-between num-xs text-sec" style="flex-wrap:wrap;gap:4px 8px;">
+            <span class="mono">${L('已确认', 'Confirmed')} <b>${r.candlesSeen ?? '—'}/12</b> · ${L('已达标', 'Qualified')} <b class="${Number(r.qualifiedCandles) >= minQualified ? 'text-green' : ''}">${r.qualifiedCandles ?? '—'}/${minQualified}</b></span>
+            <span class="text-muted">${L(`任意 ≥ ${minQualified} 格达标`, `Any ${minQualified}+ qualify`)}</span>
+          </div>
+        </div>
       ` : ''}
-      <div class="row-between" style="padding-top:4px;border-top:1px solid var(--card-border);">
+
+      <div class="plaza-pool-row">
         <span class="num-xs text-muted">${L('本轮奖池', 'Round Pool')}</span>
-        <strong class="mono num-md">${r.rewardBudgetA9 == null ? '—' : formatNum(r.rewardBudgetA9)} A9</strong>
+        <strong class="mono num-md plaza-pool-amount">${r.rewardBudgetA9 == null ? '—' : formatNum(r.rewardBudgetA9)} A9</strong>
       </div>
+
       <a class="btn btn-primary" href="#/round">${observing ? L('进入冲价战场', 'Enter Push Arena') : L('进入本轮战场', 'Enter Round Arena')} ›</a>
     </section>
 
@@ -201,9 +244,10 @@ export function renderCity(root) {
 
     <div class="sw-menu-group">
       <a class="sw-menu-row" href="#/team?action=rally">
+        <span class="sw-row-icon is-red" aria-hidden="true">${icon('squadEmblem', 17)}</span>
         <div class="sw-menu-left">
-          <span class="sw-menu-title">${L('去战队动员喊单 · 助推本轮冲线', 'Rally Squad · Push This Round')}</span>
-          <span class="sw-menu-sub">${L('拉人共推 A9 解锁奖池 · 赚商城 6% + 通关 8% 返佣', 'Rally buys to unlock pool · earn 6% mall + 8% pass credits')}</span>
+          <span class="sw-menu-title">${L('去战队喊单', 'Squad Rally')}</span>
+          <span class="sw-menu-sub">${L('前往战队动员中心 · 分享战报与查看返佣', 'Open Squad Rally · share calls & view credits')}</span>
         </div>
         <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
       </a>

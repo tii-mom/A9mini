@@ -669,7 +669,7 @@ export function renderCorridorRadar(candles, targetPrice, activeCandleSec, liveP
   const priceText = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)) || Number(v) <= 0)
     ? '—' : `$${Number(v).toFixed(4)}`;
   const targetStr = priceText(targetPrice);
-  const lastConfirmedPrice = lastConfirmed ? priceText(lastConfirmed.p) : priceText(livePrice);
+  const lastConfirmedPrice = lastConfirmed ? priceText(lastConfirmed.p) : '—';
 
   const cellsHtml = normalized.map((c) => {
     const stateCls = c.status === 'closed'

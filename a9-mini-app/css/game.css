@@ -557,10 +557,7 @@
   line-height: 1.6;
 }
 
-/* 全局角色立牌自适应接触影 */
-.wv-person {
-  filter: var(--standee-filter);
-}
+/* 已退役角色立牌样式已清理 */
 
 /* 8. 领奖页中央「任天堂奖池宝箱」演出舞台 (.claim-chest-stage) */
 .claim-chest-stage {
@@ -722,57 +719,7 @@
   opacity: 0.85;
 }
 
-.success-cheer-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 13px 14px;
-  border-radius: 20px;
-  border: 1px solid var(--card-border);
-  background: var(--card-bg);
-  box-shadow: var(--surface-shadow);
-}
-
-.success-cheer-standee {
-  position: relative;
-  width: 78px;
-  height: 82px;
-  border-radius: 15px;
-  background: var(--paper-tray);
-  border: 1px solid var(--card-border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  perspective: 600px;
-}
-
-.success-cheer-standee img {
-  height: 74px;
-  width: auto;
-  object-fit: contain;
-  cursor: pointer;
-}
-
-.success-cheer-copy {
-  flex: 1;
-  min-width: 0;
-}
-
-.success-cheer-copy strong {
-  display: block;
-  font-size: 14px;
-  font-weight: 900;
-  color: var(--ink);
-}
-
-.success-cheer-copy p {
-  margin: 4px 0 0;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ink-soft);
-  line-height: 1.45;
-}
+/* 入场成功页已移除纸箱人欢呼卡，复用通用 .card 布局 */
 
 /* 10. 规则页交互演示卡（止损挡位试算 + 12H 通关线推演滑杆） */
 .rule-sim-card {

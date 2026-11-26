@@ -75,8 +75,17 @@ function renderProfileSwitchView({
     ? `${formatNum(Number(gramBalance), 2)} GRAM`
     : '— GRAM';
 
+  const isReadOnlyLive = isLive && !store.fundsEnabled;
+  const assetBadge = !hasWallet
+    ? `<span class="chip chip-amber">${L('未连接', 'Unlinked')}</span>`
+    : loading
+      ? `<span class="chip chip-muted">${L('读取中', 'Syncing')}</span>`
+      : isReadOnlyLive
+        ? `<span class="chip chip-muted">${L('只读', 'Read-Only')}</span>`
+        : '';
+
   const assetMainHtml = !hasWallet
-    ? `<button type="button" class="sw-asset-connect-btn" id="profile-asset-connect">${L('连接钱包', 'Connect Wallet')} <span class="sw-menu-arrow" style="color:var(--nt-red);">›</span></button>`
+    ? `<button type="button" class="sw-asset-connect-btn" id="profile-asset-connect">${L('连接钱包查看资产', 'Connect Wallet')} <span class="sw-menu-arrow" style="color:var(--nt-red);">›</span></button>`
     : (availA9 !== null && availA9 !== undefined && Number.isFinite(Number(availA9)))
       ? `<div class="sw-asset-main">${formatNum(Number(availA9), Number(availA9) % 1 === 0 ? 0 : 2)} <span class="sw-asset-main-unit">A9</span></div>`
       : `<div class="sw-asset-main">${loading ? '…' : '—'}</div>`;
@@ -94,6 +103,7 @@ function renderProfileSwitchView({
   const promoAmtCls = Number(promoClaimableA9) > 0 ? 'is-green' : (promoClaimableA9 == null ? 'is-muted' : '');
   const predAmtCls = Number(predPendingA9) > 0 ? 'is-amber' : (predPendingA9 == null ? 'is-muted' : '');
   const lockedAmtCls = roundLockedA9 == null ? 'is-muted' : '';
+  const hasPredPending = Number(predPendingA9) > 0;
 
   const claimSectionHtml = `
     <div>
@@ -101,23 +111,29 @@ function renderProfileSwitchView({
       <div class="sw-menu-group" id="profile-claimable-group">
         ${bothExplicitZero ? `
           <div class="sw-menu-row is-static">
+            <span class="sw-row-icon is-muted" aria-hidden="true">${icon('trophy', 17)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title text-muted">${L('暂无可领奖励', 'No claimable rewards')}</span>
+              <span class="sw-menu-sub">${L('轮次通关或邀友返佣入账后将在此展示', 'Round payouts & referral credits appear here')}</span>
             </div>
           </div>
         ` : `
-          <a class="sw-menu-row" href="#/claim">
+          <a class="sw-menu-row sw-amount-row" href="#/claim">
+            <span class="sw-row-icon is-green" aria-hidden="true">${icon('trophy', 17)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('轮次奖励', 'Round Rewards')}</span>
+              <span class="sw-menu-sub">${L('本金退还与已解锁奖金', 'Principal & unlocked prizes')}</span>
             </div>
             <div class="sw-menu-right">
               <span class="sw-menu-amount ${roundAmtCls}">${roundAmtText}</span>
               <span class="sw-menu-arrow" aria-hidden="true">›</span>
             </div>
           </a>
-          <a class="sw-menu-row" href="#/team/invite">
+          <a class="sw-menu-row sw-amount-row" href="#/team/invite">
+            <span class="sw-row-icon is-amber" aria-hidden="true">${icon('squadEmblem', 17)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('推广奖励', 'Referral Rewards')}</span>
+              <span class="sw-menu-sub">${L('商城 6% · 通关 8% 返佣', '6% mall · 8% pass credits')}</span>
             </div>
             <div class="sw-menu-right">
               <span class="sw-menu-amount ${promoAmtCls}">${promoAmtText}</span>
@@ -144,9 +160,10 @@ function renderProfileSwitchView({
       : (item.id ? `#/proof/${encodeURIComponent(item.id)}` : '#/proof');
     const stageSub = activePassStageLabel(item, isLive);
     return `
-      <a class="sw-menu-row" href="${href}">
+      <a class="sw-menu-row sw-amount-row" href="${href}">
+        <span class="sw-row-icon is-blue" aria-hidden="true">${icon('lock', 16)}</span>
         <div class="sw-menu-left">
-          <span class="sw-menu-title">${L(`第 ${escapeHtml(String(roundId))} 轮锁仓`, `Round ${escapeHtml(String(roundId))} Lock`)}</span>
+          <span class="sw-menu-title">${L(`第 ${escapeHtml(String(roundId))} 轮本金`, `Round ${escapeHtml(String(roundId))} Principal`)}</span>
           <span class="sw-menu-sub">${stageSub}</span>
         </div>
         <div class="sw-menu-right">
@@ -162,9 +179,10 @@ function renderProfileSwitchView({
       <div class="sw-section-label">${L('进行中', 'In Progress')}</div>
       <div class="sw-menu-group" id="profile-progress-group">
         ${activePassRows}
-        <a class="sw-menu-row" href="#/rewards">
+        <a class="sw-menu-row sw-amount-row" href="#/rewards">
+          <span class="sw-row-icon is-green" aria-hidden="true">${icon('unlock', 16)}</span>
           <div class="sw-menu-left">
-            <span class="sw-menu-title">${L('奖金解锁', 'Reward Unlock')}</span>
+            <span class="sw-menu-title">${L('待解锁奖金', 'Pending Unlock')}</span>
             <span class="sw-menu-sub">${L('14 天逐秒解锁', '14D per-second unlock')}</span>
           </div>
           <div class="sw-menu-right">
@@ -172,10 +190,11 @@ function renderProfileSwitchView({
             <span class="sw-menu-arrow" aria-hidden="true">›</span>
           </div>
         </a>
-        <a class="sw-menu-row" href="#/round?panel=prediction">
+        <a class="sw-menu-row sw-amount-row" href="${hasPredPending ? '#/internal/market?from=activation' : '#/round?panel=prediction'}">
+          <span class="sw-row-icon is-amber" aria-hidden="true">${icon('stamp', 16)}</span>
           <div class="sw-menu-left">
-            <span class="sw-menu-title">${L('预言奖励', 'Prediction Rewards')}</span>
-            <span class="sw-menu-sub">${Number(predPendingA9) > 0 ? L('待激活', 'Pending activation') : L('待激活', 'Pending activation')}</span>
+            <span class="sw-menu-title">${L('待激活预言奖', 'Pending Activation')}</span>
+            <span class="sw-menu-sub">${hasPredPending ? L('去宝箱商城激活', 'Activate in Chest Mall') : L('0 GRAM 预言擂台奖励', '0 GRAM arena rewards')}</span>
           </div>
           <div class="sw-menu-right">
             <span class="sw-menu-amount ${predAmtCls}">${predAmtText}</span>
@@ -195,7 +214,7 @@ function renderProfileSwitchView({
   const emptyGuideHtml = isDemoEmpty ? `
     <section class="card">
       <div class="empty-state" style="padding:10px 8px 6px;">
-        <img src="./assets/boxheads/activity/avatars/act-01.png" width="52" height="52" alt="">
+        <span class="nt-art-badge tone-red" aria-hidden="true">${icon('wallet', 22)}</span>
         <div style="font-size:15px;font-weight:900;margin-top:4px;">${L('还没有锁仓持仓', 'No Active Lock Position Yet')}</div>
         <div class="text-sec" style="font-size:12px;max-width:260px;">${L('最低 100 A9 无门槛锁仓，头矿 6H · 5% 止损，永不爆仓。', 'Lock from 100 A9 — First 6H · 5% Stop-Loss, No Liquidation.')}</div>
         <div class="grid-2" style="width:100%;margin-top:10px;gap:8px;">
@@ -213,10 +232,17 @@ function renderProfileSwitchView({
   return `
     <div class="col-gap anim-page-enter">
       <section class="sw-asset-card" id="profile-asset-card">
+        <span class="sw-asset-accent" aria-hidden="true"></span>
         <div class="sw-asset-body">
-          <span class="sw-section-label profile-asset-label">${L('我的资产', 'My Assets')}</span>
+          <div class="row-between" style="gap:8px;">
+            <span class="sw-section-label profile-asset-label">${L('可用 A9 余额', 'Available A9')}</span>
+            ${assetBadge}
+          </div>
           ${assetMainHtml}
-          <div class="sw-asset-sub">${escapeHtml(gramText)}</div>
+          <div class="sw-asset-foot">
+            <span class="sw-asset-sub">${escapeHtml(gramText)}</span>
+            <span class="num-xs text-muted">${hasWallet ? L('按来源分项展示', 'Shown by source') : L('非托管只读查询', 'Non-custodial read')}</span>
+          </div>
         </div>
       </section>
 
@@ -228,15 +254,15 @@ function renderProfileSwitchView({
         <div class="sw-section-label">${L('我的记录', 'My Records')}</div>
         <nav class="sw-record-grid" aria-label="${L('我的记录', 'My Records')}">
           <a class="sw-record-tile" href="#/proof">
-            <span class="sw-record-icon">${icon('shieldCheck', 18)}</span>
+            <span class="sw-record-icon is-red">${icon('shieldCheck', 18)}</span>
             <span class="sw-record-label">${escapeHtml(passCountLabel)}</span>
           </a>
           <a class="sw-record-tile" href="#/internal/records">
-            <span class="sw-record-icon">${icon('chest', 18)}</span>
+            <span class="sw-record-icon is-amber">${icon('chest', 18)}</span>
             <span class="sw-record-label">${L('商城订单', 'Orders')}</span>
           </a>
           <a class="sw-record-tile" href="#/ledger">
-            <span class="sw-record-icon">${icon('receipt', 18)}</span>
+            <span class="sw-record-icon is-green">${icon('receipt', 18)}</span>
             <span class="sw-record-label">${L('收支账本', 'Ledger')}</span>
           </a>
         </nav>
@@ -244,8 +270,10 @@ function renderProfileSwitchView({
 
       <div class="sw-menu-group">
         <a class="sw-menu-row" href="#/settings">
+          <span class="sw-row-icon is-muted" aria-hidden="true">${icon('settings', 16)}</span>
           <div class="sw-menu-left">
             <span class="sw-menu-title">${L('提醒与设置', 'Alerts & Settings')}</span>
+            <span class="sw-menu-sub">${L('主题、语言、通知与钱包管理', 'Theme, language, alerts & wallet')}</span>
           </div>
           <div class="sw-menu-right">
             <span class="sw-menu-arrow" aria-hidden="true">›</span>
@@ -427,8 +455,8 @@ export function renderClaimPage(root, _navigate, _param, query = {}) {
           </a>
           <a class="sw-menu-row" href="#/risk/audit">
             <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('v17.0 合约安全核验', 'v17.0 Contract Audit')}</span>
-              <span class="sw-menu-sub">${L('admin_address 已弃权 · 7 天 AbortRound 逃生舱', 'Renounced admin · 7d AbortRound escape hatch')}</span>
+              <span class="sw-menu-title">${L('v17.0 链上验真', 'v17.0 On-Chain Audit')}</span>
+              <span class="sw-menu-sub">${L('查看合约地址与 7 天 AbortRound 逃生舱', 'Inspect contracts & 7d AbortRound escape hatch')}</span>
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
@@ -594,8 +622,8 @@ export function renderClaimPage(root, _navigate, _param, query = {}) {
           </a>
           <a class="sw-menu-row" href="#/risk/audit">
             <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('v17.0 合约安全核验', 'v17.0 Contract Audit')}</span>
-              <span class="sw-menu-sub">${L('admin_address 已弃权 · 7 天 AbortRound 逃生舱', 'Renounced admin · 7d AbortRound escape hatch')}</span>
+              <span class="sw-menu-title">${L('v17.0 链上验真', 'v17.0 On-Chain Audit')}</span>
+              <span class="sw-menu-sub">${L('查看合约地址与 7 天 AbortRound 逃生舱', 'Inspect contracts & 7d AbortRound escape hatch')}</span>
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>

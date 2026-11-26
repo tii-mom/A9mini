@@ -102,7 +102,7 @@ export function renderPriceArenaBoard(round, { mode = 'observation' } = {}) {
           <div style="min-width:0;">
             <div class="row-start" style="gap:5px;margin-bottom:2px;">
               <span class="sw-pulse-dot ${dotCls}" id="round-live-pulse" aria-hidden="true"></span>
-              <span class="num-xs text-muted">${L('A9 实时价格', 'A9 Live Price')}</span>
+              <span class="num-xs text-muted">${L('A9 当前参考价', 'A9 Ref Price')}</span>
             </div>
             <div class="sw-price-main" id="round-live-price">${m.liveText}</div>
           </div>
@@ -729,8 +729,8 @@ export function renderObservation(round) {
     : m.deltaPct === null
       ? L('实时价格同步中 · 整点达标自动盖章', 'Live price syncing · stamps automatically on close')
       : m.isAbove
-        ? L('当前均价达到目标，时段结束后确认', 'Current average meets target · confirmation at slot close')
-        : L('当前均价低于目标，时段结束后确认', 'Current average below target · confirmation at slot close');
+        ? L('当前参考价高于目标，待时段结束后按 1H 判定均价确认', 'Current reference price is above target; confirmed by 1H average at slot close')
+        : L('当前参考价低于目标，待时段结束后按 1H 判定均价确认', 'Current reference price is below target; confirmed by 1H average at slot close');
 
   return `
     <section class="card card-hero col-gap">

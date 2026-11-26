@@ -9,7 +9,7 @@ import { t, L } from './i18n.js';
 export const ROUTES = [
   { path: '/challenge',           title: () => L('A9 广场', 'A9 Plaza'),           shell: 'tab',   tab: 'challenge',   ticker: false, load: () => import('./pages/plaza.js').then(m => m.renderCity) },
   { path: '/round',               title: () => L('轮次闯关', 'Round Quest'),       shell: 'tab',   tab: 'round',       ticker: true,  load: () => import('./pages/round_hub.js').then(m => m.renderChallengeHome) },
-  { path: '/gallery',             title: () => L('A9 角色档案', 'A9 Character Archive'), shell: 'stack', tab: 'profile', load: () => import('./pages/wealthverse.js').then(m => m.gallery) },
+  { path: '/gallery',             title: () => L('历史内容说明', 'Archived Content'), shell: 'stack', tab: 'profile', load: () => import('./pages/wealthverse.js').then(m => m.gallery) },
   { path: '/rewards',             title: () => L('奖金金库', 'Prize Vault'),       shell: 'stack', tab: 'profile',     load: () => import('./pages/wealthverse.js').then(m => m.rewards) },
   { path: '/challenge/confirm',   title: () => t('rt_confirm'),                    shell: 'stack', tab: 'round',       ticker: false, load: () => import('./pages/round_hub.js').then(m => m.renderParticipateConfirm) },
   { path: '/challenge/success',   title: () => t('rt_success'),                    shell: 'stack', tab: 'round',       ticker: false, load: () => import('./pages/round_hub.js').then(m => m.renderParticipateSuccess) },

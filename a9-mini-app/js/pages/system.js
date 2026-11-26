@@ -238,7 +238,7 @@ export function renderSettingsPage(root) {
           <a class="sw-menu-row" href="#/risk/audit">
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('v17.0 链上验真', 'v17.0 On-Chain Audit')}</span>
-              <span class="sw-menu-sub">${L('核验 addr_none 弃权、逃生舱与合约地址', 'Verify renounced admin, escape hatch & contracts')}</span>
+              <span class="sw-menu-sub">${L('查看合约地址、逃生舱与链上参数', 'Inspect contracts, escape hatch & specs')}</span>
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
@@ -262,18 +262,22 @@ export function renderSettingsPage(root) {
 
       ${config.isDemo ? `<button class="btn btn-danger" id="btn-reset-demo" type="button">${icon('refresh', 15)} ${L('重置本地演示数据', 'Reset Demo Data')}</button>` : ''}
 
-      <section class="card col-gap" style="gap:10px;">
-        <div class="row-start" style="gap:12px;">
-          <img loading="lazy" src="./assets/boxheads/activity/avatars/act-01.png" width="48" height="48" alt="A9" style="border-radius:12px;flex-shrink:0;">
-          <div style="min-width:0;">
-            <strong style="font-size:14.5px;display:block;">${L('A9 · 财富大冒险', 'A9 · Wealth Quest')}</strong>
-            <p class="num-xs text-sec" style="margin:3px 0 0;line-height:1.45;">${L('TON 涨价解锁协议 · 10,000,000,000 A9 恒定发行 · 合约永久弃权', 'TON Price-Unlock Protocol · 10,000,000,000 A9 Fixed Supply · Renounced Contracts')}</p>
+      <div>
+        <div class="sw-section-label">${L('关于 A9', 'About A9')}</div>
+        <section class="card sw-about-card">
+          <div class="row-start" style="gap:12px;">
+            <span class="sw-about-logo" aria-hidden="true"><img src="./assets/brand/apple-touch-icon.png" width="40" height="40" alt="A9" decoding="async" /></span>
+            <div style="min-width:0;">
+              <strong style="font-size:15px;font-weight:900;display:block;line-height:1.25;">${L('A9 · 财富大冒险', 'A9 · Wealth Quest')}</strong>
+              <p class="num-xs text-sec" style="margin:3px 0 0;line-height:1.4;">${L('基于 TON 的非托管涨价解锁应用', 'Non-custodial Price-Unlock app on TON')}</p>
+            </div>
           </div>
-        </div>
-        <div>
-          <button type="button" class="btn btn-secondary btn-sm" id="set-open-x">${icon('xBrand', 13)} ${L('官方 X (@A9_Ton)', 'Official X (@A9_Ton)')}</button>
-        </div>
-      </section>
+          <div class="grid-2" style="gap:8px;margin-top:11px;">
+            <button type="button" class="btn btn-secondary btn-sm" id="set-open-web" style="width:100%;min-height:38px;">${icon('globe', 13)} ${L('官网 a9.lat', 'Website')}</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="set-open-x" style="width:100%;min-height:38px;">${icon('xBrand', 13)} @A9_Ton</button>
+          </div>
+        </section>
+      </div>
       <div class="settings-version-strip">
         <span>A9 Protocol · ${PROTOCOL_SPECS.version}</span>
         <span>${escapeHtml(envLabel)}</span>
@@ -292,6 +296,13 @@ export function renderSettingsPage(root) {
 
   const walletRow = root.querySelector('#set-wallet-row');
   if (walletRow) walletRow.onclick = () => tonConnect.openConnectModal(renderCurrentRoute);
+  const openWebBtn = root.querySelector('#set-open-web');
+  if (openWebBtn) {
+    openWebBtn.onclick = () => {
+      A9Haptic.light();
+      A9TMA.openExternalLink('https://a9.lat');
+    };
+  }
   const openXBtn = root.querySelector('#set-open-x');
   if (openXBtn) {
     openXBtn.onclick = () => {

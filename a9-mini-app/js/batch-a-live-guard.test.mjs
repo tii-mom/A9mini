@@ -1358,7 +1358,6 @@ test('Global v17.1 terminology guardrail across Mini App, Bot, Official Web, and
     'a9-mini-app/js/chest-theater.js',
     'a9-mini-app/js/poster.js',
     'a9-mini-app/js/share.js',
-    'a9-mini-app/js/wealth-art.js',
     'a9-mini-app/js/pages/round_hub.js',
     'a9-mini-app/js/pages/round_stages.js',
     'a9-mini-app/js/pages/profile.js',

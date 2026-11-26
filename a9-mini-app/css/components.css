@@ -1107,23 +1107,7 @@ img {
   z-index: 2;
 }
 
-/* 第 16 段达标生死线立体金旗角标 */
-.candle-cell[data-candle-idx="16"]::after {
-  content: '★';
-  position: absolute;
-  top: -4px;
-  right: -3px;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: var(--nt-gold);
-  color: #FFFFFF;
-  font-size: 9px;
-  line-height: 15px;
-  text-align: center;
-  box-shadow: 0 1.5px 0 var(--nt-gold-edge);
-  z-index: 3;
-}
+/* 12H 冲价按任意至少 8 格达标判定，不将固定格号标为时间终点 */
 
 #a9-radar-card.is-matchpoint {
   border-color: var(--gold-border);
@@ -1776,17 +1760,26 @@ img {
   margin-bottom: 6px;
 }
 
-/* 1. 我的资产卡（低矮白卡 + 轻底边阴影 + 32-36px 等宽主余额） */
+/* 1. 我的资产卡（短红色强调竖标 + 清晰轮廓 + 短底边 + 完整大号等宽数字） */
 .sw-asset-card {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 14px;
+  align-items: stretch;
+  gap: 12px;
   padding: 15px 16px;
   border-radius: 20px;
   background: var(--card-bg);
   border: 1.5px solid var(--card-border);
   box-shadow: var(--interactive-shadow);
   min-width: 0;
+}
+
+.sw-asset-accent {
+  width: 4px;
+  border-radius: 999px;
+  background: var(--nt-red);
+  flex-shrink: 0;
+  margin: 2px 0;
 }
 
 .sw-asset-card .profile-asset-label {
@@ -1799,16 +1792,16 @@ img {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
 }
 
 .sw-asset-main {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: clamp(26px, 8.2vw, 35px);
+  font-size: clamp(25px, 7.8vw, 34px);
   font-weight: 900;
   letter-spacing: -0.025em;
-  line-height: 1.12;
+  line-height: 1.14;
   color: var(--ink);
   word-break: break-word;
   overflow-wrap: anywhere;
@@ -1816,7 +1809,7 @@ img {
 
 .sw-asset-main-unit {
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 800;
   color: var(--ink-soft);
   margin-left: 2px;
@@ -1828,34 +1821,64 @@ img {
   align-items: center;
   gap: 6px;
   align-self: flex-start;
-  padding: 0;
+  min-height: 40px;
+  padding: 2px 0;
   border: 0;
   background: transparent;
   color: var(--nt-red);
   font-family: var(--font-sans);
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 900;
   line-height: 1.2;
   cursor: pointer;
 }
 
+.sw-asset-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--card-border);
+}
+
 .sw-asset-sub {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 13.5px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 800;
   color: var(--ink-soft);
   word-break: break-word;
 }
 
-/* 2. Switch 共享外壳菜单列表（同组圆角外壳 + 细分隔线，无多余外阴影） */
+/* 2. Switch 共享外壳菜单列表（圆润轮廓 + 短底边 + 业务图标托盘 + 窄屏长金额完整换行） */
 .sw-menu-group {
   background: var(--card-bg);
-  border: 1px solid var(--card-border);
+  border: 1.5px solid var(--card-border);
   border-radius: 18px;
+  box-shadow: var(--surface-shadow);
   overflow: hidden;
   min-width: 0;
 }
+
+.sw-row-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: var(--paper-tray);
+  color: var(--ink-soft);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sw-row-icon.is-red   { background: var(--nt-red-soft); color: var(--nt-red); }
+.sw-row-icon.is-green { background: var(--nt-green-soft); color: var(--nt-green); }
+.sw-row-icon.is-amber { background: var(--nt-gold-soft); color: var(--nt-gold-ink); }
+.sw-row-icon.is-blue  { background: var(--nt-blue-soft); color: var(--nt-blue); }
+.sw-row-icon.is-muted { background: var(--paper-tray); color: var(--ink-muted); }
 
 .sw-menu-row {
   width: 100%;
@@ -1924,12 +1947,33 @@ img {
 .sw-menu-amount {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: clamp(15px, 4.3vw, 17.5px);
+  font-size: clamp(14.5px, 4.1vw, 17px);
   font-weight: 800;
   color: var(--ink);
-  line-height: 1.2;
-  word-break: break-word;
-  overflow-wrap: anywhere;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.sw-amount-row {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.sw-amount-row .sw-menu-right {
+  margin-left: auto;
+  max-width: 100%;
+}
+
+@media (max-width: 360px) {
+  .sw-amount-row .sw-menu-right {
+    flex: 1 0 auto;
+    justify-content: flex-end;
+  }
+  .sw-menu-amount {
+    font-size: 14px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 .sw-menu-amount.is-green { color: var(--nt-green); }
@@ -2003,8 +2047,8 @@ img {
 }
 
 .sw-record-icon {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 11px;
   background: var(--paper-tray);
   color: var(--ink-soft);
@@ -2012,6 +2056,9 @@ img {
   align-items: center;
   justify-content: center;
 }
+.sw-record-icon.is-red   { background: var(--nt-red-soft); color: var(--nt-red); }
+.sw-record-icon.is-amber { background: var(--nt-gold-soft); color: var(--nt-gold-ink); }
+.sw-record-icon.is-green { background: var(--nt-green-soft); color: var(--nt-green); }
 
 .sw-record-label {
   font-size: 12px;
@@ -2176,8 +2223,74 @@ img {
   flex-shrink: 0;
 }
 
+.sw-gate-icon.is-red   { background: var(--nt-red-soft); color: var(--nt-red); }
 .sw-gate-icon.is-green { background: var(--nt-green-soft); color: var(--nt-green); }
 .sw-gate-icon.is-amber { background: var(--nt-gold-soft); color: var(--nt-gold-ink); }
+.sw-gate-icon.is-blue  { background: var(--nt-blue-soft); color: var(--nt-blue); }
+
+/* 广场精修面板（参考价 vs 已确认 1H 判定均价区分 + 奖池行 + 关于 A9 简洁品牌卡） */
+.plaza-price-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+}
+
+.plaza-confirmed-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--card-border-strong);
+}
+
+.plaza-stamp-block {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.plaza-pool-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--card-border);
+}
+
+.plaza-pool-amount {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.sw-about-card {
+  padding: 14px 15px;
+}
+
+.sw-about-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  overflow: hidden;
+  background: var(--nt-red);
+  box-shadow: 0 2.5px 0 var(--nt-red-edge);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sw-about-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 
 .sw-gate-title {
   font-size: 14px;

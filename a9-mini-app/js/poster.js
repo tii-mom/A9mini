@@ -2,7 +2,6 @@
 import { store } from './store.js';
 import { L } from './i18n.js';
 import { stageLabel } from './pages/wealthverse.js';
-import { characterArt, getBoxheadItem } from './wealth-art.js';
 import qrcode from './vendor/qrcode.js';
 import { config } from './config.js';
 import { buildTmaDeepLink, getShareRef } from './share.js';
@@ -220,7 +219,7 @@ function paintCartridgePoster(canvas, {
     ctx.textAlign = 'left';
   }
 
-  // 中央纸箱人展示舞台
+  // 中央 A9 官方代币品牌徽章舞台
   const stageX = cardX + 28;
   const stageY = titleY + (subtitle ? 48 : 22);
   const stageW = cardW - 56;
@@ -235,7 +234,7 @@ function paintCartridgePoster(canvas, {
 
   // 柔和任天堂放射光线底纹
   const cx = stageX + stageW / 2;
-  const cy = stageY + stageH * 0.52;
+  const cy = stageY + stageH * 0.5;
   ctx.fillStyle = isGreen ? 'rgba(0, 168, 89, 0.08)' : 'rgba(230, 0, 18, 0.06)';
   for (let i = 0; i < 12; i++) {
     const a1 = (i * Math.PI) / 6;
@@ -247,11 +246,15 @@ function paintCartridgePoster(canvas, {
     ctx.fill();
   }
 
-  // 底部接触投影椭圆
-  ctx.fillStyle = isGreen ? 'rgba(0, 116, 61, 0.14)' : 'rgba(20, 23, 32, 0.10)';
+  // 中心圆形实体徽章底托
+  const coinR = tall ? 112 : 84;
+  ctx.fillStyle = '#FFFFFF';
   ctx.beginPath();
-  ctx.ellipse(cx, stageY + stageH - 26, 130, 20, 0, 0, Math.PI * 2);
+  ctx.arc(cx, cy + 4, coinR + 12, 0, Math.PI * 2);
   ctx.fill();
+  ctx.strokeStyle = isGreen ? 'rgba(0, 168, 89, 0.30)' : 'rgba(230, 0, 18, 0.24)';
+  ctx.lineWidth = 3;
+  ctx.stroke();
   ctx.restore();
 
   ctx.strokeStyle = isGreen ? 'rgba(0, 168, 89, 0.28)' : '#DCE0EA';
@@ -260,22 +263,18 @@ function paintCartridgePoster(canvas, {
   ctx.roundRect(stageX, stageY, stageW, stageH, 24);
   ctx.stroke();
 
-  // 左上角角色铭牌
-  const tier = store.state.user.previewTier || 1;
-  const series = store.state.user.previewSeries || 'activity';
-  const boxhead = getBoxheadItem(tier, series);
-  const seriesCode = series === 'wealth' ? 'WLT' : 'ACT';
-  const charTag = `${seriesCode} 0${tier} · ${L(boxhead.nameZh, boxhead.nameEn)}`;
+  // 左上角协议标牌
+  const brandTag = L('A9 · TON 涨价解锁', 'A9 · TON Price-Unlock');
   ctx.fillStyle = '#FFFFFF';
   ctx.beginPath();
-  ctx.roundRect(stageX + 14, stageY + 14, 210, 34, 10);
+  ctx.roundRect(stageX + 14, stageY + 14, 218, 34, 10);
   ctx.fill();
   ctx.strokeStyle = '#DCE0EA';
   ctx.lineWidth = 1.5;
   ctx.stroke();
   ctx.fillStyle = '#141720';
-  ctx.font = '800 16px Rubik, sans-serif';
-  ctx.fillText(charTag, stageX + 26, stageY + 37, 188);
+  ctx.font = '800 15px Rubik, sans-serif';
+  ctx.fillText(brandTag, stageX + 26, stageY + 37, 194);
 
   // 票根打孔分割线
   const perfY = stageY + stageH + 26;
@@ -371,19 +370,15 @@ function paintCartridgePoster(canvas, {
   // 右侧装饰防伪竖条码
   drawVerticalBarcode(ctx, stageX + stageW - 34, stubY + 22, 18, stubH - 44, serialCode || param);
 
-  // 异步绘制角色立绘
-  const standee = new Image();
-  standee.onload = () => {
-    if (canvas.posterScene !== standee) return;
-    const maxW = stageW - 80;
-    const maxH = stageH - 54;
-    const scale = Math.min(maxW / standee.naturalWidth, maxH / standee.naturalHeight);
-    const dw = standee.naturalWidth * scale;
-    const dh = standee.naturalHeight * scale;
-    ctx.drawImage(standee, stageX + (stageW - dw) / 2, stageY + (stageH - dh) / 2 + 12, dw, dh);
+  // 异步绘制 A9 官方代币徽章（使用 assets/token/，零角色素材依赖）
+  const tokenImg = new Image();
+  tokenImg.onload = () => {
+    if (canvas.posterScene !== tokenImg) return;
+    const size = tall ? 210 : 156;
+    ctx.drawImage(tokenImg, cx - size / 2, cy + 4 - size / 2, size, size);
   };
-  canvas.posterScene = standee;
-  standee.src = characterArt(tier, series);
+  canvas.posterScene = tokenImg;
+  tokenImg.src = './assets/token/a9-token-2048.png';
 }
 
 export function renderReferralPoster(canvas) {

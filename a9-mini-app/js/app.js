@@ -22,15 +22,6 @@ const mainEl = document.getElementById('app-main');
 const tabbarEl = document.getElementById('app-tabbar');
 const simDrawerEl = document.getElementById('sim-drawer');
 
-mainEl.addEventListener('error', event => {
-  const image = event.target;
-  if (!(image instanceof HTMLImageElement) || !image.matches('.wv-person')) return;
-  const label = document.createElement('span');
-  label.className = 'wv-missing';
-  label.textContent = image.alt + ' · ' + L('立绘暂缺', 'Art unavailable');
-  image.replaceWith(label);
-}, true);
-
 const TABS = [
   { key: 'challenge', path: '/challenge',       ic: 'navCity',  labelKey: 'tab_challenge' },
   { key: 'round',     path: '/round',           ic: 'navRound', labelKey: 'tab_round' },
@@ -756,15 +747,19 @@ function syncLivePriceDomInPlace(r) {
   const actionHint = document.getElementById('round-price-action-hint');
   if (actionHint && deltaPct !== null && r.stage === 'observation' && !r.rawState?.startsWith('SETTLING_')) {
     actionHint.textContent = isAbove
-      ? L('当前均价达到目标，时段结束后确认', 'Current average meets target · confirmation at slot close')
-      : L('当前均价低于目标，时段结束后确认', 'Current average below target · confirmation at slot close');
+      ? L('当前参考价高于目标，待时段结束后按 1H 判定均价确认', 'Current reference price is above target; confirmed by 1H average at slot close')
+      : L('当前参考价低于目标，待时段结束后按 1H 判定均价确认', 'Current reference price is below target; confirmed by 1H average at slot close');
     actionHint.className = `num-xs ${isAbove ? 'text-green' : 'text-red'}`;
   }
   const plazaLive = document.getElementById('plaza-live-price');
   if (plazaLive) plazaLive.textContent = liveText;
   const plazaDelta = document.getElementById('plaza-target-delta');
   if (plazaDelta) {
-    plazaDelta.textContent = deltaText;
+    plazaDelta.textContent = deltaPct === null
+      ? L('价格待同步', 'Syncing price')
+      : isAbove
+        ? L(`高于目标 +${deltaPct.toFixed(1)}%`, `Above +${deltaPct.toFixed(1)}%`)
+        : L(`距目标 ${deltaPct.toFixed(1)}%`, `Gap ${deltaPct.toFixed(1)}%`);
     plazaDelta.className = `chip ${deltaPct === null ? 'chip-muted' : (isAbove ? 'chip-green' : 'chip-red')} mono`;
   }
   const teamLive = document.getElementById('team-battle-price');

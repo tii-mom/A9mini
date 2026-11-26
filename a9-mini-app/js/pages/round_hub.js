@@ -24,7 +24,6 @@ function formatExactA9FromRaw(raw) {
 import { A9Haptic, A9TMA, isReducedMotion } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { escapeHtml, formatNum, showToast, copyText, mountSlider, burstParticles, openChoiceSheet, openModal, closeModal, bindCorridorRadarEvents } from '../components.js';
-import { characterArt, getBoxheadItem } from '../wealth-art.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
@@ -823,8 +822,8 @@ export function renderParticipateConfirm(root, navigate) {
         <div class="sw-menu-group">
           <a class="sw-menu-row" href="#/risk/audit">
             <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('v17.0 合约安全核验', 'v17.0 Contract Audit')}</span>
-              <span class="sw-menu-sub">${L('admin_address 已弃权 · 7 天 AbortRound 无许可逃生舱', 'Renounced admin · 7d permissionless AbortRound')}</span>
+              <span class="sw-menu-title">${L('v17.0 链上验真', 'v17.0 On-Chain Audit')}</span>
+              <span class="sw-menu-sub">${L('查看合约地址、安全参数与 7 天 AbortRound 逃生舱', 'Inspect contracts, security specs & 7d AbortRound')}</span>
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
@@ -893,8 +892,8 @@ export function renderParticipateConfirm(root, navigate) {
       <div class="sw-menu-group">
         <a class="sw-menu-row" href="#/risk/audit">
           <div class="sw-menu-left">
-            <span class="sw-menu-title">${L('v17.0 合约安全核验', 'v17.0 Contract Audit')}</span>
-            <span class="sw-menu-sub">${L('admin_address 已弃权 · 7 天 AbortRound 无许可逃生舱', 'Renounced admin · 7d permissionless AbortRound')}</span>
+            <span class="sw-menu-title">${L('v17.0 链上验真', 'v17.0 On-Chain Audit')}</span>
+            <span class="sw-menu-sub">${L('查看合约地址、安全参数与 7 天 AbortRound 逃生舱', 'Inspect contracts, security specs & 7d AbortRound')}</span>
           </div>
           <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
         </a>
@@ -1302,11 +1301,6 @@ export function renderParticipateSuccess(root, navigate, certId) {
     return;
   }
   const shareUrl = `${window.location.origin}${window.location.pathname}?startapp=proof_${cert.id.replace('A9-STAKE-', '')}`;
-  const tier = config.isDemo ? (store.state.user.previewTier || 1) : 1;
-  const series = config.isDemo ? (store.state.user.previewSeries || 'activity') : 'activity';
-  const boxhead = getBoxheadItem(tier, series);
-  const seriesCode = series === 'wealth' ? 'WLT' : 'ACT';
-
   const bars = [2, 1, 3, 1, 2, 2, 1, 3, 1, 2];
   const miniBarcode = `<span class="receipt-barcode" aria-hidden="true">${bars.map((w) => `<i style="width:${w}px;"></i>`).join('')}</span>`;
   const estRaw = estimateRewardA9(cert.stakeTon, store.state.round);
@@ -1370,14 +1364,11 @@ export function renderParticipateSuccess(root, navigate, certId) {
         </div>
       </div>
 
-      <section class="success-cheer-card">
-        <div class="success-cheer-standee">
-          <img class="wv-person" id="success-cheer-img" src="${characterArt(tier, series)}" alt="${seriesCode} 0${tier}" width="88" height="88" loading="lazy" decoding="async">
-        </div>
-        <div class="success-cheer-copy">
-          <span class="diorama-kicker">${seriesCode} 0${tier} · ${L(boxhead.nameZh, boxhead.nameEn)}</span>
-          <strong>${L('纸箱伙伴已就位 · 盯紧 12H 冲价盘！', 'Boxhead Ready for the 12H Push Board!')}</strong>
-          <p>“${L(boxhead.voiceZh, boxhead.voiceEn)}”</p>
+      <section class="card row-start" style="gap:12px;">
+        <span class="nt-art-badge tone-green" aria-hidden="true">${icon('radar', 24)}</span>
+        <div style="min-width:0;">
+          <strong style="display:block;font-size:14px;font-weight:900;color:var(--ink);">${L('下一步：盯紧 12H 冲价进度', 'Next: Track the 12H Push Board')}</strong>
+          <p class="num-xs text-sec" style="margin:3px 0 0;line-height:1.45;">${L('任意至少 8 个时段 1H 判定均价达标即通关；随时可在「我的 → 闯关凭证」核验与领取。', 'Any 8+ qualifying 1H slots pass the round; check your pass anytime in Me → Passes.')}</p>
         </div>
       </section>
 
@@ -1395,9 +1386,7 @@ export function renderParticipateSuccess(root, navigate, certId) {
     </div>
   `;
 
-  // 750ms 三拍出征演出：落位(0~260ms) -> 钢印砸落 + 纸屑(280ms) -> 伙伴立牌 360° 翻身欢呼(480ms)
   const sealEl = root.querySelector('#success-stamp-seal');
-  const cheerImg = root.querySelector('#success-cheer-img');
   if (!isReducedMotion()) {
     setTimeout(() => {
       if (!root.isConnected || isReducedMotion()) return;
@@ -1405,24 +1394,6 @@ export function renderParticipateSuccess(root, navigate, certId) {
       A9Haptic.heavy();
       if (sealEl) burstParticles(sealEl);
     }, 280);
-    setTimeout(() => {
-      if (!root.isConnected || !cheerImg || isReducedMotion()) return;
-      cheerImg.classList.add('paper-flipping');
-      setTimeout(() => cheerImg.classList.remove('paper-flipping'), 600);
-    }, 480);
-  }
-
-  if (cheerImg) {
-    cheerImg.onclick = () => {
-      A9Haptic.light();
-      A9Audio.flip();
-      burstParticles(cheerImg);
-      if (!isReducedMotion()) {
-        cheerImg.classList.remove('paper-flipping');
-        void cheerImg.offsetWidth;
-        cheerImg.classList.add('paper-flipping');
-      }
-    };
   }
 
   root.querySelector('#copy-tx').onclick = () => copyText(cert.txHash, L('已复制哈希', 'Copied Hash'));
