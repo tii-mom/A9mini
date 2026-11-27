@@ -57,33 +57,119 @@ const WARMUP_INTENT_OPTIONS = [
   { key: 'watching',   zh: '先观望',     en: 'Watching' },
 ];
 
-export function renderWarmupHome(root, navigate, _param = null, query = {}) {
-  const queryRoundId = Number(query?.round);
+function parsePositiveRawBigInt(val) {
+  if (val === null || val === undefined) return null;
+  const s = String(val).trim();
+  if (!/^\d+$/.test(s)) return null;
+  try {
+    const bi = BigInt(s);
+    return bi > 0n ? bi : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 根据服务端 /api/warmup/current 的 config 动态生成预热奖励阶梯，并严格校验单调递增。
+ * 任意配置缺失、非正整数、min > max、或相邻档位非严格递增均返回 { valid: false, tiers: [] }，
+ * 界面统一呈现「配置待确认」，绝不回落至写死阶梯。
+ */
+export function buildWarmupLadder(cfg) {
+  if (!cfg || typeof cfg !== 'object') {
+    return { valid: false, tiers: [], minInvites: null, maxInvites: null, baseA9: null, maxA9: null };
+  }
+
+  let rawTiers = [];
+  if (Array.isArray(cfg.tiers) && cfg.tiers.length > 0) {
+    for (const item of cfg.tiers) {
+      const inv = Number(item?.invites);
+      const amtRaw = parsePositiveRawBigInt(item?.amountRaw ?? item?.a9Raw);
+      const amtA9 = amtRaw !== null ? rawToA9(amtRaw.toString()) : (Number.isFinite(Number(item?.a9)) && Number(item.a9) > 0 ? Number(item.a9) : null);
+      if (!Number.isInteger(inv) || inv < 1 || amtA9 === null || amtA9 <= 0) {
+        return { valid: false, tiers: [], minInvites: null, maxInvites: null, baseA9: null, maxA9: null };
+      }
+      rawTiers.push({ invites: inv, amountRaw: amtRaw ?? BigInt(Math.round(amtA9 * 1e9)), amountA9: amtA9 });
+    }
+  } else {
+    const minInv = Number(cfg.chestMinInvites);
+    const maxInv = Number(cfg.chestMaxInvites);
+    const baseRaw = parsePositiveRawBigInt(cfg.chestBaseA9Raw);
+    const stepRaw = parsePositiveRawBigInt(cfg.chestStepA9Raw);
+    if (!Number.isInteger(minInv) || !Number.isInteger(maxInv) || minInv < 1 || maxInv < minInv || maxInv > 20 || baseRaw === null) {
+      return { valid: false, tiers: [], minInvites: null, maxInvites: null, baseA9: null, maxA9: null };
+    }
+    if (maxInv > minInv && stepRaw === null) {
+      return { valid: false, tiers: [], minInvites: null, maxInvites: null, baseA9: null, maxA9: null };
+    }
+    for (let inv = minInv; inv <= maxInv; inv += 1) {
+      const amountRaw = baseRaw + BigInt(inv - minInv) * (stepRaw ?? 0n);
+      const amountA9 = rawToA9(amountRaw.toString());
+      if (amountA9 === null || amountA9 <= 0) {
+        return { valid: false, tiers: [], minInvites: null, maxInvites: null, baseA9: null, maxA9: null };
+      }
+      rawTiers.push({ invites: inv, amountRaw, amountA9 });
+    }
+  }
+
+  // 严格校验人数与奖励金额双重单调递增
+  for (let i = 1; i < rawTiers.length; i += 1) {
+    if (rawTiers[i].invites <= rawTiers[i - 1].invites || rawTiers[i].amountRaw <= rawTiers[i - 1].amountRaw) {
+      return { valid: false, tiers: [], minInvites: null, maxInvites: null, baseA9: null, maxA9: null };
+    }
+  }
+
+  const first = rawTiers[0];
+  const last = rawTiers[rawTiers.length - 1];
+  return {
+    valid: true,
+    tiers: rawTiers,
+    minInvites: first.invites,
+    maxInvites: last.invites,
+    baseA9: first.amountA9,
+    maxA9: last.amountA9,
+  };
+}
+
+/**
+ * 可独立嵌入的预热主体组件（避开 round_stages.js 既有的 renderWarmupStage 字符串函数）。
+ * 供 5d 闯关第 0 阶段直接挂载，也供 /round?stage=warmup（及旧别名 /warmup）调用。
+ */
+export function mountWarmupSection(root, ctx = {}) {
+  if (!root) return;
+  const query = ctx.query || {};
+  const queryRoundId = Number(ctx.roundId ?? query?.round);
   const requestedRoundId = Number.isInteger(queryRoundId) && queryRoundId >= 1 ? queryRoundId : null;
   let loadSeq = 0;
-  let state = {
+  const state = {
     loading: true,
     error: null,
     data: null,
     busy: false,
     selectedTier: null,
-    remindEnabled: true,
+    remindEnabled: false,
   };
 
-  const canOpenChestNow = () => config.isDemo || store.fundsEnabled;
+  const isChestOpenEnabled = () => {
+    if (config.isDemo) return true;
+    const mallCfg = store.state.round?.protocolConfig?.chestMall ?? store.state.round?.chestMall;
+    return Boolean(store.fundsEnabled && mallCfg?.openEnabled === true);
+  };
 
-  const formatPlannedOpen = (ms) => {
-    const n = Number(ms);
-    if (!Number.isFinite(n) || n <= 0) return L('由协议公告通知', 'TBA by announcement');
+  const formatPlannedOpen = (rawVal) => {
+    const n = Number(rawVal);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    const ms = n < 1e12 ? n * 1000 : n;
     try {
-      return new Date(n).toLocaleString(L('zh-CN', 'en-US'), {
+      const d = new Date(ms);
+      if (Number.isNaN(d.getTime())) return null;
+      return d.toLocaleString(L('zh-CN', 'en-US'), {
         month: '2-digit',
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
       });
     } catch {
-      return L('待公布', 'TBA');
+      return null;
     }
   };
 
@@ -99,9 +185,9 @@ export function renderWarmupHome(root, navigate, _param = null, query = {}) {
       state.loading = false;
       const myRes = data?.myReservation;
       state.selectedTier = myRes && myRes.status === 'ACTIVE' ? (myRes.intentTier ?? null) : null;
-      state.remindEnabled = myRes ? Boolean(myRes.remindEnabled) : true;
+      state.remindEnabled = Boolean(myRes && myRes.status === 'ACTIVE' && myRes.remindEnabled);
       store.update((s) => {
-        s.user.warmupRegistered = Boolean(data?.isReserved);
+        s.user.warmupRegistered = Boolean(data?.isReserved || (myRes && myRes.status === 'ACTIVE'));
         s.user.warmupInvites = Number(myRes?.validInvites || 0);
       });
     } catch (e) {
@@ -114,180 +200,232 @@ export function renderWarmupHome(root, navigate, _param = null, query = {}) {
 
   const paint = () => {
     const d = state.data;
+    const onchainRound = Number(d?.currentOnchainRoundId ?? store.state.round?.currentRound);
     const targetRoundId =
-      Number(d?.roundId) ||
+      (Number.isInteger(Number(d?.roundId)) && Number(d?.roundId) >= 1 ? Number(d.roundId) : null) ||
       requestedRoundId ||
-      ((Number(d?.currentOnchainRoundId ?? store.state.round?.currentRound) || 0) + 1);
-    const totalRegistered = Number(d?.stats?.totalRegistered ?? 0);
-    const walletBoundCount = Number(d?.stats?.walletBoundCount ?? 0);
-    const targetUsers = Number(d?.config?.targetUsers ?? 0);
-    const progressPct = Math.max(0, Math.min(100, Number(d?.stats?.progressPct ?? 0)));
-    const isRoundOpen = d ? Boolean(d.open) : true;
+      (Number.isInteger(onchainRound) && onchainRound >= 1 ? onchainRound + 1 : null);
+    const roundTitleZh = targetRoundId ? `第 ${targetRoundId} 轮开局预热` : '下轮开局预热';
+    const roundTitleEn = targetRoundId ? `Round ${targetRoundId} Warm-Up` : 'Next Round Warm-Up';
+
+    const hasStats = Boolean(d && d.stats && typeof d.stats === 'object');
+    const totalRegistered = (hasStats && d.stats.totalRegistered !== null && d.stats.totalRegistered !== undefined && Number.isFinite(Number(d.stats.totalRegistered)))
+      ? Number(d.stats.totalRegistered)
+      : null;
+    const targetUsers = (d?.config && d.config.targetUsers !== null && d.config.targetUsers !== undefined && Number.isFinite(Number(d.config.targetUsers)) && Number(d.config.targetUsers) > 0)
+      ? Number(d.config.targetUsers)
+      : null;
+    const progressPct = (totalRegistered !== null && targetUsers !== null)
+      ? Math.max(0, Math.min(100, Math.round((totalRegistered / targetUsers) * 100)))
+      : (hasStats && d.stats.progressPct !== null && d.stats.progressPct !== undefined && Number.isFinite(Number(d.stats.progressPct))
+        ? Math.max(0, Math.min(100, Number(d.stats.progressPct)))
+        : 0);
+
+    const loadFailed = Boolean(!d && state.error);
+    const isRoundOpen = d ? Boolean(d.open) : false;
     const myRes = d?.myReservation && d.myReservation.status === 'ACTIVE' ? d.myReservation : null;
     const chest = d?.myWarmupChest || null;
     const isReserved = Boolean(myRes);
     const hasTgAuth = config.isDemo || Boolean(A9TMA.getRawInitData());
 
+    const linkRoundTag = targetRoundId ?? 'next';
     const fallbackDeepLink = config.isDemo
-      ? `${window.location.origin}${window.location.pathname}?startapp=warmup_${targetRoundId}_demo01`
-      : buildTmaDeepLink(`warmup_${targetRoundId}_${getShareRef()}`);
+      ? `${window.location.origin}${window.location.pathname}?startapp=warmup_${linkRoundTag}_demo01`
+      : buildTmaDeepLink(`warmup_${linkRoundTag}_${getShareRef()}`);
     const inviteUrl = d?.inviteDeepLink || fallbackDeepLink;
 
-    const validInvites = Number(myRes?.validInvites ?? chest?.currentAssists ?? 0);
-    const rawInvites = Number(myRes?.rawInvites ?? 0);
-    const baseReq = Number(chest?.requiredAssists ?? d?.config?.chestMinInvites ?? 2);
-    const maxFriends = Number(d?.config?.chestMaxInvites ?? 5);
-    const totalChestA9 = chest ? (rawToA9(chest.totalA9Raw ?? chest.baseA9Raw) || 0) : 0;
-    const baseUnlockA9 = rawToA9(d?.config?.chestBaseA9Raw || '300000000000') || 300;
-    const maxChestA9 = rawToA9(
-      (BigInt(String(d?.config?.chestBaseA9Raw || '300000000000')) +
-        BigInt(Math.max(0, maxFriends - baseReq)) * BigInt(String(d?.config?.chestStepA9Raw || '200000000000'))).toString()
-    ) || 900;
-    const chestPct = maxFriends > 0 ? Math.min(100, Math.round((Math.min(validInvites, maxFriends) / maxFriends) * 100)) : 0;
+    const ladder = buildWarmupLadder(d?.config);
+    const validInvites = d ? Number(myRes?.validInvites ?? chest?.currentAssists ?? 0) : null;
+    const minInvites = ladder.valid ? ladder.minInvites : null;
+    const maxFriends = ladder.valid ? ladder.maxInvites : null;
+    const totalChestA9 = chest ? rawToA9(chest.totalA9Raw ?? chest.baseA9Raw) : null;
+    const chestPct = (validInvites !== null && maxFriends !== null && maxFriends > 0)
+      ? Math.min(100, Math.round((Math.min(validInvites, maxFriends) / maxFriends) * 100))
+      : 0;
     const chestOpened = chest?.status === 'OPENED';
-    const chestReady = Boolean(chest && !chestOpened && (chest.status === 'READY' || validInvites >= baseReq));
+    const chestReady = Boolean(
+      isReserved &&
+      chest &&
+      !chestOpened &&
+      (chest.status === 'READY' || (validInvites !== null && minInvites !== null && validInvites >= minInvites))
+    );
+    const openGateEnabled = isChestOpenEnabled();
 
-    const openTimeText = formatPlannedOpen(d?.config?.plannedOpenAtMs);
+    const plannedOpenStr = formatPlannedOpen(d?.config?.plannedOpenAt ?? d?.config?.plannedOpenAtMs);
+    const openTimeUnknown = plannedOpenStr === null;
+
+    // 严格遵守每状态唯一 1 个主按钮：未预约→预约；已预约→邀请好友；达标→开箱（只读/总闸关闭时显示原因文字，不放置灰占位按钮；加载失败绝不渲染预约主按钮）
+    let primaryAreaHtml = '';
+    if (state.loading && !d) {
+      primaryAreaHtml = `<div class="num-xs text-muted">${L('正在加载预热状态…', 'Loading warm-up status…')}</div>`;
+    } else if (loadFailed) {
+      primaryAreaHtml = '';
+    } else if (!isRoundOpen) {
+      primaryAreaHtml = `<div class="num-xs text-sec" id="warmup-closed-reason">${L('本轮预热预约已结束，请等待下轮开放。', 'Warm-up reservation is closed for this round.')}</div>`;
+    } else if (!isReserved) {
+      primaryAreaHtml = `
+        <button class="btn btn-primary" id="btn-register-warmup" type="button" ${state.busy ? 'disabled' : ''}>
+          ${icon('bolt', 16)} ${state.busy ? L('提交中…', 'Reserving…') : L('预约', 'Reserve')}
+        </button>
+      `;
+    } else if (chestOpened) {
+      primaryAreaHtml = `<div class="num-xs text-green" style="font-weight:700;">${L('本轮预热宝箱已开启，奖励已计入「待激活」余额。', 'Warm-up chest opened; reward added to Pending Activation.')}</div>`;
+    } else if (chestReady) {
+      if (openGateEnabled) {
+        primaryAreaHtml = `
+          <button class="btn btn-primary" id="btn-open-warmup-chest" type="button" ${state.busy ? 'disabled' : ''}>
+            ${icon('unlock', 16)} ${state.busy ? L('开箱中…', 'Opening…') : L('开箱', 'Open Chest')}
+          </button>
+        `;
+      } else {
+        // 只读或总闸关闭时显示原因文字，绝不放置灰占位按钮
+        primaryAreaHtml = `
+          <div class="sub-tile num-xs text-sec" id="warmup-open-gate-note" style="line-height:1.5;">
+            ${L('已达开箱条件，当前为只读模式或免费开箱总闸尚未开放；你的达标进度已保留，开放后即可开箱。', 'Eligible to open, but claiming is currently read-only or chest opening is paused. Your progress is saved.')}
+          </div>
+        `;
+      }
+    } else {
+      primaryAreaHtml = `
+        <button class="btn btn-primary" id="btn-share-warmup" type="button">
+          ${icon('send', 15)} ${L('邀请好友', 'Invite Friends')}
+        </button>
+      `;
+    }
+
+    const ladderHtml = state.loading && !d
+      ? `<div class="num-xs text-muted">${L('加载阶梯配置中…', 'Loading reward tiers…')}</div>`
+      : loadFailed
+        ? `<div class="num-xs text-muted">${L('暂无法读取阶梯数据', 'Reward tiers unavailable')}</div>`
+        : !ladder.valid
+          ? `<div class="num-xs text-red" id="warmup-ladder-pending" style="font-weight:700;">${L('配置待确认', 'Configuration pending')}</div>`
+          : `
+            <div class="warmup-ladder-grid" id="warmup-ladder-grid">
+              ${ladder.tiers.map((tier) => {
+                const reached = validInvites !== null && validInvites >= tier.invites;
+                return `
+                  <div class="warmup-ladder-pill ${reached ? 'is-reached' : ''}">
+                    <span class="num-xs text-muted">${tier.invites} ${L('人', 'inv')}</span>
+                    <strong class="mono num-xs" style="white-space:nowrap;">${formatNum(tier.amountA9)} A9</strong>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `;
+
+    const uniqueProgressText = state.loading && !d
+      ? L('加载中…', 'Loading…')
+      : loadFailed
+        ? '—'
+        : (validInvites !== null && maxFriends !== null)
+          ? L(`有效好友 ${validInvites} / ${maxFriends}`, `Valid friends ${validInvites} / ${maxFriends}`)
+          : (validInvites !== null ? L(`有效好友 ${validInvites} / —`, `Valid friends ${validInvites} / —`) : '—');
+
+    const statusBadgeText = state.loading && !d
+      ? L('加载中…', 'Loading…')
+      : loadFailed
+        ? L('暂不可用', 'Unavailable')
+        : !isRoundOpen
+          ? L('已关闭', 'Closed')
+          : isReserved
+            ? L('已预约', 'Reserved')
+            : L('未预约', 'Not Reserved');
 
     root.innerHTML = `
-      <div class="col-gap anim-page-enter">
-        <section class="card card-hero">
-          <div class="row-between" style="margin-bottom:8px;">
-            <span class="chip chip-gold">${L(`第 ${targetRoundId} 轮开局预热`, `Round ${targetRoundId} Warm-Up`)}</span>
-            <span class="chip ${!isRoundOpen ? 'chip-muted' : isReserved ? 'chip-green' : 'chip-muted'}">${!isRoundOpen ? L('本轮预约已关闭', 'Closed') : isReserved ? L('已预约', 'Reserved') : L('零门槛预约', '0-Cost Reserve')}</span>
+      <div class="col-gap anim-page-enter" id="warmup-section-root">
+        <section class="card card-hero col-gap">
+          <div class="row-between">
+            <span class="chip chip-gold">${L(roundTitleZh, roundTitleEn)}</span>
+            <span class="chip ${isReserved && isRoundOpen ? 'chip-green' : 'chip-muted'}">${escapeHtml(statusBadgeText)}</span>
           </div>
 
-          <div class="num-xs text-muted">${L('当前全网已预约参与人数', 'Total Reserved Players')}</div>
-          <div class="row-between" style="align-items:baseline;margin-top:4px;gap:8px;">
-            <div class="num-hero mono">${state.loading && !d ? '—' : formatNum(totalRegistered)} <span class="num-md text-sec">${L('人', 'players')}</span></div>
-            <span class="num-xs text-sec mono">${targetUsers > 0 ? `${L('目标', 'Goal')} ${formatNum(targetUsers)} (${progressPct}%)` : '—'}</span>
-          </div>
-
-          <div class="progress-track" style="height:8px;margin:10px 0 8px;">
-            <div class="progress-fill" style="width:${progressPct}%;"></div>
-          </div>
-
-          <div class="metric-strip cols-3" style="margin-bottom:12px;">
-            <div class="metric-cell">
-              <span class="num-xs text-muted">${L('活跃钱包已绑', 'Wallet Bound')}</span>
-              <span class="num-md mono">${state.loading && !d ? '—' : formatNum(walletBoundCount)}</span>
+          <div class="row-between" style="align-items:baseline;gap:8px;">
+            <div>
+              <div class="num-xs text-muted">${L('全网已预约人数', 'Total Reserved')}</div>
+              <div class="num-hero mono" style="margin-top:2px;white-space:nowrap;">${totalRegistered === null ? (state.loading ? L('加载中…', 'Loading…') : '—') : `${formatNum(totalRegistered)} <span class="num-md text-sec">${L('人', 'players')}</span>`}</div>
             </div>
-            <div class="metric-cell">
-              <span class="num-xs text-muted">${L('我的预热邀请', 'My Invites')}</span>
-              <span class="num-md mono text-green">${isReserved ? `${validInvites}/${rawInvites}` : '0'}</span>
+            <div style="text-align:right;">
+              <div class="num-xs text-muted">${L('预计开轮时间', 'Opening Time')}</div>
+              ${openTimeUnknown
+                ? `<button type="button" class="sw-retry-link" id="btn-warmup-alert-inline" style="margin-top:4px;font-weight:700;">${state.remindEnabled ? L('待公布 · 已开启提醒', 'TBA · Alert ON') : L('待公布 · 开启提醒', 'TBA · Enable Alert')}</button>`
+                : `<strong class="num-xs mono" style="display:block;margin-top:4px;white-space:nowrap;">${escapeHtml(plannedOpenStr)}</strong>`}
             </div>
-            <div class="metric-cell">
-              <span class="num-xs text-muted">${L('预计开轮时间', 'Est. Open')}</span>
-              <span class="num-xs mono" style="font-weight:700;">${escapeHtml(openTimeText)}</span>
+          </div>
+
+          <div>
+            <div class="row-between num-xs text-sec" style="margin-bottom:5px;">
+              <strong id="warmup-unique-progress">${escapeHtml(uniqueProgressText)}</strong>
+              <span class="mono">${ladder.valid ? L(`最高 ${formatNum(ladder.maxA9)} A9`, `Up to ${formatNum(ladder.maxA9)} A9`) : '—'}</span>
+            </div>
+            <div class="progress-track" style="height:7px;">
+              <div class="progress-fill" style="width:${chestPct}%;"></div>
+            </div>
+          </div>
+
+          ${ladderHtml}
+
+          <div class="rewards-activation-note">
+            <div class="num-xs text-sec" style="line-height:1.5;">
+              <strong>${L('待激活说明：', 'Pending Activation: ')}</strong>${L(
+                '预热开箱奖励进入「待激活」余额；完成购任意宝箱、链上锁仓或邀 1 位好友购箱后自动激活并进入「我的奖励」可领余额（48 小时未激活回流奖池）。',
+                'Warm-up chest rewards credit to Pending Activation; auto-activates upon buying any chest, locking A9, or inviting 1 friend who buys a chest (moves to My Rewards; expires after 48h).'
+              )}
             </div>
           </div>
 
           ${state.error ? `
-            <div class="sub-tile" style="margin-bottom:10px;border-color:var(--gold-border);">
-              <div class="row-between">
-                <span class="num-xs text-red">${escapeHtml(state.error)}</span>
-                <button class="btn btn-secondary btn-sm" id="btn-warmup-retry" type="button">${L('重试', 'Retry')}</button>
-              </div>
+            <div class="sw-menu-error" role="alert">
+              <span>${escapeHtml(state.error)}</span>
+              <button type="button" class="sw-retry-link" id="btn-warmup-retry">${L('重试', 'Retry')}</button>
             </div>
           ` : ''}
 
-          ${!isRoundOpen ? `
-            <button class="btn btn-secondary" type="button" disabled>${icon('lock', 15)} ${L('本轮预热预约已暂停或结束', 'Warm-Up Closed')}</button>
-          ` : !isReserved ? `
-            <button class="btn btn-primary" id="btn-register-warmup" type="button" ${state.busy ? 'disabled' : ''}>
-              ${icon('bolt', 16)} ${state.busy ? L('提交中…', 'Reserving…') : L(`一键预约第 ${targetRoundId} 轮 · 领专属预热宝箱`, `Reserve Round ${targetRoundId} & Get Chest`)}
-            </button>
-          ` : `
-            <div class="grid-2" style="gap:8px;">
-              <button class="btn btn-primary" id="btn-share-warmup" type="button">${icon('send', 15)} ${L('邀友预热解锁宝箱', 'Invite to Unlock')}</button>
-              <button class="btn btn-secondary" id="btn-copy-invite" type="button">${icon('copy', 15)} ${L('复制预热链接', 'Copy Link')}</button>
+          ${primaryAreaHtml}
+
+          ${isReserved ? `
+            <div class="row-between" style="gap:8px;padding-top:2px;">
+              <button class="sw-retry-link" id="btn-copy-invite" type="button">${icon('copy', 12)} ${L('复制预热链接', 'Copy Link')}</button>
+              <button class="sw-retry-link" id="btn-cancel-warmup" type="button" style="color:var(--text-muted);" ${state.busy ? 'disabled' : ''}>${L('取消预约', 'Cancel')}</button>
             </div>
-          `}
+          ` : ''}
         </section>
 
-        <section class="card">
-          <div class="card-header">
-            <div class="card-title">${icon('trophy', 15, 'text-gold')} ${L(`第 ${targetRoundId} 轮预热裂变宝箱`, `Round ${targetRoundId} Warm-Up Chest`)}</div>
-            <span class="chip ${chestOpened ? 'chip-muted' : chestReady ? 'chip-green' : 'chip-gold'}">
-              ${chestOpened ? L('已开箱入库', 'Opened') : chestReady ? L('可开箱', 'Ready') : isReserved ? L('解锁中', 'In Progress') : L('预约即领', 'Free on Reserve')}
-            </span>
-          </div>
-          <p class="num-xs text-sec" style="margin:0 0 10px;line-height:1.5;">
-            ${L(`邀好友预约并绑钱包，最高解锁 ${formatNum(maxChestA9)} A9（入待激活金库）。`, `Invite wallet-bound friends to unlock up to ${formatNum(maxChestA9)} A9.`)}
-          </p>
-
-          <div class="sub-tile" style="margin-bottom:10px;">
-            <div class="row-between num-xs" style="margin-bottom:6px;">
-              <span>${L('有效活跃钱包好友', 'Valid Wallet Friends')}: <b class="mono">${validInvites} / ${maxFriends}</b> <span class="text-muted">(${L(`已预约 ${rawInvites} 人`, `${rawInvites} reserved`)})</span></span>
-              <b class="mono text-green">${chestReady || chestOpened ? `${formatNum(totalChestA9)} A9` : L(`满 ${baseReq} 人解锁 ${formatNum(baseUnlockA9)} A9`, `${formatNum(baseUnlockA9)} A9 at ${baseReq}`)}</b>
-            </div>
-            <div class="progress-track" style="height:7px;margin-bottom:6px;">
-              <div class="progress-fill" style="width:${chestPct}%;"></div>
-            </div>
-            <div class="row-between num-xs text-muted">
-              <span>2 ${L('人', 'inv')} = 300 A9</span>
-              <span>3 ${L('人', 'inv')} = 500 A9</span>
-              <span>4 ${L('人', 'inv')} = 700 A9</span>
-              <span class="text-gold" style="font-weight:700;">5 ${L('人', 'inv')} = ${formatNum(maxChestA9)} A9</span>
-            </div>
-          </div>
-
-          ${isReserved && chest ? `
-            <div class="grid-2" style="gap:8px;">
-              <button class="btn btn-secondary btn-sm" id="btn-warmup-share-chest" type="button">${icon('send', 13)} ${L('分享拉好友绑钱包', 'Share Invite')}</button>
-              <button class="btn ${chestReady && canOpenChestNow() ? 'btn-primary' : 'btn-secondary'} btn-sm" id="btn-open-warmup-chest" type="button" ${chestOpened || !chestReady || !canOpenChestNow() || state.busy ? 'disabled' : ''}>
-                ${icon(chestOpened ? 'checkCircle' : canOpenChestNow() ? 'unlock' : 'lock', 13)}
-                ${chestOpened ? L('已开箱入待激活金库', 'Opened to Vault') : !canOpenChestNow() ? L('只读模式暂未开放开箱', 'Read-Only Mode') : chestReady ? L(`开启宝箱 (+${formatNum(totalChestA9)} A9)`, `Open (+${formatNum(totalChestA9)} A9)`) : L(`还差 ${Math.max(0, baseReq - validInvites)} 位有效好友`, `${Math.max(0, baseReq - validInvites)} more needed`)}
-              </button>
-            </div>
-          ` : `
-            <div class="num-xs text-muted">${L('预约即发本轮宝箱；好友绑定活跃 TON 钱包后自动计入进度。', 'Reserve to get your chest; wallet-bound friends count automatically.')}</div>
-          `}
-        </section>
-
-        <section class="card">
-          <div class="card-header">
-            <div class="card-title">${icon('clock', 15, 'text-gold')} ${L('意向档位与开轮提醒（可选）', 'Intent Tier & Opening Alert (Optional)')}</div>
-            <span class="chip chip-muted">${L('不锁资金', 'Non-binding')}</span>
-          </div>
-          <div class="num-xs text-muted" style="margin-bottom:8px;">${L('选填你本轮预计锁仓的 A9 体量（链上最低 100 A9，随时可改，不扣款）：', 'Optionally select your planned A9 lock size (min on-chain lock 100 A9, non-binding):')}</div>
-          <div class="grid-2" style="gap:8px;margin-bottom:10px;">
-            ${WARMUP_INTENT_OPTIONS.map((opt) => {
-              const active = state.selectedTier === opt.key;
-              return `<button type="button" class="btn btn-sm ${active ? 'btn-primary' : 'btn-secondary'}" data-intent-tier="${opt.key}" ${!isRoundOpen || state.busy ? 'disabled' : ''}>${L(opt.zh, opt.en)}</button>`;
-            }).join('')}
-          </div>
-          <div class="sw-menu-group">
-            <div class="sw-menu-row is-static">
-              <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('开轮 Bot 私信通知', 'Bot DM Opening Alert')}</span>
-                <span class="sw-menu-sub">${L('第 ' + targetRoundId + ' 轮开盘时推送头矿 6H · 5% 轻止损入口', 'Notifies on Round ' + targetRoundId + ' open (First 6H · 5% Stop-Loss)')}</span>
+        <section class="card col-gap" style="gap:8px;">
+          <details class="rewards-secondary-fold" id="warmup-intent-fold">
+            <summary>${L('意向档位与开轮提醒（可选）', 'Intent Tier & Opening Alert (Optional)')}</summary>
+            <div class="col-gap" style="gap:10px;margin-top:10px;">
+              <div class="num-xs text-muted">${L('选填预计锁仓体量（不锁资金，随时可改）：', 'Optional planned A9 lock size (non-binding):')}</div>
+              <div class="hero-amt-pills" style="flex-wrap:wrap;gap:6px;">
+                ${WARMUP_INTENT_OPTIONS.map((opt) => {
+                  const active = state.selectedTier === opt.key;
+                  return `<button type="button" class="hero-amt-pill ${active ? 'active' : ''}" data-intent-tier="${opt.key}" ${!isRoundOpen || state.busy ? 'disabled' : ''}>${L(opt.zh, opt.en)}</button>`;
+                }).join('')}
               </div>
-              <div class="sw-menu-right">
+              <div class="row-between" style="padding-top:6px;border-top:1px solid var(--card-border);">
+                <div>
+                  <div class="num-xs" style="font-weight:700;color:var(--ink);">${L('开轮 Bot 私信通知', 'Bot Opening Alert')}</div>
+                  <div class="num-xs text-muted">${L(`第 ${targetRoundId} 轮开盘时推送头矿 6H 入口`, `Notifies when Round ${targetRoundId} opens`)}</div>
+                </div>
                 <button type="button" class="chip ${state.remindEnabled ? 'chip-green' : 'chip-muted'}" id="btn-toggle-remind" style="cursor:pointer;border:none;" ${!isRoundOpen || state.busy ? 'disabled' : ''}>
                   ${state.remindEnabled ? L('已开启', 'ON') : L('已关闭', 'OFF')}
                 </button>
               </div>
             </div>
-          </div>
+          </details>
+
+          <details class="rewards-secondary-fold" id="warmup-rules-fold">
+            <summary>${L('预热规则说明', 'Warm-Up Rules')}</summary>
+            <div class="num-xs text-sec" style="line-height:1.6;margin-top:8px;">
+              ${L(
+                '1. 零门槛预约，不锁任何本金；预约后获得本轮专属预热宝箱。<br/>2. 仅统计通过你的链接预约且绑定活跃 TON 钱包的有效好友。<br/>3. 阶梯与上限以当轮服务端配置为准，达到最低门槛即可解锁对应奖励；目标进度：',
+                '1. Free reservation with zero lockup; grants your round warm-up chest.<br/>2. Only friends who reserve via your link and bind an active TON wallet count as valid.<br/>3. Tiers follow current round server config. Target progress: '
+              )}
+              <span class="mono">${totalRegistered !== null && targetUsers !== null ? `${formatNum(totalRegistered)} / ${formatNum(targetUsers)} (${progressPct}%)` : '—'}</span>
+            </div>
+          </details>
         </section>
 
-        <div class="sw-menu-group">
-          <a class="sw-menu-row" href="#/warmup/rank">
-            <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('预热裂变榜', 'Warm-Up Board')}</span>
-              <span class="sw-menu-sub">${L('查看本轮预热邀请排名', 'View round warm-up invite rankings')}</span>
-            </div>
-            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-          </a>
-          <button type="button" class="sw-menu-row" id="btn-copy-invite-bottom">
-            <div class="sw-menu-left"><span class="sw-menu-title">${L('复制专属预热链接', 'Copy Warm-Up Link')}</span></div>
-            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-          </button>
-        </div>
-
-        ${isReserved ? `<button class="btn btn-sm" id="btn-cancel-warmup" type="button" style="width:100%;background:transparent;color:var(--text-muted);font-weight:500;" ${state.busy ? 'disabled' : ''}>${L('取消本轮预热预约', 'Cancel Warm-Up Reservation')}</button>` : ''}
-        ${!hasTgAuth ? `<div class="num-xs text-muted" style="text-align:center;">${L('请在 Telegram 小程序内打开以完成零门槛预约与接收 Bot 开轮提醒。', 'Open inside Telegram Mini App to reserve and receive Bot alerts.')}</div>` : ''}
+        ${!hasTgAuth ? `<div class="num-xs text-muted" style="text-align:center;">${L('请在 Telegram 小程序内打开以完成预约与接收开轮提醒。', 'Open inside Telegram Mini App to reserve and receive opening alerts.')}</div>` : ''}
       </div>
     `;
 
@@ -296,7 +434,7 @@ export function renderWarmupHome(root, navigate, _param = null, query = {}) {
 
     const submitReserve = async (overrides = {}) => {
       if (!config.isDemo && !A9TMA.getRawInitData()) {
-        showToast(L('请在 Telegram 小程序内打开后再一键预约', 'Open inside Telegram Mini App to reserve'), 'amber');
+        showToast(L('请在 Telegram 小程序内打开后再预约', 'Open inside Telegram Mini App to reserve'), 'amber');
         return false;
       }
       state.busy = true;
@@ -335,9 +473,10 @@ export function renderWarmupHome(root, navigate, _param = null, query = {}) {
     if (regBtn) regBtn.onclick = () => submitReserve();
 
     const doShare = () => {
+      const maxStr = ladder.valid ? `${formatNum(ladder.maxA9)} A9` : L('预热宝箱奖励', 'warm-up chest rewards');
       const shareText = L(
-        `我已预约 A9 第 ${targetRoundId} 轮开局预热！点链接零门槛预约立领专属预热宝箱，绑活跃 TON 钱包一起解锁最高 ${formatNum(maxChestA9)} A9：`,
-        `I reserved A9 Round ${targetRoundId} Warm-Up! Tap to reserve with 0 cost, get your Warm-Up Chest, and unlock up to ${formatNum(maxChestA9)} A9:`
+        `我已预约 A9 第 ${targetRoundId} 轮开局预热！点链接零门槛预约立领专属预热宝箱，绑活跃 TON 钱包一起解锁最高 ${maxStr}：`,
+        `I reserved A9 Round ${targetRoundId} Warm-Up! Tap to reserve with 0 cost, get your Warm-Up Chest, and unlock up to ${maxStr}:`
       );
       A9TMA.shareInvite(inviteUrl, shareText);
       showToast(L('已调起 Telegram 好友分享', 'Opened Telegram share'));
@@ -345,14 +484,31 @@ export function renderWarmupHome(root, navigate, _param = null, query = {}) {
 
     const shareBtn = root.querySelector('#btn-share-warmup');
     if (shareBtn) shareBtn.onclick = doShare;
-    const shareChestBtn = root.querySelector('#btn-warmup-share-chest');
-    if (shareChestBtn) shareChestBtn.onclick = doShare;
 
-    const copyHandler = () => copyText(inviteUrl, L('已复制专属预热链接', 'Copied warm-up link'));
     const copyTop = root.querySelector('#btn-copy-invite');
-    if (copyTop) copyTop.onclick = copyHandler;
-    const copyBottom = root.querySelector('#btn-copy-invite-bottom');
-    if (copyBottom) copyBottom.onclick = copyHandler;
+    if (copyTop) copyTop.onclick = () => copyText(inviteUrl, L('已复制专属预热链接', 'Copied warm-up link'));
+
+    const toggleRemindHandler = async () => {
+      A9Haptic.tick();
+      const prev = state.remindEnabled;
+      const next = !prev;
+      state.remindEnabled = next;
+      if (isReserved) {
+        const okSave = await submitReserve({ remindEnabled: next, _silent: true });
+        if (!okSave && root.isConnected) {
+          state.remindEnabled = prev;
+          paint();
+        }
+      } else {
+        showToast(next ? L('已开启开轮提醒，预约后生效', 'Opening alert enabled (applies on reserve)') : L('已关闭开轮提醒', 'Opening alert disabled'));
+        paint();
+      }
+    };
+
+    const inlineAlertBtn = root.querySelector('#btn-warmup-alert-inline');
+    if (inlineAlertBtn) inlineAlertBtn.onclick = toggleRemindHandler;
+    const toggleRemind = root.querySelector('#btn-toggle-remind');
+    if (toggleRemind) toggleRemind.onclick = toggleRemindHandler;
 
     root.querySelectorAll('[data-intent-tier]').forEach((btn) => {
       btn.onclick = async () => {
@@ -373,38 +529,19 @@ export function renderWarmupHome(root, navigate, _param = null, query = {}) {
       };
     });
 
-    const toggleRemind = root.querySelector('#btn-toggle-remind');
-    if (toggleRemind) {
-      toggleRemind.onclick = async () => {
-        A9Haptic.tick();
-        const prev = state.remindEnabled;
-        const next = !prev;
-        state.remindEnabled = next;
-        if (isReserved) {
-          const okSave = await submitReserve({ remindEnabled: next, _silent: true });
-          if (!okSave && root.isConnected) {
-            state.remindEnabled = prev;
-            paint();
-          }
-        } else {
-          paint();
-        }
-      };
-    }
-
     const openWarmupChestBtn = root.querySelector('#btn-open-warmup-chest');
     if (openWarmupChestBtn && chest) {
       openWarmupChestBtn.onclick = async () => {
-        if (!canOpenChestNow()) {
+        if (!isChestOpenEnabled()) {
           A9Haptic.warning();
-          showToast(L('当前真实模式处于只读验收阶段，宝箱开箱入账暂未开放', 'Live mode is read-only; chest opening disabled'), 'amber');
+          showToast(L('当前为只读模式或开箱暂未开放', 'Read-only mode or chest opening disabled'), 'amber');
           return;
         }
         state.busy = true;
         paint();
         try {
           const res = await openChestById(chest.chestId, store.state, store.state.user.address);
-          const gotA9 = rawToA9(res?.rewardA9Raw) || totalChestA9;
+          const gotA9 = rawToA9(res?.rewardA9Raw) || totalChestA9 || 0;
           openChestCelebrationModal({
             tier: 'gold',
             title: L(`第 ${targetRoundId} 轮预热宝箱`, `Round ${targetRoundId} Warm-Up Chest`),
@@ -415,7 +552,7 @@ export function renderWarmupHome(root, navigate, _param = null, query = {}) {
           await load();
         } catch (e) {
           A9Haptic.error();
-          showToast(e?.message || L(`暂未满足开箱条件（需 ≥${baseReq} 位绑定活跃钱包的预约好友）`, `Need ≥${baseReq} wallet-bound friends to open`), 'amber');
+          showToast(e?.message || L('暂未满足开箱条件，请稍后重试', 'Not eligible to open yet'), 'amber');
           state.busy = false;
           if (root.isConnected) paint();
         }
@@ -449,7 +586,11 @@ export function renderWarmupHome(root, navigate, _param = null, query = {}) {
     }
   };
 
-  load();
+  void load();
+}
+
+export function renderWarmupHome(root, navigate, param = null, query = {}) {
+  return mountWarmupSection(root, { navigate, param, query, embedded: false });
 }
 
 export function renderWarmupRank(root) {

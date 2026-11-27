@@ -137,7 +137,9 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
     root.innerHTML = `<div class="col-gap anim-page-enter"><section class="card num-xs text-muted">${L('加载预热信息中…', 'Loading warm-up…')}</section></div>`;
     import('./warmup_market.js')
       .then((m) => {
-        if (root.isConnected && typeof m.renderWarmupHome === 'function') {
+        if (root.isConnected && typeof m.mountWarmupSection === 'function') {
+          m.mountWarmupSection(root, { navigate, param: _param, query, embedded: false });
+        } else if (root.isConnected && typeof m.renderWarmupHome === 'function') {
           m.renderWarmupHome(root, navigate, _param, query);
         }
       })

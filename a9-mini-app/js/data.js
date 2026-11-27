@@ -621,48 +621,60 @@ function withReferrer(body, referrerId) {
   return clean ? { ...body, referrerId: clean } : body;
 }
 
-/** 统一规范化 /api/warmup/current 返回结构（对齐后端 roundId / stats.totalRegistered / config.targetUsers / config.plannedOpenAt / boostA9Raw） */
+/** 统一规范化 /api/warmup/current 返回结构（严守 P0-G：未知/缺失字段严格保留 null，绝不伪造 0 或硬编码 2-5 阶梯） */
 export function normalizeWarmupCurrent(raw) {
   if (!raw || typeof raw !== 'object') return null;
-  const cfg = raw.config || {};
-  const st = raw.stats || {};
-  const roundId = Number(raw.roundId ?? cfg.roundId ?? st.roundId) || 0;
-  const totalRegistered = Number(st.totalRegistered ?? 0);
-  const targetUsers = Number(cfg.targetUsers ?? 0);
-  const progressPct = targetUsers > 0
+  const cfg = raw.config && typeof raw.config === 'object' ? raw.config : {};
+  const st = raw.stats && typeof raw.stats === 'object' ? raw.stats : {};
+  const optNonNegNum = (v) => {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  const optFiniteNum = (v) => {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const roundId = optFiniteNum(raw.roundId ?? cfg.roundId ?? st.roundId);
+  const totalRegistered = optNonNegNum(st.totalRegistered);
+  const targetUsers = optNonNegNum(cfg.targetUsers);
+  const progressPct = (totalRegistered !== null && targetUsers !== null && targetUsers > 0)
     ? Math.max(0, Math.min(100, Math.round((totalRegistered / targetUsers) * 100)))
-    : 0;
+    : null;
   const chest = raw.myWarmupChest || null;
-  let chestTotalA9Raw = '0';
+  let chestTotalA9Raw = null;
   if (chest) {
     try {
       chestTotalA9Raw = (BigInt(String(chest.baseA9Raw || '0')) + BigInt(String(chest.boostA9Raw || '0'))).toString();
     } catch (_) {
-      chestTotalA9Raw = String(chest.baseA9Raw || '0');
+      chestTotalA9Raw = typeof chest.baseA9Raw === 'string' ? chest.baseA9Raw : null;
     }
   }
-  const openAtRaw = Number(cfg.plannedOpenAt || 0);
-  const plannedOpenAtMs = openAtRaw > 0 && openAtRaw < 1e12 ? openAtRaw * 1000 : (openAtRaw > 0 ? openAtRaw : null);
+  const openAtRaw = optFiniteNum(cfg.plannedOpenAt ?? cfg.plannedOpenAtMs);
+  const plannedOpenAtMs = openAtRaw !== null && openAtRaw > 0
+    ? (openAtRaw < 1e12 ? openAtRaw * 1000 : openAtRaw)
+    : null;
   return {
-    roundId,
-    currentOnchainRoundId: Number(raw.currentOnchainRoundId || 0),
+    roundId: roundId !== null && roundId >= 1 ? roundId : null,
+    currentOnchainRoundId: optFiniteNum(raw.currentOnchainRoundId),
     open: Boolean(raw.open ?? true) && String(cfg.status || 'OPEN') === 'OPEN',
     config: {
       ...cfg,
-      roundId,
+      roundId: roundId !== null && roundId >= 1 ? roundId : null,
       status: String(cfg.status || 'OPEN'),
       targetUsers,
-      plannedOpenAt: openAtRaw > 0 ? openAtRaw : null,
+      plannedOpenAt: openAtRaw !== null && openAtRaw > 0 ? openAtRaw : null,
       plannedOpenAtMs,
-      chestMinInvites: Number(cfg.chestMinInvites || 2),
-      chestMaxInvites: Number(cfg.chestMaxInvites || 5),
+      chestMinInvites: optFiniteNum(cfg.chestMinInvites),
+      chestMaxInvites: optFiniteNum(cfg.chestMaxInvites),
     },
     stats: {
-      roundId,
+      roundId: roundId !== null && roundId >= 1 ? roundId : null,
       totalRegistered,
-      walletBoundCount: Number(st.walletBoundCount || 0),
-      activeWalletCount: Number(st.activeWalletCount || 0),
-      remindEnabledCount: Number(st.remindEnabledCount || 0),
+      walletBoundCount: optNonNegNum(st.walletBoundCount),
+      activeWalletCount: optNonNegNum(st.activeWalletCount),
+      remindEnabledCount: optNonNegNum(st.remindEnabledCount),
       targetUsers,
       progressPct,
     },

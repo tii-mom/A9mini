@@ -3152,6 +3152,10 @@ img {
   border-top: 1px solid var(--card-border);
   padding-top: 8px;
 }
+.card > .rewards-secondary-fold:first-child {
+  border-top: none;
+  padding-top: 0;
+}
 .rewards-secondary-fold > summary {
   cursor: pointer;
   font-size: 12px;
@@ -3201,6 +3205,28 @@ img {
   font-weight: 700;
   color: var(--ink);
   line-height: 1.4;
+}
+
+/* P4 预热动态阶梯胶囊网格（适配 1-5 档与 360px 窄屏不挤压不裁切） */
+.warmup-ladder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 6px;
+}
+.warmup-ladder-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 6px;
+  border-radius: 12px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  text-align: center;
+}
+.warmup-ladder-pill.is-reached {
+  border-color: var(--green-border, rgba(18, 168, 93, 0.35));
+  background: var(--nt-green-soft, rgba(18, 168, 93, 0.1));
 }
 
 @media (prefers-reduced-motion: reduce) {
