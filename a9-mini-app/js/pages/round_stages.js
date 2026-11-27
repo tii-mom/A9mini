@@ -324,7 +324,7 @@ export function renderPlazaCompactBanner(pred, round) {
     return `
       <a class="plaza-compact-strip is-vault" id="a9-pending-vault-banner" href="#/internal/market">
         <span class="plaza-compact-left">
-          <span class="chip chip-gold" style="min-height:20px;font-size:10px;padding:0 6px;">${L('首单加赠', 'BONUS')}</span>
+          <span class="chip chip-gold" style="min-height:20px;font-size:11px;padding:0 6px;">${L('首单加赠', 'BONUS')}</span>
           <span class="plaza-compact-text">${L(`0.99 GRAM 得 ${formatNum(firstOrderTotalA9, 0)} A9（含 ${formatNum(Math.round(pendingA9), 0)} 赠金）`, `0.99 GRAM → ${formatNum(firstOrderTotalA9, 0)} A9 (+${formatNum(Math.round(pendingA9), 0)} bonus)`)}</span>
         </span>
         <span class="plaza-compact-right mono">${expRemSec !== null ? formatTimer(expRemSec) : '48H'} ›</span>
@@ -351,7 +351,7 @@ export function renderPlazaCompactBanner(pred, round) {
       return `
         <a class="plaza-compact-strip is-early" id="a9-early-bird-banner" data-early-rem="${remSec}" href="#/challenge/confirm">
           <span class="plaza-compact-left">
-            <span class="chip chip-red" style="min-height:20px;font-size:10px;padding:0 6px;">-5%</span>
+            <span class="chip chip-red" style="min-height:20px;font-size:11px;padding:0 6px;">-5%</span>
             <span class="plaza-compact-text">${L('头矿 6H · 5% 轻止损窗口开放中（全员 1:1 分奖）', 'First 6H · 5% Stop-Loss Live (1:1 Fair Split)')}</span>
           </span>
           <span class="plaza-compact-right mono" id="early-window-cd">${formatTimer(remSec)} ›</span>
@@ -438,7 +438,7 @@ export function renderEarlyBirdBanner(round) {
     <section class="early-bird-banner" id="a9-early-bird-banner" data-early-rem="${remSec}">
       <div class="row-between" style="gap:8px;">
         <span class="row-start" style="gap:6px;font-weight:900;font-size:12.5px;">
-          <span class="chip chip-red" style="height:20px;font-size:10px;padding:0 7px;">${L('头矿 6H', 'FIRST 6H')}</span>
+          <span class="chip chip-red" style="height:20px;font-size:11px;padding:0 7px;">${L('头矿 6H', 'FIRST 6H')}</span>
           <span>${L('头矿 6H · 5% 轻止损窗口', 'First 6H · 5% Stop-Loss Window')}</span>
         </span>
         <span class="mono early-bird-cd" id="early-window-cd">${formatTimer(remSec)}</span>
@@ -1132,7 +1132,7 @@ export function renderAirdropDrawsCard({ loading = false, error = null, items = 
                 </div>
                 <div style="text-align:right;flex-shrink:0;">
                   <div class="num-sm text-green mono" style="font-weight:900;">+${formatNum(Math.round(prizeA9), 0)} A9</div>
-                  <span class="chip ${isCredited ? 'chip-green' : 'chip-gold'}" style="min-height:18px;font-size:9.5px;margin-top:2px;">${isCredited ? L('已入推广金库', 'Credited') : L('待入账', 'Pending')}</span>
+                  <span class="chip ${isCredited ? 'chip-green' : 'chip-gold'}" style="min-height:18px;font-size:11px;margin-top:2px;">${isCredited ? L('已入推广金库', 'Credited') : L('待入账', 'Pending')}</span>
                 </div>
               </div>
             `;

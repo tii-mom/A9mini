@@ -43,38 +43,52 @@
     inset 0 1px 0 var(--card-highlight),
     0 2.5px 0 var(--card-thickness);
 
-  /* 利落高对比炭黑字 */
+  /* 5f 视觉规范：圆角 3 档 (16 / 12 / 999px) 与字号 5 档 (最小 11px) */
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-pill: 999px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 14px;
+  --fs-lg: 18px;
+  --fs-xl: 24px;
+
+  /* 利落高对比炭黑字（全档 WCAG ≥ 4.5:1） */
   --ink: #141720;
   --nt-svg-stroke: #141720;
-  --ink-soft: #52596B;
-  --ink-muted: #7B8396;
+  --ink-soft: #4A5162;
+  --ink-muted: #5B6375;
 
-  /* 8% 唯一任天堂正红行动色（纯平高饱和 #E60012） */
+  /* 8% 唯一任天堂正红行动色（品牌正红 #E60012，配白字 4.80:1；文字/浅红胶囊用 #C80010 达 5.19:1） */
   --nt-red: #E60012;
   --nt-red-top: #E60012;
   --nt-red-edge: #9E000C;
   --nt-red-soft: #FDECEE;
+  --nt-red-ink: #C80010;
 
-  /* 2% 任天堂四色高辨识语义规范 */
-  --nt-blue: #2574E8;
-  --nt-blue-top: #2574E8;
-  --nt-blue-edge: #1851A8;
+  /* 2% 任天堂四色高辨识语义规范（浅色全部 ≥ 4.75:1） */
+  --nt-blue: #1D63D0;
+  --nt-blue-top: #1D63D0;
+  --nt-blue-edge: #144696;
   --nt-blue-soft: #EDF4FE;
 
-  --nt-green: #00A859;
-  --nt-green-edge: #00743D;
+  --nt-green: #007940;
+  --nt-green-edge: #005C30;
   --nt-green-soft: #E7F8EF;
-  --nt-green-ink: #006B38;
+  --nt-green-ink: #006636;
+  --nt-green-stamp-bg: #007940;
 
   --nt-gold: #E5A000;
   --nt-gold-top: #F2B82E;
   --nt-gold-edge: #A36E00;
   --nt-gold-soft: #FDF6E3;
-  --nt-gold-ink: #8C5C00;
+  --nt-gold-ink: #825400;
 
-  --nt-rose: #C83E60;
-  --nt-rose-edge: #8C253F;
+  /* 语义报错红（与品牌正红 --red #E60012 明确区分，白底 6.57:1 / 浅粉底 5.74:1） */
+  --nt-rose: #B42318;
+  --nt-rose-edge: #82170F;
   --nt-rose-soft: #FBECEF;
+  --err-red: #B42318;
 
   --header-bg: #FFFFFF;
   --tabbar-bg: #FFFFFF;
@@ -82,7 +96,7 @@
   --standee-filter: drop-shadow(0 6px 12px rgba(20, 22, 30, 0.14));
   --glare-color: rgba(255, 255, 255, 0.45);
 
-  /* 语义别名兼容 */
+  /* 语义别名兼容（--red 固定为品牌正红 #E60012，报错文案使用 --err-red） */
   --bg-canvas: var(--paper-bg);
   --bg-card: var(--card-bg);
   --bg-subtile: var(--paper-tray);
@@ -92,12 +106,12 @@
   --border-subtle: var(--card-border);
   --green: var(--nt-green);
   --emerald: var(--nt-green);
-  --red: var(--nt-rose);
+  --red: #E60012;
   --gold: var(--nt-gold-ink);
   --cyan: var(--nt-blue);
-  --green-border: rgba(0, 168, 89, 0.34);
-  --emerald-border: rgba(0, 168, 89, 0.34);
-  --red-border: rgba(200, 62, 96, 0.34);
+  --green-border: rgba(0, 125, 66, 0.34);
+  --emerald-border: rgba(0, 125, 66, 0.34);
+  --red-border: rgba(180, 35, 24, 0.34);
   --gold-border: rgba(163, 110, 0, 0.34);
   --blue-border: rgba(37, 116, 232, 0.36);
   --ring-track: var(--paper-tray-deep);
@@ -137,15 +151,17 @@
   --ink: #F2F4F8;
   --nt-svg-stroke: #121318;
   --ink-soft: #A8B0C2;
-  --ink-muted: #8E97AD;
+  --ink-muted: #949DB3;
 
-  --nt-red: #F02232;
-  --nt-red-top: #F02232;
+  /* 暗夜主按钮红底 #D91424 配纯白字对比度 5.15:1 (≥ 4.5:1)；深底红字使用 --nt-red-ink #FF6B78 (6.04:1) */
+  --nt-red: #D91424;
+  --nt-red-top: #D91424;
   --nt-red-edge: #8C0E19;
   --nt-red-soft: #2E181D;
+  --nt-red-ink: #FF6B78;
 
-  --nt-blue: #468DF2;
-  --nt-blue-top: #468DF2;
+  --nt-blue: #5CA1FF;
+  --nt-blue-top: #5CA1FF;
   --nt-blue-edge: #1D4B8F;
   --nt-blue-soft: #172235;
 
@@ -153,6 +169,7 @@
   --nt-green-edge: #0E7542;
   --nt-green-soft: #132B20;
   --nt-green-ink: #4BE598;
+  --nt-green-stamp-bg: #0E7A45;
 
   --nt-gold: #F2B82E;
   --nt-gold-top: #F2B82E;
@@ -160,9 +177,12 @@
   --nt-gold-soft: #2B2415;
   --nt-gold-ink: #F5C44B;
 
-  --nt-rose: #E05678;
-  --nt-rose-edge: #85223B;
+  /* 暗夜语义报错红（#FF7A85 卡片 6.63:1 / 柔和红底 6.56:1），与品牌正红 --red #E60012 区分 */
+  --nt-rose: #FF7A85;
+  --nt-rose-edge: #962939;
   --nt-rose-soft: #2E1921;
+  --red: #E60012;
+  --err-red: #FF7A85;
 
   --header-bg: #1C1E26;
   --tabbar-bg: #1C1E26;

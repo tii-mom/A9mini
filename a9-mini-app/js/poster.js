@@ -573,7 +573,7 @@ export function renderScenarioPoster(canvas, scenario = 'push', extra = {}) {
   paintCartridgePoster(canvas, {
     headerTone: 'red',
     serialTag: roundNum ? `A9 12H PUSH · R${String(roundNum).padStart(2, '0')}` : 'A9 12H PUSH',
-    title: L('冲价喊单卡 · 齐心冲目标价', 'Price-Push Call · Hit Target'),
+    title: L('冲价喊单卡 · 齐心冲目标价', 'Price-Push · Hit Target'),
     subtitle: L('70% 奖池 + 12% 团队全锁涨价解锁 · 100 A9 起锁仓永不爆仓', '70% Pool + 12% Team Price-Unlock · Lock from 100 A9'),
     badgeText: passed !== null ? `${passed}/${required} PASS` : pendingTxt,
     metrics: [

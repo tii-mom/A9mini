@@ -1324,7 +1324,7 @@ function renderLiveStakeConfirm(root, navigate) {
         ${balA9 !== null && balA9 < minStakeA9 ? `
           <div class="sub-tile row-between" style="border-color:var(--gold-border);gap:8px;">
             <span class="num-xs text-sec">${L(`当前可用 A9 不足 ${formatNum(minStakeA9)}（还差 ${formatNum(Math.ceil(minStakeA9 - balA9))} A9）`, `Need ${formatNum(Math.ceil(minStakeA9 - balA9))} more A9 for ${formatNum(minStakeA9)} minimum`)}</span>
-            <a class="btn btn-primary btn-sm" href="#/internal/market" style="white-space:nowrap;">${L('宝箱补足', 'Get A9')} ›</a>
+            <a class="btn btn-secondary btn-sm" href="#/market" style="white-space:nowrap;">${L('宝箱补足', 'Get A9')} ›</a>
           </div>
         ` : ''}
 

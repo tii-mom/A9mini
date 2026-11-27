@@ -1056,7 +1056,7 @@
 .early-bird-cd {
   font-size: 14px;
   font-weight: 900;
-  color: var(--nt-red, #E60012);
+  color: var(--nt-red-ink, var(--nt-red));
   white-space: nowrap;
 }
 
@@ -1378,7 +1378,7 @@
 .payback-w-btn.active {
   border-color: var(--nt-red);
   background: var(--nt-red-soft);
-  color: var(--nt-red);
+  color: var(--nt-red-ink, var(--nt-red));
 }
 
 .payback-kpi-grid {
@@ -1537,7 +1537,7 @@
 .plaza-compact-right {
   font-size: 11px;
   font-weight: 900;
-  color: var(--nt-red);
+  color: var(--nt-red-ink, var(--nt-red));
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -1658,123 +1658,18 @@
   }
 }
 
-/* 新手前 60 秒 3 步单行道引导条 */
-.plaza-onboarding-strip {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  padding: 9px 11px;
-  border-radius: 15px;
-  background: var(--card-bg);
-  border: 1.5px solid var(--card-border);
-  box-shadow: var(--surface-shadow);
-}
-
-.plaza-onboard-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.plaza-onboard-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
-  font-weight: 900;
-  color: var(--ink);
-}
-
-.plaza-onboard-close {
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  border: 1px solid var(--card-border);
-  background: var(--paper-tray);
-  color: var(--ink-muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.plaza-onboard-steps {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.plaza-onboard-step {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-height: 32px;
-  padding: 4px 5px;
-  border-radius: 10px;
-  border: 1px solid var(--card-border);
-  background: var(--paper-tray);
-  color: var(--ink-soft);
-  font-size: 10.5px;
-  font-weight: 800;
-  text-decoration: none;
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.plaza-onboard-step i {
-  font-style: normal;
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9.5px;
-  font-weight: 900;
-  flex-shrink: 0;
-}
-
-.plaza-onboard-step.is-next {
-  border-color: var(--nt-red);
-  background: var(--nt-red-soft);
-  color: var(--nt-red);
-}
-
-.plaza-onboard-step.is-next i {
-  background: var(--nt-red);
-  border-color: var(--nt-red);
-  color: #FFFFFF;
-}
-
-.plaza-onboard-step.is-done {
-  border-color: rgba(18, 168, 93, 0.34);
-  background: var(--nt-green-soft);
-  color: var(--nt-green);
-}
-
-.plaza-onboard-step.is-done i {
-  background: var(--nt-green);
-  border-color: var(--nt-green);
-  color: #FFFFFF;
-}
-
-.plaza-overview h2 {
+/* 5f 跨路由隔离：仅限定在历史 .wv-legacy-* 容器下生效，绝不污染现役广场与宝箱商城 */
+.wv-legacy-plaza .plaza-overview h2 {
   margin: 0;
   font-size: clamp(1.25rem, 5.5vw, 1.6rem);
   line-height: 1.2;
 }
-.plaza-overview .plaza-mini-strip {
+.wv-legacy-plaza .plaza-overview .plaza-mini-strip {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 3px;
   cursor: default;
 }
-.plaza-overview .plaza-mini-cell {
+.wv-legacy-plaza .plaza-overview .plaza-mini-cell {
   height: 24px;
   display: grid;
   place-items: center;
@@ -1783,13 +1678,11 @@
   color: var(--ink);
   background: var(--paper-tray);
 }
-.plaza-overview .plaza-mini-cell.pass { border-bottom: 4px solid var(--nt-green); }
-.plaza-overview .plaza-mini-cell.miss { border-bottom: 4px solid var(--nt-rose); }
-.plaza-overview .plaza-mini-cell.active { border: 2px dashed var(--nt-blue); }
-.plaza-gates a { color: var(--ink); text-decoration: none; }
-.plaza-gates small { color: var(--text-secondary); }
-.guild-board > .row-between,
-.guild-board .row-start,
-#a9-radar-card > .card-header,
-.mall-info-strip { flex-wrap: wrap; }
-.mall-crit-ticker .mall-crit-text { white-space: normal; overflow-wrap: anywhere; }
+.wv-legacy-plaza .plaza-overview .plaza-mini-cell.pass { border-bottom: 4px solid var(--nt-green); }
+.wv-legacy-plaza .plaza-overview .plaza-mini-cell.miss { border-bottom: 4px solid var(--err-red, var(--nt-rose)); }
+.wv-legacy-plaza .plaza-overview .plaza-mini-cell.active { border: 2px dashed var(--nt-blue); }
+.wv-legacy-plaza .plaza-gates a { color: var(--ink); text-decoration: none; }
+.wv-legacy-plaza .plaza-gates small { color: var(--text-secondary); }
+.wv-legacy-guild .guild-board > .row-between,
+.wv-legacy-guild .guild-board .row-start,
+#a9-radar-card > .card-header { flex-wrap: wrap; }

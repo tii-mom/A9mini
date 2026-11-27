@@ -144,7 +144,7 @@ export function renderCity(root, navigate) {
       <div class="row-between" style="gap:8px;">
         <div class="row-start" style="gap:6px;min-width:0;">
           <strong class="num-sm" style="white-space:nowrap;">${r.currentRound == null ? L('当前轮次', 'Current Round') : L(`第 ${r.currentRound} 轮`, `Round ${r.currentRound}`)}</strong>
-          <span class="chip ${uiState.chipTone}" style="min-height:20px;font-size:10.5px;padding:0 7px;white-space:nowrap;">${escapeHtml(uiState.badgeLabel)}</span>
+          <span class="chip ${uiState.chipTone}" style="min-height:20px;font-size:11px;padding:0 7px;white-space:nowrap;">${escapeHtml(uiState.badgeLabel)}</span>
         </div>
         <span id="round-cd" class="mono num-sm ${isUrgent ? 'text-red' : 'text-sec'}" style="white-space:nowrap;flex-shrink:0;">${escapeHtml(countdownDisplayText)}</span>
       </div>
@@ -174,7 +174,7 @@ export function renderCity(root, navigate) {
         <div class="plaza-mall-body">
           <div class="row-start" style="gap:6px;flex-wrap:wrap;">
             <strong class="num-sm" style="color:var(--ink);">${L('宝箱商城', 'Chest Mall')}</strong>
-            <span class="chip chip-green" style="min-height:18px;font-size:10px;padding:0 6px;">${L('直发钱包', 'Direct Payout')}</span>
+            <span class="chip chip-green" style="min-height:18px;font-size:11px;padding:0 6px;">${L('直发钱包', 'Direct Payout')}</span>
           </div>
           <span class="num-xs text-sec">${L('6 档宝箱保底 + 随机加赠，一笔直发钱包', '6 chest tiers with guaranteed base + bonus straight to wallet')}</span>
         </div>
