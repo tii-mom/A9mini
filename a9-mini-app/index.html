@@ -40,6 +40,7 @@
         </div>
       </div>
       <div class="header-right">
+        <a class="header-rules-link" id="hdr-rules-link" href="#/rules">规则 ›</a>
         <button class="wallet-pill disconnected" id="btn-wallet-pill" type="button" disabled>
           <span class="live-dot amber"></span>
           <span>连接钱包</span>
@@ -50,41 +51,58 @@
     <section class="realm-banner" id="realm-banner" hidden></section>
     <main id="app-main" class="app-main" role="main">
       <div class="col-gap nt-static-first-paint">
-        <section class="card">
+        <section class="plaza-status-strip" aria-label="我的状态">
+          <div class="plaza-status-cell">
+            <span class="plaza-status-lbl">钱包</span>
+            <strong class="plaza-status-val mono">未连接</strong>
+          </div>
+          <div class="plaza-status-cell">
+            <span class="plaza-status-lbl">本轮已锁仓</span>
+            <strong class="plaza-status-val mono">—</strong>
+          </div>
+          <a class="plaza-status-cell plaza-status-trigger" href="#/rewards">
+            <span class="plaza-status-lbl">可领取</span>
+            <strong class="plaza-status-val mono">—</strong>
+          </a>
+        </section>
+        <section class="card card-hero plaza-round-card nt-boot-skeleton" aria-busy="true" aria-label="Loading current round">
           <div class="row-between" style="gap:8px;">
-            <strong class="num-sm">锁仓 A9，币价涨上去，大家一起分奖池</strong>
-            <span class="chip chip-gold">三步玩法</span>
+            <div class="row-start" style="gap:6px;">
+              <strong class="num-sm">当前轮次</strong>
+              <span class="chip chip-muted" style="min-height:20px;font-size:10.5px;padding:0 7px;">加载中…</span>
+            </div>
+            <span class="mono num-sm text-sec">加载中…</span>
           </div>
-          <div class="num-xs text-sec" style="margin-top:6px;line-height:1.55;">
-            24H 锁仓 → 12H 冲价 → 达标分奖 / 未达标自动止损退本
+          <div class="plaza-mini-timeline" role="list" aria-label="轮次四阶段进度">
+            <span class="plaza-mini-step" role="listitem"><i></i><b>预热</b></span>
+            <span class="plaza-mini-step" role="listitem"><i></i><b>锁仓</b></span>
+            <span class="plaza-mini-step" role="listitem"><i></i><b>冲价</b></span>
+            <span class="plaza-mini-step" role="listitem"><i></i><b>结算</b></span>
+          </div>
+          <p class="plaza-one-line-status">正在同步最新轮次状态…</p>
+          <div class="nt-skel-card" style="height:42px;"></div>
+        </section>
+        <section class="card plaza-howto-card">
+          <div class="row-between" style="gap:8px;margin-bottom:4px;">
+            <strong class="num-xs" style="color:var(--ink);font-weight:800;">三步玩法</strong>
+          </div>
+          <div class="num-xs text-sec" style="line-height:1.5;">
+            1. 24H 锁仓 A9 → 2. 12H 冲价满 8/12 段 → 3. 达标分奖，未达标自动止损退本。
           </div>
         </section>
-        <section class="card card-hero nt-boot-skeleton" aria-busy="true" aria-label="Loading current round" style="height:auto;padding:16px;">
-          <div class="row-between" style="margin-bottom:8px;">
-            <strong class="num-sm">当前轮次</strong>
-            <span class="chip chip-muted">加载中…</span>
-          </div>
-          <div class="num-xs text-sec">正在同步最新轮次状态与参考价…</div>
-          <div class="nt-skel-card" style="height:56px;margin-top:12px;"></div>
+        <section class="plaza-activity-zone" aria-label="精选活动">
+          <a class="card plaza-mall-card" href="#/market">
+            <span class="sw-gate-icon is-red" aria-hidden="true"></span>
+            <div class="plaza-mall-body">
+              <div class="row-start" style="gap:6px;flex-wrap:wrap;">
+                <strong class="num-sm" style="color:var(--ink);">宝箱商城</strong>
+                <span class="chip chip-green" style="min-height:18px;font-size:10px;padding:0 6px;">直发钱包</span>
+              </div>
+              <span class="num-xs text-sec">6 档宝箱保底 + 随机加赠，一笔直发钱包</span>
+            </div>
+            <span class="sw-menu-arrow" aria-hidden="true">›</span>
+          </a>
         </section>
-        <nav class="sw-gate-grid" aria-label="快捷入口">
-          <a class="sw-gate-tile" href="#/internal/market">
-            <span class="sw-gate-title">宝箱商城</span>
-            <span class="sw-gate-sub">6 档 · 直发钱包</span>
-          </a>
-          <a class="sw-gate-tile" href="#/internal/market?tab=free">
-            <span class="sw-gate-title">免费宝箱</span>
-            <span class="sw-gate-sub">查看开启条件</span>
-          </a>
-          <a class="sw-gate-tile" href="#/warmup">
-            <span class="sw-gate-title">下轮预热</span>
-            <span class="sw-gate-sub">预约抢头矿</span>
-          </a>
-          <a class="sw-gate-tile" href="#/rules">
-            <span class="sw-gate-title">规则与透明</span>
-            <span class="sw-gate-sub">了解完整规则</span>
-          </a>
-        </nav>
       </div>
     </main>
     <nav id="app-tabbar" class="app-tabbar" aria-label="Primary Navigation" data-static-shell="1">

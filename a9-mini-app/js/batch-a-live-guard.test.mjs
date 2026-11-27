@@ -2370,7 +2370,7 @@ test('UX Phase 1: index.html uses defer (not async) for Telegram SDK, loadSnapsh
     'Telegram WebApp SDK must use defer (never async or render-blocking sync)'
   );
   assert.doesNotMatch(indexHtml, /telegram-web-app\.js[^>]*\basync\b/, 'Telegram WebApp SDK must never use async');
-  assert.ok(indexHtml.includes('href="#/internal/market"'), 'Static first-paint shell must expose Chest Mall entry');
+  assert.ok(indexHtml.includes('href="#/market"'), 'Static first-paint shell must expose Chest Mall entry');
   assert.ok(indexHtml.includes('id="app-tabbar"'), 'Static first-paint shell must include bottom navigation');
 
   const out = runScenario(

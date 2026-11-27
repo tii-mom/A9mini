@@ -216,7 +216,8 @@ function renderHeader(route) {
     : (activeNet === 'testnet'
         ? (!store.fundsEnabled ? L('测试网 · 只读', 'TESTNET · RO') : L('测试网', 'TESTNET'))
         : (!store.fundsEnabled ? L('只读', 'READ-ONLY') : ''));
-  const nextSig = `${isStack ? '1' : '0'}|${titleText}|${user.connected ? '1' : '0'}|${walletLabel}|${settings?.language || ''}|${activeNet}|${modeBadge}`;
+  const isPlaza = route.path === '/challenge';
+  const nextSig = `${isStack ? '1' : '0'}|${isPlaza ? '1' : '0'}|${titleText}|${user.connected ? '1' : '0'}|${walletLabel}|${settings?.language || ''}|${activeNet}|${modeBadge}`;
   if (nextSig === lastHeaderSig && headerEl.innerHTML && !headerEl.hasAttribute?.('data-static-shell')) {
     return;
   }
@@ -232,6 +233,7 @@ function renderHeader(route) {
       }
     </div>
     <div class="header-right">
+      ${isPlaza ? `<a class="header-rules-link" id="hdr-rules-link" href="#/rules">${L('规则', 'Rules')} ›</a>` : ''}
       ${config.isDemo ? `<button class="icon-btn has-demo-pip" id="btn-open-sim" type="button" aria-label="${L('演示控制台', 'Demo console')}" title="${L('演示控制台 (DEMO)', 'Demo console (DEMO)')}">${icon('sliders', 14)}</button>` : ''}
       <button class="icon-btn" id="btn-header-more" type="button" aria-label="${L('更多快捷操作', 'More quick actions')}" title="${L('更多', 'More')}">${icon('more', 16)}</button>
       <button class="wallet-pill ${user.connected ? '' : 'disconnected'}" id="btn-wallet-pill" type="button">
@@ -425,52 +427,83 @@ function formatLastUpdatedHHMM(ts) {
   }
 }
 
-function renderStaticIntroCardHtml() {
+function renderStaticStatusStripHtml() {
+  const u = store.state.user;
+  const walletText = u.connected && u.address
+    ? (u.shortAddress || (u.address.length > 12 ? `${u.address.slice(0, 4)}…${u.address.slice(-4)}` : u.address))
+    : L('未连接', 'Disconnected');
   return `
-    <section class="card">
-      <div class="row-between" style="gap:8px;">
-        <strong class="num-sm">${L('锁仓 A9，币价涨上去，大家一起分奖池', 'Lock A9, push price above target, share the pool')}</strong>
-        <span class="chip chip-gold" style="flex-shrink:0;">${L('三步玩法', '3 Steps')}</span>
+    <section class="plaza-status-strip" aria-label="${L('我的状态', 'My Status')}">
+      <div class="plaza-status-cell">
+        <span class="plaza-status-lbl">${L('钱包', 'Wallet')}</span>
+        <strong class="plaza-status-val mono">${escapeHtml(walletText)}</strong>
       </div>
-      <div class="num-xs text-sec" style="margin-top:6px;line-height:1.55;">
-        ${L('24H 锁仓 → 12H 冲价 → 达标分奖 / 未达标自动止损退本', '24H Lock → 12H Price Push → Share Pool / Auto Stop-Loss')}
+      <div class="plaza-status-cell">
+        <span class="plaza-status-lbl">${L('本轮已锁仓', 'Round Locked')}</span>
+        <strong class="plaza-status-val mono">—</strong>
+      </div>
+      <a class="plaza-status-cell plaza-status-trigger" href="#/rewards">
+        <span class="plaza-status-lbl">${L('可领取', 'Claimable')}</span>
+        <strong class="plaza-status-val mono">—</strong>
+      </a>
+    </section>
+  `;
+}
+
+function renderStaticIntroCardHtml() {
+  if (store.state.settings?.hidePlazaHowToPlay) return '';
+  return `
+    <section class="card plaza-howto-card">
+      <div class="row-between" style="gap:8px;margin-bottom:4px;">
+        <strong class="num-xs" style="color:var(--ink);font-weight:800;">${L('三步玩法', '3-Step Flow')}</strong>
+      </div>
+      <div class="num-xs text-sec" style="line-height:1.5;">
+        ${L('1. 24H 锁仓 A9 → 2. 12H 冲价满 8/12 段 → 3. 达标分奖，未达标自动止损退本。', '1. Lock A9 (24H) → 2. Push 8/12 slots (12H) → 3. Split pool on pass, or auto stop-loss refund.')}
       </div>
     </section>
   `;
 }
 
 function renderStaticQuickGatesHtml() {
-  const gates = [
-    ['/market', 'chest', 'is-red', L('宝箱商城', 'Chest Mall'), L('6 档 · 直发钱包', '6 tiers · direct')],
-    ['/market?tab=free', 'chestOpen', 'is-green', L('免费宝箱', 'Free Chests'), L('查看开启条件', 'Check eligibility')],
-    ['/round?stage=warmup', 'flame', 'is-blue', L('下轮预热', 'Next Warm-Up'), L('预约抢头矿', 'Reserve First 6H')],
-    ['/rules', 'book', 'is-amber', L('规则与透明', 'Rules & Transparency'), L('了解完整规则', 'Read full rules')],
-  ];
   return `
-    <nav class="sw-gate-grid" aria-label="${L('快捷入口', 'Quick Menu')}">
-      ${gates.map(([path, glyph, tone, title, hint]) => `
-        <a class="sw-gate-tile" href="#${path}">
-          <span class="sw-gate-icon ${tone}">${icon(glyph, 20)}</span>
-          <span class="sw-gate-title">${title}</span>
-          <span class="sw-gate-sub">${hint}</span>
-        </a>
-      `).join('')}
-    </nav>
+    <section class="plaza-activity-zone" aria-label="${L('精选活动', 'Featured Activity')}">
+      <a class="card plaza-mall-card" href="#/market">
+        <span class="sw-gate-icon is-red" aria-hidden="true">${icon('chest', 22)}</span>
+        <div class="plaza-mall-body">
+          <div class="row-start" style="gap:6px;flex-wrap:wrap;">
+            <strong class="num-sm" style="color:var(--ink);">${L('宝箱商城', 'Chest Mall')}</strong>
+            <span class="chip chip-green" style="min-height:18px;font-size:10px;padding:0 6px;">${L('直发钱包', 'Direct Payout')}</span>
+          </div>
+          <span class="num-xs text-sec">${L('6 档宝箱保底 + 随机加赠，一笔直发钱包', '6 chest tiers with guaranteed base + bonus straight to wallet')}</span>
+        </div>
+        <span class="sw-menu-arrow" aria-hidden="true">›</span>
+      </a>
+    </section>
   `;
 }
 
 function renderLoading() {
   mainEl.innerHTML = `
     <div class="col-gap anim-page-enter">
-      ${renderStaticIntroCardHtml()}
-      <section class="card card-hero nt-boot-skeleton" role="status" aria-busy="true" aria-label="${L('正在加载当前轮次', 'Loading current round')}" style="height:auto;padding:16px;">
-        <div class="row-between" style="margin-bottom:8px;">
-          <strong class="num-sm">${L('当前轮次', 'Current Round')}</strong>
-          <span class="chip chip-muted">${L('加载中…', 'Loading…')}</span>
+      ${renderStaticStatusStripHtml()}
+      <section class="card card-hero plaza-round-card nt-boot-skeleton" role="status" aria-busy="true" aria-label="${L('正在加载当前轮次', 'Loading current round')}">
+        <div class="row-between" style="gap:8px;">
+          <div class="row-start" style="gap:6px;">
+            <strong class="num-sm">${L('当前轮次', 'Current Round')}</strong>
+            <span class="chip chip-muted" style="min-height:20px;font-size:10.5px;padding:0 7px;">${L('加载中…', 'Loading…')}</span>
+          </div>
+          <span class="mono num-sm text-sec">${L('加载中…', 'Loading…')}</span>
         </div>
-        <div class="num-xs text-sec">${L('正在同步最新轮次状态、目标价与奖池…', 'Syncing latest round status, target price and pool…')}</div>
-        <div class="nt-skel-card" style="height:56px;margin-top:12px;"></div>
+        <div class="plaza-mini-timeline" role="list" aria-label="${L('轮次四阶段进度', 'Round 4-stage timeline')}">
+          <span class="plaza-mini-step" role="listitem"><i></i><b>${L('预热', 'Warm-Up')}</b></span>
+          <span class="plaza-mini-step" role="listitem"><i></i><b>${L('锁仓', 'Lock')}</b></span>
+          <span class="plaza-mini-step" role="listitem"><i></i><b>${L('冲价', 'Push')}</b></span>
+          <span class="plaza-mini-step" role="listitem"><i></i><b>${L('结算', 'Settle')}</b></span>
+        </div>
+        <p class="plaza-one-line-status">${L('正在同步最新轮次状态…', 'Syncing latest round status…')}</p>
+        <div class="nt-skel-card" style="height:42px;"></div>
       </section>
+      ${renderStaticIntroCardHtml()}
       ${renderStaticQuickGatesHtml()}
     </div>
   `;
@@ -479,6 +512,7 @@ function renderLoading() {
 function renderDataError(error) {
   mainEl.innerHTML = `
     <div class="col-gap anim-page-enter">
+      ${renderStaticStatusStripHtml()}
       <div class="card card-glow-red data-error-card" role="alert">
         <div class="row-between data-error-header">
           <div class="card-title">${icon('shieldAlert', 16, 'text-red')} ${L('轮次数据暂不可用', 'Round data unavailable')}</div>

@@ -3229,6 +3229,161 @@ img {
   background: var(--nt-green-soft, rgba(18, 168, 93, 0.1));
 }
 
+/* 5c 广场极简重构：顶栏规则轻入口、我的状态条、紧凑主卡(<=210px)、迷你4段时间轴与宝箱商城单卡 */
+.header-rules-link {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-sec, var(--text-secondary));
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.header-rules-link:hover,
+.header-rules-link:focus-visible {
+  color: var(--ink);
+  background: var(--paper-tray);
+}
+.plaza-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+}
+.plaza-status-cell {
+  flex: 1 1 124px;
+  min-width: max-content;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: 10px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  text-decoration: none;
+  color: inherit;
+}
+.plaza-status-trigger {
+  cursor: pointer;
+}
+.plaza-status-trigger:hover {
+  background: var(--paper-tray);
+}
+.plaza-status-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted, var(--text-muted));
+  white-space: nowrap;
+}
+.plaza-status-val {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.plaza-round-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 13px 14px;
+}
+.plaza-mini-timeline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.plaza-mini-step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 4px;
+  border-radius: 999px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-muted, var(--text-muted));
+  white-space: nowrap;
+}
+.plaza-mini-step i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--card-thickness);
+  flex-shrink: 0;
+}
+.plaza-mini-step.is-done {
+  color: var(--nt-green-ink, var(--nt-green));
+  border-color: var(--green-border, rgba(18, 168, 93, 0.3));
+}
+.plaza-mini-step.is-done i {
+  background: var(--nt-green);
+}
+.plaza-mini-step.is-active {
+  color: var(--ink);
+  border-color: var(--red, #E60012);
+  background: var(--nt-red-soft);
+}
+.plaza-mini-step.is-active i {
+  background: var(--red, #E60012);
+}
+.plaza-one-line-status {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 800;
+  line-height: 1.35;
+  color: var(--ink);
+}
+.plaza-next-btn {
+  min-height: 42px;
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+.plaza-howto-card {
+  padding: 11px 14px;
+}
+.plaza-howto-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--ink-muted, var(--text-muted));
+  cursor: pointer;
+}
+.plaza-howto-close:hover {
+  background: var(--paper-tray);
+  color: var(--ink);
+}
+.plaza-mall-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  text-decoration: none;
+  color: inherit;
+}
+.plaza-mall-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;

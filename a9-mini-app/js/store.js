@@ -159,7 +159,8 @@ const DEFAULT_STATE = {
     hourlyCandlePush: true,
     settlementPush: true,
     rankDefensePush: true,
-    reducedMotion: false
+    reducedMotion: false,
+    hidePlazaHowToPlay: false
   }
 };
 
