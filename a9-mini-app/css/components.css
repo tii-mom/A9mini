@@ -3046,6 +3046,66 @@ img {
 .plaza-gates a { color: var(--ink); text-decoration: none; }
 .plaza-gates small { color: var(--text-secondary); }
 
+/* P2 钱包弹层：按钮内加载态、4 条安全说明与底部一行只读灰字 */
+@keyframes tc-spin {
+  to { transform: rotate(360deg); }
+}
+.tc-btn-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: tc-spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+.tc-connected-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tc-connected-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.tc-safety-list {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tc-safety-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--ink-sec, var(--text-secondary));
+}
+.tc-safety-list li svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.tc-readonly-note {
+  margin: 2px 0 0;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--ink-muted, var(--text-muted));
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
