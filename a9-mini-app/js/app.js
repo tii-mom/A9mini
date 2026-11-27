@@ -257,7 +257,7 @@ function renderHeader(route) {
   if (simBtn) simBtn.onclick = openSimDrawer;
 }
 
-/** 顶栏「更多」底部快捷面板（一屏 5 项，不遮挡页面、不直接触发资金签名，危险项独立分组） */
+/** 顶栏「更多」底部快捷面板（精简 3 项：主题 / 语言 / 规则与透明，Demo 重置放危险区） */
 function openMoreQuickSheet() {
   const curTheme = getTheme();
   const curLangObj = LANGUAGES.find((l) => l.code === store.state.settings.language) || LANGUAGES[0];
@@ -265,7 +265,7 @@ function openMoreQuickSheet() {
     {
       icon: curTheme === 'dark' ? 'moon' : 'sun',
       tone: 'is-amber',
-      label: L('界面主题', 'Theme'),
+      label: L('主题', 'Theme'),
       sub: L('雪白亮色 / 石墨暗夜', 'Crisp Light / Switch Dark'),
       badge: curTheme === 'dark' ? L('石墨暗夜', 'Dark') : L('雪白亮色', 'Light'),
       keepOpen: true,
@@ -288,7 +288,7 @@ function openMoreQuickSheet() {
     {
       icon: 'globe',
       tone: 'is-blue',
-      label: L('界面语言', 'Language'),
+      label: L('语言', 'Language'),
       sub: L('实时切换中英文', 'Switch Chinese / English'),
       badge: curLangObj.label,
       keepOpen: true,
@@ -307,22 +307,8 @@ function openMoreQuickSheet() {
       icon: 'book',
       tone: 'is-red',
       label: L('规则与透明', 'Rules & Transparency'),
-      sub: L('规则、费用、合约与风控明细', 'Rules, fees, contracts & risk specs'),
+      sub: L('玩法、费用、合约地址与 22 条异常说明', 'Rules, fees, contracts & error codes'),
       onSelect: () => navigate('/rules'),
-    },
-    {
-      icon: 'shieldCheck',
-      tone: 'is-green',
-      label: L('合约与链上验真', 'Contracts & Audit'),
-      sub: L('合约地址、逃生舱与链上参数', 'Contracts, escape hatch & specs'),
-      onSelect: () => navigate('/rules#audit'),
-    },
-    {
-      icon: 'settings',
-      tone: 'is-muted',
-      label: L('设置', 'Settings'),
-      sub: L('通知、音效、震动与钱包管理', 'Alerts, audio, haptics & wallet'),
-      onSelect: () => navigate('/settings'),
     },
   ];
   const dangerItems = config.isDemo
@@ -668,8 +654,11 @@ export async function renderCurrentRoute() {
     if (btn) btn.onclick = () => syncData({ forceRender: true });
   }
   syncPendingTxBanner();
-  const restoredY = route.shell === 'tab' && prevPath && prevPath !== route.path ? (scrollMemory.get(currentHash) || 0) : 0;
-  window.scrollTo({ top: restoredY, behavior: 'instant' });
+  const hasHashAnchor = Boolean(String(currentHash || '').split('#')[2]);
+  if (!hasHashAnchor) {
+    const restoredY = route.shell === 'tab' && prevPath && prevPath !== route.path ? (scrollMemory.get(currentHash) || 0) : 0;
+    window.scrollTo({ top: restoredY, behavior: 'instant' });
+  }
 
   // 触发页面首屏就绪事件（性能测量用）：关键 DOM + 样式 + 数据状态实际可用
   if (typeof window !== 'undefined' && !window.__A9_APP_READY_TS && dataReady) {

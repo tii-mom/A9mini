@@ -1,27 +1,25 @@
 /**
- * 我的 / 资产 / 结算 / 凭证 / 账本 / 连闯页
- * 任天堂 Switch 菜单化统一升级：资产卡 → 可领取 → 进行中 → 我的记录 → 提醒与设置。
- * 严格遵循 Demo / Live 模式隔离，绝不把 null 当 0，也不混用演示与真实只读数据。
+ * 我的 / 资产 / 结算 / 凭证 / 账本 / 记录页（5e 极简重构）
+ * - 我的主页：资产主卡 + 唯一领取主按钮 + 一张 4 项列表卡（记录 / 规则与透明 / 设置 / 语言与主题），首屏 ≤ 4 块、全页 ≤ 8 块
+ * - /proof 凭证详情：清除跨界 12H 冲价雷达盘，改为 1 行指向 #/round 的轻链接，清除全部 StakeTicket 工程词
+ * - 严格遵循 Demo / Live 模式隔离，绝不把 null 当 0，也不混用演示与真实只读数据
  */
 
 import { store } from '../store.js';
 import { config } from '../config.js';
-import { peekDemoModule } from '../demo-loader.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
-import { escapeHtml, formatNum, showToast, copyText, openModal, closeModal, openChoiceSheet } from '../components.js';
-import { mountSlider, renderCorridorRadar, bindCorridorRadarEvents, animateSlotCounter, launchCoinArc, burstParticles } from '../components-heavy.js';
-import { renderVaultChestSvg, renderNintendoGateIcon } from '../paper-art.js';
-import { renderChestSvg } from '../chest-art.js';
+import { escapeHtml, formatNum, showToast, copyText, openModal, closeModal, openChoiceSheet, openActionSheet } from '../components.js';
+import { renderNintendoGateIcon } from '../paper-art.js';
 import { renderProofFlexPoster, renderStoryPoster, downloadPosterPng } from '../poster.js';
 import { openXShareSheet, triggerStoryShare } from '../share.js';
 import { icon } from '../icons.js';
-import { L } from '../i18n.js';
+import { L, LANGUAGES } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
 import { fetchUserPortfolio, fetchPromoBalance, fetchPredictionUser, fetchPresaleOrders, fetchMyStakeReferrals, getEffectiveUserId, rawToA9, serverNowMs } from '../data.js';
 import { deriveRoundUiState, deriveTicketRoundStatusLabel } from '../round-state.js';
 import { renderMyRewardsPage } from './rewards.js';
-import { pendingTxManager, buildTonviewerUrl } from '../tx-ux.js';
+import { buildTonviewerUrl } from '../tx-ux.js';
 
 function renderMiniBarcode() {
   const bars = [2, 1, 3, 1, 2, 2, 1, 3, 1, 2];
@@ -43,8 +41,10 @@ function formatA9Amount(val, { loading = false } = {}) {
   return `${formatNum(n, n % 1 === 0 ? 0 : 2)} A9`;
 }
 
-function activePassStageLabel(item) {
-  return deriveTicketRoundStatusLabel(item, store.state.round, serverNowMs());
+function getActiveThemeMode() {
+  if (store.state.settings.themeMode === 'dark') return 'dark';
+  if (typeof document !== 'undefined' && document.documentElement?.dataset?.theme === 'dark') return 'dark';
+  return 'light';
 }
 
 function renderProfileSwitchView({
@@ -55,13 +55,11 @@ function renderProfileSwitchView({
   promoClaimableA9 = null,
   roundLockedA9 = null,
   predPendingA9 = null,
-  activePasses = [],
   certsCount = null,
   loading = false,
   claimError = false,
   predError = false,
   isLive = false,
-  isDemoEmpty = false,
 } = {}) {
   const gramText = (gramBalance !== null && gramBalance !== undefined && Number.isFinite(Number(gramBalance)))
     ? `${formatNum(Number(gramBalance), 2)} GRAM`
@@ -77,203 +75,173 @@ function renderProfileSwitchView({
         : '';
 
   const assetMainHtml = !hasWallet
-    ? `<button type="button" class="sw-asset-connect-btn" id="profile-asset-connect">${L('连接钱包查看资产', 'Connect Wallet')} <span class="sw-menu-arrow" style="color:var(--nt-red);">›</span></button>`
+    ? `<div class="sw-asset-main text-muted" style="font-size:20px;">${L('未连接钱包', 'Wallet Not Connected')}</div>`
     : (availA9 !== null && availA9 !== undefined && Number.isFinite(Number(availA9)))
       ? `<div class="sw-asset-main">${formatNum(Number(availA9), Number(availA9) % 1 === 0 ? 0 : 2)} <span class="sw-asset-main-unit">A9</span></div>`
       : `<div class="sw-asset-main">${loading ? '…' : '—'}</div>`;
 
-  const bothExplicitZero = hasWallet && !loading && !claimError &&
-    roundClaimableA9 !== null && roundClaimableA9 !== undefined && Number(roundClaimableA9) === 0 &&
-    promoClaimableA9 !== null && promoClaimableA9 !== undefined && Number(promoClaimableA9) === 0;
+  // 严格防假 0：仅当两项可领均已确认时合计；未连钱包或任一项缺失一律显示 — / …
+  const totalClaimableA9 = (hasWallet && !loading && !claimError &&
+    roundClaimableA9 !== null && roundClaimableA9 !== undefined && Number.isFinite(Number(roundClaimableA9)) &&
+    promoClaimableA9 !== null && promoClaimableA9 !== undefined && Number.isFinite(Number(promoClaimableA9)))
+    ? (Number(roundClaimableA9) + Number(promoClaimableA9))
+    : null;
 
-  const roundAmtText = formatA9Amount(roundClaimableA9, { loading });
-  const promoAmtText = formatA9Amount(promoClaimableA9, { loading });
-  const lockedAmtText = formatA9Amount(roundLockedA9, { loading });
-  const predAmtText = formatA9Amount(predPendingA9, { loading });
+  const claimableDisplay = !hasWallet ? '—' : formatA9Amount(totalClaimableA9, { loading });
+  const lockedDisplay = !hasWallet ? '—' : formatA9Amount(roundLockedA9, { loading });
+  const pendingDisplay = formatA9Amount(predPendingA9, { loading });
 
-  const roundAmtCls = Number(roundClaimableA9) > 0 ? 'is-green' : (roundClaimableA9 == null ? 'is-muted' : '');
-  const promoAmtCls = Number(promoClaimableA9) > 0 ? 'is-green' : (promoClaimableA9 == null ? 'is-muted' : '');
-  const predAmtCls = Number(predPendingA9) > 0 ? 'is-amber' : (predPendingA9 == null ? 'is-muted' : '');
-  const lockedAmtCls = roundLockedA9 == null ? 'is-muted' : '';
-  const hasPredPending = Number(predPendingA9) > 0;
+  const curLangObj = LANGUAGES.find((l) => l.code === store.state.settings.language) || LANGUAGES[0];
+  const curThemeLabel = getActiveThemeMode() === 'dark' ? L('暗夜', 'Dark') : L('亮色', 'Light');
+  const langShortLabel = curLangObj.code === 'zh-CN' ? '中文' : 'EN';
+  const recordsBadge = (certsCount !== null && certsCount !== undefined && Number.isFinite(Number(certsCount)))
+    ? L(`${certsCount} 张凭证`, `${certsCount} pass(es)`)
+    : '';
 
-  const claimSectionHtml = `
-    <div>
-      <div class="sw-section-label">${L('可领取', 'Claimable')}</div>
-      <div class="sw-menu-group" id="profile-claimable-group">
-        ${bothExplicitZero ? `
-          <div class="sw-menu-row is-static">
-            <span class="sw-row-icon is-muted" aria-hidden="true">${icon('trophy', 17)}</span>
-            <div class="sw-menu-left">
-              <span class="sw-menu-title text-muted">${L('暂无可领奖励', 'No claimable rewards')}</span>
-              <span class="sw-menu-sub">${L('轮次通关或邀友返佣入账后将在此展示', 'Round payouts & referral credits appear here')}</span>
-            </div>
-          </div>
-        ` : `
-          <a class="sw-menu-row sw-amount-row" href="#/rewards">
-            <span class="sw-row-icon is-green" aria-hidden="true">${icon('trophy', 17)}</span>
-            <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('轮次奖励', 'Round Rewards')}</span>
-              <span class="sw-menu-sub">${L('本金退还与已解锁奖金', 'Principal & unlocked prizes')}</span>
-            </div>
-            <div class="sw-menu-right">
-              <span class="sw-menu-amount ${roundAmtCls}">${roundAmtText}</span>
-              <span class="sw-menu-arrow" aria-hidden="true">›</span>
-            </div>
-          </a>
-          <a class="sw-menu-row sw-amount-row" href="#/team/invite">
-            <span class="sw-row-icon is-amber" aria-hidden="true">${icon('squadEmblem', 17)}</span>
-            <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('推广奖励', 'Referral Rewards')}</span>
-              <span class="sw-menu-sub">${L('商城 6% · 通关 8% 返佣', '6% mall · 8% pass credits')}</span>
-            </div>
-            <div class="sw-menu-right">
-              <span class="sw-menu-amount ${promoAmtCls}">${promoAmtText}</span>
-              <span class="sw-menu-arrow" aria-hidden="true">›</span>
-            </div>
-          </a>
-        `}
-        ${claimError ? `
-          <div class="sw-menu-error" role="alert">
-            <span>${L('读取失败', 'Read failed')}</span>
-            <button type="button" class="sw-retry-link" data-profile-retry="1">${L('重试', 'Retry')}</button>
-          </div>
-        ` : ''}
-      </div>
-    </div>
-  `;
-
-  const activePassRows = activePasses.map((item) => {
-    const roundId = item.roundId ?? item.round ?? '—';
-    const amt = isLive ? rawToA9(item.amountRaw) : Number(item.stakeTon);
-    const amtText = formatA9Amount(amt, { loading: false });
-    const href = isLive
-      ? (item.ticketAddress ? `#/rewards?ticket=${encodeURIComponent(item.ticketAddress)}` : '#/rewards')
-      : (item.id ? `#/proof/${encodeURIComponent(item.id)}` : '#/proof');
-    const stageSub = activePassStageLabel(item, isLive);
-    return `
-      <a class="sw-menu-row sw-amount-row" href="${href}">
-        <span class="sw-row-icon is-blue" aria-hidden="true">${icon('lock', 16)}</span>
-        <div class="sw-menu-left">
-          <span class="sw-menu-title">${L(`第 ${escapeHtml(String(roundId))} 轮本金`, `Round ${escapeHtml(String(roundId))} Principal`)}</span>
-          <span class="sw-menu-sub">${stageSub}</span>
-        </div>
-        <div class="sw-menu-right">
-          <span class="sw-menu-amount">${amtText}</span>
-          <span class="sw-menu-arrow" aria-hidden="true">›</span>
-        </div>
-      </a>
-    `;
-  }).join('');
-
-  const inProgressHtml = `
-    <div>
-      <div class="sw-section-label">${L('进行中', 'In Progress')}</div>
-      <div class="sw-menu-group" id="profile-progress-group">
-        ${activePassRows}
-        <a class="sw-menu-row sw-amount-row" href="#/rewards">
-          <span class="sw-row-icon is-green" aria-hidden="true">${icon('unlock', 16)}</span>
-          <div class="sw-menu-left">
-            <span class="sw-menu-title">${L('待解锁奖金', 'Pending Unlock')}</span>
-            <span class="sw-menu-sub">${L('14 天逐秒解锁', '14D per-second unlock')}</span>
-          </div>
-          <div class="sw-menu-right">
-            <span class="sw-menu-amount ${lockedAmtCls}">${lockedAmtText}</span>
-            <span class="sw-menu-arrow" aria-hidden="true">›</span>
-          </div>
-        </a>
-        <a class="sw-menu-row sw-amount-row" href="${hasPredPending ? '#/internal/market?from=activation' : '#/round?panel=prediction'}">
-          <span class="sw-row-icon is-amber" aria-hidden="true">${icon('stamp', 16)}</span>
-          <div class="sw-menu-left">
-            <span class="sw-menu-title">${L('待激活预言奖', 'Pending Activation')}</span>
-            <span class="sw-menu-sub">${hasPredPending ? L('去宝箱商城激活', 'Activate in Chest Mall') : L('0 GRAM 预言擂台奖励', '0 GRAM arena rewards')}</span>
-          </div>
-          <div class="sw-menu-right">
-            <span class="sw-menu-amount ${predAmtCls}">${predAmtText}</span>
-            <span class="sw-menu-arrow" aria-hidden="true">›</span>
-          </div>
-        </a>
-        ${predError ? `
-          <div class="sw-menu-error" role="alert">
-            <span>${L('预言奖励读取失败', 'Prediction read failed')}</span>
-            <button type="button" class="sw-retry-link" data-profile-retry="1">${L('重试', 'Retry')}</button>
-          </div>
-        ` : ''}
-      </div>
-    </div>
-  `;
-
-  const emptyGuideHtml = isDemoEmpty ? `
-    <section class="card">
-      <div class="empty-state" style="padding:10px 8px 6px;">
-        <span class="nt-art-badge tone-red" aria-hidden="true">${icon('wallet', 22)}</span>
-        <div style="font-size:15px;font-weight:900;margin-top:4px;">${L('还没有锁仓持仓', 'No Active Lock Position Yet')}</div>
-        <div class="text-sec" style="font-size:12px;max-width:260px;">${L('最低 100 A9 无门槛锁仓，头矿 6H · 5% 止损，永不爆仓。', 'Lock from 100 A9 — First 6H · 5% Stop-Loss, No Liquidation.')}</div>
-        <div class="grid-2" style="width:100%;margin-top:10px;gap:8px;">
-          <a class="btn btn-primary btn-sm" href="#/challenge/confirm">${icon('bolt', 14)} ${L('立即锁仓', 'Lock Now')}</a>
-          <a class="btn btn-secondary btn-sm" href="#/internal/market">${icon('chest', 14)} ${L('宝箱商城', 'Chest Mall')}</a>
-        </div>
-      </div>
-    </section>
-  ` : '';
-
-  const passCountLabel = (certsCount !== null && certsCount !== undefined && Number.isFinite(Number(certsCount)))
-    ? L(`闯关凭证 · ${certsCount}`, `Passes · ${certsCount}`)
-    : L('闯关凭证', 'Passes');
+  const primaryCtaHtml = !hasWallet
+    ? `<button type="button" class="btn btn-primary" id="profile-asset-connect">${icon('wallet', 15)} ${L('连接钱包', 'Connect Wallet')}</button>`
+    : `<a class="btn btn-primary" id="profile-claim-cta" href="#/rewards">${icon('trophy', 15)} ${totalClaimableA9 !== null && totalClaimableA9 > 0
+        ? L(`去领取 ${formatA9Amount(totalClaimableA9)}`, `Claim ${formatA9Amount(totalClaimableA9)}`)
+        : L('前往我的奖励', 'Go to My Rewards')} ›</a>`;
 
   return `
-    <div class="col-gap anim-page-enter">
+    <div class="col-gap anim-page-enter" id="profile-home-root">
       <section class="sw-asset-card" id="profile-asset-card">
         <span class="sw-asset-accent" aria-hidden="true"></span>
-        <div class="sw-asset-body">
+        <div class="sw-asset-body" style="gap:10px;">
           <div class="row-between" style="gap:8px;">
             <span class="sw-section-label profile-asset-label">${L('可用 A9 余额', 'Available A9')}</span>
             ${assetBadge}
           </div>
           ${assetMainHtml}
-          <div class="sw-asset-foot">
-            <span class="sw-asset-sub">${escapeHtml(gramText)}</span>
-            <span class="num-xs text-muted">${hasWallet ? L('按来源分项展示', 'Shown by source') : L('非托管只读查询', 'Non-custodial read')}</span>
+          <div class="num-xs text-muted mono" style="margin-top:-4px;white-space:nowrap;">${L('钱包 Gas 余额', 'Wallet Gas')}: ${escapeHtml(gramText)}</div>
+          <div class="check-list" style="margin:2px 0;">
+            <div class="check-row">
+              <span class="text-sec">${L('可领取奖励', 'Claimable Rewards')}</span>
+              <b class="mono ${Number(totalClaimableA9) > 0 ? 'text-green' : 'text-sec'}" style="white-space:nowrap;">${claimableDisplay}</b>
+            </div>
+            <div class="check-row">
+              <span class="text-sec">${L('待激活奖励', 'Pending Activation')}</span>
+              <span class="mono ${Number(predPendingA9) > 0 ? 'text-gold' : 'text-sec'}" style="white-space:nowrap;">${pendingDisplay}</span>
+            </div>
+            <div class="check-row">
+              <span class="text-sec">${L('解锁中（14 天）', 'Unlocking (14D)')}</span>
+              <span class="mono" style="white-space:nowrap;">${lockedDisplay}</span>
+            </div>
           </div>
+          ${claimError || predError ? `
+            <div class="row-between num-xs text-red" role="alert">
+              <span>${L('部分资产数据读取失败', 'Some asset data failed to load')}</span>
+              <button type="button" class="sw-retry-link" data-profile-retry="1">${L('重试', 'Retry')}</button>
+            </div>
+          ` : ''}
+          ${primaryCtaHtml}
         </div>
       </section>
 
-      ${claimSectionHtml}
-      ${inProgressHtml}
-      ${emptyGuideHtml}
-
-      <div>
-        <div class="sw-section-label">${L('我的记录', 'My Records')}</div>
-        <nav class="sw-record-grid" aria-label="${L('我的记录', 'My Records')}">
-          <a class="sw-record-tile" href="#/proof">
-            <span class="sw-record-icon is-red">${icon('shieldCheck', 18)}</span>
-            <span class="sw-record-label">${escapeHtml(passCountLabel)}</span>
-          </a>
-          <a class="sw-record-tile" href="#/internal/records">
-            <span class="sw-record-icon is-amber">${icon('chest', 18)}</span>
-            <span class="sw-record-label">${L('商城订单', 'Orders')}</span>
-          </a>
-          <a class="sw-record-tile" href="#/ledger">
-            <span class="sw-record-icon is-green">${icon('receipt', 18)}</span>
-            <span class="sw-record-label">${L('收支账本', 'Ledger')}</span>
-          </a>
-        </nav>
-      </div>
-
-      <div class="sw-menu-group">
-        <a class="sw-menu-row" href="#/settings">
-          <span class="sw-row-icon is-muted" aria-hidden="true">${icon('settings', 16)}</span>
+      <div class="sw-menu-group" id="profile-main-menu">
+        <a class="sw-menu-row" href="#/records">
+          <span class="sw-row-icon is-red" aria-hidden="true">${icon('receipt', 16)}</span>
           <div class="sw-menu-left">
-            <span class="sw-menu-title">${L('提醒与设置', 'Alerts & Settings')}</span>
-            <span class="sw-menu-sub">${L('主题、语言、通知与钱包管理', 'Theme, language, alerts & wallet')}</span>
+            <span class="sw-menu-title">${L('记录', 'Records')}</span>
+            <span class="sw-menu-sub">${L('闯关凭证、宝箱小票与收支账本', 'Quest passes, chest receipts & ledger')}</span>
           </div>
           <div class="sw-menu-right">
+            ${recordsBadge ? `<span class="sw-menu-amount is-muted" style="white-space:nowrap;">${escapeHtml(recordsBadge)}</span>` : ''}
             <span class="sw-menu-arrow" aria-hidden="true">›</span>
           </div>
         </a>
+        <a class="sw-menu-row" href="#/rules">
+          <span class="sw-row-icon is-green" aria-hidden="true">${icon('book', 16)}</span>
+          <div class="sw-menu-left">
+            <span class="sw-menu-title">${L('规则与透明', 'Rules & Transparency')}</span>
+            <span class="sw-menu-sub">${L('规则说明、费用明细与合约地址', 'Rules, fees & contract addresses')}</span>
+          </div>
+          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+        </a>
+        <a class="sw-menu-row" href="#/settings">
+          <span class="sw-row-icon is-muted" aria-hidden="true">${icon('settings', 16)}</span>
+          <div class="sw-menu-left">
+            <span class="sw-menu-title">${L('设置', 'Settings')}</span>
+            <span class="sw-menu-sub">${L('通知提醒、音效、震动与钱包管理', 'Alerts, audio, haptics & wallet')}</span>
+          </div>
+          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+        </a>
+        <button type="button" class="sw-menu-row" id="profile-lang-theme-row">
+          <span class="sw-row-icon is-blue" aria-hidden="true">${icon('globe', 16)}</span>
+          <div class="sw-menu-left">
+            <span class="sw-menu-title">${L('语言与主题', 'Language & Theme')}</span>
+            <span class="sw-menu-sub">${L('快捷切换中英文与亮色/暗夜外观', 'Switch language and light/dark theme')}</span>
+          </div>
+          <div class="sw-menu-right">
+            <span class="sw-menu-amount" style="white-space:nowrap;">${escapeHtml(`${langShortLabel} · ${curThemeLabel}`)}</span>
+            <span class="sw-menu-arrow" aria-hidden="true">›</span>
+          </div>
+        </button>
       </div>
     </div>
   `;
+}
+
+function bindProfileLangThemeAction(root, navigate) {
+  const row = root.querySelector('#profile-lang-theme-row');
+  if (!row) return;
+  row.onclick = () => {
+    const curTheme = getActiveThemeMode();
+    const curLangObj = LANGUAGES.find((l) => l.code === store.state.settings.language) || LANGUAGES[0];
+    openActionSheet({
+      title: L('语言与主题', 'Language & Theme'),
+      subtitle: L('即时生效并保存在本地偏好', 'Applies immediately to local preferences'),
+      items: [
+        {
+          icon: curTheme === 'dark' ? 'moon' : 'sun',
+          tone: 'is-amber',
+          label: L('切换主题', 'Theme'),
+          sub: L('雪白亮色 / 石墨暗夜', 'Crisp Light / Switch Dark'),
+          badge: curTheme === 'dark' ? L('石墨暗夜', 'Dark') : L('雪白亮色', 'Light'),
+          keepOpen: true,
+          onSelect: () => openChoiceSheet({
+            title: L('选择界面主题', 'Select Theme'),
+            selected: getActiveThemeMode(),
+            options: [
+              { value: 'light', icon: 'sun', tone: 'is-amber', label: L('雪白亮色', 'Crisp Light'), sub: L('任天堂红白日间配色', 'Nintendo light theme') },
+              { value: 'dark', icon: 'moon', tone: 'is-blue', label: L('石墨暗夜', 'Switch Dark'), sub: L('OLED 深石墨夜间配色', 'Switch OLED dark theme') },
+            ],
+            onSelect: (mode) => {
+              if (mode === getActiveThemeMode()) return;
+              store.update((s) => { s.settings.themeMode = mode; });
+              if (typeof document !== 'undefined' && document.documentElement) {
+                document.documentElement.dataset.theme = mode;
+              }
+              import('../app.js').then((m) => {
+                m.applyTheme?.(mode);
+                m.renderCurrentRoute?.();
+              }).catch(() => renderProfileHome(root, navigate));
+              showToast(mode === 'dark' ? L('已切换石墨暗夜主题', 'Switched to Switch Dark') : L('已切换雪白亮色主题', 'Switched to Crisp Light'));
+            },
+          }),
+        },
+        {
+          icon: 'globe',
+          tone: 'is-blue',
+          label: L('切换语言', 'Language'),
+          sub: L('实时切换中英文', 'Switch Chinese / English'),
+          badge: curLangObj.label,
+          keepOpen: true,
+          onSelect: () => openChoiceSheet({
+            title: L('选择界面语言', 'Select Language'),
+            selected: store.state.settings.language,
+            options: LANGUAGES.map((l) => ({ value: l.code, icon: 'globe', tone: 'is-blue', label: l.label, sub: l.sub })),
+            onSelect: (code) => {
+              store.update((s) => { s.settings.language = code; });
+              showToast(`${L('已切换语言', 'Language')}: ${code}`);
+              import('../app.js').then((m) => m.renderCurrentRoute?.()).catch(() => renderProfileHome(root, navigate));
+            },
+          }),
+        },
+      ],
+    });
+  };
 }
 
 export function renderProfileHome(root, navigate) {
@@ -294,6 +262,7 @@ export function renderProfileHome(root, navigate) {
       });
       const connBtn = root.querySelector('#profile-asset-connect');
       if (connBtn) connBtn.onclick = () => tonConnect.openConnectModal(() => renderProfileHome(root, navigate));
+      bindProfileLangThemeAction(root, navigate);
       root.querySelectorAll('[data-profile-retry]').forEach((btn) => {
         btn.onclick = () => {
           A9Haptic.light();
@@ -323,7 +292,6 @@ export function renderProfileHome(root, navigate) {
           ? rawToA9(portData.a9BalanceRaw)
           : null;
         const tickets = Array.isArray(portData?.tickets) ? portData.tickets : [];
-        const activePasses = tickets.filter((t) => t && !t.exited && !t.principalDone && !t.forfeited);
         const roundClaimableA9 = (portData && portData.claimableRaw !== undefined && portData.claimableRaw !== null)
           ? rawToA9(portData.claimableRaw)
           : null;
@@ -343,7 +311,6 @@ export function renderProfileHome(root, navigate) {
           promoClaimableA9,
           roundLockedA9,
           predPendingA9,
-          activePasses,
           certsCount: portData?.ticketsAvailable ? tickets.length : null,
           loading: false,
           claimError: portErr || promoErr,
@@ -356,9 +323,6 @@ export function renderProfileHome(root, navigate) {
 
   const { user, certificates } = store.state;
   const isEmpty = user.profileMode === 'empty';
-  const activePasses = isEmpty
-    ? []
-    : (certificates || []).filter((c) => c && (c.status === 'observation' || c.status === 'participation'));
 
   root.innerHTML = renderProfileSwitchView({
     hasWallet: Boolean(user.connected),
@@ -368,17 +332,16 @@ export function renderProfileHome(root, navigate) {
     promoClaimableA9: isEmpty ? 0 : (user.promoClaimableA9 ?? 0),
     roundLockedA9: isEmpty ? 0 : (user.a9Locked ?? 0),
     predPendingA9: isEmpty ? 0 : (rawToA9(store.state.prediction?.pendingActivationRaw) ?? 0),
-    activePasses,
     certsCount: isEmpty ? 0 : (certificates || []).length,
     loading: false,
     claimError: false,
     predError: false,
     isLive: false,
-    isDemoEmpty: isEmpty,
   });
 
   const connBtn = root.querySelector('#profile-asset-connect');
   if (connBtn) connBtn.onclick = () => tonConnect.openConnectModal(() => renderProfileHome(root, navigate));
+  bindProfileLangThemeAction(root, navigate);
 }
 
 /** 历史 #/claim 兼容导出：统一委托至最终形态「我的奖励」（js/pages/rewards.js）。 */
@@ -431,8 +394,8 @@ export function renderProofDetail(root, navigate, certId) {
             </div>
             <div class="num-xs text-sec" style="line-height:1.5;">
               ${range && range.fromRound && range.toRound
-                ? L(`已扫描第 ${range.fromRound} 至第 ${range.toRound} 轮链上 StakeTicket 凭证，点击任意凭证查看领奖与解锁详情。`, `Scanned Rounds ${range.fromRound}–${range.toRound} StakeTickets. Tap any pass to view claim & unlock details.`)
-                : L('连接 TON 钱包即可读取链上 StakeTicket 锁仓凭证，点击直达领奖与解锁页。', 'Connect TON wallet to load on-chain StakeTicket passes and jump directly to claim details.')}
+                ? L(`已扫描第 ${range.fromRound} 至第 ${range.toRound} 轮链上闯关凭证，点击任意凭证查看领奖与解锁详情。`, `Scanned Rounds ${range.fromRound}–${range.toRound} Quest Passes. Tap any pass to view claim & unlock details.`)
+                : L('连接 TON 钱包即可读取链上闯关凭证，点击直达我的奖励页查看详情。', 'Connect TON wallet to load on-chain Quest Passes and jump directly to My Rewards.')}
             </div>
           </section>
 
@@ -440,7 +403,7 @@ export function renderProofDetail(root, navigate, certId) {
             <section class="card empty-state">
               <span class="nt-art-badge tone-red" aria-hidden="true">${renderNintendoGateIcon('ticket', 34)}</span>
               <div style="font-weight:900;font-size:15px;margin-top:4px;">${L('请先连接钱包', 'Connect Wallet First')}</div>
-              <div class="num-xs text-sec" style="max-width:250px;">${L('连接非托管 TON 钱包后即可查看各轮 StakeTicket 凭证与解锁状态。', 'Connect your non-custodial TON wallet to view StakeTicket passes.')}</div>
+              <div class="num-xs text-sec" style="max-width:250px;">${L('连接非托管 TON 钱包后即可查看各轮闯关凭证与解锁状态。', 'Connect your non-custodial TON wallet to view Quest Passes.')}</div>
               <button class="btn btn-primary btn-sm" id="btn-proof-live-connect" style="margin-top:10px;" type="button">${L('连接钱包', 'Connect Wallet')}</button>
             </section>
           ` : loading ? `
@@ -458,7 +421,7 @@ export function renderProofDetail(root, navigate, certId) {
             <section class="card empty-state">
               <span class="nt-art-badge tone-red" aria-hidden="true">${renderNintendoGateIcon('ticket', 34)}</span>
               <div style="font-weight:900;font-size:15px;margin-top:4px;">${L('暂无闯关凭证', 'No Quest Passes Yet')}</div>
-              <div class="num-xs text-sec" style="max-width:250px;">${L('完成任意一轮 A9 锁仓入场后，链上将自动铸造 StakeTicket 凭证。', 'Lock A9 in any round to mint an on-chain StakeTicket pass.')}</div>
+              <div class="num-xs text-sec" style="max-width:250px;">${L('完成任意一轮 A9 锁仓入场后，链上将自动铸造闯关凭证。', 'Lock A9 in any round to mint an on-chain Quest Pass.')}</div>
               <a class="btn btn-primary btn-sm" style="margin-top:10px;" href="#/round">${icon('bolt', 14)} ${L('查看本轮闯关', 'View Current Round')}</a>
             </section>
           ` : `
@@ -492,8 +455,12 @@ export function renderProofDetail(root, navigate, certId) {
           `}
 
           <div class="sw-menu-group">
+            <a class="sw-menu-row" id="proof-round-progress-link" href="#/round">
+              <div class="sw-menu-left"><span class="sw-menu-title">${L('查看当前轮次进度', 'View Current Quest Progress')}</span></div>
+              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+            </a>
             <a class="sw-menu-row" href="#/rewards">
-              <div class="sw-menu-left"><span class="sw-menu-title">${L('前往领奖中心', 'Go to Claims')}</span></div>
+              <div class="sw-menu-left"><span class="sw-menu-title">${L('前往我的奖励', 'Go to My Rewards')}</span></div>
               <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
             </a>
             <a class="sw-menu-row" href="#/profile">
@@ -632,17 +599,22 @@ export function renderProofDetail(root, navigate, certId) {
         <button class="btn btn-secondary" id="btn-x-proof" style="min-height:46px;font-size:14px;">${icon('xBrand', 14)} ${L('发 X 炫耀凭证', 'Share on X')}</button>
       </div>
 
-      ${renderCorridorRadar(round.candles || [], round.targetPrice, round.activeCandleSec || 0, round.livePrice, { qualified: round.qualifiedCandles || 0, minQualified: round.minQualifiedCandles || 8, seen: round.candlesSeen || 0 })}
-
       <div class="sw-menu-group">
+        <a class="sw-menu-row" id="proof-round-progress-link" href="#/round">
+          <div class="sw-menu-left">
+            <span class="sw-menu-title">${L('查看本轮 12H 冲价进度', 'View 12H Push Progress')}</span>
+            <span class="sw-menu-sub">${L('前往闯关页查看 12 格达标板与当前阶段', 'Inspect 12-slot qualification board on Quest page')}</span>
+          </div>
+          <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+        </a>
         <a class="sw-menu-row" href="#/rewards">
           <div class="sw-menu-left">
-            <span class="sw-menu-title">${L('前往领奖中心', 'Go to Claims')}</span>
+            <span class="sw-menu-title">${L('前往我的奖励', 'Go to My Rewards')}</span>
             <span class="sw-menu-sub">${L('领取已解锁奖金或查看 14 天解锁', 'Claim rewards or inspect 14D unlock')}</span>
           </div>
           <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
         </a>
-        <a class="sw-menu-row" href="#/renew">
+        <a class="sw-menu-row" href="#/settings">
           <div class="sw-menu-left">
             <span class="sw-menu-title">${L('头矿 6H 开盘提醒', 'First 6H Opening Alert')}</span>
             <span class="sw-menu-sub">${L('非托管不代扣 · 开盘 Bot 私信通知', 'Non-custodial · Bot DM on open')}</span>
@@ -734,7 +706,6 @@ export function renderProofDetail(root, navigate, certId) {
 
 
 
-  bindCorridorRadarEvents(root);
   root.querySelectorAll('[data-x-share="round"]').forEach(btn => {
     btn.onclick = () => openXShareSheet({
       type: 'round',
@@ -765,7 +736,7 @@ export function renderLedgerPage(root) {
     const paintLive = ({ loading = false, orders = [], ordersErr = false, refs = null, refsErr = false } = {}) => {
       if (seq !== ledgerRenderSeq || !root.isConnected) return;
       const refItems = Array.isArray(refs?.items) ? refs.items : [];
-      const completedOrdersA9 = orders.reduce((s, o) => s + (o.status === 'COMPLETED' ? (rawToA9(o.totalA9Raw ?? o.a9AmountRaw) || 0) : 0), 0);
+      const completedOrdersA9 = ordersErr ? null : orders.reduce((s, o) => s + (o.status === 'COMPLETED' ? (rawToA9(o.totalA9Raw ?? o.a9AmountRaw) || 0) : 0), 0);
       const refTotalA9 = refs && refs.totalCommissionRaw !== undefined && refs.totalCommissionRaw !== null ? rawToA9(refs.totalCommissionRaw) : null;
 
       root.innerHTML = `
@@ -775,24 +746,20 @@ export function renderLedgerPage(root) {
               <span class="card-title">${icon('receipt', 15, 'text-green')} ${L('链上收支账本', 'On-Chain Ledger')}</span>
               ${tonviewerHref ? `<button type="button" class="text-link-btn" id="btn-ledger-tonviewer">Tonviewer ›</button>` : ''}
             </div>
-            <div class="sw-menu-group">
-              <div class="sw-menu-row is-static">
-                <div class="sw-menu-left">
-                  <span class="sw-menu-title">${L('商城订单已入账', 'Mall Orders Credited')}</span>
-                  <span class="sw-menu-sub">${addr ? L(`共 ${orders.length} 笔订单`, `${orders.length} order(s)`) : L('连接钱包后查看', 'Connect wallet to view')}</span>
+            <div class="check-list">
+              <div class="check-row">
+                <div style="min-width:0;">
+                  <div class="num-xs" style="font-weight:700;">${L('商城订单已入账', 'Mall Orders Credited')}</div>
+                  <div class="num-xs text-muted">${addr ? (ordersErr ? L('读取失败', 'Read failed') : L(`共 ${orders.length} 笔订单`, `${orders.length} order(s)`)) : L('连接钱包后查看', 'Connect wallet to view')}</div>
                 </div>
-                <div class="sw-menu-right">
-                  <span class="sw-menu-amount ${completedOrdersA9 > 0 ? 'is-green' : ''}">${addr ? (loading ? '…' : formatA9Amount(completedOrdersA9)) : '—'}</span>
-                </div>
+                <b class="mono ${Number(completedOrdersA9) > 0 ? 'text-green' : ''}" style="white-space:nowrap;">${addr ? (loading ? '…' : formatA9Amount(completedOrdersA9)) : '—'}</b>
               </div>
-              <div class="sw-menu-row is-static">
-                <div class="sw-menu-left">
-                  <span class="sw-menu-title">${L('好友通关 8% 返佣', '8% Pass Referral Credits')}</span>
-                  <span class="sw-menu-sub">${hasTg ? L(`共 ${refItems.length} 笔返佣`, `${refItems.length} credit(s)`) : L('在 Telegram 内打开查看', 'Open in Telegram to view')}</span>
+              <div class="check-row">
+                <div style="min-width:0;">
+                  <div class="num-xs" style="font-weight:700;">${L('好友通关 8% 返佣', '8% Pass Referral Credits')}</div>
+                  <div class="num-xs text-muted">${hasTg ? (refsErr ? L('读取失败', 'Read failed') : L(`共 ${refItems.length} 笔返佣`, `${refItems.length} credit(s)`)) : L('在 Telegram 内打开查看', 'Open in Telegram to view')}</div>
                 </div>
-                <div class="sw-menu-right">
-                  <span class="sw-menu-amount ${Number(refTotalA9) > 0 ? 'is-green' : 'is-muted'}">${hasTg ? (loading ? '…' : formatA9Amount(refTotalA9)) : '—'}</span>
-                </div>
+                <b class="mono ${Number(refTotalA9) > 0 ? 'text-green' : 'text-muted'}" style="white-space:nowrap;">${hasTg ? (loading ? '…' : formatA9Amount(refTotalA9)) : '—'}</b>
               </div>
             </div>
             ${!addr ? `<button class="btn btn-primary btn-sm" id="btn-ledger-connect" type="button">${icon('wallet', 14)} ${L('连接钱包同步账本', 'Connect Wallet to Sync')}</button>` : ''}
@@ -801,7 +768,7 @@ export function renderLedgerPage(root) {
           <div>
             <div class="row-between" style="margin-bottom:6px;padding:0 2px;">
               <span class="sw-section-label" style="margin:0;padding:0;">${L('商城购箱订单', 'Chest Mall Orders')}</span>
-              <a class="text-link-btn" href="#/internal/records">${L('全部小票', 'All Receipts')} ›</a>
+              <a class="text-link-btn" href="#/records?type=market">${L('全部小票', 'All Receipts')} ›</a>
             </div>
             <div class="sw-menu-group">
               ${!addr ? `

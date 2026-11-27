@@ -248,18 +248,18 @@ export function renderSettingsPage(root) {
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
-          <a class="sw-menu-row" href="#/risk/audit">
+          <a class="sw-menu-row" href="#/rules#audit">
             <span class="sw-row-icon is-green" aria-hidden="true">${icon('shieldCheck', 16)}</span>
             <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('v17.0 链上验真', 'v17.0 On-Chain Audit')}</span>
-              <span class="sw-menu-sub">${L('查看合约地址、逃生舱与链上参数', 'Inspect contracts, escape hatch & specs')}</span>
+              <span class="sw-menu-title">${L('查看合约地址', 'Inspect Contracts')}</span>
+              <span class="sw-menu-sub">${L('合约地址、7 天异常无损退本与链上参数', 'Contracts, 7d abort refund & specs')}</span>
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
-          <a class="sw-menu-row" href="#/risk/matrix">
+          <a class="sw-menu-row" href="#/rules#matrix">
             <span class="sw-row-icon is-amber" aria-hidden="true">${icon('shieldAlert', 16)}</span>
             <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('安全护盾', 'Safety Shield')}</span>
+              <span class="sw-menu-title">${L('22 条异常说明', '22 Guard & Error Codes')}</span>
               <span class="sw-menu-sub">${L('22 种链上风控与异常保护参考手册', '22-state on-chain protection reference')}</span>
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
@@ -504,16 +504,16 @@ export function renderRiskMatrix(root) {
     const list = filter === 'all' ? RISK_STATES : RISK_STATES.filter(x => x.cat === filter);
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
-        <div class="card card-glow-red">
+        <div class="sub-tile">
           <div class="row-between">
             <div>
               <div class="caps text-red">${isDemo ? 'SENTINEL ENGINE · DEMO' : 'v17.0 SAFETY REFERENCE'}</div>
-              <div style="font-size:16px;font-weight:700;margin-top:2px;">${L('22 种链上风控与异常保护手册', '22-State On-Chain Risk Reference')}</div>
+              <div style="font-size:15px;font-weight:700;margin-top:2px;">${L('22 种链上风控与异常保护手册', '22-State On-Chain Risk Reference')}</div>
             </div>
             <span class="chip chip-green">22/22</span>
           </div>
           <div class="num-xs text-sec" style="margin-top:6px;">${isDemo
-            ? L('点击任意异常卡片可触发对应的风控拦截弹窗模拟', 'Tap any guard card to simulate its circuit-breaker modal')
+            ? L('点击任意异常条目可触发对应的风控拦截弹窗模拟', 'Tap any guard item to simulate its circuit-breaker modal')
             : L('只读规则参考：完整列出协议 22 种链上保护与处理指引，不触发模拟弹窗。', 'Read-only reference: all 22 on-chain guard states and recovery guidance (simulations disabled in live mode).')}</div>
         </div>
 
@@ -525,35 +525,25 @@ export function renderRiskMatrix(root) {
           <button class="seg-tab ${filter === 'team' ? 'active' : ''}" data-rf="team" type="button">${L('战队', 'Squad')}</button>
         </div>
 
-        <div class="col-gap">
+        <div class="check-list">
           ${list.map(item => `
-            <div class="card ${isDemo ? 'clickable' : ''}" ${isDemo ? `role="button" tabindex="0" data-sim-err="${item.id}" style="cursor:pointer;"` : ''}>
-              <div class="row-between" style="margin-bottom:4px;">
-                <span class="num-xs text-red mono">#${item.id} ${item.code}</span>
+            <div class="check-row" style="display:block;padding:10px 0;${isDemo ? 'cursor:pointer;' : ''}" ${isDemo ? `role="button" tabindex="0" data-sim-err="${item.id}"` : ''}>
+              <div class="row-between" style="margin-bottom:4px;gap:6px;">
+                <span class="num-xs text-red mono" style="word-break:break-all;">#${item.id} ${item.code}</span>
                 ${isDemo
-                  ? `<span class="chip chip-amber">${L('模拟拦截', 'Simulate')}</span>`
-                  : `<span class="chip chip-muted">${L('规则参考', 'Reference')}</span>`}
+                  ? `<span class="chip chip-amber" style="flex-shrink:0;">${L('模拟拦截', 'Simulate')}</span>`
+                  : `<span class="chip chip-muted" style="flex-shrink:0;">${L('规则参考', 'Reference')}</span>`}
               </div>
               <div style="font-weight:700;font-size:13px;">${L(item.titleZh, item.titleEn)}</div>
-              <div class="text-sec" style="font-size:11.5px;margin-top:3px;line-height:1.45;">${L(item.descZh, item.descEn)}</div>
-              ${!isDemo ? `<div class="num-xs text-muted" style="margin-top:5px;">${L('建议处理', 'Guidance')}: ${L(item.actionZh, item.actionEn)}</div>` : ''}
+              <div class="text-sec" style="font-size:12px;margin-top:3px;line-height:1.45;">${L(item.descZh, item.descEn)}</div>
+              ${!isDemo ? `<div class="num-xs text-muted" style="margin-top:4px;">${L('建议处理', 'Guidance')}: ${L(item.actionZh, item.actionEn)}</div>` : ''}
             </div>
           `).join('')}
         </div>
 
-        <div class="sw-menu-group">
-          <a class="sw-menu-row" href="#/risk/audit">
-            <div class="sw-menu-left"><span class="sw-menu-title">${L('v17.0 链上防 Rug 验真', 'v17.0 On-Chain Audit')}</span></div>
-            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-          </a>
-          <a class="sw-menu-row" href="#/rules">
-            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回规则与透明', 'Back to Rules & Transparency')}</span></div>
-            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-          </a>
-          <a class="sw-menu-row" href="#/settings">
-            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回提醒与设置', 'Back to Settings')}</span></div>
-            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-          </a>
+        <div class="row-between num-xs" style="padding-top:8px;border-top:1px solid var(--card-border);">
+          <a class="sw-retry-link" href="#/rules#audit">${L('查看合约地址', 'Inspect Contracts')} ›</a>
+          <a class="sw-retry-link" href="#/settings">${L('返回设置', 'Back to Settings')} ›</a>
         </div>
       </div>
     `;
@@ -650,8 +640,8 @@ export function renderRiskAudit(root) {
           ${adminHtml}
         </div>
         <div class="check-row">
-          <span class="text-sec">${L('无许可逃生舱（AbortRound）', 'Permissionless Escape Hatch')}</span>
-          <span class="mono" style="font-weight:700;">${L('7 天异常可全员退本', '7d AbortRound Refund')}</span>
+          <span class="text-sec">${L('轮次异常保护（7 天）', 'Round Abort Protection (7d)')}</span>
+          <span class="mono" style="font-weight:700;">${L('轮次异常 7 天后可无损取回本金', '100% Principal Refund After 7d')}</span>
         </div>
         <div class="check-row">
           <span class="text-sec">${L('链上剩余奖池（poolRemaining）', 'On-Chain Pool Remaining')}</span>
@@ -717,7 +707,7 @@ export function renderRiskAudit(root) {
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
           <a class="sw-menu-row" href="#/settings">
-            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回提醒与设置', 'Back to Settings')}</span></div>
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回设置', 'Back to Settings')}</span></div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
         </div>

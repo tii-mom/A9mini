@@ -1050,10 +1050,10 @@ export function renderParticipateConfirm(root, navigate) {
         </section>
         <button class="btn btn-secondary" type="button" disabled>${icon('lock', 15)} ${L('当前只读 · 暂未开放锁仓签名', 'Read-Only · Lock Signing Disabled')}</button>
         <div class="sw-menu-group">
-          <a class="sw-menu-row" href="#/risk/audit">
+          <a class="sw-menu-row" href="#/rules#audit">
             <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('v17.0 链上验真', 'v17.0 On-Chain Audit')}</span>
-              <span class="sw-menu-sub">${L('查看合约地址、安全参数与 7 天 AbortRound 逃生舱', 'Inspect contracts, security specs & 7d AbortRound')}</span>
+              <span class="sw-menu-title">${L('查看合约地址', 'Inspect Contracts')}</span>
+              <span class="sw-menu-sub">${L('查看合约地址、安全参数与 7 天异常无损退本说明', 'Inspect contracts, security specs & 7d abort refund')}</span>
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
@@ -1120,10 +1120,10 @@ export function renderParticipateConfirm(root, navigate) {
         : `<button class="btn btn-secondary" id="btn-confirm-accessible" type="button">${icon('lock', 15)} <span id="acc-confirm-lbl">${L('真实模式只读 · 暂未开放锁仓', 'Read-Only Mode · Locking Disabled')}</span></button>`
       }
       <div class="sw-menu-group">
-        <a class="sw-menu-row" href="#/risk/audit">
+        <a class="sw-menu-row" href="#/rules#audit">
           <div class="sw-menu-left">
-            <span class="sw-menu-title">${L('v17.0 链上验真', 'v17.0 On-Chain Audit')}</span>
-            <span class="sw-menu-sub">${L('查看合约地址、安全参数与 7 天 AbortRound 逃生舱', 'Inspect contracts, security specs & 7d AbortRound')}</span>
+            <span class="sw-menu-title">${L('查看合约地址', 'Inspect Contracts')}</span>
+            <span class="sw-menu-sub">${L('查看合约地址、安全参数与 7 天异常无损退本说明', 'Inspect contracts, security specs & 7d abort refund')}</span>
           </div>
           <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
         </a>
@@ -1454,7 +1454,7 @@ function renderLiveStakeConfirm(root, navigate) {
           A9Haptic.success();
           sheet.done(
             L('锁仓交易已提交链上', 'Lock Transaction Broadcast'),
-            L('请等待区块确认后在「我的 → 闯关凭证」核对 StakeTicket', 'Check your StakeTicket in Me after block confirmation'),
+            L('请等待区块确认后在「我的 → 记录」核对闯关凭证', 'Check your Quest Pass in Me after block confirmation'),
           );
           const pendingTx = pendingTxManager.start({
             kind: 'stake',
@@ -1478,14 +1478,14 @@ function renderLiveStakeConfirm(root, navigate) {
                 portfolio = next;
                 return {
                   confirmed: true,
-                  detail: '锁仓凭证已更新到账，可在「我的奖励」核验。',
-                  detailEn: 'StakeTicket updated on-chain; check Claim center.',
+                  detail: '闯关凭证已更新到账，可在「我的奖励」核验。',
+                  detailEn: 'Quest Pass updated on-chain; check My Rewards.',
                 };
               }
               return false;
             },
             onConfirmed: () => {
-              showToast(L('锁仓已上链确认！StakeTicket 凭证已更新', 'Lock confirmed on-chain! StakeTicket updated.'));
+              showToast(L('锁仓已上链确认！闯关凭证已更新', 'Lock confirmed on-chain! Quest Pass updated.'));
               if (root.isConnected) paint();
             },
             onTimeout: () => {

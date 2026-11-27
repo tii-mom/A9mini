@@ -100,7 +100,7 @@ export function renderUserGuide(root, _navigate, _param = null, query = {}, anch
       <a class="btn btn-secondary btn-sm" href="#/team/invite">${L('查看邀请明细', 'View invite details')} ›</a>
     </section>
 
-    <details class="card guide-panel" id="rules-section-audit" ${activeAnchor === 'audit' ? 'open' : ''}>
+    <details class="card guide-panel" id="rules-section-audit" style="scroll-margin-top:72px;" ${activeAnchor === 'audit' ? 'open' : ''}>
       <summary style="cursor:pointer;font-weight:800;font-size:14px;list-style:none;">
         <div class="row-between">
           <span>${L('查看合约地址与链上透明参数', 'Inspect Contracts & On-Chain Parameters')}</span>
@@ -110,7 +110,7 @@ export function renderUserGuide(root, _navigate, _param = null, query = {}, anch
       <div id="rules-audit-mount" style="margin-top:12px;"></div>
     </details>
 
-    <details class="card guide-panel" id="rules-section-matrix" ${activeAnchor === 'matrix' ? 'open' : ''}>
+    <details class="card guide-panel" id="rules-section-matrix" style="scroll-margin-top:72px;" ${activeAnchor === 'matrix' ? 'open' : ''}>
       <summary style="cursor:pointer;font-weight:800;font-size:14px;list-style:none;">
         <div class="row-between">
           <span>${L('22 种链上保护与异常说明', '22 On-Chain Guard States & Error Codes')}</span>
