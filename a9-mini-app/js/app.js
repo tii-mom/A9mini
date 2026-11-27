@@ -458,7 +458,7 @@ function renderStaticQuickGatesHtml() {
         <div class="plaza-mall-body">
           <div class="row-start" style="gap:6px;flex-wrap:wrap;">
             <strong class="num-sm" style="color:var(--ink);">${L('宝箱商城', 'Chest Mall')}</strong>
-            <span class="chip chip-green" style="min-height:18px;font-size:10px;padding:0 6px;">${L('直发钱包', 'Direct Payout')}</span>
+            <span class="chip chip-green" style="min-height:18px;font-size:11px;padding:0 6px;">${L('直发钱包', 'Direct Payout')}</span>
           </div>
           <span class="num-xs text-sec">${L('6 档宝箱保底 + 随机加赠，一笔直发钱包', '6 chest tiers with guaranteed base + bonus straight to wallet')}</span>
         </div>
@@ -476,7 +476,7 @@ function renderLoading() {
         <div class="row-between" style="gap:8px;">
           <div class="row-start" style="gap:6px;">
             <strong class="num-sm">${L('当前轮次', 'Current Round')}</strong>
-            <span class="chip chip-muted" style="min-height:20px;font-size:10.5px;padding:0 7px;">${L('加载中…', 'Loading…')}</span>
+            <span class="chip chip-muted" style="min-height:20px;font-size:11px;padding:0 7px;">${L('加载中…', 'Loading…')}</span>
           </div>
           <span class="mono num-sm text-sec">${L('加载中…', 'Loading…')}</span>
         </div>
@@ -1247,16 +1247,13 @@ async function openChestAssistModal(chestId) {
     </div>
     ${loadFailed ? `<button class="btn btn-secondary" id="btn-retry-chest-detail" type="button" style="margin-bottom:10px;">${L('重试读取宝箱详情', 'Retry Loading Details')}</button>` : ''}
     ${isBoost ? `
-      <div class="grid-2" style="gap:8px;">
-        <button class="btn btn-primary btn-sm" id="btn-chest-go-mall" type="button" style="width:100%;min-height:42px;">${icon('bolt', 14)} ${L('前往宝箱商城', 'Chest Mall')}</button>
-        <button class="btn btn-secondary btn-sm" id="btn-chest-go-free" type="button" style="width:100%;min-height:42px;">${icon('trophy', 14)} ${L('免费秒开青铜箱', 'Free Chest')}</button>
-      </div>
+      <button class="btn btn-primary" id="btn-chest-go-mall" type="button">${icon('bolt', 15)} ${L('前往宝箱商城', 'Open Chest Mall')}</button>
     ` : `
       <div class="num-xs text-muted" style="margin-bottom:12px;">
-        ${L('链上防刷校验：仅需连接链上已激活 TON 钱包（0 扣款），确认同行后立即获得可秒开的 200 A9 青铜新手箱。', 'On-chain anti-sybil check: active TON wallet required (0 transfer). Instantly unlocks your 200 A9 Bronze Starter Chest.')}
+        ${L('链上防刷校验：仅需连接链上已激活 TON 钱包（0 扣款），确认同行后将同步记录同行礼资格。', 'On-chain anti-sybil check: active TON wallet required (0 transfer) to confirm your co-op gift.')}
       </div>
       <button class="btn btn-primary" id="btn-do-chest-assist" type="button">
-        ${icon(connected ? 'checkCircle' : 'wallet', 15)} ${connected ? L('确认同行 · 秒开我的 200 A9 青铜箱', 'Confirm Co-Op & Open 200 A9 Chest') : L('连接 TON 钱包 · 领双向开箱礼', 'Connect TON Wallet for Co-Op Gift')}
+        ${icon(connected ? 'checkCircle' : 'wallet', 15)} ${connected ? L('确认同行礼', 'Confirm Co-Op Gift') : L('连接 TON 钱包 · 领双向开箱礼', 'Connect TON Wallet for Co-Op Gift')}
       </button>
     `}
   `);
@@ -1265,9 +1262,7 @@ async function openChestAssistModal(chestId) {
   const retryBtn = document.getElementById('btn-retry-chest-detail');
   if (retryBtn) retryBtn.onclick = () => openChestAssistModal(chestId);
   const goMallBtn = document.getElementById('btn-chest-go-mall');
-  if (goMallBtn) goMallBtn.onclick = () => { A9Haptic.light(); closeModal(); navigate('/internal/market'); };
-  const goFreeBtn = document.getElementById('btn-chest-go-free');
-  if (goFreeBtn) goFreeBtn.onclick = () => { A9Haptic.light(); closeModal(); navigate('/internal/market?tab=free'); };
+  if (goMallBtn) goMallBtn.onclick = () => { A9Haptic.light(); closeModal(); navigate('/market'); };
   const btn = document.getElementById('btn-do-chest-assist');
   if (btn) btn.onclick = async () => {
     if (!store.state.user?.connected) {
@@ -1280,9 +1275,9 @@ async function openChestAssistModal(chestId) {
       A9Haptic.success();
       closeModal();
       showToast(res?.helperGrantedStarter
-        ? L('双向礼已生效！你的 200 A9 青铜新手箱已就绪，点击即可秒开！', 'Co-op gift active! Your 200 A9 Bronze Starter Chest is ready to open now!')
+        ? L('同行礼已生效！请前往宝箱商城或我的奖励查看。', 'Co-op gift active! Check Chest Mall or My Rewards.')
         : L('同行确认成功！', 'Co-op confirmed!'));
-      navigate('/internal/market?tab=free');
+      navigate('/market');
     } catch (e) {
       A9Haptic.error();
       showToast(e?.message || L('同行确认失败，请确认已连接链上活跃钱包', 'Co-op failed; active wallet required'), 'amber');

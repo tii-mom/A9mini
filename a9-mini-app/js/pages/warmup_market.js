@@ -7,7 +7,6 @@ import {
   claimStarterChests,
   openChestById,
   openAllChests,
-  fetchChestCritFeed,
   requestChestPurchaseIntent,
   fetchPresaleQuota,
   fetchPresaleOrders,
@@ -719,14 +718,10 @@ export function renderWarmupRank(root) {
 
 export function renderInternalMarket(root, navigate, _param = null, query = {}) {
   const { market } = store.state;
-  // 5a: ?tab=free 兼容回落至宝箱商城默认视图（不报 404）
-  let activeTab = 'mall';
+  // 5a/5f: ?tab=free 兼容回落至 6 档宝箱商城主视图（不报 404）
   let selectedSkuId = 'chest_bronze';
   const openMode = 'INSTANT';
   let chestData = { freeChests: [], shopChests: [], loaded: false };
-  let critFeed = [];
-  let critIndex = 0;
-  let critTimer = null;
   let liveQuota = null;
   let liveOrdersCount = null;
   let activationA9 = null;
@@ -747,12 +742,6 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     } catch { return '—'; }
   };
 
-  const formatVolumeReq = (nanoStr) => {
-    try {
-      const g = Number(BigInt(String(nanoStr || '0')) / 1_000_000_000n);
-      return g > 0 ? `${formatNum(g)} GRAM` : null;
-    } catch { return null; }
-  };
 
   const shareChestToTg = (chest) => {
     const ogUrl = buildOgShareUrl('chest', chest.chestId);
@@ -787,45 +776,9 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     });
   };
 
-  const formatCritTickerInner = (item, idx, total) => {
-    const isTop = item.critTier === 'jackpot' || item.critTier === 'legendary';
-    const badge = L('手气爆棚', 'TOP ROLL');
-    const totalA9 = rawToA9(item.totalA9Raw) || 0;
-    const bonusA9 = rawToA9(item.boostA9Raw) || 0;
-    const chestName = L(item.labelZh || item.tier, item.labelEn || item.tier);
-    const amountText = totalA9 > 0
-      ? `${L('开出', 'got')} <b class="mono text-green">${formatNum(Math.round(totalA9), 0)} A9</b>`
-      : `${L('加赠', 'bonus')} <b class="mono text-green">+${formatNum(Math.round(bonusA9), 0)} A9</b>`;
-    return `
-      <span class="mall-crit-badge ${isTop ? 'is-legend' : 'is-epic'}">${badge}</span>
-      <span class="mall-crit-text"><b>${escapeHtml(item.actor || 'A9')}</b> ${escapeHtml(chestName)} ${amountText}</span>
-      ${total > 1 ? `<span class="mall-crit-idx mono">${idx + 1}/${total}</span>` : ''}
-    `;
-  };
-
-  const ensureCritTickerLoop = () => {
-    if (critTimer) {
-      clearInterval(critTimer);
-      critTimer = null;
-    }
-    if (critFeed.length <= 1) return;
-    critTimer = setInterval(() => {
-      if (!root.isConnected) {
-        clearInterval(critTimer);
-        critTimer = null;
-        return;
-      }
-      const el = root.querySelector('#mall-crit-ticker');
-      if (!el || !critFeed.length) return;
-      critIndex = (critIndex + 1) % critFeed.length;
-      el.innerHTML = formatCritTickerInner(critFeed[critIndex], critIndex, critFeed.length);
-    }, 3600);
-  };
-
   const loadChests = async () => {
-    const [myRes, feedRes] = await Promise.allSettled([
+    const [myRes] = await Promise.allSettled([
       fetchMyChests(),
-      fetchChestCritFeed(12),
     ]);
     if (myRes.status === 'fulfilled' && myRes.value) {
       chestData = {
@@ -835,10 +788,6 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
       };
     } else {
       chestData.loaded = true;
-    }
-    if (feedRes.status === 'fulfilled' && Array.isArray(feedRes.value)) {
-      critFeed = feedRes.value;
-      if (critIndex >= critFeed.length) critIndex = 0;
     }
     if (!config.isDemo && store.state.user.connected && store.state.user.address) {
       const addr = store.state.user.address;
@@ -851,7 +800,6 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     }
     if (root.isConnected) {
       render();
-      ensureCritTickerLoop();
     }
   };
 
@@ -892,92 +840,11 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     const totalIfBoost = sel ? Math.round(sel.maxA9 || (sel.baseA9 + sel.maxBoostA9)) : 0;
     const displayTotalA9 = sel ? totalIfBoost : 0;
     const activeShopChests = (chestData.shopChests || []).filter((c) => c.status !== 'OPENED');
-    const freeList = chestData.freeChests || [];
 
-    // 免费宝箱：计算 5 阶进度轨状态 + 当前唯一聚焦主角卡
-    const tierOrder = ['bronze', 'silver', 'gold', 'platinum', 'diamond'];
-    const focusChest = freeList.find((c) => c.status === 'READY' || (c.status !== 'LOCKED' && c.status !== 'OPENED'))
-      || freeList.find((c) => c.status !== 'OPENED')
-      || freeList[0]
-      || null;
-    const focusTier = focusChest ? resolveChestTier(focusChest) : 'bronze';
-    const readyFreeCount = freeList.filter((c) => c.status === 'READY' || (c.status !== 'LOCKED' && c.status !== 'OPENED' && Number(c.currentAssists || 0) >= Number(c.requiredAssists || 0))).length;
-
-    const renderFreeFocusCard = (c) => {
-      if (!c) return '';
-      const tier = resolveChestTier(c);
-      const rewardA9 = rawToA9(c.baseA9Raw) || 0;
-      const volReq = formatVolumeReq(c.minVolumeNano);
-      const reqAssists = Number(c.requiredAssists || 0);
-      const curAssists = Number(c.currentAssists || 0);
-      const isInstant = reqAssists === 0;
-      const isLocked = c.status === 'LOCKED';
-      const isOpened = c.status === 'OPENED';
-      const isReady = c.status === 'READY' || (!isLocked && !isOpened && curAssists >= reqAssists);
-      const isPendingVault = c.rewardDestination === 'PENDING_VAULT' || c.tier === 'bronze' || c.tier === 'silver';
-      const badgeCls = isOpened ? 'chip-muted' : isReady ? 'chip-green' : isLocked ? 'chip-muted' : 'chip-gold';
-      const badgeTxt = isOpened ? L('已开启', 'Opened') : isReady ? (isInstant ? L('免助力秒开', 'Instant Open') : L('可开箱', 'Ready')) : isLocked ? L('待解锁', 'Locked') : L('助力中', 'Active');
-      const totalSegs = isInstant ? 1 : Math.max(1, Math.min(8, reqAssists || 2));
-      const filledSegs = isInstant
-        ? 1
-        : (reqAssists > 0 ? Math.min(totalSegs, Math.round((curAssists / reqAssists) * totalSegs)) : 0);
-
-      return `
-        <section class="free-focus-card">
-          <div class="free-focus-top">
-            <div class="free-focus-icon chest-stage-visual tier-${tier}">
-              ${renderChestSvg(tier, { size: 64, state: isOpened ? 'opened' : isLocked ? 'locked' : 'normal' })}
-            </div>
-            <div class="chest-stage-meta">
-              <div class="chest-stage-head">
-                <h3 class="chest-stage-name">${escapeHtml(L(c.labelZh, c.labelEn))}</h3>
-                <span class="chip ${badgeCls}">${badgeTxt}</span>
-              </div>
-              <div class="chest-stage-total">+${formatNum(Math.round(rewardA9), 0)} A9</div>
-              <div class="chest-stage-stats">
-                <span>${isInstant ? L('新手礼遇 · 0 助力', 'Starter Gift · 0 Assists') : `${L('活跃助力', 'Assists')} <b class="mono">${formatNum(curAssists)}/${formatNum(reqAssists)}</b>`}</span>
-                <span>· ${isPendingVault ? L('入待激活金库', 'Pending Vault') : L('可提现余额', 'Claimable')}</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="free-seg-bar" style="grid-template-columns:repeat(${totalSegs}, minmax(0, 1fr));" aria-hidden="true">
-            ${Array.from({ length: totalSegs }, (_, i) => `<i class="${i < filledSegs ? 'filled' : ''}"></i>`).join('')}
-          </div>
-
-          ${(volReq || c.minTgMembers > 0) ? `
-            <div class="num-xs text-muted">
-              ${L('门槛', 'Gate')}: ${volReq ? L(`本人+直邀累计购箱 ≥ ${volReq}`, `Self + Invitees Vol >= ${volReq}`) : ''}${volReq && c.minTgMembers > 0 ? ' · ' : ''}${c.minTgMembers > 0 ? L(`TG群 ≥ ${formatNum(c.minTgMembers)}人`, `TG >= ${formatNum(c.minTgMembers)}`) : ''}
-            </div>
-          ` : ''}
-          ${!isInstant && !isLocked && !isOpened ? `
-            <div class="num-xs text-green" style="font-weight:700;">${L('好友首次购箱 1 人抵 3 次助力 · 双方得礼', 'Paid friend = 3 assists · Two-way gift')}</div>
-          ` : ''}
-
-          ${!isLocked && !isOpened ? (
-            isReady ? `
-              <button class="btn ${canOpenChestNow() ? 'btn-primary' : 'btn-secondary'}" data-open-chest="${escapeHtml(c.chestId)}" type="button" ${!canOpenChestNow() ? 'disabled' : ''}>
-                ${icon(canOpenChestNow() ? 'unlock' : 'lock', 15)} ${canOpenChestNow() ? L(`立即开箱领 ${formatNum(Math.round(rewardA9), 0)} A9`, `Open Chest (+${formatNum(Math.round(rewardA9), 0)} A9)`) : L('真实只读模式 · 暂未开放开箱', 'Read-Only Mode')}
-              </button>
-            ` : `
-              <div class="free-action-row">
-                <button class="btn btn-primary btn-sm" data-share-tg="${escapeHtml(c.chestId)}" type="button" style="width:100%;min-height:42px;">${icon('send', 14)} ${L('TG 邀同行礼', 'Co-Op on TG')}</button>
-                <button class="btn btn-secondary btn-sm" data-share-x="${escapeHtml(c.chestId)}" type="button" style="width:100%;min-height:42px;">${icon('xBrand', 13)} X</button>
-              </div>
-            `
-          ) : ''}
-        </section>
-      `;
-    };
-
+    // 5f 宝箱商城降噪：仅展示 6 档购箱主视图（隐藏顶部免费膨胀箱 Tab，?tab=free 兼容回落不 404）；
+    // 删除顶部中奖跑马灯与底部重复战场导流卡；保底说明与小票合一行；首屏仅 1 个 btn-primary
     root.innerHTML = `
-      <div class="col-gap anim-page-enter">
-        <div class="seg-tabs" id="chest-mall-tabs">
-          <button class="seg-tab ${activeTab === 'mall' ? 'active' : ''}" data-cm-tab="mall" type="button">${L('宝箱商城', 'Chest Mall')}</button>
-          <button class="seg-tab ${activeTab === 'free' ? 'active' : ''}" data-cm-tab="free" type="button">${L('免费膨胀箱', 'Free Chests')}${readyFreeCount > 0 ? ` (${readyFreeCount})` : ''}</button>
-        </div>
-
-        ${activeTab === 'mall' ? `
+      <div class="col-gap anim-page-enter" id="chest-mall-root">
           ${query.from === 'activation' && (config.isDemo ? rawToA9(store.state.prediction.pendingActivationRaw) : activationA9) > 0 ? `
             <div class="sw-menu-group">
               <div class="sw-menu-row is-static" style="background:var(--nt-gold-soft);">
@@ -991,12 +858,11 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
               </div>
             </div>
           ` : ''}
-          ${critFeed.length > 0 ? `<button type="button" class="mall-crit-ticker" id="mall-crit-ticker" aria-live="polite">${formatCritTickerInner(critFeed[critIndex % critFeed.length], critIndex % critFeed.length, critFeed.length)}</button>` : ''}
-          <div class="mall-info-strip">
-            <span class="mall-rate-tag is-green">${icon('shieldCheck', 12, 'text-green')} ${L('100% 保底本金 · 买完合并直发钱包', '100% Base Safe · Direct Wallet Payout')}</span>
+          <div class="mall-info-strip" id="mall-base-receipt-strip">
+            <span class="mall-rate-tag is-green">${icon('shieldCheck', 12, 'text-green')} ${L('100% 保底 · 直发钱包', '100% Base Safe · Direct Payout')}</span>
             <div class="mall-quick-pills">
-              ${activeShopChests.length > 0 ? `<button type="button" class="mall-quick-btn is-hot" id="btn-jump-active-chests">${L('持有宝箱', 'Held')} ${activeShopChests.length}</button>` : ''}
-              <button type="button" class="mall-quick-btn" data-nav="/internal/records">${icon('receipt', 12)} ${L('小票', 'Receipts')}${config.isDemo && market.records.length ? ` (${market.records.length})` : (liveOrdersCount ? ` (${liveOrdersCount})` : '')}</button>
+              ${activeShopChests.length > 0 ? `<button type="button" class="mall-quick-btn is-hot" id="btn-jump-active-chests">${L('持有', 'Held')} ${activeShopChests.length}</button>` : ''}
+              <button type="button" class="mall-quick-btn" data-nav="/records?type=market">${icon('receipt', 12)} ${L('小票', 'Receipts')}${config.isDemo && market.records.length ? ` (${market.records.length})` : (liveOrdersCount ? ` (${liveOrdersCount})` : '')}</button>
             </div>
           </div>
 
@@ -1083,26 +949,12 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                 </div>
               </details>
 
-              <div class="mall-footnote">${L('请通过页面下单，切勿直接转账（异常退款扣 0.03 GRAM）', 'Pay via order flow only; never transfer directly')} · <a href="#/risk/audit" style="color:var(--nt-green);font-weight:700;text-decoration:none;">${L('v17.0 验真', 'Verify v17.0')} ›</a></div>
+              <div class="mall-footnote">
+                <span>${L('仅通过页面下单（异常退款扣 0.03 GRAM）', 'Order via page only (0.03 GRAM refund gas)')}</span>
+                <a class="mall-verify-link" href="#/rules#audit">${L('查看合约地址', 'Inspect Contracts')} ›</a>
+              </div>
             </section>
           `}
-
-          <div class="sw-menu-group">
-            <a class="sw-menu-row" href="#/round">
-              <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('购箱到手后 → 进战场锁仓冲价', 'After Unboxing → Lock in Round')}</span>
-                <span class="sw-menu-sub">${L('100 A9 起参战 · 头矿 6H 仅 5% 止损，通关分 700,000,000 A9 奖池', 'Lock from 100 A9 · First 6H 5% SL · split 700,000,000 A9 pool')}</span>
-              </div>
-              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-            </a>
-            <a class="sw-menu-row" href="#/team/invite">
-              <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('邀友购箱享 6% 返佣 · 战队动员', 'Invite for 6% Mall Credit · Rally')}</span>
-                <span class="sw-menu-sub">${L('复制专属邀请链，好友购箱实时返佣 6% + 通关 8%', 'Share link for 6% mall referral + 8% friend pass credits')}</span>
-              </div>
-              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-            </a>
-          </div>
 
           ${activeShopChests.length > 0 ? (() => {
             const groupedMap = new Map();
@@ -1133,7 +985,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                   <div class="card-title">${icon('flame', 15, 'text-gold')} ${L('持有宝箱', 'Held Chests')}</div>
                   <span class="chip chip-gold mono">${activeShopChests.length}</span>
                 </div>
-                <button class="btn ${canOpenChestNow() ? 'btn-primary' : 'btn-secondary'} btn-sm" id="btn-open-all-chests" type="button" style="width:auto;min-height:34px;padding:0 12px;" ${!canOpenChestNow() || openAllBusy ? 'disabled' : ''}>
+                <button class="btn btn-secondary btn-sm" id="btn-open-all-chests" type="button" style="width:auto;min-height:34px;padding:0 12px;" ${!canOpenChestNow() || openAllBusy ? 'disabled' : ''}>
                   ${icon(canOpenChestNow() ? 'unlock' : 'lock', 13)} ${openAllBusy ? L('开启中…', 'Opening…') : canOpenChestNow() ? L(`一键开启全部 (${activeShopChests.length})`, `Open All (${activeShopChests.length})`) : L('只读模式', 'Read-Only')}
                 </button>
               </div>
@@ -1150,7 +1002,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
                       </div>
                     </div>
                     <div class="chest-inv-actions">
-                      <button class="btn btn-primary btn-sm" data-open-tier="${g.tier}" type="button" ${!canOpenChestNow() || openAllBusy ? 'disabled' : ''}>${icon(canOpenChestNow() ? 'unlock' : 'lock', 12)} ${g.count > 1 ? L('全开', 'Open All') : L('开启', 'Open')}</button>
+                      <button class="btn btn-secondary btn-sm" data-open-tier="${g.tier}" type="button" ${!canOpenChestNow() || openAllBusy ? 'disabled' : ''}>${icon(canOpenChestNow() ? 'unlock' : 'lock', 12)} ${g.count > 1 ? L('全开', 'Open All') : L('开启', 'Open')}</button>
                     </div>
                   </div>
                 `).join('')}
@@ -1158,90 +1010,8 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
             </section>
           `;
           })() : ''}
-        ` : `
-          <section class="free-stage-card">
-            <div class="row-between">
-              <strong style="font-size:13.5px;font-weight:900;">${L('5 阶免费宝箱闯关', '5-Tier Free Quest')}</strong>
-              <span class="chip chip-muted">${L('按序解锁 · 助力满即开', 'Serial Unlock')}</span>
-            </div>
-            <div class="free-stage-track">
-              ${tierOrder.map((tKey) => {
-                const meta = CHEST_TIER_META[tKey];
-                const matching = freeList.filter((c) => resolveChestTier(c) === tKey);
-                const allOpened = matching.length > 0 && matching.every((c) => c.status === 'OPENED');
-                const isCur = focusChest && focusTier === tKey && !allOpened;
-                const st = allOpened ? 'opened' : isCur ? 'normal' : 'locked';
-                return `
-                  <div class="free-stage-node ${allOpened ? 'is-done' : isCur ? 'is-current' : ''}">
-                    ${renderChestSvg(tKey, { size: 32, state: st })}
-                    <span>${L(meta.shortZh, meta.shortEn)}</span>
-                  </div>
-                `;
-              }).join('')}
-            </div>
-            ${chestData.loaded && freeList.length === 0 ? (
-              (!config.isDemo && !A9TMA.getRawInitData())
-                ? `<div class="num-xs text-sec">${L('请在 Telegram 小程序内打开以领取新手青铜箱。', 'Open in Telegram Mini App to claim Starter Bronze.')}</div>`
-                : `<button class="btn btn-primary" id="btn-claim-starter" type="button">${icon('bolt', 15)} ${L('0 成本领新手青铜箱（200 A9 秒开）', 'Claim Starter Bronze (200 A9 Instant)')}</button>`
-            ) : ''}
-          </section>
-
-          ${focusChest ? renderFreeFocusCard(focusChest) : ''}
-
-          ${freeList.length > 1 ? `
-            <div class="free-queue-list">
-              ${freeList.filter((c) => !focusChest || c.chestId !== focusChest.chestId).map((c) => {
-                const tier = resolveChestTier(c);
-                const rewardA9 = rawToA9(c.baseA9Raw) || 0;
-                const isLocked = c.status === 'LOCKED';
-                const isOpened = c.status === 'OPENED';
-                const volReq = formatVolumeReq(c.minVolumeNano);
-                const sub = isOpened
-                  ? L('已开启入库', 'Opened')
-                  : `${L('助力', 'Assists')} ${formatNum(c.currentAssists)}/${formatNum(c.requiredAssists)}${volReq ? ` · ${L('自购+直邀', 'Self+Inv')}≥${volReq}` : ''}`;
-                return `
-                  <div class="free-queue-row ${isLocked ? 'is-locked' : ''}">
-                    <div class="free-queue-left">
-                      ${renderChestSvg(tier, { size: 38, state: isOpened ? 'opened' : isLocked ? 'locked' : 'normal' })}
-                      <div class="free-queue-copy">
-                        <strong>${escapeHtml(L(c.labelZh, c.labelEn))} · <span class="mono text-green">${formatNum(Math.round(rewardA9), 0)} A9</span></strong>
-                        <small>${sub}</small>
-                      </div>
-                    </div>
-                    <span class="chip ${isOpened ? 'chip-green' : 'chip-muted'}">${isOpened ? L('已领', 'Done') : L('待解锁', 'Locked')}</span>
-                  </div>
-                `;
-              }).join('')}
-            </div>
-          ` : ''}
-          <div class="sw-menu-group">
-            <a class="sw-menu-row" href="#/round">
-              <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('免费箱领到 A9 后 → 进战场锁仓冲价', 'After Free Chest → Lock in Round')}</span>
-                <span class="sw-menu-sub">${L('100 A9 起锁仓参战 · 头矿 6H 仅 5% 止损', 'Lock from 100 A9 · First 6H 5% Stop-Loss')}</span>
-              </div>
-              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-            </a>
-            <a class="sw-menu-row" href="#/team?action=rally">
-              <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('去战队动员 · 拉好友加速助力', 'Rally Squad · Boost Assists')}</span>
-                <span class="sw-menu-sub">${L('一键喊单拉好友同行，还能赚 6% + 8% 返佣', 'Share 1-tap battle call & earn 6% + 8% referrals')}</span>
-              </div>
-              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-            </a>
-          </div>
-        `}
       </div>
     `;
-
-    const tickerEl = root.querySelector('#mall-crit-ticker');
-    if (tickerEl && critFeed.length > 0) {
-      tickerEl.onclick = () => {
-        A9Haptic.tick();
-        critIndex = (critIndex + 1) % critFeed.length;
-        tickerEl.innerHTML = formatCritTickerInner(critFeed[critIndex], critIndex, critFeed.length);
-      };
-    }
 
     const jumpBtn = root.querySelector('#btn-jump-active-chests');
     if (jumpBtn) {
@@ -1250,14 +1020,6 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
         root.querySelector('#active-boost-chests')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       };
     }
-
-    root.querySelectorAll('[data-cm-tab]').forEach((b) => {
-      b.onclick = () => {
-        A9Haptic.light();
-        activeTab = b.dataset.cmTab;
-        render();
-      };
-    });
 
     root.querySelectorAll('[data-pick-sku]').forEach((b) => {
       b.onclick = () => {

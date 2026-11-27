@@ -380,7 +380,7 @@
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.22);
   color: #FFFFFF;
-  font-size: 10.5px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 800;
 }
 
@@ -421,7 +421,7 @@
   border-radius: 999px;
   background: var(--paper-tray);
   border: 1px solid var(--card-border);
-  font-size: 10.5px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 800;
   color: var(--ink-soft);
   white-space: nowrap;
@@ -477,7 +477,7 @@
 }
 
 .cert-metric-tile small {
-  font-size: 10px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 800;
   color: var(--ink-muted);
 }
@@ -647,7 +647,7 @@
 }
 
 .claim-breakdown-strip small {
-  font-size: 10px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 700;
   color: var(--ink-muted);
 }
@@ -669,7 +669,7 @@
   border: 2px solid #FFFDF8;
   color: #FFFFFF;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 900;
   display: flex;
   align-items: center;
@@ -695,7 +695,7 @@
   border-radius: 50%;
   border: 3px solid var(--nt-red);
   background: rgba(230, 0, 18, 0.07);
-  color: var(--nt-red);
+  color: var(--nt-red-ink, var(--nt-red));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -714,7 +714,7 @@
 
 .success-stamp-seal span {
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: var(--fs-xs, 11px);
   letter-spacing: 0.08em;
   opacity: 0.85;
 }
@@ -762,7 +762,7 @@
 }
 
 .weight-fold-btn small {
-  font-size: 10.5px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 800;
 }
 
@@ -859,20 +859,27 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: nowrap;
   gap: 8px;
   padding: 8px 12px;
-  border-radius: 14px;
+  border-radius: var(--radius-md, 12px);
   background: var(--card-bg);
   border: 1.5px solid var(--card-border);
   box-shadow: var(--surface-shadow);
 }
 
 .mall-rate-tag {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm, 12px);
+  font-weight: 600;
   color: var(--ink);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mall-quick-pills {
@@ -888,13 +895,14 @@
   gap: 4px;
   height: 28px;
   padding: 0 9px;
-  border-radius: 9px;
+  border-radius: var(--radius-md, 12px);
   border: 1.5px solid var(--card-border);
   background: var(--paper-tray);
   color: var(--ink);
-  font-size: 11px;
-  font-weight: 800;
+  font-size: var(--fs-xs, 11px);
+  font-weight: 700;
   cursor: pointer;
+  white-space: nowrap;
   box-shadow: 0 2px 0 var(--card-thickness);
   transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
@@ -907,7 +915,7 @@
 .mall-quick-btn.is-hot {
   background: var(--nt-red-soft);
   border-color: rgba(230, 0, 18, 0.35);
-  color: var(--nt-red);
+  color: var(--nt-red-ink, var(--nt-red));
 }
 
 /* 顶部当前选中宝箱聚焦检视卡 */
@@ -918,7 +926,7 @@
   gap: 12px;
   align-items: center;
   padding: 12px 14px;
-  border-radius: 18px;
+  border-radius: var(--radius-lg, 16px);
   background: var(--card-bg);
   border: 1.5px solid var(--card-border);
   box-shadow: var(--surface-shadow);
@@ -928,7 +936,7 @@
   position: relative;
   width: 98px;
   height: 94px;
-  border-radius: 16px;
+  border-radius: var(--radius-md, 12px);
   background: var(--paper-tray);
   border: 1.5px solid var(--card-border);
   display: flex;
@@ -1007,8 +1015,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 3px;
-  padding: 9px 6px 8px;
-  border-radius: 15px;
+  padding: 16px 6px 8px;
+  border-radius: var(--radius-md, 12px);
   border: 2px solid var(--card-border);
   background: var(--card-bg);
   color: var(--ink);
@@ -1034,46 +1042,47 @@
   transform: scale(1.06);
 }
 
+/* 5f 修正“热门”角标贴边与最小字号 11px */
 .chest-hot-tag {
   position: absolute;
-  top: -7px;
-  right: 6px;
+  top: 5px;
+  right: 5px;
   padding: 1px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-pill, 999px);
   background: var(--nt-red);
   color: #FFFFFF;
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 0.02em;
-  box-shadow: 0 1.5px 0 var(--nt-red-edge);
+  font-size: var(--fs-xs, 11px);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
 }
 
 .chest-shelf-name {
-  font-size: 12px;
-  font-weight: 900;
+  font-size: var(--fs-sm, 12px);
+  font-weight: 800;
   color: var(--ink);
-  line-height: 1.2;
+  line-height: 1.25;
 }
 
 .chest-shelf-price {
   font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 800;
+  font-size: var(--fs-xs, 11px);
+  font-weight: 700;
   color: var(--ink-soft);
 }
 
 .chest-shelf-boost {
   padding: 1px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-pill, 999px);
   background: var(--nt-green-soft);
-  color: var(--nt-green);
+  color: var(--nt-green-ink, var(--nt-green));
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 800;
+  font-size: var(--fs-xs, 11px);
+  font-weight: 700;
 }
 
 .chest-shelf-item.is-selected .chest-shelf-price {
-  color: var(--nt-red);
+  color: var(--nt-red-ink, var(--nt-red));
 }
 
 .mall-checkout-panel {
@@ -1081,18 +1090,30 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px 13px;
-  border-radius: 18px;
+  border-radius: var(--radius-lg, 16px);
   background: var(--card-bg);
   border: 1.5px solid var(--card-border);
   box-shadow: var(--surface-shadow);
 }
 
 .mall-footnote {
-  font-size: 11px;
-  font-weight: 700;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px 8px;
+  font-size: var(--fs-xs, 11px);
+  font-weight: 500;
   color: var(--ink-muted);
   text-align: center;
-  line-height: 1.35;
+  line-height: 1.45;
+}
+
+.mall-verify-link {
+  color: var(--nt-green-ink, var(--nt-green));
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
 /* 免费宝箱：5 阶横向闯关进度轨 */
@@ -1123,7 +1144,7 @@
   border: 1.5px solid var(--card-border);
   background: var(--paper-tray);
   color: var(--ink-muted);
-  font-size: 10px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 800;
   text-align: center;
 }
@@ -1137,7 +1158,7 @@
 .free-stage-node.is-current {
   border: 2px solid var(--nt-red);
   background: var(--nt-red-soft);
-  color: var(--nt-red);
+  color: var(--nt-red-ink, var(--nt-red));
   box-shadow: 0 2.5px 0 var(--nt-red-edge);
 }
 
@@ -1237,7 +1258,7 @@
 
 .free-queue-copy small {
   display: block;
-  font-size: 10.5px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 700;
   color: var(--ink-muted);
   white-space: nowrap;
@@ -1285,7 +1306,7 @@
 }
 
 .receipt-summary-cell small {
-  font-size: 10.5px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 800;
   color: var(--ink-muted);
 }
@@ -1428,7 +1449,7 @@
   background: var(--paper-tray);
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 800;
   cursor: pointer;
   max-width: 100%;
@@ -1447,7 +1468,7 @@
 
 .receipt-time {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 700;
   color: var(--ink-muted);
 }
@@ -1497,7 +1518,7 @@
 }
 
 .profile-telemetry-cell small {
-  font-size: 10px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 800;
   color: var(--ink-muted);
 }
@@ -1549,7 +1570,7 @@
   border: 1.5px solid transparent;
 }
 
-.profile-dock-icon.tone-red   { background: var(--nt-red-soft); color: var(--nt-red); border-color: rgba(230, 0, 18, 0.22); }
+.profile-dock-icon.tone-red   { background: var(--nt-red-soft); color: var(--nt-red-ink, var(--nt-red)); border-color: rgba(230, 0, 18, 0.22); }
 .profile-dock-icon.tone-green { background: var(--nt-green-soft); color: var(--nt-green); border-color: rgba(18, 168, 93, 0.24); }
 .profile-dock-icon.tone-blue  { background: var(--nt-blue-soft); color: var(--nt-blue); border-color: rgba(37, 116, 232, 0.24); }
 .profile-dock-icon.tone-slate { background: var(--paper-tray); color: var(--ink-soft); border-color: var(--card-border); }
@@ -1563,7 +1584,7 @@
 
 .profile-dock-sub {
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 800;
   color: var(--ink-muted);
   line-height: 1.1;
@@ -1602,7 +1623,7 @@
 }
 
 .ledger-kpi-box small {
-  font-size: 10px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 800;
   color: var(--ink-muted);
 }
@@ -1649,7 +1670,7 @@
 
 .ledger-entry-meta {
   margin-top: 2px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 700;
   color: var(--ink-muted);
 }
@@ -1726,7 +1747,7 @@
 }
 
 .renew-preview-cell small {
-  font-size: 10px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 800;
   color: var(--ink-muted);
 }
@@ -1899,7 +1920,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 900;
   flex-shrink: 0;
 }
@@ -1972,7 +1993,7 @@
   background: var(--paper-tray);
   border: 1px solid var(--card-border);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 700;
   color: var(--ink-muted);
 }
@@ -2070,7 +2091,7 @@
   border-radius: 999px;
   background: var(--nt-red-soft);
   border: 1px solid rgba(230, 0, 18, 0.25);
-  color: var(--nt-red);
+  color: var(--nt-red-ink, var(--nt-red));
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 900;
@@ -2120,75 +2141,6 @@
   line-height: 1.45;
 }
 
-/* 宝箱商城顶部实时暴击捷报条 */
-.mall-crit-ticker {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 36px;
-  padding: 6px 10px;
-  border-radius: 12px;
-  border: 1.5px solid var(--gold-border);
-  border-left: 3.5px solid var(--nt-gold);
-  background: var(--card-bg);
-  color: var(--ink);
-  cursor: pointer;
-  text-align: left;
-  box-shadow: var(--surface-shadow);
-  transition: transform 0.1s ease;
-}
-
-.mall-crit-ticker:active {
-  transform: translateY(1px);
-}
-
-.mall-crit-badge {
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: 6px;
-  font-size: 10px;
-  font-weight: 900;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.mall-crit-badge.is-legend {
-  background: var(--nt-gold);
-  color: #171920;
-}
-
-.mall-crit-badge.is-epic {
-  background: var(--nt-green-soft);
-  color: var(--nt-green);
-  border: 1px solid rgba(18, 168, 93, 0.34);
-}
-
-.mall-crit-text {
-  flex: 1;
-  min-width: 0;
-  font-size: 11.5px;
-  font-weight: 700;
-  color: var(--ink-soft);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.mall-crit-text b {
-  color: var(--ink);
-  font-weight: 900;
-}
-
-.mall-crit-idx {
-  font-size: 10px;
-  font-weight: 800;
-  color: var(--ink-muted);
-  flex-shrink: 0;
-}
-
 /* ==========================================================================
    15. 任天堂绿平衡视觉 + 统一实体卡带/票券/账单与开箱明细组件
    ========================================================================== */
@@ -2235,7 +2187,7 @@
 }
 
 .chest-burst-cell small {
-  font-size: 10px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 700;
   color: var(--ink-muted);
 }
@@ -2271,7 +2223,7 @@
   border: 1px solid var(--card-border);
   background: var(--paper-tray);
   color: var(--ink-soft);
-  font-size: 10.5px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 800;
   cursor: pointer;
   max-width: 100%;
@@ -2300,7 +2252,7 @@
 
 .cert-unit {
   font-family: var(--font-sans);
-  font-size: 9.5px;
+  font-size: var(--fs-xs, 11px);
   font-weight: 800;
   margin-left: 2px;
   opacity: 0.78;
