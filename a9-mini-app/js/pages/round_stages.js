@@ -8,18 +8,13 @@ import { A9Haptic } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
-import { estimateRewardA9, rawToA9, getEffectiveUserId } from '../data.js';
+import { estimateRewardA9, rawToA9, getEffectiveUserId, serverNowMs } from '../data.js';
+import { deriveRoundUiState } from '../round-state.js';
 
-function stagePillTrigger(stage, roundNum) {
-  const labels = {
-    warmup: L(`第 ${roundNum} 轮 · 开局倒计时`, `Round ${roundNum} · Pre-Round`),
-    participation: L(`第 ${roundNum} 轮 · 火热入场`, `Round ${roundNum} · Entry Open`),
-    observation: L(`第 ${roundNum} 轮 · 12H 冲价中`, `Round ${roundNum} · 12H Push`),
-    settlement_success: L(`第 ${roundNum} 轮 · 通关派奖`, `Round ${roundNum} · Passed`),
-    settlement_burn: L(`第 ${roundNum} 轮 · 未通关 · 自动止损`, `Round ${roundNum} · Auto Stop-Loss`),
-    halted: L(`第 ${roundNum} 轮 · 异常中止 · 退回本金`, `Round ${roundNum} · Aborted · Refund`)
-  };
-  const text = labels[stage] || labels.participation;
+function stagePillTrigger(roundOrStage, roundNum) {
+  const detail = (roundOrStage && typeof roundOrStage === 'object') ? roundOrStage : { stage: roundOrStage };
+  const ui = deriveRoundUiState({ detail, user: store.state.user, serverNowMs: serverNowMs() });
+  const text = L(`第 ${roundNum} 轮 · ${ui.badgeLabel}`, `Round ${roundNum} · ${ui.badgeLabel}`);
   if (!config.isDemo) return `<span class="pill-trigger neutral">${text}</span>`;
   return `<button class="pill-trigger" id="btn-stage-sheet" type="button">${text} ${icon('chevronDown', 12)}</button>`;
 }
@@ -82,7 +77,9 @@ export function computeRoundPriceMetrics(round) {
  */
 export function renderPriceArenaBoard(round, { mode = 'observation' } = {}) {
   const m = computeRoundPriceMetrics(round);
-  const cdSec = toFiniteNum(round?.countdownSec);
+  const uiState = deriveRoundUiState({ detail: round, user: store.state.user, serverNowMs: serverNowMs() });
+  const cdSec = uiState.countdownMs !== null ? Math.ceil(uiState.countdownMs / 1000) : null;
+  const cdDisplay = cdSec !== null && cdSec > 0 ? formatTimer(cdSec) : uiState.countdownLabel;
   const isUrgent = cdSec !== null && cdSec > 0 && cdSec <= 3600;
   const dotCls = m.deltaPct === null ? '' : (m.isAbove ? 'is-up' : 'is-down');
   const chipCls = m.deltaPct === null ? 'chip-muted' : (m.isAbove ? 'chip-green' : 'chip-red');
@@ -111,7 +108,7 @@ export function renderPriceArenaBoard(round, { mode = 'observation' } = {}) {
         <div class="sw-price-target-block">
           <span class="num-xs text-muted">${L('目标通关价', 'Target Price')}</span>
           <span class="sw-price-target-val" id="round-target-price">${m.targetText}</span>
-          <span class="sw-price-cd ${isUrgent ? 'is-urgent' : ''}">${cdLabel} <b id="round-cd">${cdSec === null ? '—' : formatTimer(cdSec)}</b></span>
+          <span class="sw-price-cd ${isUrgent ? 'is-urgent' : ''}">${cdLabel} <b id="round-cd">${cdDisplay}</b></span>
         </div>
       </div>
 
@@ -205,7 +202,7 @@ export function renderRoundRallyCard(round) {
  */
 export function renderSafetyCushionCard(round) {
   const inFirst6h = Boolean(round?.inFirst6h);
-  const isLocking = round?.stage === 'participation';
+  const isLocking = deriveRoundUiState({ detail: round, user: store.state.user, serverNowMs: serverNowMs() }).stage === 'stake';
   return `
     <section class="card safety-cushion-card" id="a9-safety-cushion">
       <div class="row-between" style="margin-bottom:8px;">
@@ -242,18 +239,22 @@ export function renderMyRoundPositionCard(round, ticket) {
   if (totalA9 <= 0) return '';
   const earlyA9 = (ticket.earlyAmountRaw !== undefined && ticket.earlyAmountRaw !== null) ? (rawToA9(ticket.earlyAmountRaw) ?? 0) : (ticket.isFirst6h ? totalA9 : 0);
   const lateA9 = (ticket.lateAmountRaw !== undefined && ticket.lateAmountRaw !== null) ? (rawToA9(ticket.lateAmountRaw) ?? 0) : Math.max(0, totalA9 - earlyA9);
-  const stage = round?.stage || '';
-  const isLocking = stage === 'participation' || Boolean(ticket.canEarlyExit);
-  const isObserving = stage === 'observation';
-  const isSuccess = stage === 'settlement_success' || Boolean(ticket.canInstantCashout);
-  const isFail = stage === 'settlement_burn';
+  const derivedStage = deriveRoundUiState({ detail: round, user: store.state.user, serverNowMs: serverNowMs() }).stage;
+  const isLocking = derivedStage === 'stake' || Boolean(ticket.canEarlyExit);
+  const isSealedOrCharging = derivedStage === 'sealed' || derivedStage === 'charge';
+  const isSettling = derivedStage === 'settling';
+  const isSuccess = derivedStage === 'passed' || Boolean(ticket.canInstantCashout);
+  const isFail = derivedStage === 'failed';
+  const isAborted = derivedStage === 'aborted';
 
   let statusChip = `<span class="chip chip-cyan">${L('持仓中', 'Active')}</span>`;
   if (ticket.exited) statusChip = `<span class="chip chip-muted">${L('已提前解押 (-15%)', 'Early Exited (-15%)')}</span>`;
   else if (isLocking) statusChip = `<span class="chip chip-gold">${L('24H 锁仓中 · 可提前解押', '24H Lock · Early Exit Open')}</span>`;
-  else if (isObserving) statusChip = `<span class="chip chip-blue">${L('12H 冲价中 · 封盘锁定', '12H Push · Locked')}</span>`;
+  else if (isSealedOrCharging) statusChip = `<span class="chip chip-blue">${derivedStage === 'sealed' ? L('已封盘 · 待冲价', 'Sealed · Awaiting Push') : L('12H 冲价中 · 封盘锁定', '12H Push · Locked')}</span>`;
+  else if (isSettling) statusChip = `<span class="chip chip-gold">${L('结算中 · 待确认', 'Settling · Pending')}</span>`;
   else if (isSuccess) statusChip = `<span class="chip chip-green">${L('已通关 · 可领 / 3 折急提', 'Passed · Claim / Cashout')}</span>`;
-  else if (isFail) statusChip = `<span class="chip chip-red">${L('未通关 · 可领止损退本', 'Auto Stop-Loss Refund')}</span>`;
+  else if (isFail) statusChip = `<span class="chip chip-red">${L('未达标 · 可领止损退本', 'Auto Stop-Loss Refund')}</span>`;
+  else if (isAborted) statusChip = `<span class="chip chip-green">${L('异常中止 · 可领 100% 退本', 'Aborted · 100% Refund')}</span>`;
 
   const roundNum = ticket.roundId ?? ticket.round ?? round?.currentRound ?? '—';
   const claimableA9 = ticket.claimableTotalRaw !== undefined ? (rawToA9(ticket.claimableTotalRaw) ?? null) : null;
@@ -326,7 +327,7 @@ export function renderPlazaCompactBanner(pred, round) {
     `;
   }
 
-  if (round && round.stage === 'participation') {
+  if (round && deriveRoundUiState({ detail: round, user: store.state.user, serverNowMs: serverNowMs() }).stage === 'stake') {
     const openAt = toUnixSec(round.stakeOpenAt);
     const closeAt = toUnixSec(round.stakeCloseAt);
     const explicitEarlyEnd = toUnixSec(round.earlyCloseAt);
@@ -411,7 +412,7 @@ function toUnixSec(v) {
  * 第一刀 ②：头矿 6H · 5% 止损窗口倒计时条（锁仓前 6 小时，基于 stakeOpenAt / stakeCloseAt）
  */
 export function renderEarlyBirdBanner(round) {
-  if (!round || round.stage !== 'participation') return '';
+  if (!round || deriveRoundUiState({ detail: round, user: store.state.user, serverNowMs: serverNowMs() }).stage !== 'stake') return '';
   const openAt = toUnixSec(round.stakeOpenAt);
   const closeAt = toUnixSec(round.stakeCloseAt);
   const explicitEarlyEnd = toUnixSec(round.earlyCloseAt);
@@ -456,8 +457,10 @@ export function renderVeteranShieldCard() {
  * 12H 预言擂台嵌入式卡片（0 GRAM 参战 + 新人首轮保底 + 防薅激活闭环）
  */
 export function renderPredictionCard(round, pred, user) {
-  if (!round?.stage || round.stage === 'warmup' || round.stage === 'halted') {
-    return `<section class="card col-gap" id="a9-prediction-card"><strong>${L('12H 预言擂台', '12H Prediction Arena')}</strong><span>${round?.stage === 'halted' ? L('本轮已中止', 'Round aborted') : L('本轮预言暂未开放', 'Predictions are closed for now')}</span></section>`;
+  const derivedUi = deriveRoundUiState({ detail: round, user, serverNowMs: serverNowMs() });
+  const derivedStage = derivedUi.stage;
+  if (derivedStage === 'unknown' || derivedStage === 'warmup' || derivedStage === 'aborted') {
+    return `<section class="card col-gap" id="a9-prediction-card"><strong>${L('12H 预言擂台', '12H Prediction Arena')}</strong><span>${derivedStage === 'aborted' ? L('本轮已中止', 'Round aborted') : L('本轮预言暂未开放', 'Predictions are closed for now')}</span></section>`;
   }
   if (!config.isDemo && (!pred?.loaded || pred.roundId !== round.currentRound)) {
     return `<div class="card" id="a9-prediction-card"><div class="card-title">${L('12H 预言擂台', '12H Prediction Arena')}</div><p class="num-xs text-muted" style="margin:6px 0 0;">${L('正在读取预言数据…', 'Reading prediction data…')}</p></div>`;
@@ -471,8 +474,8 @@ export function renderPredictionCard(round, pred, user) {
   const burnPct = toFiniteNum(p.burnPct) ?? 50;
   const total = toFiniteNum(p.total) ?? 0;
   const bet = p.currentBet || null;
-  const settled = Boolean(p.settled || round?.stage === 'settlement_success' || round?.stage === 'settlement_burn');
-  const winningSide = p.winningSide || (round?.stage === 'settlement_success' ? 'PASS' : round?.stage === 'settlement_burn' ? 'BURN' : null);
+  const settled = Boolean(p.settled || derivedStage === 'passed' || derivedStage === 'failed');
+  const winningSide = p.winningSide || (derivedStage === 'passed' ? 'PASS' : derivedStage === 'failed' ? 'BURN' : null);
   const pendingA9 = rawToA9(p.pendingActivationRaw) || 0;
   const effectiveUid = getEffectiveUserId(user);
   const needsIdentity = !effectiveUid;
@@ -500,11 +503,11 @@ export function renderPredictionCard(round, pred, user) {
   `;
 
   const qualNow = toFiniteNum(round?.qualifiedCandles);
-  const cdSecNow = toFiniteNum(round?.countdownSec);
-  const isSprint4h = round?.stage === 'observation' && cdSecNow !== null && cdSecNow > 0 && cdSecNow <= 14400;
-  const isRedAlert = (isSprint4h && qualNow !== null && qualNow >= 6 && qualNow <= 7) || round?.stage === 'settlement_burn';
+  const cdSecNow = derivedUi.countdownMs !== null ? Math.ceil(derivedUi.countdownMs / 1000) : null;
+  const isSprint4h = derivedStage === 'charge' && cdSecNow !== null && cdSecNow > 0 && cdSecNow <= 14400;
+  const isRedAlert = (isSprint4h && qualNow !== null && qualNow >= 6 && qualNow <= 7) || derivedStage === 'failed';
   const headerTag = isRedAlert
-    ? `<span class="chip chip-red">${round?.stage === 'settlement_burn' ? L('止损警报 FAIL', 'STOP-LOSS ALERT') : L('最后 4H 红警', '4H RED ALERT')}</span>`
+    ? `<span class="chip chip-red">${derivedStage === 'failed' ? L('止损警报 FAIL', 'STOP-LOSS ALERT') : L('最后 4H 红警', '4H RED ALERT')}</span>`
     : isSprint4h
       ? `<span class="chip chip-red">${L('最后 4H 冲刺', 'Last 4H')}</span>`
       : settled
@@ -624,7 +627,7 @@ export function renderWarmupStage(round, user) {
   return `
     <div class="card card-hero">
       <div class="row-between" style="margin-bottom:12px;">
-        ${stagePillTrigger('warmup', round.currentRound)}
+        ${stagePillTrigger(round, round.currentRound)}
         <span class="row-start num-sm text-sec">${icon('clock', 13)} <span id="early-cd" class="mono">${round.earlyBirdSec === null ? '—' : formatTimer(round.earlyBirdSec)}</span></span>
       </div>
       <div class="num-xs text-muted">${L('单人预热宝箱上限（免本金）', 'Per-User Pre-Round Chest Cap')}</div>
@@ -682,7 +685,7 @@ export function renderParticipation(round) {
   return `
     <section class="card card-hero col-gap">
       <div class="row-between" style="flex-wrap:wrap;gap:6px;">
-        ${stagePillTrigger('participation', round.currentRound ?? '—')}
+        ${stagePillTrigger(round, round.currentRound ?? '—')}
         ${slChipHtml}
       </div>
 
@@ -713,7 +716,8 @@ export function renderParticipation(round) {
  * 挑战页 12H 冲价 / 等待结算总览：实时价格作战看板 + 紧迫达标进度 + 6×2 印章盘 + 时段明细入口
  */
 export function renderObservation(round) {
-  const isAwaitingSettle = Boolean(round.rawState?.startsWith('SETTLING_') || round.nextState === 'AWAITING_SETTLE');
+  const uiState = deriveRoundUiState({ detail: round, user: store.state.user, serverNowMs: serverNowMs() });
+  const isAwaitingSettle = uiState.stage === 'settling';
   const qualVal = toFiniteNum(round.qualifiedCandles);
   const hasQualified = qualVal !== null && Number.isInteger(qualVal);
   const passed = hasQualified ? qualVal : null;
@@ -736,7 +740,7 @@ export function renderObservation(round) {
   return `
     <section class="card card-hero col-gap">
       <div class="row-between">
-        ${stagePillTrigger('observation', round.currentRound ?? '—')}
+        ${stagePillTrigger(round, round.currentRound ?? '—')}
         ${isAwaitingSettle
           ? `<span class="chip chip-gold">${L('等待结算', 'Awaiting Settlement')}</span>`
           : `<span class="chip ${m.deltaPct !== null && !m.isAbove ? 'chip-red' : 'chip-green'} mono">${passed ?? '—'}/${required} ${L('达标', 'Met')}</span>`}
@@ -748,7 +752,7 @@ export function renderObservation(round) {
         <div class="row-between">
           <strong id="obs-need-text" style="font-size:14.5px;font-weight:900;">${isAwaitingSettle
             ? L('已采集 12/12 · 等待链上结算', '12/12 Finalized · Awaiting Settlement')
-            : (need === null ? L('达标进度同步中', 'Syncing progress') : need === 0 ? L(`已达通关门槛，等待解锁 ${poolStr}`, `Goal met · unlocking ${poolStr}`) : L(`还差 ${need} 个达标时段解锁 ${poolStr}`, `${need} more slots to unlock ${poolStr}`))}</strong>
+            : (need === null ? L('达标进度同步中', 'Syncing progress') : need === 0 ? L(`已满足达标门槛，等待解锁 ${poolStr}`, `Goal met · unlocking ${poolStr}`) : L(`还差 ${need} 个达标时段解锁 ${poolStr}`, `${need} more slots to unlock ${poolStr}`))}</strong>
           <span id="obs-passed-num" data-val="${passed ?? ''}" class="mono num-xs text-muted">${passed ?? '—'}/${required}</span>
         </div>
         <div class="progress-track"><div class="progress-fill" id="obs-progress-fill" style="width:${pct}%"></div></div>
@@ -834,8 +838,8 @@ export function renderObservationRecords(root) {
           }).join('')}
         </div>
 
-        ${round.stage === 'observation' && round.qualifiedCandles >= required
-          ? `<p class="num-xs text-green" style="margin-top:8px;font-weight:800;">${L('已达通关门槛，等待结算', 'Threshold met · awaiting settlement')}</p>`
+        ${deriveRoundUiState({ detail: round, user: store.state.user, serverNowMs: serverNowMs() }).stage === 'charge' && round.qualifiedCandles >= required
+          ? `<p class="num-xs text-green" style="margin-top:8px;font-weight:800;">${L('已满足达标时段数，等待结算确认', 'Target slots met · awaiting final settlement')}</p>`
           : ''}
       </section>
 
@@ -943,7 +947,7 @@ export function renderSettlementSuccess(round, user, ticket = null) {
   return `
     <section class="card card-hero col-gap">
       <div class="row-between">
-        ${stagePillTrigger('settlement_success', round.currentRound ?? '—')}
+        ${stagePillTrigger(round, round.currentRound ?? '—')}
         <span class="chip chip-green">${icon('checkCircle', 11)} ${qual ?? '—'}/${req}</span>
       </div>
       ${renderSettlementBreakdownRows({ principalA9, rewardA9, lockedA9 })}
@@ -962,7 +966,7 @@ export function renderSettlementFailed(round, ticket = null) {
   return `
     <section class="card card-glow-red col-gap" id="burn-monument-card">
       <div class="row-between">
-        ${stagePillTrigger('settlement_burn', round?.currentRound ?? '—')}
+        ${stagePillTrigger(round, round?.currentRound ?? '—')}
         <span class="chip chip-red">${L('未通关 · 自动止损', 'Auto Stop-Loss')} ${hasQ ? qual : '—'}/${reqQ}</span>
       </div>
       <div class="progress-track"><div class="progress-fill red no-anim" style="width:${failPct}%"></div></div>
@@ -1027,7 +1031,7 @@ export function renderTechnicalHalt(round, ticket = null) {
   return `
     <section class="card card-hero col-gap" style="border-color:var(--gold-border);">
       <div class="row-between">
-        ${stagePillTrigger('halted', round?.currentRound ?? '—')}
+        ${stagePillTrigger(round, round?.currentRound ?? '—')}
         <span class="chip chip-green">${icon('shieldCheck', 11)} ${L('100% 退本', '100% Refund')}</span>
       </div>
       <div style="font-size:17px;font-weight:900;">${L('本轮异常中止 · 退回本金', 'Round Aborted · Principal Refunded')}</div>

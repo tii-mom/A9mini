@@ -36,6 +36,8 @@ import { L } from '../i18n.js';
 import { renderReferralPoster, renderProofFlexPoster, renderStoryPoster, renderScenarioPoster, downloadPosterPng } from '../poster.js';
 import { triggerStoryShare, buildTmaDeepLink, getShareRef, openXShareSheet } from '../share.js';
 import { computeRoundPriceMetrics, buildBattleRallyCopy } from './round_stages.js';
+import { deriveRoundUiState } from '../round-state.js';
+import { serverNowMs } from '../data.js';
 
 function fmtA9OrDash(val, { loading = false } = {}) {
   if (val === null || val === undefined || !Number.isFinite(Number(val))) {
@@ -453,22 +455,15 @@ function getTeamInviteLink(teamId) {
 function renderSquadBattleStrip(round) {
   const r = round || {};
   const m = computeRoundPriceMetrics(r);
-  const stageMap = {
-    warmup: L('下轮预热', 'Warm-Up'),
-    participation: L('24H 锁仓', '24H Lock'),
-    observation: L('12H 冲价', '12H Push'),
-    settlement_success: L('已通关', 'Passed'),
-    settlement_burn: L('自动止损', 'Stop-Loss'),
-    halted: L('异常退本', 'Aborted'),
-  };
-  const stageText = stageMap[r.stage] || L('实时战况', 'Live Round');
+  const uiState = deriveRoundUiState({ detail: r, user: store.state.user, serverNowMs: serverNowMs() });
+  const stageText = uiState.badgeLabel;
   const roundLabel = r.currentRound != null ? L(`第 ${r.currentRound} 轮`, `R${r.currentRound}`) : L('本轮', 'Round');
-  if (['settlement_success', 'settlement_burn', 'halted'].includes(r.stage)) {
+  if (uiState.isTerminal) {
     return `<a class="sw-battle-strip" href="#/round"><strong>${roundLabel} · ${stageText}</strong><span class="sw-battle-strip-right">${L('查看本轮结果', 'View round result')} ›</span></a>`;
   }
   const qualText = r.qualifiedCandles != null ? `${r.qualifiedCandles}/${r.minQualifiedCandles ?? 8}` : '—';
   const poolText = r.rewardBudgetA9 != null && Number.isFinite(Number(r.rewardBudgetA9)) ? `${formatNum(r.rewardBudgetA9)} A9` : '—';
-  const cdText = r.countdownSec == null ? '—' : formatTimer(r.countdownSec);
+  const cdText = uiState.countdownMs !== null ? formatTimer(Math.ceil(uiState.countdownMs / 1000)) : uiState.countdownLabel;
   const deltaChip = m.deltaPct === null
     ? `<span class="chip chip-muted mono" id="team-battle-delta" style="min-height:19px;font-size:10px;padding:0 6px;">—</span>`
     : `<span class="chip ${m.isAbove ? 'chip-green' : 'chip-red'} mono" id="team-battle-delta" style="min-height:19px;font-size:10px;padding:0 6px;">${m.isAbove ? '+' : ''}${m.deltaPct.toFixed(1)}%</span>`;

@@ -1,4 +1,4 @@
-import { fetchUserPortfolio, fetchProgressionUser, claimProgressionTask, getEffectiveUserId, rawToA9, PROTOCOL_SPECS } from '../data.js';
+import { fetchUserPortfolio, fetchProgressionUser, claimProgressionTask, getEffectiveUserId, rawToA9, PROTOCOL_SPECS, serverNowMs } from '../data.js';
 
 import { L } from '../i18n.js';
 import { config } from '../config.js';
@@ -11,21 +11,23 @@ import { burstParticles } from '../components-heavy.js';
 
 import { tonConnect, canonicalWalletKey } from '../tonconnect.js';
 import { renderNintendoGateIcon } from '../paper-art.js';
+import { deriveRoundUiState } from '../round-state.js';
 
 const link = (path, label, glyph) =>
   `<a href="#${path}">${icon(glyph, 16)}${label}</a>`;
 const waiting = () => L('待核验', 'Awaiting verification');
 
-export function stageLabel(stage) {
-  const stages = {
-    warmup: ['开局倒计时', 'Pre-round'],
-    participation: ['火热入场', 'Entry open'],
-    observation: ['12H 冲价中', '12H Push'],
-    settlement_success: ['通关派奖', 'Passed · Payout'],
-    settlement_burn: ['未通关 · 自动止损', 'Auto Stop-Loss'],
-    halted: ['异常中止 · 退回本金', 'Aborted · Refund'],
-  };
-  return stages[stage] ? L(...stages[stage]) : waiting();
+export function stageLabel(stageOrRound) {
+  const detail = stageOrRound && typeof stageOrRound === 'object'
+    ? stageOrRound
+    : { stage: stageOrRound };
+  const refNowMs = detail?.rawState
+    ? serverNowMs()
+    : (Number(detail?.stakeOpenAt) > 0 && Number(detail?.stakeCloseAt) > Number(detail?.stakeOpenAt)
+      ? Number(detail.stakeOpenAt) * 1000 + 1000
+      : serverNowMs());
+  const ui = deriveRoundUiState({ detail, user: store.state.user, serverNowMs: refNowMs });
+  return ui.stage === 'unknown' ? waiting() : ui.badgeLabel;
 }
 
 function toFiniteNum(v) {
@@ -535,7 +537,7 @@ export function tower(round) {
         return `<span data-state="${state}"><i>${symbols[state]}</i><b>${String(i + 1).padStart(2, '0')}</b></span>`;
       },
     ).join('')}</div>
-    <p>${L('已达标', 'Qualified')} <b class="mono">${round.qualifiedCandles ?? '—'} / ${required}</b> · ${round.qualifiedCandles >= required && round.stage === 'observation' ? L('等待结算', 'Awaiting settlement') : L(`达标门槛 ${required} 段`, `${required} slots to pass`)}</p>
+    <p>${L('已达标', 'Qualified')} <b class="mono">${round.qualifiedCandles ?? '—'} / ${required}</b> · ${round.qualifiedCandles >= required && deriveRoundUiState({ detail: round, user: store.state.user, serverNowMs: serverNowMs() }).stage === 'charge' ? L('等待结算', 'Awaiting settlement') : L(`达标门槛 ${required} 段`, `${required} slots to pass`)}</p>
   </section>`;
 }
 
@@ -673,12 +675,18 @@ export function liveRound(r) {
       ? waiting()
       : date.toLocaleString(L('zh-CN', 'en-US'), { timeZone: 'UTC' }) + ' UTC';
   };
-  const canLiveStake = !config.isDemo && store.fundsEnabled && r.stage === 'participation';
+  const refNowMs = r.rawState
+    ? serverNowMs()
+    : (Number(r.stakeOpenAt) > 0 && Number(r.stakeCloseAt) > Number(r.stakeOpenAt)
+      ? Number(r.stakeOpenAt) * 1000 + 1000
+      : serverNowMs());
+  const uiState = deriveRoundUiState({ detail: r, user: store.state.user, serverNowMs: refNowMs });
+  const canLiveStake = !config.isDemo && store.fundsEnabled && uiState.stage === 'stake';
   const hasPool = r.rewardBudgetA9 !== null && r.rewardBudgetA9 !== undefined && Number.isFinite(Number(r.rewardBudgetA9));
-  const chipCls = r.stage === 'settlement_success' ? 'chip-green' : r.stage === 'settlement_burn' ? 'chip-red' : 'chip-gold';
+  const chipCls = uiState.stage === 'passed' ? 'chip-green' : uiState.stage === 'failed' ? 'chip-red' : 'chip-gold';
   return `<section class="card card-hero">
     <div class="row-between" style="margin-bottom:8px;">
-      <span class="chip ${chipCls} mono">${L('第', 'R')} ${r.currentRound ?? '—'} ${L('轮', '')} · ${stageLabel(r.stage)}</span>
+      <span class="chip ${chipCls} mono">${L('第', 'R')} ${r.currentRound ?? '—'} ${L('轮', '')} · ${uiState.stage === 'unknown' ? waiting() : uiState.badgeLabel}</span>
       <span class="num-xs text-muted mono">v17.0 · 5× ${L('封顶', 'Cap')}</span>
     </div>
     <div class="num-xs text-muted">${L('涨价解锁 · 本轮奖池', 'Price-Unlock Round Pool')}</div>

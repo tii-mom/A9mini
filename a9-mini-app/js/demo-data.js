@@ -544,8 +544,10 @@ export function demoProgressionClaim({ userId, taskKey, roundId = 3 }) {
 
 export function demoPredictionRound(roundId, stage = 'observation') {
   const r = ensureDemoPredRound(roundId);
-  const settled = stage === 'settlement_success' || stage === 'settlement_burn';
-  const winningSide = stage === 'settlement_success' ? 'PASS' : stage === 'settlement_burn' ? 'BURN' : r.winningSide;
+  const isPassed = stage === 'settlement_success' || stage === 'passed';
+  const isFailed = stage === 'settlement_burn' || stage === 'failed';
+  const settled = isPassed || isFailed;
+  const winningSide = isPassed ? 'PASS' : isFailed ? 'BURN' : r.winningSide;
   const total = r.passCount + r.burnCount;
   const passPct = total > 0 ? Math.round((r.passCount / total) * 100) : 50;
   const burnPct = total > 0 ? 100 - passPct : 50;

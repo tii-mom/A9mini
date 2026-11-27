@@ -28,6 +28,7 @@ import { mountSlider, burstParticles, bindCorridorRadarEvents } from '../compone
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
+import { deriveRoundUiState } from '../round-state.js';
 import { pendingTxManager } from '../tx-ux.js';
 import { openXShareSheet, buildOgShareUrl, buildTmaDeepLink, getShareRef } from '../share.js';
 import {
@@ -158,32 +159,34 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
     return;
   }
   const { round, user } = store.state;
-  const stage = round.stage;
-  if (!stage) {
-    root.innerHTML = `<div class="col-gap anim-page-enter"><section class="card empty-state"><div class="num-sm text-sec">${L('轮次状态等待核验', 'Round state awaits verification')}</div></section>${renderPredictionCard(round, store.state.prediction, user)}</div>`;
-    handlePendingDeepLinkScroll(root);
+  const uiState = deriveRoundUiState({
+    detail: round,
+    user,
+    rewards: { claimableA9: user?.a9Claimable },
+    serverNowMs: serverNowMs(),
+  });
+  const stage = uiState.stage;
+  if (stage === 'unknown') {
+    root.innerHTML = `<div class="col-gap anim-page-enter"><section class="card empty-state"><div class="num-sm text-sec">${escapeHtml(uiState.title)}</div><button class="btn btn-secondary btn-sm" id="btn-round-retry-sync" type="button" style="margin-top:8px;">${escapeHtml(uiState.primaryAction.label)}</button></section></div>`;
+    const rBtn = root.querySelector('#btn-round-retry-sync');
+    if (rBtn) rBtn.onclick = () => window.dispatchEvent(new Event('a9:force-sync'));
     return;
-  }
-
-  if (store.state.referral.pendingScrollTarget === 'prediction') {
-    activeRoundDeckTab = 'pred';
-    store.state.prediction.expanded = true;
   }
 
   const body = stage === 'warmup'
     ? renderWarmupStage(round, user)
-    : stage === 'participation'
+    : stage === 'stake'
       ? renderParticipation(round)
-      : stage === 'observation'
+      : (stage === 'sealed' || stage === 'charge' || stage === 'settling')
         ? renderObservation(round)
-        : stage === 'settlement_success'
+        : stage === 'passed'
           ? renderSettlementSuccess(round, user)
-          : stage === 'halted'
+          : stage === 'aborted'
             ? renderTechnicalHalt(round)
             : renderSettlementFailed(round);
 
-  const rallyBlock = (stage === 'participation' || stage === 'observation') ? renderRoundRallyCard(round) : '';
-  const interactBlock = stage !== 'warmup' && stage !== 'halted'
+  const rallyBlock = (stage === 'stake' || stage === 'charge' || stage === 'sealed') ? renderRoundRallyCard(round) : '';
+  const interactBlock = stage !== 'warmup' && stage !== 'aborted'
     ? renderRoundInteractDeck(round, store.state.prediction, user)
     : `${renderPredictionCard(round, store.state.prediction, user)}<div id="a9-airdrop-draws-mount">${renderAirdropDrawsCard({ loading: true })}</div>`;
 
@@ -326,7 +329,8 @@ async function syncPredictionState(root, navigate) {
   const requestedCard = root.querySelector('#a9-prediction-card');
   if (!requestedCard) return;
   const { round, user } = store.state;
-  if (!round.stage || round.stage === 'warmup' || round.stage === 'halted') return;
+  const uiStage = deriveRoundUiState({ detail: round, user, serverNowMs: serverNowMs() }).stage;
+  if (uiStage === 'unknown' || uiStage === 'warmup' || uiStage === 'aborted') return;
   const roundId = config.isDemo ? (round.currentRound || 1) : round.currentRound;
   if (!roundId) {
     requestedCard.textContent = L('轮次数据待核验，暂无法读取预言状态', 'Round data pending verification');
@@ -335,7 +339,7 @@ async function syncPredictionState(root, navigate) {
   const uid = getEffectiveUserId(user);
   try {
     const [rData, uData] = await Promise.all([
-      fetchPredictionRound(roundId, round.stage),
+      fetchPredictionRound(roundId, uiStage),
       fetchPredictionUser(uid, roundId)
     ]);
     if (!requestedCard.isConnected || store.state.round.currentRound !== roundId) return;
@@ -981,7 +985,7 @@ export function renderParticipateConfirm(root, navigate) {
       initSlider();
       return;
     }
-    if (store.state.round.stage !== 'participation') {
+    if (deriveRoundUiState({ detail: store.state.round, user, serverNowMs: serverNowMs() }).stage !== 'stake') {
       showToast(L('本轮锁仓已关闭', 'Locking is closed for this round'), 'amber');
       initSlider();
       return;
@@ -1093,8 +1097,9 @@ function renderLiveStakeConfirm(root, navigate) {
       : null;
     const jw = portfolio?.jettonWallet || null;
     const txLocked = pendingTxManager.isLocked('stake');
+    const isStakeOpen = deriveRoundUiState({ detail: round, user, serverNowMs: serverNowMs() }).stage === 'stake';
     const canSubmit = Boolean(
-      user.connected && user.address && roundController && round.currentRound && round.stage === 'participation' && !submitting && !txLocked,
+      user.connected && user.address && roundController && round.currentRound && isStakeOpen && !submitting && !txLocked,
     );
 
     root.innerHTML = `

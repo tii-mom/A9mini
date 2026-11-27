@@ -16,6 +16,7 @@ import { icon } from './icons.js';
 import { t, L, LANGUAGES, initAutoLanguage, syncDocumentLang } from './i18n.js';
 import { tonConnect } from './tonconnect.js';
 import { shouldDeferRouteRender, pendingTxManager, renderPendingTxBannerHtml } from './tx-ux.js';
+import { deriveRoundUiState } from './round-state.js';
 
 const headerEl = document.getElementById('app-header');
 const tickerEl = document.getElementById('ticker-bar');
@@ -1009,7 +1010,8 @@ function syncLivePriceDomInPlace(r) {
     rulerFill.classList.toggle('is-up', isAbove);
   }
   const actionHint = document.getElementById('round-price-action-hint');
-  if (actionHint && deltaPct !== null && r.stage === 'observation' && !r.rawState?.startsWith('SETTLING_')) {
+  const liveUiStage = deriveRoundUiState({ detail: r, user: store.state.user, serverNowMs: serverNowMs() }).stage;
+  if (actionHint && deltaPct !== null && liveUiStage === 'charge') {
     actionHint.textContent = isAbove
       ? L('当前参考价高于目标，待时段结束后按 1H 判定均价确认', 'Current reference price is above target; confirmed by 1H average at slot close')
       : L('当前参考价低于目标，待时段结束后按 1H 判定均价确认', 'Current reference price is below target; confirmed by 1H average at slot close');
@@ -1043,10 +1045,12 @@ function startDisplayLoop() {
     if (typeof r.earlyBirdSec === 'number' && r.earlyBirdSec > 0) r.earlyBirdSec -= 1;
     r.activeCandleSec = r.activeCandleEndAt ? Math.max(0, Math.ceil((r.activeCandleEndAt - serverNowMs()) / 1000)) : null;
 
-    const cdText = r.countdownSec === null || r.countdownSec === undefined
-      ? (r.detailLoading ? L('加载中…', 'Loading…') : L('待确认', 'Pending'))
-      : formatTimer(r.countdownSec);
-    const isUrgent = typeof r.countdownSec === 'number' && r.countdownSec > 0 && r.countdownSec <= 3600;
+    const uiState = deriveRoundUiState({ detail: r, user: store.state.user, serverNowMs: serverNowMs() });
+    const posCdSec = uiState.countdownMs !== null ? Math.ceil(uiState.countdownMs / 1000) : null;
+    const cdText = posCdSec !== null && posCdSec > 0
+      ? formatTimer(posCdSec)
+      : (r.detailLoading ? L('加载中…', 'Loading…') : uiState.countdownLabel);
+    const isUrgent = posCdSec !== null && posCdSec > 0 && posCdSec <= 3600;
     const roundCd = document.getElementById('round-cd');
     if (roundCd) {
       roundCd.textContent = cdText;
@@ -1283,6 +1287,7 @@ window.addEventListener('error', () => handleRuntimeError());
 window.addEventListener('unhandledrejection', () => handleRuntimeError());
 
 window.addEventListener('hashchange', renderCurrentRoute);
+window.addEventListener('a9:force-sync', () => syncData({ forceRender: true }));
 pendingTxManager.subscribe(() => syncPendingTxBanner());
 window.addEventListener('a9:interaction-idle', flushDeferredRender);
 document.addEventListener('focusout', () => setTimeout(flushDeferredRender, 0));

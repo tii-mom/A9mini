@@ -18,7 +18,8 @@ import { openXShareSheet, triggerStoryShare } from '../share.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';
-import { fetchUserPortfolio, fetchPromoBalance, fetchPredictionUser, fetchPresaleOrders, fetchMyStakeReferrals, getEffectiveUserId, rawToA9 } from '../data.js';
+import { fetchUserPortfolio, fetchPromoBalance, fetchPredictionUser, fetchPresaleOrders, fetchMyStakeReferrals, getEffectiveUserId, rawToA9, serverNowMs } from '../data.js';
+import { deriveRoundUiState, deriveTicketRoundStatusLabel } from '../round-state.js';
 import { pendingTxManager, buildTonviewerUrl } from '../tx-ux.js';
 
 function renderMiniBarcode() {
@@ -41,19 +42,8 @@ function formatA9Amount(val, { loading = false } = {}) {
   return `${formatNum(n, n % 1 === 0 ? 0 : 2)} A9`;
 }
 
-function activePassStageLabel(item, isLive) {
-  if (isLive) {
-    const st = String(item?.roundState || '').toUpperCase();
-    if (st === 'STAKING_OPEN') return L('24H 锁仓中', '24H lock open');
-    if (st === 'OBSERVING') return L('12H 冲价中', '12H push live');
-    if (st.startsWith('SETTLING_') || st === 'STAKING_CLOSED') return L('等待结算', 'Awaiting settlement');
-    return store.state.round?.stage === 'participation'
-      ? L('24H 锁仓中', '24H lock open')
-      : L('12H 冲价中', '12H push live');
-  }
-  return item?.status === 'participation'
-    ? L('24H 锁仓中', '24H lock open')
-    : L('12H 冲价中', '12H push live');
+function activePassStageLabel(item) {
+  return deriveTicketRoundStatusLabel(item, store.state.round, serverNowMs());
 }
 
 function renderProfileSwitchView({
@@ -732,7 +722,8 @@ function renderLiveTicketClaimPage(root, selectedTicket) {
                     const earlyExitBurnA9 = rawToA9(t.earlyExitBurnRaw) ?? 0;
                     const cashoutTotalA9 = rawToA9(t.instantCashoutTotalRaw) ?? 0;
                     const cashoutBurnA9 = rawToA9(t.instantCashoutBurnRaw) ?? 0;
-                    const rState = String(t.roundState || '').toUpperCase();
+                    const ticketStage = deriveRoundUiState({ detail: { rawState: t.roundState }, user: { connected: true }, serverNowMs: serverNowMs() }).stage;
+                    const isFailedRound = ticketStage === 'failed';
                     const isBusy = claimingAddr === t.ticketAddress;
                     const isGlobalClaimLocked = pendingTxManager.isLocked('claim');
                     const disabled = !canClaim || isPending || isBusy || isGlobalClaimLocked;
@@ -742,14 +733,16 @@ function renderLiveTicketClaimPage(root, selectedTicket) {
                     let statusChip = `<span class="chip chip-cyan">${L('持有中', 'Active')}</span>`;
                     if (isPending) statusChip = `<span class="chip chip-gold">${L('链上处理中', 'Pending')}</span>`;
                     else if (t.exited) statusChip = `<span class="chip chip-muted">${L('已提前解押 (-15%)', 'Early Exited (-15%)')}</span>`;
-                    else if (rState === 'FAILED_PERMANENT' || rState === 'FAILED') {
+                    else if (isFailedRound) {
                       statusChip = canClaim
                         ? `<span class="chip chip-green">${L('未达标 · 可领止损退本', 'Failed · Stop-Loss Refund')}</span>`
                         : `<span class="chip chip-muted">${L('已领回止损退本', 'Stop-Loss Refunded')}</span>`;
                     }
-                    else if (rState === 'STAKING_OPEN') statusChip = `<span class="chip chip-gold">${L('24H 锁仓中 · 可提前解押', '24H Lock · Early Exit Open')}</span>`;
-                    else if (rState === 'OBSERVING') statusChip = `<span class="chip chip-gold">${L('12H 冲价中 · 封盘禁出', '12H Push · Locked')}</span>`;
-                    else if (rState === 'ABORTED' || rState === 'TECHNICAL_ABORTED') statusChip = canClaim ? `<span class="chip chip-green">${L('异常中止 · 100% 退本', 'Aborted · 100% Refund')}</span>` : `<span class="chip chip-muted">${L('已全额退本', 'Refunded')}</span>`;
+                    else if (ticketStage === 'stake') statusChip = `<span class="chip chip-gold">${L('24H 锁仓中 · 可提前解押', '24H Lock · Early Exit Open')}</span>`;
+                    else if (ticketStage === 'sealed') statusChip = `<span class="chip chip-gold">${L('已封盘 · 待冲价', 'Sealed · Awaiting Push')}</span>`;
+                    else if (ticketStage === 'charge') statusChip = `<span class="chip chip-gold">${L('12H 冲价中 · 封盘禁出', '12H Push · Locked')}</span>`;
+                    else if (ticketStage === 'settling') statusChip = `<span class="chip chip-gold">${L('结算中 · 待确认', 'Settling · Pending')}</span>`;
+                    else if (ticketStage === 'aborted') statusChip = canClaim ? `<span class="chip chip-green">${L('异常中止 · 100% 退本', 'Aborted · 100% Refund')}</span>` : `<span class="chip chip-muted">${L('已全额退本', 'Refunded')}</span>`;
                     else if (canClaim) statusChip = `<span class="chip chip-green">${L('可领本金/奖金', 'Claimable')}</span>`;
                     else if (t.forfeited) statusChip = `<span class="chip chip-muted">${L('已 3 折急提结清', 'Instant Cashed Out')}</span>`;
                     else if (t.principalDone) statusChip = `<span class="chip chip-muted">${lockedRemA9 > 0 ? L('14 天逐秒解锁中', '14D Unlocking') : L('已全额领完', 'Fully Claimed')}</span>`;
@@ -759,10 +752,12 @@ function renderLiveTicketClaimPage(root, selectedTicket) {
                     else if (isGlobalClaimLocked) btnLabel = L('交易确认中（防重锁）', 'Confirming…');
                     else if (isBusy) btnLabel = L('等待钱包签名…', 'Awaiting Signature…');
                     else if (!canClaim) {
-                      if (rState === 'STAKING_OPEN') btnLabel = L('24H 锁仓期内待冲价结算', 'In 24H Lock Window');
-                      else if (rState === 'OBSERVING') btnLabel = L('12H 冲价封盘中（禁进禁出）', '12H Push Locked');
+                      if (ticketStage === 'stake') btnLabel = L('24H 锁仓期内待冲价结算', 'In 24H Lock Window');
+                      else if (ticketStage === 'sealed') btnLabel = L('已封盘 · 等待 12H 冲价结算', 'Sealed · Awaiting 12H Push');
+                      else if (ticketStage === 'charge') btnLabel = L('12H 冲价封盘中（禁进禁出）', '12H Push Locked');
+                      else if (ticketStage === 'settling') btnLabel = L('本轮结算中 · 完成后开放领取', 'Settling · Claim Opens Soon');
                       else btnLabel = L('当前无可领金额（避免浪费 Gas）', 'Nothing Claimable Right Now');
-                    } else if (rState === 'FAILED_PERMANENT' || rState === 'FAILED') {
+                    } else if (isFailedRound) {
                       btnLabel = L(`领回止损退本 ${formatNum(claimablePrincipalA9, 2)} A9（永不爆仓）`, `Claim Stop-Loss Refund ${formatNum(claimablePrincipalA9, 2)} A9`);
                     } else if (hasPreview && claimableTotalA9 > 0) {
                       btnLabel = L(`逐秒全领 ${formatNum(claimableTotalA9, 2)} A9（附 0.22 GRAM）`, `Claim ${formatNum(claimableTotalA9, 2)} A9 (0.22 GRAM)`);
@@ -785,8 +780,8 @@ function renderLiveTicketClaimPage(root, selectedTicket) {
                         </div>` : ''}
                         ${hasPreview ? `
                         <div class="row-between num-xs text-sec" style="margin-top:4px;">
-                          <span>${(rState === 'FAILED_PERMANENT' || rState === 'FAILED') ? L('可领止损退本 / 已销毁止损', 'Stop-Loss Refund / Burned') : L('当前可领（本金 + 奖金）', 'Claimable Now')}</span>
-                          <b class="mono ${claimableTotalA9 > 0 ? 'text-green' : 'text-muted'}">${(rState === 'FAILED_PERMANENT' || rState === 'FAILED') ? `${formatNum(claimablePrincipalA9, 2)} A9 / -${formatNum(burnedPrincipalA9, 2)} A9` : `${formatNum(claimableTotalA9, 2)} A9 (${formatNum(claimablePrincipalA9, 2)} + ${formatNum(claimableRewardA9, 2)})`}</b>
+                          <span>${isFailedRound ? L('可领止损退本 / 已销毁止损', 'Stop-Loss Refund / Burned') : L('当前可领（本金 + 奖金）', 'Claimable Now')}</span>
+                          <b class="mono ${claimableTotalA9 > 0 ? 'text-green' : 'text-muted'}">${isFailedRound ? `${formatNum(claimablePrincipalA9, 2)} A9 / -${formatNum(burnedPrincipalA9, 2)} A9` : `${formatNum(claimableTotalA9, 2)} A9 (${formatNum(claimablePrincipalA9, 2)} + ${formatNum(claimableRewardA9, 2)})`}</b>
                         </div>
                         ${lockedRemA9 > 0 ? `
                         <div class="row-between num-xs text-sec" style="margin-top:4px;">
@@ -1145,16 +1140,20 @@ function renderLiveTicketClaimPage(root, selectedTicket) {
 let proofRenderSeq = 0;
 
 function liveTicketStatusText(t) {
-  const rState = String(t?.roundState || '').toUpperCase();
+  const ticketStage = deriveRoundUiState({ detail: { rawState: t?.roundState }, user: { connected: true }, serverNowMs: serverNowMs() }).stage;
   if (t?.pending) return L('链上确认中', 'Pending');
   if (t?.exited) return L('已提前解押', 'Early Exited');
   if (t?.forfeited) return L('已 3 折急提', 'Instant Cashed Out');
-  if (rState === 'STAKING_OPEN') return L('24H 锁仓中', '24H Lock Open');
-  if (rState === 'OBSERVING') return L('12H 冲价中', '12H Push');
-  if (rState === 'FAILED_PERMANENT' || rState === 'FAILED') return t?.principalDone ? L('已领止损退本', 'Refunded') : L('可领止损退本', 'Stop-Loss Refund');
+  if (ticketStage === 'stake') return L('24H 锁仓中', '24H Lock Open');
+  if (ticketStage === 'sealed') return L('已封盘 · 待冲价', 'Sealed · Awaiting Push');
+  if (ticketStage === 'charge') return L('12H 冲价中', '12H Push');
+  if (ticketStage === 'settling') return L('结算中', 'Settling');
+  if (ticketStage === 'failed') return t?.principalDone ? L('已领止损退本', 'Refunded') : L('可领止损退本', 'Stop-Loss Refund');
+  if (ticketStage === 'aborted') return t?.principalDone ? L('已全额退本', 'Refunded') : L('可领全额退本', '100% Refund');
   if (t?.canClaim) return L('可领取', 'Claimable');
   if (t?.principalDone) return Number(rawToA9(t?.lockedRemainingRaw) || 0) > 0 ? L('14 天解锁中', '14D Unlocking') : L('已全额领完', 'Fully Claimed');
-  return L('持有中', 'Active');
+  if (ticketStage === 'unknown') return L('持有中', 'Active');
+  return deriveTicketRoundStatusLabel(t, null, serverNowMs());
 }
 
 export function renderProofDetail(root, navigate, certId) {
