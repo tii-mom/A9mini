@@ -532,7 +532,10 @@ export function parseActonDerivedAddresses(stdout = '') {
   const roundController = pick('RoundController');
   const deployer = pick('Deployer');
   const treasury = pick('Treasury');
-  if (!jettonMaster && !roundController && !deployer && !treasury) return null;
+  if (![jettonMaster, roundController, deployer, treasury].every((a) => {
+    const parsed = parseTonAddressForOps(a);
+    return parsed && parsed.workchain === 0;
+  })) return null;
   return { jettonMaster, roundController, deployer, treasury };
 }
 
@@ -551,6 +554,8 @@ export function validateDeployPreflight({
   strict = false,
   walletFiles = null,
   spawnImpl = spawnSync,
+  resolveWallets = true,
+  requireDeployWalletNames = true,
 } = {}) {
   const { profile: resolvedProfile, data: params } = loadParams(profile);
   const protocolRoot = resolveProtocolRoot(protocol);
@@ -607,7 +612,7 @@ export function validateDeployPreflight({
   for (const key of ['A9_DEPLOY_WALLET', 'A9_TREASURY_WALLET']) {
     const name = String(env[key] || '').trim();
     if (!name) {
-      missing.push(key);
+      if (requireDeployWalletNames) missing.push(key);
       continue;
     }
     if (!/^[A-Za-z0-9._-]+$/.test(name)) {
@@ -618,12 +623,13 @@ export function validateDeployPreflight({
   // Let Acton itself decide whether A9_DEPLOY_WALLET and A9_TREASURY_WALLET are resolvable
   // via the exact read-only deploy script path (OPS_EXECUTE=false, zero on-chain tx).
   let derivedAddresses = null;
-  if (missing.length === 0 && invalid.length === 0) {
+  if (resolveWallets && missing.length === 0 && invalid.length === 0) {
     const actonCheck = verifyActonWalletsReadOnly({ protocol, params, protocolRoot, env, spawnImpl });
     if (!actonCheck.ok) {
       invalid.push(actonCheck.error);
     } else {
       derivedAddresses = parseActonDerivedAddresses(actonCheck.stdout);
+      if (!derivedAddresses) invalid.push('ACTON_DERIVED_ADDRESSES_INCOMPLETE: four valid Basechain addresses are required');
     }
   }
 
@@ -652,6 +658,9 @@ export function validateDeployPreflight({
     missing,
     invalid,
     warnings,
-    readyForExecute: missing.length === 0 && invalid.length === 0 && gateErrors.length === 0,
+    // This synchronous layer cannot prove network access or locked-bundle/signer identity.
+    // Mainnet readiness is granted only by the asynchronous deployment readiness checker.
+    requiresOnlineVerification: params.network === 'mainnet',
+    readyForExecute: params.network !== 'mainnet' && resolveWallets && missing.length === 0 && invalid.length === 0 && gateErrors.length === 0,
   };
 }

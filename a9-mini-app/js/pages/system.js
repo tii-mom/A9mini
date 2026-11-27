@@ -91,9 +91,12 @@ export function renderSettingsPage(root) {
                         ? L('结算与领取提醒偏好已开启', 'Settlement & claim preference on')
                         : L('结算与领取提醒偏好已关闭', 'Settlement & claim preference off'))))));
 
+  const isTestnet = (store.state.round?.protocolConfig?.network || config.network) === 'testnet';
   const envLabel = config.isDemo
     ? L('演示沙盒', 'DEMO SANDBOX')
-    : (store.fundsEnabled ? L('TON 主网', 'TON LIVE') : L('TON 主网只读', 'TON READ-ONLY'));
+    : isTestnet
+      ? (store.fundsEnabled ? L('TON 测试网', 'TON TESTNET') : L('TON 测试网只读', 'TON TESTNET READ-ONLY'))
+      : (store.fundsEnabled ? L('TON 主网', 'TON LIVE') : L('TON 主网只读', 'TON READ-ONLY'));
 
   root.innerHTML = `
     <div class="col-gap anim-page-enter">
@@ -101,10 +104,12 @@ export function renderSettingsPage(root) {
         <div class="sw-section-label">${L('提醒', 'Alerts')}</div>
         <div class="sw-menu-group">
           ${isDemo ? `<div class="sw-menu-row is-static">
-            <span class="sw-menu-title">${L('下轮开盘', 'Next Round Opening')}</span>
+            <span class="sw-row-icon is-amber" aria-hidden="true">${icon('bell', 16)}</span>
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('下轮开盘', 'Next Round Opening')}</span></div>
             <div class="a9-switch ${user.autoRenew ? 'on' : ''}" id="set-opening-demo" role="switch" aria-label="${L('下轮开盘', 'Next Round Opening')}" aria-checked="${Boolean(user.autoRenew)}" tabindex="0"></div>
           </div>` : ''}
           <div class="sw-menu-row is-static">
+            <span class="sw-row-icon is-blue" aria-hidden="true">${icon('clock', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('整点冲价', 'Hourly Price Check')}</span>
               <span class="sw-menu-sub">${hourlySubText}</span>
@@ -116,6 +121,7 @@ export function renderSettingsPage(root) {
             </div>
           </div>
           <div class="sw-menu-row is-static">
+            <span class="sw-row-icon is-amber" aria-hidden="true">${icon('bell', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('结算与领取', 'Settlement & Claims')}</span>
               <span class="sw-menu-sub" id="set-settlement-push-sub">${settleSubText}</span>
@@ -161,6 +167,7 @@ export function renderSettingsPage(root) {
 
         <div class="sw-menu-group">
           <div class="sw-menu-row is-static">
+            <span class="sw-row-icon is-blue" aria-hidden="true">${icon(soundOn ? 'volumeOn' : 'volumeOff', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('交互音效', 'Sound Effects')}</span>
               <span class="sw-menu-sub">${L('切页、盖章与确认操作时播放反馈音', 'Crisp chime feedback on tabs, stamps & confirms')}</span>
@@ -170,6 +177,7 @@ export function renderSettingsPage(root) {
             </div>
           </div>
           <div class="sw-menu-row is-static">
+            <span class="sw-row-icon is-green" aria-hidden="true">${icon('bolt', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('触感震动', 'Haptic Feedback')}</span>
               <span class="sw-menu-sub">${L('按键、滑块与结果确认时的轻震反馈', 'Tactile vibration on taps, sliders & results')}</span>
@@ -179,6 +187,7 @@ export function renderSettingsPage(root) {
             </div>
           </div>
           <div class="sw-menu-row is-static">
+            <span class="sw-row-icon is-muted" aria-hidden="true">${icon('sliders', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('减弱动态效果', 'Reduce Motion')}</span>
               <span class="sw-menu-sub">${L('关闭开箱粒子、切页位移与脉冲动画', 'Disable chest particles, transitions & pulse animations')}</span>
@@ -188,6 +197,7 @@ export function renderSettingsPage(root) {
             </div>
           </div>
           <button type="button" class="sw-menu-row" id="set-lang-row">
+            <span class="sw-row-icon is-blue" aria-hidden="true">${icon('globe', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('界面语言', 'Language')}</span>
             </div>
@@ -203,6 +213,7 @@ export function renderSettingsPage(root) {
         <div class="sw-section-label">${L('账户与连接', 'Account & Connections')}</div>
         <div class="sw-menu-group">
           <button type="button" class="sw-menu-row" id="set-wallet-row">
+            <span class="sw-row-icon is-red" aria-hidden="true">${icon('wallet', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('钱包管理', 'Manage Wallet')}</span>
               <span class="sw-menu-sub mono">${escapeHtml(user.connected ? (user.shortAddress || shortAddress(user.address) || user.address) : L('未连接 · TON Connect 2.0', 'Not connected · TON Connect 2.0'))}</span>
@@ -213,6 +224,7 @@ export function renderSettingsPage(root) {
             </div>
           </button>
           <${isDemo ? 'button type="button" id="set-tg-row"' : 'div'} class="sw-menu-row${isDemo ? '' : ' is-static'}">
+            <span class="sw-row-icon is-blue" aria-hidden="true">${icon('send', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('Telegram 身份核验', 'Telegram Identity')}</span>
               <span class="sw-menu-sub">${escapeHtml(tgSubText)}</span>
@@ -229,6 +241,7 @@ export function renderSettingsPage(root) {
         <div class="sw-section-label">${L('协议与帮助', 'Protocol & Help')}</div>
         <div class="sw-menu-group">
           <a class="sw-menu-row" href="#/rules">
+            <span class="sw-row-icon is-red" aria-hidden="true">${icon('book', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('用户指南', 'User Guide')}</span>
               <span class="sw-menu-sub">${L('找宝箱、看冲价、领 A9', 'Chests, price checks and claiming A9')}</span>
@@ -236,6 +249,7 @@ export function renderSettingsPage(root) {
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
           <a class="sw-menu-row" href="#/risk/audit">
+            <span class="sw-row-icon is-green" aria-hidden="true">${icon('shieldCheck', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('v17.0 链上验真', 'v17.0 On-Chain Audit')}</span>
               <span class="sw-menu-sub">${L('查看合约地址、逃生舱与链上参数', 'Inspect contracts, escape hatch & specs')}</span>
@@ -243,6 +257,7 @@ export function renderSettingsPage(root) {
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
           <a class="sw-menu-row" href="#/risk/matrix">
+            <span class="sw-row-icon is-amber" aria-hidden="true">${icon('shieldAlert', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('安全护盾', 'Safety Shield')}</span>
               <span class="sw-menu-sub">${L('22 种链上风控与异常保护参考手册', '22-state on-chain protection reference')}</span>
@@ -250,11 +265,13 @@ export function renderSettingsPage(root) {
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
           <a class="sw-menu-row" href="./privacy.html">
-            <span class="sw-menu-title">${L('隐私政策', 'Privacy Policy')}</span>
+            <span class="sw-row-icon is-muted" aria-hidden="true">${icon('shield', 16)}</span>
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('隐私政策', 'Privacy Policy')}</span></div>
             <span class="sw-menu-arrow" aria-hidden="true">›</span>
           </a>
           <a class="sw-menu-row" href="./terms.html">
-            <span class="sw-menu-title">${L('使用条款', 'Terms of Use')}</span>
+            <span class="sw-row-icon is-muted" aria-hidden="true">${icon('receipt', 16)}</span>
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('使用条款', 'Terms of Use')}</span></div>
             <span class="sw-menu-arrow" aria-hidden="true">›</span>
           </a>
         </div>
@@ -587,7 +604,10 @@ export function renderRiskAudit(root) {
   const codeHash = cfg.roundControllerCodeHash || cfg.codeHash || null;
   const isDemo = config.isDemo;
   const hasContractAddr = Boolean(rcAddr);
-  const verifiedOnchain = !isDemo && hasContractAddr;
+  const adminRenounced = typeof contracts.adminRenounced === 'boolean'
+    ? contracts.adminRenounced
+    : (typeof cfg.adminRenounced === 'boolean' ? cfg.adminRenounced : null);
+  const verifiedOnchain = !isDemo && hasContractAddr && (Boolean(round?.poolState?.dataAvailable) || adminRenounced === true);
 
   const formatSyncTime = (ts) => {
     const n = Number(ts);
@@ -608,9 +628,13 @@ export function renderRiskAudit(root) {
       ? `<span class="chip chip-green">${escapeHtml(String(network || 'mainnet').toUpperCase())} · v17.0</span>`
       : `<span class="chip chip-amber">${L('待核验', 'Pending Verification')}</span>`;
 
-  const adminHtml = !isDemo && !hasContractAddr
-    ? `<span class="mono num-xs text-muted">${L('待核验（主网部署后按 addr_none 验真）', 'Pending verification (addr_none after deploy)')}</span>`
-    : `<span class="mono text-green" style="font-weight:800;">addr_none · ${L('已弃权', 'Renounced')}</span>`;
+  const adminHtml = isDemo || adminRenounced === true
+    ? `<span class="mono text-green" style="font-weight:800;">addr_none · ${L('已弃权', 'Renounced')}</span>`
+    : adminRenounced === false
+      ? `<span class="mono num-xs text-amber">${L('尚未弃权（链上仍存在 admin）', 'Not yet renounced (admin present)')}</span>`
+      : (hasContractAddr || Boolean(jettonAddr))
+        ? `<span class="mono num-xs text-muted">${L('待链上验真（Tonviewer 查验 addr_none）', 'Pending check (verify addr_none on Tonviewer)')}</span>`
+        : `<span class="mono num-xs text-muted">${L('待核验（主网部署后按 addr_none 验真）', 'Pending verification (addr_none after deploy)')}</span>`;
 
   const hasPoolRem = poolRemA9 !== null && poolRemA9 !== undefined && Number.isFinite(Number(poolRemA9));
 

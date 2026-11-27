@@ -162,20 +162,21 @@ export class PromoPayoutRunner {
                 summary.processed += 1;
                 continue;
               }
-              if (v?.state === 'PENDING') {
-                const resolvedHash = v.txHash || p.txHash || null;
+              if (v?.state !== 'FAILED') {
+                const resolvedHash = v?.state === 'PENDING' ? (v.txHash || p.txHash || null) : null;
                 if (resolvedHash) {
                   await this.engine.markPromoPayoutSent(p.payoutId, p.claimId, resolvedHash, nowSec);
                   summary.waiting += 1;
                 } else if (age > UNCONFIRMED_REVIEW_SEC) {
-                  await this.engine.markPromoPayoutNeedsReview(p.payoutId, 'uncertain promo broadcast unconfirmed past review threshold', nowSec);
+                  await this.engine.markPromoPayoutNeedsReview(p.payoutId, 'uncertain promo broadcast requires reconciliation; absence from index is not proof of non-delivery', nowSec);
                   summary.review += 1;
                 } else {
                   summary.waiting += 1;
                 }
                 continue;
               }
-              // NOT_FOUND / FAILED -> 安全重置为可重试
+              // Only explicit terminal FAILED permits retry. NOT_FOUND and
+              // unknown verifier results retain uncertainty until review.
               await this.engine.markPromoPayoutRetry(p.payoutId, { ambiguous: false, lastError: p.lastError || null }, nowSec);
               p.status = 'RETRY';
               p.ambiguous = false;
@@ -218,8 +219,13 @@ export class PromoPayoutRunner {
                 summary.broadcast += 1;
               } catch (e) {
                 const msg = String(e?.message || e).slice(0, 300);
-                await this.engine.markPromoPayoutRetry(p.payoutId, { ambiguous: e?.notSent !== true, lastError: msg }, nowSec);
+                const deterministic = e?.deterministic === true
+                  || /insufficient hot wallet|insufficient.*inventory|insufficient.*balance|insufficient.*gas|not deployed yet|wallet address mismatch|ops_confirm|missing positive|missing a9_|exceeds single-cell|enoent/i.test(msg);
+                await this.engine.markPromoPayoutRetry(p.payoutId, { ambiguous: e?.notSent !== true && !deterministic, lastError: msg }, nowSec);
                 summary.retry += 1;
+                if (deterministic) {
+                  summary.errors.push({ payoutId: p.payoutId, code: e?.code || 'DETERMINISTIC_BROADCAST_FAILURE', message: msg });
+                }
                 this.logger.log?.(`[promo-runner] payout ${p.payoutId} broadcast failed: ${msg}`);
                 continue;
               }

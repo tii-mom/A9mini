@@ -29,16 +29,20 @@ function createStorage() {
 }
 const localStorage = createStorage();
 const sessionStorage = createStorage();
-const sdkCalls = { openModal: 0, disconnect: 0, sendTransaction: 0, lastTx: null };
+const sdkCalls = { openModal: 0, disconnect: 0, sendTransaction: 0, lastTx: null, constructed: 0, setConnectParams: 0 };
 const fetchCalls = [];
+const createdElements = [];
+if (opts.storageSeed) for (const [k, v] of Object.entries(opts.storageSeed)) localStorage.setItem(k, v);
 
 class FakeTonConnectUI {
   constructor(initOpts) {
+    sdkCalls.constructed += 1;
     this.opts = initOpts;
     this.connected = Boolean(opts.sdkConnected);
     this.uiOptions = {};
     this._cb = null;
   }
+  setConnectRequestParameters() { sdkCalls.setConnectParams += 1; }
   onStatusChange(cb) {
     this._cb = cb;
     if (this.connected) cb({ account: { address: '0:' + '11'.repeat(32) } });
@@ -80,7 +84,7 @@ globalThis.document = {
   querySelector: () => null,
   getElementById: () => null,
   addEventListener: () => {},
-  createElement: () => ({ className: '', style: {}, setAttribute() {}, remove() {}, querySelector: () => null }),
+  createElement: (tag) => { createdElements.push(String(tag)); return { className: '', style: {}, setAttribute() {}, remove() {}, querySelector: () => null }; },
   body: { appendChild() {} },
 };
 globalThis.localStorage = localStorage;
@@ -442,6 +446,35 @@ test('W2: URL parameter cannot enable liveFundsEnabled; only explicit injected c
       tonConnect.init();
       // 等待 init() 触发的异步 _verifyOwnership 微任务完成，避免后续与测试状态设置产生竞态
       await new Promise((r) => setTimeout(r, 10));
+
+      // expectedChain 为空（未注入 network 且未同步 /api/config.network）时必须先以 WRONG_WALLET_NETWORK 阻断
+      let missingExpectedChainCode = null;
+      try {
+        await tonConnect.sendV15PresaleTx({
+          payTo: 'kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18',
+          tonNano: '990000000',
+          memo: 'buy:ord_noexpectedchain',
+        });
+      } catch (e) { missingExpectedChainCode = e?.code || null; }
+      if (missingExpectedChainCode !== 'WRONG_WALLET_NETWORK') {
+        throw new Error('Expected WRONG_WALLET_NETWORK on missing expectedChain, got: ' + missingExpectedChainCode);
+      }
+
+      // 注入服务端协议网络 testnet 后，钱包未上报 chain（空 walletChain）时仍以 WRONG_WALLET_NETWORK 阻断
+      store.update((s) => { s.round.protocolConfig.network = 'testnet'; });
+      let emptyChainCode = null;
+      try {
+        await tonConnect.sendV15PresaleTx({
+          payTo: 'kQDo-Kai2-tgKj_AErlFDfDyiA0jO2U4RvJaX45OykVMCT18',
+          tonNano: '990000000',
+          memo: 'buy:ord_nochain',
+        });
+      } catch (e) { emptyChainCode = e?.code || null; }
+      if (emptyChainCode !== 'WRONG_WALLET_NETWORK') {
+        throw new Error('Expected WRONG_WALLET_NETWORK on empty chain, got: ' + emptyChainCode);
+      }
+
+      store.update((s) => { s.user.walletChain = '-3'; });
 
       // 未完成 ton_proof 归属验证时，_dispatch 必须直接拦截（防 TOCTOU 绕过）
       let unverifiedCode = null;
@@ -934,6 +967,16 @@ test('PROTOCOL_SPECS single source of truth & Live renderRiskAudit invariants ch
       renderRiskAudit(auditRoot);
 
       store.update((s) => {
+        s.round.protocolConfig = {
+          network: 'testnet',
+          contracts: { roundController: 'kQCqh657Pt1LpQQWpherJOWcz6YG-wS_xpGFLMcRLxROgpm_', adminRenounced: true },
+        };
+        s.round.poolState = { dataAvailable: true, poolRemainingRaw: '7000000000000000000' };
+      });
+      const verifiedAuditRoot = { isConnected: true, innerHTML: '', querySelector() { return null; } };
+      renderRiskAudit(verifiedAuditRoot);
+
+      store.update((s) => {
         s.round.protocolConfig = { network: 'mainnet', contracts: {} };
         s.round.poolState = null;
       });
@@ -948,6 +991,8 @@ test('PROTOCOL_SPECS single source of truth & Live renderRiskAudit invariants ch
         hasCap: auditRoot.innerHTML.includes('550,000,000 A9'),
         hasRules: auditRoot.innerHTML.includes('8/12 · 5× · 6%'),
         hasUndefined: /\\bundefined\\b/.test(auditRoot.innerHTML),
+        unverifiedRcHasRenounced: auditRoot.innerHTML.includes('已弃权'),
+        verifiedAuditHasRenounced: verifiedAuditRoot.innerHTML.includes('已弃权'),
         pendingAuditHasWait: pendingAuditRoot.innerHTML.includes('待核验'),
         pendingAuditHasRenounced: pendingAuditRoot.innerHTML.includes('已弃权'),
         compactExact: compactBanner.includes('1,800 A9'),
@@ -960,6 +1005,8 @@ test('PROTOCOL_SPECS single source of truth & Live renderRiskAudit invariants ch
   assert.equal(out.hasCap, true);
   assert.equal(out.hasRules, true);
   assert.equal(out.hasUndefined, false);
+  assert.equal(out.unverifiedRcHasRenounced, false);
+  assert.equal(out.verifiedAuditHasRenounced, true);
   assert.equal(out.pendingAuditHasWait, true);
   assert.equal(out.pendingAuditHasRenounced, false);
   assert.equal(out.compactExact, true);
@@ -1270,8 +1317,17 @@ test('Batch C: lockMode blocks ?mode=demo, TON Connect enforces mainnet chain & 
         wrongChainCode = e.code || e.message;
       }
 
-      // Switch to mainnet chain (-239) -> succeeds and injects network: '-239' + from
-      store.update((s) => { s.user.walletChain = '-239'; });
+      // Switch to mainnet chain (-239) outside Telegram Mini App -> must block with WALLET_NOT_VERIFIED
+      store.update((s) => { s.user.walletChain = '-239'; s.user.walletVerificationState = 'restored_binding'; });
+      let nonTmaCode = null;
+      try {
+        await tonConnect.sendV15TicketClaim('0:' + '55'.repeat(32));
+      } catch (e) {
+        nonTmaCode = e.code || e.message;
+      }
+
+      // Inside Telegram Mini App with restored_binding -> succeeds and injects network: '-239' + from
+      window.Telegram = { WebApp: { initData: 'user=%7B%22id%22%3A123%7D' } };
       await tonConnect.sendV15TicketClaim('0:' + '55'.repeat(32));
 
       console.log(JSON.stringify({
@@ -1280,6 +1336,7 @@ test('Batch C: lockMode blocks ?mode=demo, TON Connect enforces mainnet chain & 
         expectedChainId: config.expectedChainId,
         twaReturnUrl: tonConnect.ui?.opts?.actionsConfiguration?.twaReturnUrl || null,
         wrongChainCode,
+        nonTmaCode,
         sentNetwork: sdkCalls.lastTx?.network || null,
         sentFrom: sdkCalls.lastTx?.from || null,
       }));
@@ -1289,8 +1346,9 @@ test('Batch C: lockMode blocks ?mode=demo, TON Connect enforces mainnet chain & 
   assert.equal(lockedOut.mode, 'live');
   assert.equal(lockedOut.lockMode, true);
   assert.equal(lockedOut.expectedChainId, '-239');
-  assert.equal(lockedOut.twaReturnUrl, 'https://t.me/A9_TonBot');
+  assert.equal(lockedOut.twaReturnUrl, 'https://t.me/A9_TonBot?startapp=tonconnect');
   assert.equal(lockedOut.wrongChainCode, 'WRONG_WALLET_NETWORK');
+  assert.equal(lockedOut.nonTmaCode, 'WALLET_NOT_VERIFIED');
   assert.equal(lockedOut.sentNetwork, '-239');
   assert.equal(lockedOut.sentFrom, '0:' + '11'.repeat(32));
 
@@ -1767,5 +1825,540 @@ test('P2-3: demo-data.js is lazy-loaded only in Demo mode with failure retry, co
   const appSrc = readFileSync(join(JS_DIR, 'app.js'), 'utf8');
   assert.ok(appSrc.includes('if (!store.demoReady)'), 'openSimDrawer must lock controls when Demo is not ready');
   assert.ok(appSrc.includes('id="sim-retry-demo"'), 'openSimDrawer must provide retry button when Demo load failed');
+});
+
+// ---------------------------------------------------------------------------
+// v17 候选测试网真机验收修复回归：钱包回跳句柄 + 回跳启动参数识别
+// ---------------------------------------------------------------------------
+
+const CANDIDATE_PAGE = 'https://a9-v17-testnet-candidate.pages.dev/';
+const CANDIDATE_API = 'https://a9-v17-testnet-candidate.348421501.workers.dev';
+const CANDIDATE_LIVE_CFG = { mode: 'live', lockMode: true, network: 'testnet', apiBase: CANDIDATE_API, liveFundsEnabled: false, stakeProtocolVersion: 'v17' };
+
+const RESTORE_PROBE = `
+  const { tonConnect } = await import(JS_URL + '/tonconnect.js');
+  tonConnect.restoreOnStartup(() => {});
+  await Promise.resolve(); await Promise.resolve();
+  const actions = tonConnect.ui?.opts?.actionsConfiguration || {};
+  console.log(JSON.stringify({
+    sdkReady: tonConnect.sdkReady,
+    constructed: sdkCalls.constructed,
+    scriptInjections: createdElements.filter((t) => t === 'script').length,
+    openModal: sdkCalls.openModal,
+    twaReturnUrl: Object.prototype.hasOwnProperty.call(actions, 'twaReturnUrl') ? actions.twaReturnUrl : null,
+  }));
+`;
+
+test('C-restore-1: SDK-generated hyphen return param (tonconnect-…) preloads the wallet SDK with no stored session', () => {
+  for (const startParam of ['tonconnect', 'tonconnect-AbC123', 'tonconnect_legacy', 'tc_ret_abc', 'TONCONNECT-Return', 'tc_ret']) {
+    const out = runScenario(
+      { href: CANDIDATE_PAGE, injectedConfig: CANDIDATE_LIVE_CFG, startParam, sdkAvailable: false },
+      RESTORE_PROBE,
+    );
+    assert.equal(out.sdkReady, false, `${startParam}: SDK unavailable must stay not-ready`);
+    assert.equal(out.scriptInjections, 1, `${startParam}: return param must trigger exactly one SDK preload`);
+    assert.equal(out.openModal, 0, `${startParam}: restore must never auto-open the wallet modal`);
+  }
+  for (const href of [`${CANDIDATE_PAGE}#tgWebAppStartParam=tonconnect-AbC123`, `${CANDIDATE_PAGE}?tc_ret=state-back`, `${CANDIDATE_PAGE}?startapp=tonconnect`, `${CANDIDATE_PAGE}?startapp=tonconnect-AbC123`]) {
+    const out = runScenario({ href, injectedConfig: CANDIDATE_LIVE_CFG, sdkAvailable: false }, RESTORE_PROBE);
+    assert.equal(out.scriptInjections, 1, `${href}: return URL marker must trigger SDK preload`);
+  }
+});
+
+test('C-restore-2: an existing stored bridge session preloads the SDK without any return param', () => {
+  const out = runScenario(
+    {
+      href: CANDIDATE_PAGE,
+      injectedConfig: CANDIDATE_LIVE_CFG,
+      sdkAvailable: false,
+      storageSeed: { 'ton-connect-storage_bridge-connection': '{"connectionType":"http","connectEvent":{}}' },
+    },
+    RESTORE_PROBE,
+  );
+  assert.equal(out.scriptInjections, 1);
+  assert.equal(out.openModal, 0);
+});
+
+test('C-restore-3: when the SDK object already exists, restore initializes synchronously without await and never opens the modal', () => {
+  for (const opts of [
+    { startParam: 'tonconnect-AbC123' },
+    { storageSeed: { 'ton-connect-storage_bridge-connection': '{}' } },
+  ]) {
+    const out = runScenario(
+      { href: CANDIDATE_PAGE, injectedConfig: CANDIDATE_LIVE_CFG, sdkAvailable: true, ...opts },
+      `
+      const { tonConnect } = await import(JS_URL + '/tonconnect.js');
+      const before = sdkCalls.constructed;
+      tonConnect.restoreOnStartup(() => {});
+      const readySync = tonConnect.sdkReady === true && sdkCalls.constructed === before + 1;
+      console.log(JSON.stringify({ readySync, sdkReady: tonConnect.sdkReady, constructed: sdkCalls.constructed, openModal: sdkCalls.openModal }));
+      `,
+    );
+    assert.equal(out.readySync, true, 'init must complete synchronously inside restoreOnStartup');
+    assert.equal(out.constructed, 1, 'exactly one SDK instance must be created');
+    assert.equal(out.openModal, 0);
+  }
+});
+
+test('C-restore-4: Demo never loads the wallet SDK, even with a stored session and a return param', () => {
+  const out = runScenario(
+    {
+      href: `${CANDIDATE_PAGE}?mode=demo`,
+      injectedConfig: { mode: 'demo' },
+      startParam: 'tonconnect-AbC123',
+      sdkAvailable: false,
+      storageSeed: { 'ton-connect-storage_bridge-connection': '{}' },
+    },
+    RESTORE_PROBE,
+  );
+  assert.equal(out.scriptInjections, 0);
+  assert.equal(out.constructed, 0);
+  assert.equal(out.sdkReady, false);
+});
+
+test('C-restore-5: plain Live with no session and a non-return start param must not preload the SDK early', () => {
+  for (const opts of [{ startParam: 'market' }, { startParam: 'invite_100_REF' }, {}]) {
+    const out = runScenario({ href: CANDIDATE_PAGE, injectedConfig: CANDIDATE_LIVE_CFG, sdkAvailable: false, ...opts }, RESTORE_PROBE);
+    assert.equal(out.scriptInjections, 0, `${JSON.stringify(opts)}: no early SDK load`);
+    assert.equal(out.constructed, 0);
+  }
+});
+
+const RETURN_URL_PROBE = `
+  const { store } = await import(JS_URL + '/store.js');
+  const { tonConnect } = await import(JS_URL + '/tonconnect.js');
+  if (SERVER_HANDLE) store.update((s) => { s.round.protocolConfig = { botHandle: SERVER_HANDLE }; });
+  tonConnect.restoreOnStartup(() => {});
+  const actions = tonConnect.ui?.opts?.actionsConfiguration || {};
+  let guardCode = null;
+  try { tonConnect.assertReturnEntryReady(); }
+  catch (e) { guardCode = e?.code || null; }
+  console.log(JSON.stringify({
+    twaReturnUrl: Object.prototype.hasOwnProperty.call(actions, 'twaReturnUrl') ? actions.twaReturnUrl : null,
+    returnStrategy: Object.prototype.hasOwnProperty.call(actions, 'returnStrategy') ? actions.returnStrategy : null,
+    returnEntryUrl: tonConnect.returnEntry?.url || null,
+    returnEntryError: tonConnect.returnEntryError,
+    guardCode,
+  }));
+`;
+
+test('C-return-1: candidate runtime-config botHandle drives twaReturnUrl; Testnet never falls back to the production bot', () => {
+  const cases = [
+    { name: 'candidate injected test bot', injected: { ...CANDIDATE_LIVE_CFG, botHandle: 'A9_TestnetBot' }, server: null, expect: 'https://t.me/A9_TestnetBot?startapp=tonconnect' },
+    { name: 'candidate injected handle with @', injected: { ...CANDIDATE_LIVE_CFG, botHandle: '@A9_TestnetBot' }, server: null, expect: 'https://t.me/A9_TestnetBot?startapp=tonconnect' },
+    { name: 'testnet nothing injected -> no production fallback', injected: CANDIDATE_LIVE_CFG, server: null, expect: null },
+    // 测试网一律拒绝正式 Bot 句柄：显式注入、服务端下发、大小写变体都不允许
+    { name: 'testnet rejects injected production handle', injected: { ...CANDIDATE_LIVE_CFG, botHandle: 'A9_TonBot' }, server: null, expect: null },
+    { name: 'testnet rejects lower-case production handle', injected: { ...CANDIDATE_LIVE_CFG, botHandle: 'a9_tonbot' }, server: null, expect: null },
+    { name: 'testnet rejects upper-case production handle', injected: { ...CANDIDATE_LIVE_CFG, botHandle: 'A9_TONBOT' }, server: null, expect: null },
+    { name: 'testnet rejects @-prefixed mixed-case production handle', injected: { ...CANDIDATE_LIVE_CFG, botHandle: '@a9_TonBot' }, server: null, expect: null },
+    { name: 'testnet rejects server-provided production handle', injected: CANDIDATE_LIVE_CFG, server: 'A9_TonBot', expect: null },
+    { name: 'testnet rejects server-provided mixed-case production handle', injected: CANDIDATE_LIVE_CFG, server: 'a9_TONBOT', expect: null },
+    { name: 'testnet skips rejected injected handle and uses valid server handle', injected: { ...CANDIDATE_LIVE_CFG, botHandle: 'A9_TonBot' }, server: 'A9_TestnetBot', expect: 'https://t.me/A9_TestnetBot?startapp=tonconnect' },
+    { name: 'testnet server-provided handle', injected: CANDIDATE_LIVE_CFG, server: 'A9_TestnetBot', expect: 'https://t.me/A9_TestnetBot?startapp=tonconnect' },
+    { name: 'testnet invalid injected handle, no server handle', injected: { ...CANDIDATE_LIVE_CFG, botHandle: 'bad handle!' }, server: null, expect: null },
+    { name: 'testnet URL-shaped injected handle is rejected', injected: { ...CANDIDATE_LIVE_CFG, botHandle: 'https://evil.example' }, server: null, expect: null },
+    { name: 'injected handle wins over server handle', injected: { ...CANDIDATE_LIVE_CFG, botHandle: 'A9_TestnetBot' }, server: 'A9_OtherBot', expect: 'https://t.me/A9_TestnetBot?startapp=tonconnect' },
+  ];
+  for (const c of cases) {
+    const out = runScenario(
+      { href: CANDIDATE_PAGE, injectedConfig: c.injected, sdkAvailable: true },
+      `const SERVER_HANDLE = ${JSON.stringify(c.server)};\n${RETURN_URL_PROBE}`,
+    );
+    assert.equal(out.twaReturnUrl, c.expect, c.name);
+    assert.equal(out.returnEntryUrl, c.expect, `${c.name}: resolved entry url`);
+    if (c.expect) {
+      assert.equal(out.returnStrategy, null, `${c.name}: no returnStrategy override when entry exists`);
+      assert.equal(out.returnEntryError, null, `${c.name}: no entry error`);
+      assert.equal(out.guardCode, null, `${c.name}: guard passes`);
+    } else {
+      // 无有效入口必须显式失败：不传裸 Bot URL，改为 returnStrategy=none 并暴露错误码
+      assert.equal(out.returnStrategy, 'none', `${c.name}: explicit no-return fallback`);
+      assert.equal(out.returnEntryError, 'WALLET_RETURN_ENTRY_MISSING', `${c.name}: explicit error code`);
+      assert.equal(out.guardCode, 'WALLET_RETURN_ENTRY_MISSING', `${c.name}: guard blocks wallet launch`);
+    }
+  }
+});
+
+test('C-return-2: Mainnet keeps the historical production default when no handle is configured', () => {
+  const mainnetCfg = { mode: 'live', lockMode: true, network: 'mainnet', apiBase: 'https://api.a9.lat', liveFundsEnabled: false };
+  const dflt = runScenario(
+    { href: 'https://app.a9.lat/', injectedConfig: mainnetCfg, sdkAvailable: true },
+    `const SERVER_HANDLE = null;\n${RETURN_URL_PROBE}`,
+  );
+  assert.equal(dflt.twaReturnUrl, 'https://t.me/A9_TonBot?startapp=tonconnect');
+  const explicit = runScenario(
+    { href: 'https://app.a9.lat/', injectedConfig: { ...mainnetCfg, botHandle: 'A9_OfficialBot' }, sdkAvailable: true },
+    `const SERVER_HANDLE = null;\n${RETURN_URL_PROBE}`,
+  );
+  assert.equal(explicit.twaReturnUrl, 'https://t.me/A9_OfficialBot?startapp=tonconnect');
+  // 主网与测试网入口隔离：测试网配置绝不接受 A9_TonBot，主网默认也不指向测试 Bot
+  assert.notEqual(dflt.twaReturnUrl, 'https://t.me/A9_TestnetBot?startapp=tonconnect');
+});
+
+test('C-return-3: SDK loader keeps SRI + crossorigin and funds gates are untouched', () => {
+  const src = readFileSync(join(JS_DIR, 'tonconnect.js'), 'utf8');
+  assert.match(src, /script\.integrity = 'sha384-ej0rYqvkb978ljOWDi1iAt5spb5B7sRdf1g8Hii30vS72XLjxoCPCmx5seE7s05g'/);
+  assert.match(src, /script\.crossOrigin = 'anonymous'/);
+  assert.match(src, /script\.src = '\.\/js\/vendor\/tonconnect-ui\.min\.js'/);
+  // 回跳入口必须带 startapp=tonconnect，才会打开 Main Mini App 而不是 Bot 聊天页
+  assert.match(src, /https:\/\/t\.me\/\$\{handle\}\?startapp=tonconnect/);
+  // 签名瞬间守卫与 _dispatch 防重入口保持原样
+  assert.match(src, /this\.assertWalletReadyForLiveTx\(\);\s*\n\s*const expectedChain = this\.getExpectedChainId\(\);\s*\n\s*const fromAddr/);
+  assert.match(src, /if \(!liveFundsReady\(\)\) throw createFundsDisabledError\(\);/);
+});
+
+test('Telegram launch fragment opens the plaza without consuming SDK data or masking invalid routes', () => {
+  const out = runScenario(
+    { href: 'https://candidate.invalid/?mode=live#tgWebAppData=user%3Dfixture&tgWebAppVersion=9.6' },
+    `
+      const { matchRoute } = await import(JS_URL + '/router.js');
+      const originalHash = window.location.hash;
+      const launches = [originalHash,
+        '#tgWebAppVersion=9.6&tgWebAppData=user%3Dfixture&tgWebAppPlatform=macos',
+        '#tgWebAppData=user%3Dfixture&tgWebAppStartParam=tonconnect-fixture'];
+      console.log(JSON.stringify({
+        routes: launches.map(hash => matchRoute(hash).route.path),
+        unchanged: window.location.hash === originalHash,
+        invalid: matchRoute('#/does-not-exist').route.path,
+        fake: matchRoute('#tgWebAppBogus=fixture').route.path,
+        deepLink: matchRoute('#/round?panel=prediction').route.path,
+        panel: matchRoute('#/round?panel=prediction').query.panel,
+      }));
+    `,
+  );
+  assert.deepEqual(out.routes, ['/challenge', '/challenge', '/challenge']);
+  assert.equal(out.unchanged, true);
+  assert.equal(out.invalid, '/404');
+  assert.equal(out.fake, '/404');
+  assert.equal(out.deepLink, '/round');
+  assert.equal(out.panel, 'prediction');
+});
+
+test('Wallet display uses friendly network format while SDK identity and funds gates stay unchanged', () => {
+  const out = runScenario(
+    { href: 'https://candidate.invalid/?mode=live', injectedConfig: { network: 'testnet', liveFundsEnabled: false } },
+    `
+      const { tonConnect, walletDisplayAddress, canonicalWalletKey } = await import(JS_URL + '/tonconnect.js');
+      const { store } = await import(JS_URL + '/store.js');
+      const { parseTonAddress } = await import(JS_URL + '/v15-tx.js');
+      const raw = '0:' + '11'.repeat(32);
+      tonConnect.init();
+      await tonConnect.ui._cb({account: {address: raw, chain: '-3'}});
+      const testDisplay = walletDisplayAddress(raw, '-3');
+      console.log(JSON.stringify({
+        rawUnchanged: store.state.user.address === raw,
+        short: store.state.user.shortAddress,
+        friendly: testDisplay,
+        sameIdentity: canonicalWalletKey(testDisplay) === canonicalWalletKey(raw),
+        testFlag: parseTonAddress(testDisplay).testOnly,
+        mainFlag: parseTonAddress(walletDisplayAddress(raw, '-239')).testOnly,
+        unknown: walletDisplayAddress(raw, null),
+        malformed: walletDisplayAddress('invalid', '-3'),
+        raw, funds: store.fundsEnabled, sends: sdkCalls.sendTransaction,
+      }));
+    `,
+  );
+  assert.equal(out.rawUnchanged, true);
+  assert.equal(out.sameIdentity, true);
+  assert.equal(out.testFlag, true);
+  assert.equal(out.mainFlag, false);
+  assert.equal(out.short, out.friendly.slice(0, 6) + '...' + out.friendly.slice(-6));
+  assert.equal(out.unknown, out.raw);
+  assert.equal(out.malformed, 'invalid');
+  assert.equal(out.funds, false);
+  assert.equal(out.sends, 0);
+});
+
+test('openChoiceSheet supports WAI-ARIA radiogroup arrow keys, Home/End, Escape cancel, and focus restoration', () => {
+  const out = runScenario(
+    {
+      href: 'https://a9.lat/?mode=live',
+      injectedConfig: { mode: 'live', apiBase: 'https://api.a9.lat', liveFundsEnabled: false },
+    },
+    `
+      const docListeners = {};
+      const mkClassList = (initial = []) => {
+        const set = new Set(initial);
+        return {
+          add(...cls) { cls.forEach((c) => set.add(c)); },
+          remove(...cls) { cls.forEach((c) => set.delete(c)); },
+          toggle(c, force) {
+            const on = force === undefined ? !set.has(c) : Boolean(force);
+            if (on) set.add(c); else set.delete(c);
+            return on;
+          },
+          contains(c) { return set.has(c); },
+        };
+      };
+
+      let activeEl = null;
+      const makeBtn = (id, attrs = {}, classes = []) => {
+        const attrMap = new Map(Object.entries(attrs).map(([k, v]) => [k, String(v)]));
+        const indicator = { innerHTML: '' };
+        const el = {
+          id,
+          isConnected: true,
+          disabled: false,
+          hidden: false,
+          dataset: { choiceVal: attrMap.get('data-choice-val') || '' },
+          classList: mkClassList(classes),
+          style: {},
+          onclick: null,
+          onkeydown: null,
+          focusCalls: 0,
+          focus() { this.focusCalls += 1; activeEl = this; },
+          setAttribute(k, v) { attrMap.set(k, String(v)); },
+          getAttribute(k) { return attrMap.has(k) ? attrMap.get(k) : null; },
+          removeAttribute(k) { attrMap.delete(k); },
+          querySelector(sel) { return sel === '[data-choice-indicator]' ? indicator : null; },
+          _indicator: indicator,
+        };
+        return el;
+      };
+
+      const triggerBtn = makeBtn('btn-header-more');
+      let choiceRows = [];
+      let closeBtn = null;
+      let cancelBtn = null;
+      let modalSheet = null;
+      const modalRoot = {
+        id: 'modal-root',
+        classList: mkClassList(['hidden']),
+        _html: '',
+        setAttribute() {},
+        removeAttribute() {},
+        contains(el) { return choiceRows.includes(el) || el === closeBtn || el === cancelBtn || el === modalSheet; },
+        querySelector(sel) {
+          if (sel === '.modal-sheet') return modalSheet;
+          return null;
+        },
+        querySelectorAll() {
+          return [closeBtn, ...choiceRows, cancelBtn].filter(Boolean);
+        },
+        set innerHTML(html) {
+          this._html = String(html || '');
+          if (!this._html) {
+            choiceRows = [];
+            closeBtn = null;
+            cancelBtn = null;
+            modalSheet = null;
+            return;
+          }
+          modalSheet = makeBtn('sheet-box', { tabindex: '-1' });
+          closeBtn = makeBtn('sheet-close');
+          cancelBtn = makeBtn('sheet-cancel');
+          choiceRows = [];
+          const rx = /<button[^>]*data-choice-val="([^"]+)"[^>]*>/g;
+          let m;
+          while ((m = rx.exec(this._html)) !== null) {
+            const tag = m[0];
+            const val = m[1];
+            const checked = /aria-checked="true"/.test(tag) ? 'true' : 'false';
+            const tab = (tag.match(/tabindex="([^"]+)"/) || [])[1] || '-1';
+            const classes = /is-selected/.test(tag) ? ['is-selected'] : [];
+            choiceRows.push(makeBtn('opt-' + val, {
+              role: 'radio',
+              'aria-checked': checked,
+              tabindex: tab,
+              'data-choice-val': val,
+            }, classes));
+          }
+        },
+        get innerHTML() { return this._html; },
+      };
+
+      globalThis.document = {
+        documentElement: { dataset: { theme: 'light' }, classList: mkClassList() },
+        body: { classList: mkClassList(), appendChild() {} },
+        get activeElement() { return activeEl; },
+        getElementById(id) {
+          if (id === 'modal-root') return modalRoot;
+          if (id === 'sheet-close') return closeBtn;
+          if (id === 'sheet-cancel') return cancelBtn;
+          if (id === 'sheet-radiogroup') return modalSheet;
+          return null;
+        },
+        querySelectorAll(sel) {
+          if (sel === '[data-choice-val]') return choiceRows;
+          return [];
+        },
+        querySelector: () => null,
+        addEventListener(type, fn) {
+          (docListeners[type] ||= []).push(fn);
+        },
+        createElement: () => ({ className: '', style: {}, setAttribute() {}, remove() {}, querySelector: () => null }),
+      };
+
+      const { openChoiceSheet } = await import(JS_URL + '/components.js');
+      const selectedLog = [];
+      const options = [
+        { value: 'system', label: 'System' },
+        { value: 'light', label: 'Light' },
+        { value: 'dark', label: 'Dark' },
+      ];
+
+      // 1) Open -> verify initial selected radio focus & roving tabindex -> ArrowDown wraps -> Escape cancels & restores focus
+      triggerBtn.focus();
+      openChoiceSheet({ title: 'Theme', options, selected: 'light', onSelect: (v) => selectedLog.push(v) });
+      const initialFocusId = activeEl?.id;
+      const initialTabs = choiceRows.map((r) => r.getAttribute('tabindex'));
+      const initialChecked = choiceRows.map((r) => r.getAttribute('aria-checked'));
+
+      const fireKey = (el, key) => {
+        let prevented = false;
+        el?.onkeydown?.({ key, preventDefault() { prevented = true; } });
+        return prevented;
+      };
+      fireKey(activeEl, 'ArrowDown'); // light -> dark
+      const afterDownFocus = activeEl?.id;
+      fireKey(activeEl, 'ArrowDown'); // dark -> system (wrap)
+      const afterWrapFocus = activeEl?.id;
+      fireKey(activeEl, 'End');       // -> dark
+      const afterEndFocus = activeEl?.id;
+      fireKey(activeEl, 'Home');      // -> system
+      const afterHomeFocus = activeEl?.id;
+      const tabsAfterHome = choiceRows.map((r) => r.getAttribute('tabindex'));
+      const checkedAfterHome = choiceRows.map((r) => r.getAttribute('aria-checked'));
+
+      // Dispatch Escape on document
+      (docListeners.keydown || []).forEach((fn) => fn({ key: 'Escape', preventDefault() {} }));
+      const closedAfterEscape = modalRoot.classList.contains('hidden');
+      const focusAfterEscape = activeEl?.id;
+      const selectedAfterEscape = [...selectedLog];
+
+      // 2) Reopen -> ArrowUp wraps (system -> dark) -> Enter commits 'dark' & restores focus
+      triggerBtn.focus();
+      openChoiceSheet({ title: 'Theme', options, selected: 'system', onSelect: (v) => selectedLog.push(v) });
+      fireKey(activeEl, 'ArrowUp');
+      fireKey(activeEl, 'Enter');
+      const closedAfterEnter = modalRoot.classList.contains('hidden');
+      const focusAfterEnter = activeEl?.id;
+
+      console.log(JSON.stringify({
+        initialFocusId,
+        initialTabs,
+        initialChecked,
+        afterDownFocus,
+        afterWrapFocus,
+        afterEndFocus,
+        afterHomeFocus,
+        tabsAfterHome,
+        checkedAfterHome,
+        closedAfterEscape,
+        focusAfterEscape,
+        selectedAfterEscape,
+        closedAfterEnter,
+        focusAfterEnter,
+        selectedLog,
+      }));
+    `,
+  );
+
+  assert.equal(out.initialFocusId, 'opt-light');
+  assert.deepEqual(out.initialTabs, ['-1', '0', '-1']);
+  assert.deepEqual(out.initialChecked, ['false', 'true', 'false']);
+  assert.equal(out.afterDownFocus, 'opt-dark');
+  assert.equal(out.afterWrapFocus, 'opt-system');
+  assert.equal(out.afterEndFocus, 'opt-dark');
+  assert.equal(out.afterHomeFocus, 'opt-system');
+  assert.deepEqual(out.tabsAfterHome, ['0', '-1', '-1']);
+  assert.deepEqual(out.checkedAfterHome, ['true', 'false', 'false']);
+  assert.equal(out.closedAfterEscape, true);
+  assert.equal(out.focusAfterEscape, 'btn-header-more');
+  assert.deepEqual(out.selectedAfterEscape, []);
+  assert.equal(out.closedAfterEnter, true);
+  assert.equal(out.focusAfterEnter, 'btn-header-more');
+  assert.deepEqual(out.selectedLog, ['dark']);
+});
+
+test('Testnet accuracy: #/ledger Tonviewer link targets testnet.tonviewer.com, unsynced mapRoundView keeps updatedAt=null, and Settings shows TON 测试网只读', () => {
+  const out = runScenario(
+    {
+      href: 'https://candidate.invalid/?mode=live',
+      injectedConfig: { mode: 'live', lockMode: true, network: 'testnet', apiBase: 'https://candidate-api.invalid', liveFundsEnabled: false, botHandle: 'A9_TestnetBot' },
+    },
+    `
+      let openedUrl = null;
+      const stubEl = () => ({
+        addEventListener() {},
+        replaceChildren() {},
+        classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+        querySelector: () => stubEl(),
+        querySelectorAll: () => [],
+        insertAdjacentHTML() {},
+        setAttribute() {},
+        getAttribute() { return null; },
+        remove() {},
+        set innerHTML(_v) {},
+        style: {},
+        dataset: {},
+        textContent: '',
+        onclick: null,
+        animate: () => ({ finished: Promise.resolve() }),
+      });
+      globalThis.window.open = (u) => { openedUrl = String(u); };
+      globalThis.window.addEventListener = () => {};
+      globalThis.window.scrollTo = () => {};
+      Object.defineProperty(globalThis, 'navigator', { value: { language: 'zh-CN' }, configurable: true });
+      globalThis.document = {
+        documentElement: { dataset: { theme: 'light' }, lang: 'zh-CN' },
+        body: { dataset: {}, appendChild() {}, classList: { add() {}, remove() {}, toggle() {} } },
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        getElementById: () => stubEl(),
+        addEventListener: () => {},
+        createElement: () => stubEl(),
+      };
+      globalThis.requestAnimationFrame = () => 0;
+      globalThis.setInterval = () => 0;
+      const { store } = await import(JS_URL + '/store.js');
+      const { mapRoundView } = await import(JS_URL + '/data.js');
+      const { renderLedgerPage } = await import(JS_URL + '/pages/profile.js');
+      const { renderSettingsPage, renderRiskAudit } = await import(JS_URL + '/pages/system.js');
+
+      const unsyncedView = mapRoundView({
+        config: { network: 'testnet', contracts: { roundController: 'kQCqh657Pt1LpQQWpherJOWcz6YG-wS_xpGFLMcRLxROgpm_' } },
+        round: null,
+        fetchedAt: 1795432500000,
+        source: 'live-api',
+        label: 'Testnet API',
+      });
+      store.applyLiveRound(unsyncedView);
+      store.update((s) => {
+        s.settings.language = 'zh-CN';
+        s.user.connected = true;
+        s.user.address = 'kQDxFSGKNebK5CmEzbDuUEWmR6ME86dTlOwCXKCXCYUzFS40';
+      });
+
+      const tvBtn = { onclick: null };
+      const ledgerRoot = {
+        isConnected: true,
+        innerHTML: '',
+        querySelector(sel) { return sel === '#btn-ledger-tonviewer' ? tvBtn : null; },
+        querySelectorAll() { return []; },
+      };
+      renderLedgerPage(ledgerRoot);
+      tvBtn.onclick?.();
+
+      const settingsRoot = { isConnected: true, innerHTML: '', querySelector() { return null; }, querySelectorAll() { return []; } };
+      renderSettingsPage(settingsRoot);
+
+      const auditRoot = { isConnected: true, innerHTML: '', querySelector() { return null; } };
+      renderRiskAudit(auditRoot);
+
+      console.log(JSON.stringify({
+        unsyncedUpdatedAt: unsyncedView.updatedAt,
+        openedUrl,
+        settingsTestnetLabel: settingsRoot.innerHTML.includes('TON 测试网只读'),
+        auditPendingSync: auditRoot.innerHTML.includes('待同步'),
+      }));
+    `,
+  );
+
+  assert.equal(out.unsyncedUpdatedAt, null);
+  assert.ok(out.openedUrl?.startsWith('https://testnet.tonviewer.com/'), `expected testnet.tonviewer.com, got ${out.openedUrl}`);
+  assert.equal(out.settingsTestnetLabel, true);
+  assert.equal(out.auditPendingSync, true);
 });
 

@@ -1,6 +1,7 @@
 // A9 Protocol v15/v16 — Zero-dependency TonCenter v2/v3 HTTP client for live chain sync,
 // cursor-paginated inbound scanning & downstream payout verification.
 import { addressKey } from './ton-address.mjs';
+import { parseBoc } from './ton-cell.mjs';
 
 const VALID_ACCOUNT_STATES = new Set(['active', 'uninitialized', 'frozen']);
 
@@ -9,6 +10,24 @@ function deriveV3Base(v2Base) {
   if (/\/api\/v3$/i.test(clean)) return clean;
   if (/\/api\/v2$/i.test(clean)) return clean.replace(/\/api\/v2$/i, '/api/v3');
   return `${clean}/v3`;
+}
+
+// A successful HTTP status is not proof of a successful indexer query. Never
+// turn an error envelope, missing list, or malformed page into an empty scan.
+function payoutPage(body, field, pageSize) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)
+      || body.ok === false || body.success === false || body.error
+      || (body.errors && (!Array.isArray(body.errors) || body.errors.length))
+      || (Number(body.code) >= 400)) return null;
+  const rows = Object.hasOwn(body, field) ? body[field] : body.result;
+  if (!Array.isArray(rows) || rows.length > pageSize
+      || rows.some((row) => !row || typeof row !== 'object' || Array.isArray(row))) return null;
+  const unsignedInteger = (value) => (typeof value === 'string' && /^\d+$/.test(value))
+    || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0);
+  if (rows.some((row) => typeof row.destination !== 'string' || !row.destination.trim()
+      || !unsignedInteger(field === 'messages' ? row.value : row.amount)
+      || (field === 'jetton_transfers' && !unsignedInteger(row.query_id)))) return null;
+  return rows;
 }
 
 export class TonCenterClient {
@@ -128,9 +147,63 @@ export class TonCenterClient {
     if (!VALID_ACCOUNT_STATES.has(rawState)) {
       throw new Error(`getAddressInformation missing or invalid account state: ${rawState || '<empty>'}`);
     }
+    const rawBalance = body.result.balance !== undefined && body.result.balance !== null
+      ? String(body.result.balance).trim()
+      : '';
+    const balanceNano = /^\d+$/.test(rawBalance) ? rawBalance : null;
     return {
       state: rawState,
+      balanceNano,
       codeBoc: typeof body.result.code === 'string' && body.result.code.length > 0 ? body.result.code : null,
+    };
+  }
+
+  /** Read native GRAM balance (in nano) of an account; throws if RPC response omits valid balance. */
+  async fetchAccountBalanceNano(walletAddress) {
+    const info = await this.fetchWalletAccountState(walletAddress);
+    if (info.balanceNano === null) {
+      throw new Error('getAddressInformation missing valid numeric balance');
+    }
+    return BigInt(info.balanceNano);
+  }
+
+  /**
+   * Read JettonMaster.get_jetton_data() and strictly distinguish exact addr_none$00 (renounced)
+   * from active admin address or malformed BOCs.
+   */
+  async fetchJettonMasterState(jettonMasterAddress) {
+    const s = await this.runGetMethod(jettonMasterAddress, 'get_jetton_data');
+    if (!Array.isArray(s) || s.length < 3) {
+      throw new Error(`get_jetton_data returned truncated stack (len=${s?.length ?? 0})`);
+    }
+    const supply = TonCenterClient.parseStrictNum(s[0], { allowNegative: false });
+    const mintableFlag = TonCenterClient.parseStrictNum(s[1], { allowNegative: true });
+    if (supply === null || (mintableFlag !== 0n && mintableFlag !== -1n)) {
+      throw new Error('get_jetton_data returned invalid supply or mintable flag');
+    }
+    const addrItem = s[2];
+    const addrBoc = Array.isArray(addrItem) && (addrItem[0] === 'slice' || addrItem[0] === 'cell')
+      ? addrItem[1]?.bytes
+      : null;
+    if (typeof addrBoc !== 'string' || !addrBoc) {
+      throw new Error('get_jetton_data missing admin_address slice BOC');
+    }
+    const roots = parseBoc(addrBoc);
+    if (roots.length !== 1) throw new Error('get_jetton_data admin_address BOC must have 1 root');
+    const root = roots[0];
+    let adminAddress = null;
+    if (root.bits === 2 && root.refs.length === 0 && root.readBits(0, 2) === 0n) {
+      adminAddress = null;
+    } else {
+      adminAddress = decodeAddressFromCellBoc(addrBoc, { testnet: this.testnet });
+      if (!adminAddress) throw new Error('get_jetton_data admin_address is neither addr_none nor addr_std');
+    }
+    const mintable = mintableFlag === -1n;
+    return {
+      totalSupplyRaw: supply.toString(),
+      mintable,
+      adminAddress,
+      adminRenounced: !mintable && adminAddress === null,
     };
   }
 
@@ -233,8 +306,29 @@ export class TonCenterClient {
   }
 
   /**
+   * 判定 TON 标准的「未初始化账户 non-bounceable 纯收款」：
+   * 账户处于 uninit/nonexist 时收到 bounce=false 的普通 GRAM 转账，TVM 会跳过 compute（no_state）
+   * 并按 TL-B 标记 description.aborted=true，但资金已全额记入 credit_ph 且未发生 bounce。
+   * 仅当全部 5 项条件严格同时满足时才视为合法入账，其余任何 aborted 均继续拒绝。
+   */
+  _isUninitNoStateCredit(tx, inMsg, valBig) {
+    const d = tx?.description;
+    if (!d || d.aborted !== true || d.destroyed === true) return false;
+    if (d.bounce) return false;
+    if (inMsg?.bounced === true || inMsg?.bounce !== false) return false;
+    const c = d.compute_ph;
+    if (!c || c.skipped !== true || c.reason !== 'no_state') return false;
+    try {
+      const credited = BigInt(String(d.credit_ph?.credit ?? '0'));
+      return credited > 0n && credited === valBig;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * 规范化单条 TonCenter v2 交易记录。
-   * 仅当未发生 bounced/aborted 且具备完整 txHash 时作为有效入账候选。
+   * 仅当未发生 bounced/aborted（或满足严格 uninit no_state 纯收款）且具备完整 txHash 时作为有效入账候选。
    */
   _normalizeInboundTx(tx, hotWalletAddress, { requireMasterchainFinality = false } = {}) {
     const inMsg = tx?.in_msg;
@@ -246,6 +340,9 @@ export class TonCenterClient {
     const mcConfirmed = tx.finality === 'finalized'
       || Number(tx.mc_block_seqno || 0) > 0
       || (tx.finality === undefined && !requireMasterchainFinality);
+    const valBig = BigInt(String(inMsg.value || '0'));
+    const rawAborted = Boolean(tx.description?.aborted);
+    const effectiveAborted = rawAborted && !this._isUninitNoStateCredit(tx, inMsg, valBig);
     return {
       txHash: hash,
       lt,
@@ -255,7 +352,7 @@ export class TonCenterClient {
       valueNano: String(inMsg.value || '0'),
       memo,
       bounced: Boolean(inMsg.bounced),
-      aborted: Boolean(tx.description?.aborted),
+      aborted: effectiveAborted,
       utime: Number(tx.utime || 0),
     };
   }
@@ -282,9 +379,9 @@ export class TonCenterClient {
     if (!inMsg || !inMsg.source || !tx?.hash || !tx?.lt) return null;
     if (tx?.emulated === true) return null;
     if (inMsg.bounced === true) return null;
-    if (tx?.description?.aborted === true) return null;
     const val = BigInt(inMsg.value || '0');
     if (val <= 0n) return null;
+    if (tx?.description?.aborted === true && !this._isUninitNoStateCredit(tx, inMsg, val)) return null;
 
     const mcSeqno = Number(tx.mc_block_seqno || 0);
     const hasMcFinality = Number.isFinite(mcSeqno) && mcSeqno > 0;
@@ -618,10 +715,14 @@ export class TonCenterClient {
 
     if (kind === 'A9') {
       if (!targetQueryId) return { state: 'PENDING', reason: 'MISSING_QUERY_ID' };
-      const pageSize = Math.min(Math.max(1, Number(limit) || 50), 100);
+      const pageSize = Math.min(Math.max(1, Math.floor(Number(limit) || 50)), 100);
+      if (!Number.isInteger(Number(maxPages)) || Number(maxPages) < 1 || Number(maxPages) > 100) {
+        return { state: 'PENDING', reason: 'INVALID_PAGINATION' };
+      }
       let pendingHit = null;
       let failedHit = null;
       let truncated = false;
+      const seenPages = new Set();
       for (let page = 0; page < maxPages; page += 1) {
         const params = new URLSearchParams({
           owner_address: hotWalletAddress,
@@ -638,9 +739,17 @@ export class TonCenterClient {
         } catch (e) {
           return { state: 'PENDING', reason: `V3_UNAVAILABLE: ${e?.message || e}` };
         }
-        const transfers = Array.isArray(body?.jetton_transfers) ? body.jetton_transfers : (Array.isArray(body?.result) ? body.result : []);
+        const transfers = payoutPage(body, 'jetton_transfers', pageSize);
+        if (!transfers) return { state: 'PENDING', reason: 'V3_INVALID_TRANSFER_PAGE' };
+        const pageFingerprint = JSON.stringify(transfers);
+        if (transfers.length && seenPages.has(pageFingerprint)) return { state: 'PENDING', reason: 'V3_REPEATED_PAGE' };
+        seenPages.add(pageFingerprint);
         for (const tr of transfers) {
           if (String(tr.query_id ?? '') !== targetQueryId) continue;
+          if (!tr.destination || !/^\d+$/.test(String(tr.amount ?? ''))
+              || ['transaction_aborted', 'aborted', 'bounced', 'trace_incomplete'].some((key) => tr[key] != null && typeof tr[key] !== 'boolean')) {
+            return { state: 'PENDING', reason: 'V3_INVALID_TRANSFER_RECORD' };
+          }
           const destKey = addressKey(tr.destination || '');
           const amt = BigInt(tr.amount || 0);
           const aborted = Boolean(tr.transaction_aborted || tr.aborted || tr.bounced);
@@ -651,16 +760,18 @@ export class TonCenterClient {
           }
           if (incomplete && !pendingHit) {
             pendingHit = { state: 'PENDING', txHash, reason: 'TRACE_INCOMPLETE' };
-          } else if (aborted) {
+          } else if (aborted && destKey === targetRecipientKey && amt === targetAmount && txHash) {
             failedHit = { state: 'FAILED', txHash, reason: 'JETTON_TRANSFER_ABORTED' };
           } else if (destKey !== targetRecipientKey || amt !== targetAmount) {
-            failedHit = { state: 'FAILED', txHash, reason: 'JETTON_TRANSFER_MISMATCH' };
+            // A query-id collision/mismatch is not proof that our transfer failed.
+            pendingHit ||= { state: 'PENDING', reason: 'JETTON_TRANSFER_MISMATCH' };
           }
         }
         if (transfers.length < pageSize) break;
         if (page === maxPages - 1) truncated = true;
       }
       if (pendingHit) return pendingHit;
+      if (truncated) return { state: 'PENDING', reason: 'V3_SCAN_TRUNCATED' };
       if (failedHit) return failedHit;
       if (canDeclareNotFound && !truncated) {
         return { state: 'NOT_FOUND', reason: 'ONCHAIN_TRANSFER_NOT_FOUND' };
@@ -669,12 +780,13 @@ export class TonCenterClient {
     }
 
     if (kind === 'REFUND') {
+      const pageSize = Math.min(Math.max(1, Math.floor(Number(limit) || 50)), 100);
       const params = new URLSearchParams({
         source: hotWalletAddress,
         direction: 'in',
         start_utime: String(effectiveStartUtime),
         sort: 'desc',
-        limit: String(limit),
+        limit: String(pageSize),
       });
       if (payout.recipient) params.set('destination', payout.recipient);
       let body;
@@ -683,7 +795,8 @@ export class TonCenterClient {
       } catch (e) {
         return { state: 'PENDING', reason: `V3_UNAVAILABLE: ${e?.message || e}` };
       }
-      const msgs = Array.isArray(body?.messages) ? body.messages : (Array.isArray(body?.result) ? body.result : []);
+      const msgs = payoutPage(body, 'messages', pageSize);
+      if (!msgs) return { state: 'PENDING', reason: 'V3_INVALID_REFUND_PAGE' };
       const expectedMemo = targetQueryId ? `refund:${targetQueryId}` : null;
       const targetHashHex = TonCenterClient.normalizeTxHashHex(payout.txHash);
       let pendingHit = null;
@@ -691,7 +804,6 @@ export class TonCenterClient {
       for (const m of msgs) {
         const destKey = addressKey(m.destination || '');
         if (destKey !== targetRecipientKey) continue;
-        const val = BigInt(m.value || 0);
         const comment = String(m.message_content?.decoded?.comment ?? m.comment ?? '').trim();
         const txHash = m.in_msg_tx_hash || m.out_msg_tx_hash || m.tx_hash || m.hash || null;
         const candidateHashes = [m.in_msg_tx_hash, m.out_msg_tx_hash, m.tx_hash, m.hash]
@@ -700,12 +812,17 @@ export class TonCenterClient {
         const memoHit = Boolean(expectedMemo && comment === expectedMemo);
         const hashHit = Boolean(targetHashHex && candidateHashes.includes(targetHashHex));
         if (!memoHit && !hashHit) continue;
-        if (m.bounced === true || m.aborted === true) {
-          failedHit = { state: 'FAILED', txHash: txHash || payout.txHash || null, reason: 'REFUND_BOUNCED_OR_ABORTED' };
-          continue;
+        if (!/^\d+$/.test(String(m.value ?? ''))
+            || ['bounced', 'aborted', 'trace_incomplete'].some((key) => m[key] != null && typeof m[key] !== 'boolean')) {
+          return { state: 'PENDING', reason: 'V3_INVALID_REFUND_RECORD' };
         }
+        const val = BigInt(m.value);
         if (m.trace_incomplete === true) {
           if (!pendingHit) pendingHit = { state: 'PENDING', txHash: txHash || payout.txHash || null, reason: 'TRACE_INCOMPLETE' };
+          continue;
+        }
+        if (m.bounced === true || m.aborted === true) {
+          failedHit = { state: 'FAILED', txHash: m.in_msg_tx_hash, reason: 'REFUND_BOUNCED_OR_ABORTED' };
           continue;
         }
         // direction=in 必须存在非空 in_msg_tx_hash 才证明已在目标账户真实落地执行
@@ -718,8 +835,9 @@ export class TonCenterClient {
         }
       }
       if (pendingHit) return pendingHit;
+      if (msgs.length >= pageSize) return { state: 'PENDING', reason: 'V3_SCAN_TRUNCATED' };
       if (failedHit) return failedHit;
-      if (canDeclareNotFound && msgs.length < Number(limit || 50)) {
+      if (canDeclareNotFound && msgs.length < pageSize) {
         return { state: 'NOT_FOUND', reason: 'ONCHAIN_REFUND_NOT_FOUND' };
       }
       return { state: 'PENDING' };

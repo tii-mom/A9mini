@@ -13,7 +13,7 @@ import { A9Haptic } from './tma.js';
 import { escapeHtml, showToast, copyText, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
 import { L } from './i18n.js';
-import { buildV15StakeTx, buildV15ClaimTx, buildV17EarlyExitTx, buildV15PromoFeeTx, buildV15PresaleTx, parseTonAddress } from './v15-tx.js';
+import { buildV15StakeTx, buildV15ClaimTx, buildV17EarlyExitTx, buildV15PromoFeeTx, buildV15PresaleTx, parseTonAddress, formatTonAddress } from './v15-tx.js';
 import { A9TMA as TMA } from './tma.js';
 import { fetchMe, requestTonProofPayload, submitTonProof } from './data.js';
 import { openTxRiskConfirmModal } from './tx-ux.js';
@@ -35,6 +35,14 @@ export function canonicalWalletKey(addr) {
   }
 }
 
+export function walletDisplayAddress(address, chain) {
+  if (!address) return '';
+  // Use the wallet's actual network; unknown or invalid inputs stay unchanged.
+  if (chain !== '-3' && chain !== '-239') return String(address);
+  try { return formatTonAddress(address, { testnet: chain === '-3' }); }
+  catch { return String(address); }
+}
+
 export const LIVE_READONLY_REASON = '当前真实模式处于只读验收阶段，资金交易与钱包签名入口暂未开放（支持连接钱包与只读查询）。';
 
 function getLiveReadonlyReason() {
@@ -43,6 +51,54 @@ function getLiveReadonlyReason() {
     'Live mode is currently read-only; wallet connection and queries work, while on-chain fund signing is disabled.'
   );
 }
+
+const PRODUCTION_BOT_HANDLE = 'A9_TonBot';
+
+/** 归一化 Telegram Bot 句柄；非法输入返回空串。 */
+function normalizeBotHandle(raw) {
+  const s = String(raw || '').replace(/^@+/, '').trim();
+  return /^[A-Za-z0-9_]{5,64}$/.test(s) ? s : '';
+}
+
+function isProductionBotHandle(raw) {
+  return normalizeBotHandle(raw).toLowerCase() === PRODUCTION_BOT_HANDLE.toLowerCase();
+}
+
+/**
+ * 钱包回跳（twaReturnUrl）使用的 Bot 句柄：
+ * - 依次尝试受信任部署配置注入的句柄、服务端 /api/config 下发的句柄；
+ * - 测试网一律拒绝归一化后大小写不敏感的正式 Bot 句柄（无论来自注入还是服务端），
+ *   也不允许在缺少有效句柄时回落到正式 Bot；主网保留既有默认行为。
+ */
+function resolveReturnBotHandle() {
+  const sources = [
+    window.__A9_CONFIG__?.botHandle || window.__A9_CONFIG__?.tgBotHandle,
+    store.state.round?.protocolConfig?.botHandle || store.state.round?.protocolConfig?.tgBotHandle,
+  ];
+  for (const source of sources) {
+    const handle = normalizeBotHandle(source);
+    if (!handle) continue;
+    if (config.network === 'testnet' && isProductionBotHandle(handle)) continue;
+    return handle;
+  }
+  return config.network === 'testnet' ? '' : PRODUCTION_BOT_HANDLE;
+}
+
+/**
+ * 钱包确认后的回跳入口：
+ * - 必须带 startapp=tonconnect 才会打开 Bot 的 Main Mini App；裸 https://t.me/<bot>
+ *   只会落回 Bot 聊天页（真机验收 F-01）。
+ * - 返回 null 表示当前网络没有可信入口（测试网缺句柄 / 句柄非法），调用方必须显式失败，
+ *   绝不静默回落到正式 Bot。
+ */
+function resolveReturnEntry() {
+  const handle = resolveReturnBotHandle();
+  if (!handle) return null;
+  return { handle, url: `https://t.me/${handle}?startapp=tonconnect` };
+}
+
+/** 钱包 App 回跳时 Telegram 透传的 start_param：保留旧有裸 tonconnect，兼容 tonconnect-… / tonconnect_… / tc_ret。 */
+const RETURN_START_PARAM_RE = /^(?:tonconnect(?:[-_]|$)|tc_ret(?:_|$))/i;
 
 function createFundsDisabledError(reason = null) {
   const err = new Error(reason || getLiveReadonlyReason());
@@ -59,6 +115,8 @@ class A9TonConnect {
     this._proofPayload = null;
     this._proofExpiresAtSec = 0;
     this._proofPurpose = 'bind';
+    this.returnEntry = null;
+    this.returnEntryError = null;
   }
 
   syncTheme(mode) {
@@ -82,6 +140,17 @@ class A9TonConnect {
   }
 
   /**
+   * 钱包确认回跳入口守卫：测试网缺句柄/句柄非法时阻断唤起钱包，
+   * 避免确认后落在 Bot 聊天页或误入正式 Bot。
+   */
+  assertReturnEntryReady() {
+    if (config.isDemo || this.returnEntry) return true;
+    const err = new Error(L('测试网钱包回跳入口未配置：请为测试 Bot 配置 Main Mini App 或注入有效 botHandle 后重试', 'Testnet wallet return entry is not configured; configure the test bot Main Mini App or inject a valid botHandle and retry'));
+    err.code = 'WALLET_RETURN_ENTRY_MISSING';
+    throw err;
+  }
+
+  /**
    * 实盘签名前前置守卫：校验实盘总闸、连接态、钱包网络（防错链签名）以及 Telegram 内归属验签与绑定一致性。
    */
   assertWalletReadyForLiveTx() {
@@ -102,23 +171,27 @@ class A9TonConnect {
     }
     const expectedChain = this.getExpectedChainId();
     const walletChain = String(this.ui?.wallet?.account?.chain || u.walletChain || '').trim();
-    if (expectedChain && walletChain && walletChain !== expectedChain) {
-      const wantLabel = expectedChain === '-239' ? L('TON 主网 (-239)', 'TON Mainnet (-239)') : L('TON 测试网 (-3)', 'TON Testnet (-3)');
-      const err = new Error(L(`当前钱包网络 (${walletChain}) 与协议网络不匹配，请切换至 ${wantLabel} 后重试`, `Wallet network (${walletChain}) mismatches protocol; switch to ${wantLabel} and retry`));
+    if (!expectedChain || !walletChain || walletChain !== expectedChain) {
+      const wantLabel = expectedChain === '-239'
+        ? L('TON 主网 (-239)', 'TON Mainnet (-239)')
+        : expectedChain === '-3'
+          ? L('TON 测试网 (-3)', 'TON Testnet (-3)')
+          : L('已配置协议网络', 'configured protocol network');
+      const gotLabel = walletChain || L('未知网络', 'unknown');
+      const err = new Error(L(`当前钱包网络 (${gotLabel}) 与协议网络不匹配，请切换至 ${wantLabel} 后重试`, `Wallet network (${gotLabel}) mismatches protocol; switch to ${wantLabel} and retry`));
       err.code = 'WRONG_WALLET_NETWORK';
       throw err;
     }
-    if (proofFlowEnabled()) {
-      if (u.walletVerificationState === 'unverified') {
-        const err = new Error(L('当前钱包尚未完成 Telegram 归属签名校验，请断开后重连钱包完成验签', 'Wallet ownership proof not verified; disconnect and reconnect to sign'));
-        err.code = 'WALLET_NOT_VERIFIED';
-        throw err;
-      }
-      if (u.serverBoundWallet && canonicalWalletKey(u.address) !== canonicalWalletKey(u.serverBoundWallet)) {
-        const err = new Error(L('当前连接的钱包与账号已绑定钱包不一致，已拦截签名以防资金错付', 'Connected wallet differs from your bound account wallet; signing blocked for safety'));
-        err.code = 'WALLET_MISMATCH';
-        throw err;
-      }
+    const tonProofStatus = u.walletVerificationState;
+    if (!TMA.getRawInitData() || (tonProofStatus !== 'fresh_proof' && tonProofStatus !== 'restored_binding')) {
+      const err = new Error(L('当前钱包尚未在 Telegram 小程序内完成归属签名校验，请断开后重连钱包完成验签', 'Wallet ownership proof not verified inside Telegram Mini App; disconnect and reconnect to sign'));
+      err.code = 'WALLET_NOT_VERIFIED';
+      throw err;
+    }
+    if (u.serverBoundWallet && canonicalWalletKey(u.address) !== canonicalWalletKey(u.serverBoundWallet)) {
+      const err = new Error(L('当前连接的钱包与账号已绑定钱包不一致，已拦截签名以防资金错付', 'Connected wallet differs from your bound account wallet; signing blocked for safety'));
+      err.code = 'WALLET_MISMATCH';
+      throw err;
     }
     return true;
   }
@@ -148,7 +221,11 @@ class A9TonConnect {
     let session = false;
     try { session = Boolean(localStorage.getItem('ton-connect-storage_bridge-connection')); } catch {}
     const startParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param || new URLSearchParams(window.location.search).get('startapp');
-    if (session || /^(?:tonconnect|tc_ret)(?:_|$)/i.test(startParam || '') || /[?&#](?:tonconnect|tc|tc_ret|ret|tonConnectReturn)(?:=|&|$)/i.test(window.location.href)) {
+    if (
+      session ||
+      RETURN_START_PARAM_RE.test(startParam || '') ||
+      /[?&#](?:tgWebAppStartParam=)?(?:tonconnect|tc|tc_ret|ret|tonConnectReturn)(?:[-_=]|&|$)/i.test(window.location.href)
+    ) {
       void this.ensureSdk();
     }
   }
@@ -159,11 +236,17 @@ class A9TonConnect {
       if (globalSDK && globalSDK.TonConnectUI) {
         const manifestUrl = new URL('/tonconnect-manifest.json', window.location.origin).href;
         const isDark = document.documentElement.dataset.theme === 'dark';
-        const botHandle = String(window.__A9_CONFIG__?.botHandle || 'A9_TonBot').replace(/^@/, '').trim() || 'A9_TonBot';
+        const returnEntry = resolveReturnEntry();
+        this.returnEntry = returnEntry;
+        this.returnEntryError = returnEntry ? null : 'WALLET_RETURN_ENTRY_MISSING';
         this.ui = new globalSDK.TonConnectUI({
           manifestUrl,
           uiPreferences: { theme: isDark ? 'DARK' : 'LIGHT' },
-          actionsConfiguration: { twaReturnUrl: `https://t.me/${botHandle}` },
+          // 无有效入口时显式 returnStrategy=none（确认后留在钱包、由用户手动返回），
+          // 绝不回落到正式 Bot 或裸 Bot 聊天页。
+          actionsConfiguration: returnEntry
+            ? { twaReturnUrl: returnEntry.url }
+            : { returnStrategy: 'none' },
         });
         this.sdkReady = true;
 
@@ -171,7 +254,8 @@ class A9TonConnect {
           if (wallet?.account?.address) {
             const addr = wallet.account.address;
             const chain = wallet.account.chain ? String(wallet.account.chain) : null;
-            const short = `${addr.slice(0, 4)}...${addr.slice(-4)}`;
+            const displayAddress = walletDisplayAddress(addr, chain);
+            const short = `${displayAddress.slice(0, 6)}...${displayAddress.slice(-6)}`;
             store.update(s => {
               s.user.connected = true;
               s.user.address = addr;
@@ -329,6 +413,10 @@ class A9TonConnect {
     this._onChanged = onChanged || null;
     const { user } = store.state;
     const canSandbox = config.isDemo;
+    const displayAddress = walletDisplayAddress(user.address, user.walletChain);
+    const networkLabel = user.walletChain === '-3'
+      ? L('TON 测试网', 'TON Testnet')
+      : user.walletChain === '-239' ? L('TON 主网', 'TON Mainnet') : L('网络待确认', 'Network unconfirmed');
 
     const verifyChip = !user.connected
       ? ''
@@ -351,9 +439,10 @@ class A9TonConnect {
         </div>
         ${!canSandbox && user.connected ? `<div class="row-between" style="margin-top:6px;"><span class="caps text-muted">OWNERSHIP PROOF</span>${verifyChip}</div>` : ''}
         <div class="row-between" style="margin-top:6px;gap:8px;">
-          <div class="num-sm text-cyan" style="word-break:break-all;">${user.connected ? escapeHtml(user.address) : L('尚未连接非托管 TON 钱包', 'No non-custodial TON wallet connected')}</div>
+          <div class="num-sm text-cyan" style="word-break:break-all;">${user.connected ? escapeHtml(displayAddress) : L('尚未连接非托管 TON 钱包', 'No non-custodial TON wallet connected')}</div>
           ${user.connected ? `<button class="pill-trigger neutral" id="tc-copy-wallet" type="button" style="flex-shrink:0;">${icon('copy', 11)} ${L('复制', 'Copy')}</button>` : ''}
         </div>
+        ${!canSandbox && user.connected ? `<div class="num-xs text-muted" style="margin-top:6px;">${escapeHtml(networkLabel)} · ${L('地址与钱包一致，仅显示格式转换', 'Wallet address in standard display format')}</div>` : ''}
         ${!canSandbox && user.pendingSwitch ? `<div class="num-xs text-gold" style="margin-top:6px;">${L(`待生效换绑：将于 ${new Date(Number(user.pendingSwitch.effectiveAt) * 1000).toLocaleString()} 生效；可使用原钱包重签取消。`, `Pending rebind effective at ${new Date(Number(user.pendingSwitch.effectiveAt) * 1000).toLocaleString()}; re-sign with original wallet to cancel.`)}</div>` : ''}
         ${!this.sdkReady ? `<div class="num-xs text-muted" style="margin-top:6px;">${escapeHtml(this.lastError || L('连接时加载钱包', 'Wallet loads on connect'))}</div>` : ''}
         ${canSandbox
@@ -379,13 +468,20 @@ class A9TonConnect {
     document.getElementById('tc-close').onclick = () => { A9Haptic.light(); closeModal(); };
     const copyWalletBtn = document.getElementById('tc-copy-wallet');
     if (copyWalletBtn && user.address) {
-      copyWalletBtn.onclick = () => copyText(user.address, L('已复制钱包地址', 'Wallet address copied'));
+      copyWalletBtn.onclick = () => copyText(displayAddress, L('已复制钱包地址', 'Wallet address copied'));
     }
 
     const launchWithProof = async (purpose = 'bind') => {
       closeModal();
       if (!canSandbox) await this.ensureSdk();
       if (this.sdkReady && this.ui) {
+        try {
+          this.assertReturnEntryReady();
+        } catch (e) {
+          this.lastError = e?.message || L('钱包回跳入口未配置', 'Wallet return entry is not configured');
+          showToast(this.lastError, 'error');
+          return;
+        }
         try {
           if (proofFlowEnabled()) {
             if (purpose !== 'bind' && this.ui.connected) {

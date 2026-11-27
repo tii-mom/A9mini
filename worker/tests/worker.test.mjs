@@ -3023,4 +3023,131 @@ await test('Batch B: claim preview, payout-daemon budget/rebind, Masterchain & p
   assert.equal(Number(storedCandles.results[1].qualified), 1);
 });
 
+await test('W2-11: deterministic broadcast failure degrades daemon heartbeat, and hot-wallet A9/GRAM low-watermark blocks new intents (503 HOT_WALLET_LOW_INVENTORY)', async () => {
+  const { createPayoutDaemon } = await import('../src/payout-daemon.mjs');
+  const { D1IdentityStore } = await import('../src/auth.mjs');
+  const { D1PromoStore } = await import('../src/d1-promo-store.mjs');
+  const { D1PresaleStore } = await import('../src/d1-growth-store.mjs');
+  const db = createSqliteD1(MIGRATIONS);
+  const PROMO_HOT = '0:' + 'a1'.repeat(32);
+  const PRESALE_HOT = '0:' + 'b2'.repeat(32);
+  const MASTER = '0:' + 'c3'.repeat(32);
+  const USER = '0:' + 'd4'.repeat(32);
+
+  let presaleA9Raw = '10000000000000'; // 10,000 A9 (enough for Bronze max 2,500 A9, NOT enough for Legendary max 1,833,334 A9)
+  let promoA9Raw = '100000000000'; // 100 A9 (< 200 A9 floor!)
+  let promoGramNano = '5000000000'; // 5 GRAM
+  let presaleGramNano = '5000000000'; // 5 GRAM
+
+  const promoStore = new D1PromoStore({ db, hotWalletAddress: PROMO_HOT });
+  await promoStore.creditReward(USER, '500000000000', 1000); // 500 A9 claimable
+  const claim = await promoStore.createClaimIntent(USER, 1001);
+  await promoStore.verifyInboundFeeTx(
+    { txHash: 'fee_low_1', finality: 'finalized', to: PROMO_HOT, from: USER, valueNano: '60000000', memo: claim.memo, utime: 1002 },
+    1003,
+  );
+
+  const mockTc = {
+    async fetchInboundTransfersSince() {
+      return { transfers: [], nextCursor: null, reachedCursor: true, truncated: false };
+    },
+    async verifyOutboundPayout() {
+      return { state: 'PENDING' };
+    },
+    async fetchAccountBalanceNano(addr) {
+      return BigInt(addr === PRESALE_HOT ? presaleGramNano : promoGramNano);
+    },
+    async fetchUserJettonWallet(_master, addr) {
+      return {
+        jettonWallet: '0:' + 'e5'.repeat(32),
+        a9BalanceRaw: addr === PRESALE_HOT ? presaleA9Raw : promoA9Raw,
+        balanceAvailable: true,
+      };
+    },
+  };
+
+  const daemon = createPayoutDaemon({
+    db,
+    env: {
+      A9_NETWORK: 'testnet',
+      A9_SQLITE_PATH: ':memory:',
+      TONCENTER_API_BASE: 'https://mock',
+      A9_JETTON_MASTER_ADDRESS: MASTER,
+      A9_PROMO_HOT_WALLET_ADDRESS: PROMO_HOT,
+      A9_PRESALE_HOT_WALLET_ADDRESS: PRESALE_HOT,
+      A9_PROMO_HOT_WALLET_NAME: 'promoHot',
+      A9_PRESALE_HOT_WALLET_NAME: 'presaleHot',
+      OPS_EXECUTE: '1',
+      OPS_CONFIRM: 'YES',
+      A9_RUNNER_ID: 'daemon-inv-1',
+    },
+    executeFlag: true,
+    tonCenter: mockTc,
+    promoBroadcaster: async () => {
+      throw new Error('acton script failed: insufficient hot wallet A9 inventory (100000000000 < 500000000000)');
+    },
+    presaleA9Broadcaster: async () => ({ txHash: '0xok' }),
+    presaleRefundBroadcaster: async () => ({ txHash: '0xref' }),
+    logger: { log() {}, error() {} },
+  });
+
+  // 1) Deterministic broadcaster inventory error + low promo watermark -> heartbeat status === 'degraded'
+  const out1 = await daemon.runOnce(1010);
+  assert.equal(out1.promo.errors.length, 1);
+  const hb1 = JSON.parse((await db.prepare('SELECT meta_json FROM runner_heartbeats WHERE runner_id = ?').bind('daemon-inv-1').first()).meta_json);
+  assert.equal(hb1.status, 'degraded');
+  assert.equal(hb1.inventory.promo.ok, false);
+  assert.equal(hb1.inventory.presale.ok, true);
+
+  const ids = new D1IdentityStore({ db });
+  await ids.bindVerifiedWallet('30001', USER, 1000);
+  const router = createApiRouter({
+    env: {
+      A9_NETWORK: 'testnet',
+      A9_BOT_TOKEN: TEST_BOT_TOKEN,
+      A9_PRESALE_OPEN: '1',
+      A9_REQUIRE_RUNNER_HEARTBEAT: '1',
+    },
+    stateStore: { getTiming: () => ({}), getProtocolState: () => ({ dataAvailable: true, currentRoundId: 1 }), listRounds: () => [], getRound: () => null },
+    presaleEngine: new D1PresaleStore({ db, hotWalletAddress: PRESALE_HOT, open: true }),
+    promoEngine: promoStore,
+    identityStore: ids,
+    runnerHeartbeatReader: async () => (await db.prepare('SELECT runner_id, role, network, last_seen_at, meta_json FROM runner_heartbeats').all()).results || [],
+  });
+  const hdrs = await tgHeaders('30001', { authDate: 1015 });
+
+  // Degraded promo inventory blocks POST /api/promo/intent with 503 HOT_WALLET_LOW_INVENTORY
+  await promoStore.creditReward(USER, '300000000000', 1012);
+  const rejPromo = await router({ method: 'POST', pathname: '/api/promo/intent', headers: hdrs, body: {}, nowSec: 1015 });
+  assert.equal(rejPromo.status, 503);
+  assert.equal(rejPromo.body.error.code, 'HOT_WALLET_LOW_INVENTORY');
+
+  // 2) Top up promo to 5,000 A9 so daemon becomes status='ok', while presale stays at 10,000 A9:
+  // Bronze chest (max 2,500 A9 <= 10,000 A9) succeeds, Legendary chest (max 1,833,334 A9 > 10,000 A9) blocks with 503 HOT_WALLET_LOW_INVENTORY!
+  promoA9Raw = '5000000000000';
+  daemon.promoRunner.broadcaster = async () => ({ txHash: '0xpromo_recovered' });
+  await daemon.runOnce(1020);
+  const hb2 = JSON.parse((await db.prepare('SELECT meta_json FROM runner_heartbeats WHERE runner_id = ?').bind('daemon-inv-1').first()).meta_json);
+  assert.equal(hb2.status, 'ok');
+
+  const rejLegendary = await router({
+    method: 'POST',
+    pathname: '/api/presale/intent',
+    headers: hdrs,
+    body: { skuId: 'chest_legendary', openMode: 'BOOST' },
+    nowSec: 1022,
+  });
+  assert.equal(rejLegendary.status, 503);
+  assert.equal(rejLegendary.body.error.code, 'HOT_WALLET_LOW_INVENTORY');
+
+  const okBronze = await router({
+    method: 'POST',
+    pathname: '/api/presale/intent',
+    headers: hdrs,
+    body: { skuId: 'chest_bronze', openMode: 'BOOST' },
+    nowSec: 1022,
+  });
+  assert.equal(okBronze.status, 200);
+});
+
 console.log(`All ${passed} A9 v15 worker tests passed.`);

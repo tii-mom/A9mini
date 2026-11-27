@@ -11,23 +11,23 @@
 | 1 | 正式域名 | 前端域名（如 `https://app.<domain>`）与 API 域名（如 `https://api.<domain>`） | Cloudflare DNS 接入正式域名并开启 HTTPS 代理 |
 | 2 | 正式 Telegram Bot | `A9_BOT_TOKEN`（Secret）、`A9_TG_WEBHOOK_SECRET`（Secret，>=16位）与 `A9_TG_BOT_HANDLE`（不含 `@`） | `@BotFather` 执行 `/newbot` 与 `/newapp` 绑定前端域名；`openssl rand -hex 24` 生成 Webhook Secret |
 | 3 | 主网 TonCenter Key | `TONCENTER_API_KEY`（Worker Secret）与 `TONCENTER_MAINNET_API_KEY`（Acton 1.1.0 主网 Key，建议 >= 10 RPS） | `@tonapibot` 或 toncenter.com 申请 Mainnet Key（CLI 会自动从 `TONCENTER_API_KEY` 映射） |
-| 4 | 6 个独立主网钱包 | `deployer`、`treasury`、`opener`、`keeper`（强建议与 `opener` 物理分离且 `keeper` 使用硬件/多签）、`presaleHotWallet`、`promoHotWallet`（**严禁复用或混用**） | 本机执行 `acton wallet new --name <NAME> --version v4r2` 或 `acton wallet import`；助记词离线冷备 |
+| 4 | 主网钱包（7 个角色 / 当前锁定包 6 个独立 W5 地址） | 链上 5 角色（`deployer`、`treasury`、`keeper`、`roundOpener`、`teamWallet`）+ 波次 2 双独立热钱包（`presaleHotWallet`、`promoHotWallet`，严禁复用或混用）。当前锁定部署包 `ops/deploy-console/bundle-mainnet-v17.0.json` 中 `keeper` 与 `roundOpener` 合用同一地址（`UQA1vS1TvBUBEr0jTEBDbexKsDIL_74tOfleC08UmU32dLOI`），**角色合设仍需业主书面确认，不得自行更换地址或重新生成主网钱包** | 主网统一按 **W5 (`v5r1`, `chain = -239`)** 实际地址与 `signer-manifest.json`（含公开 `StateInit`）核验；波次 1B 支持外部手机/硬件 W5 扫码控制台（`ops/deploy-console/server.mjs`）或本机独立 `v5r1` 签名来源；不再以 `v4r2` 生成示例作为默认上线流程；助记词离线冷备 |
 | 5 | 团队多签/硬件地址 | `A9_TEAM_WALLET_ADDRESS`（主网部署 `RoundController` 时永久固化） | 硬件钱包或 TON Multisig 主网地址 |
 | 6 | 管理与 D1 Token | `A9_ADMIN_TOKEN`（Secret）与 `CLOUDFLARE_API_TOKEN`（仅 `Account: D1: Edit` 权限） | `openssl rand -hex 32` 与 Cloudflare Dashboard API Tokens |
 | 7 | 代币元数据 JSON | `A9_METADATA_URI`（如 `https://app.a9.lat/a9.json`） | 上传符合 TEP-64 的 `a9.json`（精度 9、名称、Logo）至正式前端静态域 |
 
-建议主网启动 GRAM 储备：
+建议主网启动 GRAM 储备（余额仅通过只读查询核对，严禁自动充值或跨钱包调拨）：
 - `deployer`：`>= 5 GRAM`（部署合约 Gas）
 - `treasury`：`>= 3 GRAM`（`10,000,000,000 A9` 一次铸造弃权 + `8,200,000,000 A9` 注资 RoundController）
-- `keeper` / `roundOpener`：`>= 3 GRAM`
+- `keeper` / `roundOpener`（当前合用地址）：`>= 3 GRAM`
 - `presaleHotWallet`：`>= 5 GRAM`（A9 发币与被动退款 Gas 垫底）
 - `promoHotWallet`：`>= 3 GRAM`（启动储备，用户每次 0.06 GRAM 找零持续净增）
 
 ---
 
-## 1. 波次 1：拆分执行（波次 1A 前端/基础设施只读上线 → 波次 1B 主网铸币与 8,200,000,000 A9 注资）
+## 1. 波次 1：分阶段独立授权执行（波次 1A 生产只读基础设施 → 波次 1B 不可逆合约部署、铸币弃权与注资 → 波次 1C 地址回填与只读 Worker）
 
-**拆分原则**：严禁将“前端静态站只读上线”与“主网不可逆铸币弃权 / 8,200,000,000 A9 注资”捆绑在同一步。先在**零主网铸币、零资金暴露**前提下完成前端静态站、域名、Bot 与 D1 只读链路验收（波次 1A），再经业主单独书面授权执行主网 4 合约部署、铸币弃权与 8,200,000,000 A9 注资（波次 1B，仍不开轮）。
+**分阶段独立授权原则**：主网上线严格划分为 **波次 1A（生产只读基础设施）→ 波次 1B（不可逆合约部署、铸币弃权与注资）→ 波次 1C（地址回填与只读 Worker）→ 波次 2（商城与推广）→ 波次 3（闯关开轮）**，**每个阶段均须获得业主单独书面授权**，严禁将多阶段捆绑执行。先在**零主网铸币、零资金暴露**前提下完成前端静态站、域名、Bot 与 D1 只读链路验收（波次 1A），再经业主单独书面授权执行主网 4 合约部署、铸币弃权与 8,200,000,000 A9 注资（波次 1B，仍不开轮），随后单独授权回填合约地址并部署只读 Worker（波次 1C）。
 
 ### 1A. 前端静态站只读上线与生产基础设施预演（零链上铸币/注资）
 > **生产写操作红线**：本步中的**远程生产 D1 迁移（`--remote`）**与**生产 Worker Secrets 注入（`wrangler secret put`）**均直接写入生产 Cloudflare 环境，**必须由业主单独书面授权后方可执行**；未获单独授权前仅可进行本地只读预演与静态资产核对。
@@ -35,8 +35,10 @@
 1. **发布静态前端与元数据（含官网分域对齐）**：若独立官网（`a9-official-web/`）占根域 `https://a9.lat`，推荐 Mini App 部署至 `https://app.a9.lat` 并同步更新 `tonconnect-manifest.json` 的 `url`、`A9_PUBLIC_ORIGIN` 与 `A9_TON_PROOF_DOMAINS`，同时确保根域或静态域上的 `a9.json`、`tonconnect-manifest.json` 与 `assets/token/a9-token-2048.png` 返回 `HTTP 200` 且带 `Access-Control-Allow-Origin: *`（`a9-mini-app/_headers` 已内置）；确认 `window.__A9_CONFIG__.liveFundsEnabled = false`；
 2. **生产 D1 迁移（0001..0015，写生产库 · 须单独授权）**：
 ```bash
-cd /Users/yu1/Desktop/A9mini/worker
-npx wrangler d1 migrations apply a9mini-v15-prod --remote --env production
+# 在从已验收提交导出的波次 1A 专用目录执行，只含 wrangler.toml 和 migrations/0001..0015。
+# 只读复核。实际待执行清单须与业主授权逐文件一致。
+wrangler d1 migrations list a9mini-v15-prod --remote --env production
+# 生产备份已验证且取得该清单的独立书面授权后，才在同一专用目录执行 apply。
 ```
    验收项：先备份存量库再按序执行 15 份迁移（含 `0011_warmup_reservations_v2.sql`、`0012_actuarial_hardening.sql`、`0013_user_notification_prefs.sql`、`0014_v17_price_unlock.sql` 与 `0015_v17_1_chest_direct_payout.sql`），确认 `promo_budget_ledger`（550,000,000 A9 6 槽位）、`stake_referral_credits`、`round_jackpot_draws`、`captain_founding_bonuses` 唯一索引、`user_notification_prefs` 及所有表索引就绪、`PRAGMA integrity_check = ok`。
 3. **注入生产 Worker Secrets（写生产环境 · 须单独授权，严禁写入 wrangler.toml）**：
@@ -162,8 +164,10 @@ OPS_EXECUTE=1 OPS_CONFIRM=YES node scripts/setup-tg-bot.mjs --execute \
 
 ## 3. 波次 3：开启 `v17` 主网阶段 C 闯关锁仓
 
-**前置门禁**：
-- STON.fi 主网 A9/GRAM 初始流动性池已建立并产生稳定 24H TWAP 行情；
+**前置门禁与波次 3 技术待办（完成并独立验收前严禁开启波次 3）**：
+- **波次 3 技术待办 1 — 主网返佣/空投终局核验服务**：在链上终局、实际通关奖金、真实参与者与随机种子证据核验服务完成并独立验收前，主网 `POST /api/admin/v17/stake-referral/settle` 与 `POST /api/admin/v17/airdrop/draw` 代码级保持 `503 V17_CHAIN_SETTLEMENT_UNAVAILABLE`；
+- **波次 3 技术待办 2 — 正式行情采集与轮次结算链路**：STON.fi 主网 A9/GRAM 初始流动性池建立后，完成 12 根 1H K 线采集、时间对齐与异常（缺段/重复/陈旧价格）自动化验证，主网严禁手工达标数旁路；
+- **波次 3 技术待办 3 — 外部 W5 运维签名通道与角色合设确认**：若主网 `keeper` / `roundOpener` 不放在本机 `wallets.toml` 而由外部手机/硬件 W5 签名，须在开轮前补充外部 W5 轮次签名通道；同时须获业主书面确认接受 `bundle-mainnet-v17.0.json` 中 `keeper` / `roundOpener` 合用同一地址的现状；
 - 再次核对 `RoundController` JettonWallet 余额精确为 `8,200,000,000 A9` 且 `teamWallet` 为正确多签/硬件地址；
 
 ### 3.1 轮次日常运维（主网强制严格 12 根 1H K 线对齐）

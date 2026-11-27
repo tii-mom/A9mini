@@ -273,6 +273,18 @@ export async function verifyTonProof({
   let keySource = '';
 
   if (init.walletKind === 'standard') {
+    if (init.version === 'v5r1') {
+      if (init.isSignatureAllowed !== true) {
+        throw new AuthError('PROOF_SIGNATURE_DISABLED', 'v5r1 wallet has public-key signature authentication disabled', 400);
+      }
+      if (!init.chainId || String(init.chainId) !== String(expectedNetwork)) {
+        throw new AuthError(
+          'PROOF_WRONG_NETWORK',
+          `v5r1 walletStateInit wallet_id belongs to ${init.chainId || 'unsupported network'}, expected ${expectedNetwork}`,
+          400,
+        );
+      }
+    }
     const initKey = init.publicKeyHex;
     let chainKey = null;
     if (typeof chainPublicKeyResolver === 'function') {

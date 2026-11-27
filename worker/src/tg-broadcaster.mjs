@@ -187,9 +187,9 @@ export class TelegramBroadcaster {
     }
   }
 
-  async _sendTelegram({ chatId, text, photoUrl = null, buttonText = null, buttonUrl = null, replyToMessageId = null }) {
+  async _sendTelegram({ chatId, text, photoUrl = null, buttonText = null, buttonUrl = null, replyToMessageId = null, inlineKeyboard = null }) {
     const base = `https://api.telegram.org/bot${this.botToken}`;
-    const replyMarkup = buttonText && buttonUrl
+    const replyMarkup = inlineKeyboard ? { inline_keyboard: inlineKeyboard } : buttonText && buttonUrl
       ? { inline_keyboard: [[{ text: buttonText, url: buttonUrl }]] }
       : undefined;
 
@@ -730,7 +730,7 @@ export class TelegramBroadcaster {
   }
 
   /** Bot Webhook 命令即时回复（不受群主动广播总开关 A9_BROADCAST_ENABLED=1 阻断） */
-  async sendBotReply({ chatId, text, photoUrl = null, buttonText = null, buttonUrl = null, replyToMessageId = null }) {
+  async sendBotReply({ chatId, text, photoUrl = null, buttonText = null, buttonUrl = null, replyToMessageId = null, inlineKeyboard = null }) {
     if (!this.botToken || typeof this.fetchImpl !== 'function') {
       return { sent: false, reason: 'BOT_NOT_CONFIGURED' };
     }
@@ -746,6 +746,7 @@ export class TelegramBroadcaster {
         photoUrl,
         buttonText,
         buttonUrl,
+        inlineKeyboard,
         replyToMessageId,
       });
       return { sent: true };

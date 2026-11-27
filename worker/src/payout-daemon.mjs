@@ -288,8 +288,110 @@ export function createPayoutDaemon({
     lastError: null,
   };
 
+  async function probeHotWalletInventory(nowSec) {
+    const shouldProbe = (cfg.executeLive || env.A9_CHECK_HOT_WALLET_INVENTORY === '1')
+      && Boolean(cfg.jettonMasterAddress)
+      && typeof tc?.fetchAccountBalanceNano === 'function'
+      && typeof tc?.fetchUserJettonWallet === 'function';
+    if (!shouldProbe) return null;
+
+    const minGramNano = BigInt(env.A9_HOT_WALLET_MIN_GRAM_NANO || '100000000'); // 0.10 GRAM gas floor
+    const minPresaleA9Raw = BigInt(env.A9_PRESALE_MIN_A9_RAW || '2500000000000'); // 2,500 A9 (1 Bronze max payout)
+    const minPromoA9Raw = BigInt(env.A9_PROMO_MIN_A9_RAW || '200000000000'); // 200 A9 floor
+
+    const sumBigInt = (rows, col) => {
+      let acc = 0n;
+      for (const r of rows || []) {
+        const v = String(r?.[col] ?? '0').trim();
+        if (/^\d+$/.test(v)) acc += BigInt(v);
+      }
+      return acc;
+    };
+
+    const inventory = {};
+
+    if (cfg.presaleAddr) {
+      try {
+        let reservedA9 = 0n;
+        let reservedGram = 0n;
+        try {
+          const pRows = (await ledger.prepare("SELECT kind, amount FROM presale_payouts WHERE status IN ('PENDING', 'RETRY')").all())?.results || [];
+          for (const r of pRows) {
+            const amt = /^\d+$/.test(String(r.amount || '')) ? BigInt(r.amount) : 0n;
+            if (r.kind === 'A9') reservedA9 += amt;
+            else if (r.kind === 'REFUND') reservedGram += amt;
+          }
+          const oRows = (await ledger.prepare("SELECT a9_amount_raw, status, expires_at FROM presale_orders WHERE status IN ('PENDING_PAYMENT', 'PAYMENT_CONFIRMED')").all())?.results || [];
+          for (const o of oRows) {
+            if (o.status === 'PENDING_PAYMENT' && Number(o.expires_at || 0) > 0 && Number(o.expires_at) < nowSec) continue;
+            const base = /^\d+$/.test(String(o.a9_amount_raw || '')) ? BigInt(o.a9_amount_raw) : 0n;
+            reservedA9 += (base * 16667n + 9999n) / 10000n;
+          }
+        } catch (dbErr) {
+          if (!/no such table/i.test(String(dbErr?.message || dbErr))) throw dbErr;
+        }
+        const gramNano = await tc.fetchAccountBalanceNano(cfg.presaleAddr);
+        const jw = await tc.fetchUserJettonWallet(cfg.jettonMasterAddress, cfg.presaleAddr);
+        if (!jw?.balanceAvailable || jw.a9BalanceRaw === null) {
+          throw new Error('presale hot wallet A9 balance unavailable');
+        }
+        const a9Raw = BigInt(jw.a9BalanceRaw);
+        const gramAvailableNano = gramNano > reservedGram ? gramNano - reservedGram : 0n;
+        const a9AvailableRaw = a9Raw > reservedA9 ? a9Raw - reservedA9 : 0n;
+        const ok = gramAvailableNano >= minGramNano && a9AvailableRaw >= minPresaleA9Raw;
+        inventory.presale = {
+          ok,
+          gramNano: gramNano.toString(),
+          gramAvailableNano: gramAvailableNano.toString(),
+          a9Raw: a9Raw.toString(),
+          a9AvailableRaw: a9AvailableRaw.toString(),
+          reservedA9Raw: reservedA9.toString(),
+          reservedGramNano: reservedGram.toString(),
+          reason: ok ? null : (gramAvailableNano < minGramNano ? 'LOW_GRAM_GAS' : 'LOW_A9_INVENTORY'),
+        };
+      } catch (e) {
+        inventory.presale = { ok: false, gramNano: null, gramAvailableNano: null, a9Raw: null, a9AvailableRaw: null, reason: e?.message || 'INVENTORY_PROBE_FAILED' };
+      }
+    }
+
+    if (cfg.promoAddr) {
+      try {
+        let reservedA9 = 0n;
+        try {
+          const pRows = (await ledger.prepare("SELECT amount_raw FROM promo_payouts WHERE status IN ('PENDING', 'RETRY')").all())?.results || [];
+          reservedA9 += sumBigInt(pRows, 'amount_raw');
+          const cRows = (await ledger.prepare("SELECT amount_raw FROM promo_claims WHERE status = 'PENDING_FEE' AND expires_at >= ?").bind(nowSec).all())?.results || [];
+          reservedA9 += sumBigInt(cRows, 'amount_raw');
+        } catch (dbErr) {
+          if (!/no such table/i.test(String(dbErr?.message || dbErr))) throw dbErr;
+        }
+        const gramNano = await tc.fetchAccountBalanceNano(cfg.promoAddr);
+        const jw = await tc.fetchUserJettonWallet(cfg.jettonMasterAddress, cfg.promoAddr);
+        if (!jw?.balanceAvailable || jw.a9BalanceRaw === null) {
+          throw new Error('promo hot wallet A9 balance unavailable');
+        }
+        const a9Raw = BigInt(jw.a9BalanceRaw);
+        const a9AvailableRaw = a9Raw > reservedA9 ? a9Raw - reservedA9 : 0n;
+        const ok = gramNano >= minGramNano && a9AvailableRaw >= minPromoA9Raw;
+        inventory.promo = {
+          ok,
+          gramNano: gramNano.toString(),
+          gramAvailableNano: gramNano.toString(),
+          a9Raw: a9Raw.toString(),
+          a9AvailableRaw: a9AvailableRaw.toString(),
+          reservedA9Raw: reservedA9.toString(),
+          reason: ok ? null : (gramNano < minGramNano ? 'LOW_GRAM_GAS' : 'LOW_A9_INVENTORY'),
+        };
+      } catch (e) {
+        inventory.promo = { ok: false, gramNano: null, gramAvailableNano: null, a9Raw: null, a9AvailableRaw: null, reason: e?.message || 'INVENTORY_PROBE_FAILED' };
+      }
+    }
+
+    return inventory;
+  }
+
   async function runOnce(nowSec = Math.floor(Date.now() / 1000)) {
-    const out = { nowSec, executeLive: cfg.executeLive, presale: null, promo: null, errors: [] };
+    const out = { nowSec, executeLive: cfg.executeLive, presale: null, promo: null, inventory: null, errors: [] };
     if (presaleRunner) {
       try {
         out.presale = await presaleRunner.tick(nowSec);
@@ -315,6 +417,15 @@ export function createPayoutDaemon({
       && (!promoRunner || out.promo?.skipped === true)
       && (presaleRunner || promoRunner),
     );
+    if (!allSkipped) {
+      out.inventory = await probeHotWalletInventory(nowSec);
+      if (out.inventory?.presale && out.inventory.presale.ok === false) {
+        out.errors.push(`presale_inventory: ${out.inventory.presale.reason}`);
+      }
+      if (out.inventory?.promo && out.inventory.promo.ok === false) {
+        out.errors.push(`promo_inventory: ${out.inventory.promo.reason}`);
+      }
+    }
     const totalErrors = out.errors.length + presaleErrors + promoErrors;
     state.lastTickAt = nowSec;
     state.ticks += 1;
@@ -336,6 +447,7 @@ export function createPayoutDaemon({
           presaleErrors,
           promoErrors,
           lastError: state.lastError,
+          ...(out.inventory ? { inventory: out.inventory } : {}),
         },
       });
     }

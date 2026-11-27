@@ -263,9 +263,29 @@ export async function inspectCodeBocIdentity(codeBoc) {
   return codeIdentity(roots[0]);
 }
 
+export const V5R1_BASE_WALLET_ID = Object.freeze({
+  '-239': 0x7fffff11,
+  '-3': 0x7ffffffd,
+});
+
+/**
+ * Decode a 32-bit W5 (v5r1) wallet_id (`networkGlobalId ^ clientContext` where Basechain v5r1
+ * clientContext = `0x80000000 | subwalletNumber` for subwallet 0..127).
+ * Mainnet (-239 -> 0x7fffff11 ^ subwallet) has bit 7 == 0; Testnet (-3 -> 0x7ffffffd ^ subwallet) has bit 7 == 1.
+ */
+export function decodeV5R1WalletId(walletId) {
+  const wid = Number(walletId) >>> 0;
+  const mainSub = (wid ^ V5R1_BASE_WALLET_ID['-239']) >>> 0;
+  if (mainSub < 128) return { networkGlobalId: -239, chainId: '-239', subwalletNumber: mainSub };
+  const testSub = (wid ^ V5R1_BASE_WALLET_ID['-3']) >>> 0;
+  if (testSub < 128) return { networkGlobalId: -3, chainId: '-3', subwalletNumber: testSub };
+  return { networkGlobalId: null, chainId: null, subwalletNumber: null };
+}
+
 /**
  * Decode a wallet StateInit (base64 BoC).
- * Returns { addressHashHex, codeId, walletKind, version, publicKeyHex }.
+ * Returns { addressHashHex, codeId, walletKind, version, publicKeyHex, ... }.
+ * For v5r1 also returns { isSignatureAllowed, walletId, networkGlobalId, chainId, subwalletNumber }.
  * walletKind: 'standard' | 'wallet_tg' | 'unsupported'
  */
 export async function inspectWalletStateInit(stateInitB64) {
@@ -277,6 +297,25 @@ export async function inspectWalletStateInit(stateInitB64) {
   const known = KNOWN_WALLETS[id] || null;
   if (known) {
     const publicKeyHex = data.readBits(known.keyOffset, 256).toString(16).padStart(64, '0');
+    if (known.version === 'v5r1') {
+      // Ensure trailing extensions_dict Maybe ^Cell bit exists (1 + 32 + 32 + 256 + 1 = 322 bits).
+      data.readBits(known.keyOffset + 256, 1);
+      const isSignatureAllowed = data.readBits(0, 1) === 1n;
+      const walletId = Number(data.readBits(33, 32)) >>> 0;
+      const decodedId = decodeV5R1WalletId(walletId);
+      return {
+        addressHashHex: await root.hashHex(),
+        codeId: id,
+        walletKind: 'standard',
+        version: known.version,
+        publicKeyHex,
+        isSignatureAllowed,
+        walletId,
+        networkGlobalId: decodedId.networkGlobalId,
+        chainId: decodedId.chainId,
+        subwalletNumber: decodedId.subwalletNumber,
+      };
+    }
     return { addressHashHex: await root.hashHex(), codeId: id, walletKind: 'standard', version: known.version, publicKeyHex };
   }
   if (id === WALLET_TG_TRAMPOLINE_HASH) {

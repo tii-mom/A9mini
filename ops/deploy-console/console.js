@@ -30,10 +30,11 @@ function canonKey(addr) {
 
 function fmtA9(rawStr) {
   try {
-    const whole = BigInt(rawStr || '0') / 1_000_000_000n;
+    if (rawStr === null || rawStr === undefined) return '— A9';
+    const whole = BigInt(rawStr) / 1_000_000_000n;
     return `${whole.toLocaleString('en-US')} A9`;
   } catch {
-    return '0 A9';
+    return '— A9';
   }
 }
 
@@ -75,13 +76,13 @@ function render() {
   const c = bundle.contracts;
   const sc = liveStatus?.contracts;
   overallChip.className = liveStatus?.allDone ? 'chip green' : 'chip gold';
-  overallChip.textContent = liveStatus?.allDone ? '全部 5 步已在主网完成并验真' : '等待按顺序签名确认';
+  overallChip.textContent = !liveStatus?.verified ? '状态未核验 · 已禁止签名' : liveStatus.allDone ? '全部 5 步已在主网完成并验真' : '等待按顺序签名确认';
 
   contractsPanel.innerHTML = `
     <div class="box">
       <small>JettonMaster（总供应 100 亿 · 元数据 app.a9.lat/a9.json）</small>
       <strong class="mono">${c.jettonMaster}</strong>
-      <p>状态：<b>${sc?.jettonMaster?.state || '—'}</b> · 已铸：<b>${fmtA9(sc?.jettonMaster?.totalSupplyRaw)}</b> · 弃权：<b>${sc?.jettonMaster?.adminRenounced ? '已永久弃权' : '否'}</b></p>
+      <p>状态：<b>${sc?.jettonMaster?.state || '—'}</b> · 已铸：<b>${fmtA9(sc?.jettonMaster?.totalSupplyRaw)}</b> · 弃权：<b>${sc?.jettonMaster?.adminRenounced === null || sc?.jettonMaster?.adminRenounced === undefined ? '待核验' : sc.jettonMaster.adminRenounced ? '已永久弃权' : '否'}</b></p>
     </div>
     <div class="box">
       <small>RoundController v17.0（涨价解锁 · 头矿 6H 5% 止损 · 14 天逐秒解锁）</small>
@@ -104,7 +105,7 @@ function render() {
     const stState = liveStatus?.steps?.[st.step] || { done: false, unlocked: false };
     const needKey = canonKey(st.signerAddress);
     const walletMatch = Boolean(wKey && wKey === needKey && wChain === '-239');
-    const canSend = !stState.done && stState.unlocked && walletMatch && busyStep === null;
+    const canSend = liveStatus?.verified === true && !stState.done && stState.unlocked && walletMatch && busyStep === null;
 
     let badge = '<span class="chip">等待前置步骤完成</span>';
     if (stState.done) badge = '<span class="chip green">主网已确认完成</span>';
@@ -112,6 +113,7 @@ function render() {
 
     let btnText = `发起第 ${st.step} 步签名（附 ${st.amountGram} GRAM）`;
     if (stState.done) btnText = '已完成（不可重复发送）';
+    else if (!liveStatus?.verified) btnText = '状态读取异常或未核验 · 禁止签名';
     else if (!stState.unlocked) btnText = '前置步骤链上确认后自动解锁';
     else if (!wAddr) btnText = `请先连接 ${st.signerRole === 'deployer' ? '部署钱包' : '金库钱包'}`;
     else if (wChain !== '-239') btnText = '钱包非主网 (-239)，已拦截';
@@ -144,11 +146,16 @@ function render() {
 
 async function sendStep(stepNum) {
   const st = bundle.steps.find((s) => s.step === stepNum);
-  if (!st || !tcUi) return;
+  if (!st || !tcUi || busyStep !== null) return;
   busyStep = stepNum;
   render();
   log(`发起第 ${stepNum} 步 (${st.id}) -> 目标 ${short(st.message.address)}，金额 ${st.amountGram} GRAM，请在手机钱包确认…`);
   try {
+    await refreshStatus(true);
+    const latest = liveStatus?.steps?.[stepNum];
+    if (liveStatus?.verified !== true || !latest?.unlocked || latest.done || !connectedWallet || connectedWallet.account.chain !== '-239' || canonKey(connectedWallet.account.address) !== canonKey(st.signerAddress)) {
+      throw new Error('最新链上状态或签名钱包未通过核验，已拦截');
+    }
     const tx = {
       validUntil: Math.floor(Date.now() / 1000) + 300,
       network: '-239',
@@ -175,8 +182,11 @@ async function refreshStatus(force = false) {
     if (!j.ok) throw new Error(j.error || 'status failed');
     liveStatus = j.data;
     render();
+    if (liveStatus.verified !== true) throw new Error((liveStatus.errors || ['状态未核验']).join(', '));
     log(`主网状态刷新完成：部署钱包 ${liveStatus.wallets.deployer.balanceGram} GRAM，金库钱包 ${liveStatus.wallets.treasury.balanceGram} GRAM。`);
   } catch (e) {
+    liveStatus = null;
+    render();
     log(`主网状态读取失败：${e?.message || e}`);
   }
 }

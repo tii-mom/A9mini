@@ -6,7 +6,8 @@ import { store } from '../store.js';
 import { icon } from '../icons.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
-import { burstParticles, escapeHtml, formatNum, showToast } from '../components.js';
+import { escapeHtml, formatNum, showToast } from '../components.js';
+import { burstParticles } from '../components-heavy.js';
 
 import { tonConnect, canonicalWalletKey } from '../tonconnect.js';
 import { renderNintendoGateIcon } from '../paper-art.js';

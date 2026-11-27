@@ -861,22 +861,23 @@ export class PresaleEngine {
             s.confirmed += 1;
             continue;
           }
-          if (v?.state === 'PENDING') {
+          if (v?.state !== 'FAILED') {
             // 仅当拿到了真实链上 txHash 时才推进到 SENT；若崩溃回写前丢失 txHash 且仍未查到，
             // 绝不把无 hash 记录误标成 SENT（超期后转 NEEDS_REVIEW 人工核对）。
-            const resolvedHash = v.txHash || p.txHash || null;
+            const resolvedHash = v?.state === 'PENDING' ? (v.txHash || p.txHash || null) : null;
             if (resolvedHash) {
               await this.repo.markPayoutSent(p.payoutId, p.kind, p.orderId, p.inboundTxHash, resolvedHash, nowSec);
               s.waiting += 1;
             } else if (age > UNCONFIRMED_REVIEW_SEC) {
-              await this._needsReview(p, 'uncertain broadcast unconfirmed past review threshold without txHash', nowSec);
+              await this._needsReview(p, 'uncertain broadcast requires reconciliation; absence from index is not proof of non-delivery', nowSec);
               s.review += 1;
             } else {
               s.waiting += 1;
             }
             continue;
           }
-          // NOT_FOUND / FAILED -> safe to retry as a fresh attempt.
+          // Only an explicit terminal failure permits an automatic retry.
+          // NOT_FOUND (even after a full scan) cannot rule out indexer lag.
           await this.repo.markPayoutRetry(p.payoutId, p.kind, p.orderId, p.inboundTxHash, { ambiguous: false, lastError: p.lastError || null }, nowSec);
           p.status = PAYOUT_STATUS.RETRY;
           p.ambiguous = false;
@@ -926,8 +927,13 @@ export class PresaleEngine {
             s.broadcast += 1;
           } catch (e) {
             const msg = String(e?.message || e).slice(0, 300);
-            await this.repo.markPayoutRetry(p.payoutId, p.kind, p.orderId, p.inboundTxHash, { ambiguous: e?.notSent !== true, lastError: msg }, nowSec);
+            const deterministic = e?.deterministic === true
+              || /insufficient hot wallet|insufficient.*inventory|insufficient.*balance|insufficient.*gas|not deployed yet|wallet address mismatch|ops_confirm|missing positive|missing a9_|exceeds single-cell|enoent/i.test(msg);
+            await this.repo.markPayoutRetry(p.payoutId, p.kind, p.orderId, p.inboundTxHash, { ambiguous: e?.notSent !== true && !deterministic, lastError: msg }, nowSec);
             s.retry += 1;
+            if (deterministic) {
+              s.errors.push({ payoutId: p.payoutId, code: e?.code || 'DETERMINISTIC_BROADCAST_FAILURE', message: msg });
+            }
             logger?.log?.(`[presale] payout ${p.payoutId} broadcast failed: ${msg}`);
             continue;
           }

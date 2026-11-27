@@ -1,10 +1,15 @@
 // Test helpers: a real-SQLite Cloudflare D1 adapter (node:sqlite) and Telegram auth headers.
 // Using real SQLite means UNIQUE constraints, conditional UPDATEs and batch rollback are
 // exercised exactly as D1 would run them, instead of a string-matching mock.
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { homedir } from 'node:os';
+import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { signTelegramInitData } from '../../src/auth.mjs';
-import { cellFromBits, serializeBoc, parseBoc } from '../../src/ton-cell.mjs';
+import { cellFromBits, serializeBoc, parseBoc, V5R1_BASE_WALLET_ID } from '../../src/ton-cell.mjs';
+
+const require = createRequire(import.meta.url);
 
 export const TEST_BOT_TOKEN = '123456:TEST_BOT_TOKEN_FOR_UNIT_TESTS';
 
@@ -78,18 +83,69 @@ export async function dumpDb(db) {
   return JSON.stringify(out);
 }
 
-/**
- * Real Cloudflare D1 (workerd SQLite via Miniflare), only when `miniflare` is installed:
- *   npm i -D miniflare   (then run the tests normally; they add a [d1-miniflare] backend)
- * Returns null when Miniflare is not available.
- */
-export async function createMiniflareD1(sqlFiles = FRESH_SCHEMA) {
-  let Miniflare;
-  try {
-    ({ Miniflare } = await import(process.env.MINIFLARE_MODULE || 'miniflare'));
-  } catch {
+let cachedMiniflareClass;
+async function resolveMiniflareClass() {
+  if (cachedMiniflareClass !== undefined) return cachedMiniflareClass;
+  const override = process.env.MINIFLARE_MODULE;
+  if (override === 'none') {
+    cachedMiniflareClass = null;
     return null;
   }
+  if (override) {
+    try {
+      const mod = await import(override);
+      cachedMiniflareClass = mod.Miniflare || mod.default?.Miniflare || null;
+      return cachedMiniflareClass;
+    } catch {
+      try {
+        const mod = require(override);
+        cachedMiniflareClass = mod.Miniflare || null;
+        return cachedMiniflareClass;
+      } catch {
+        cachedMiniflareClass = null;
+        return null;
+      }
+    }
+  }
+  try {
+    const mod = require('miniflare');
+    if (mod?.Miniflare) {
+      cachedMiniflareClass = mod.Miniflare;
+      return cachedMiniflareClass;
+    }
+  } catch {}
+  try {
+    const cache = resolve(homedir(), '.npm/_npx');
+    const found = [];
+    if (existsSync(cache)) {
+      for (const folder of readdirSync(cache)) {
+        const pkgPath = resolve(cache, folder, 'node_modules', 'miniflare', 'package.json');
+        if (!existsSync(pkgPath)) continue;
+        const info = JSON.parse(readFileSync(pkgPath, 'utf8'));
+        if (typeof info?.version === 'string' && !info.version.includes('-')) {
+          found.push({ version: info.version, path: dirname(pkgPath) });
+        }
+      }
+    }
+    found.sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }));
+    if (found.length) {
+      const mod = require(found[0].path);
+      cachedMiniflareClass = mod?.Miniflare || null;
+      return cachedMiniflareClass;
+    }
+  } catch {}
+  cachedMiniflareClass = null;
+  return null;
+}
+
+/**
+ * Real Cloudflare D1 (workerd SQLite via Miniflare), auto-discovering local node_modules
+ * or cached stable `~/.npm/_npx` Miniflare (same resolution as ops/scripts/local-v17-candidate.mjs).
+ * Returns null only when Miniflare is unavailable or MINIFLARE_MODULE=none.
+ */
+export async function createMiniflareD1(sqlFiles = FRESH_SCHEMA) {
+  const Miniflare = await resolveMiniflareClass();
+  if (!Miniflare) return null;
   const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response(null); } }', d1Databases: ['DB'] });
   const db = await mf.getD1Database('DB');
   for (const f of sqlFiles) {
@@ -139,6 +195,27 @@ export async function makeV4R2Wallet() {
   const root = cellFromBits('00110', [code, data]);
   const stateInit = await serializeBoc(root);
   return { kp, pubHex: toHex(pub), stateInit, address: `0:${await root.hashHex()}` };
+}
+
+/** A synthetic but structurally real W5 (v5r1) wallet using official @ton/ton v5r1 code BoC. */
+export async function makeV5R1Wallet({ network = '-3', subwallet = 0, isSignatureAllowed = true, walletId = null } = {}) {
+  const kp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+  const pub = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+  const [code] = parseBoc(PROOF_FIXTURES.walletCodes.v5r1);
+  const baseId = V5R1_BASE_WALLET_ID[String(network)];
+  if (walletId === null && baseId === undefined) throw new Error(`Unsupported W5 network: ${network}`);
+  const resolvedWalletId = walletId !== null ? (Number(walletId) >>> 0) : ((baseId ^ Number(subwallet)) >>> 0);
+  const bitsOf = (n, w) => BigInt(n >>> 0).toString(2).padStart(w, '0');
+  const data = cellFromBits(
+    (isSignatureAllowed ? '1' : '0')
+    + bitsOf(0, 32)
+    + bitsOf(resolvedWalletId, 32)
+    + Array.from(pub, (b) => b.toString(2).padStart(8, '0')).join('')
+    + '0',
+  );
+  const root = cellFromBits('00110', [code, data]);
+  const stateInit = await serializeBoc(root);
+  return { kp, pubHex: toHex(pub), walletId: resolvedWalletId, network: String(network), isSignatureAllowed, stateInit, address: `0:${await root.hashHex()}` };
 }
 
 /** Sign a ton-proof-item-v2 exactly as a wallet does. */

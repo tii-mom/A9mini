@@ -153,6 +153,8 @@ export const A9TMA = {
     const sanitizeToken = (v, maxLen = 64) => String(v || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, maxLen);
 
     const safeRaw = sanitizeToken(rawParam, 64);
+    if (rawParam === 'plaza') return { raw: safeRaw, type: 'plaza', id: '', ref: '', route: '/challenge', scrollTarget: null, isAttribution: false };
+    if (rawParam === 'round') return { raw: safeRaw, type: 'round', id: '', ref: '', route: '/round', scrollTarget: null, isAttribution: false };
     if (rawParam === 'claim') return { raw: safeRaw, type: 'claim', id: '', ref: '', route: '/claim', scrollTarget: null, isAttribution: false };
     if (rawParam === 'warmup') return { raw: safeRaw, type: 'warmup', id: '', ref: '', route: '/warmup', scrollTarget: null, isAttribution: false };
     if (rawParam === 'market') return { raw: safeRaw, type: 'market', id: '', ref: '', route: '/internal/market', scrollTarget: null, isAttribution: false };

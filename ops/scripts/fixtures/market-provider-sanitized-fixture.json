@@ -1,0 +1,50 @@
+{
+  "_comment": "A9 v17 合成契约夹具：按 STON.fi/GeckoTerminal 数据结构构造；没有真实抓取来源证明，不得作为公网采集证据或主网结算输入。",
+  "binding": {
+    "network": "mainnet",
+    "provider": "geckoterminal-trades",
+    "dex": "stonfi",
+    "poolAddress": "EQB3ncyBUTjZUA5EnFKR5_EnOMI9V1tTEAAPaiU71gc4TiUt",
+    "a9JettonMaster": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+    "quoteAsset": "GRAM",
+    "quoteAssetAddress": "EQCM3B12QK1e4yZSf8GtBRT0aLMNyEsBc_DhVfRRtOEffLez"
+  },
+  "poolMetadata": {
+    "pool": {
+      "address": "EQB3ncyBUTjZUA5EnFKR5_EnOMI9V1tTEAAPaiU71gc4TiUt",
+      "token0_address": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+      "token1_address": "EQCM3B12QK1e4yZSf8GtBRT0aLMNyEsBc_DhVfRRtOEffLez",
+      "deprecated": false,
+      "reserve0": "500000000000000",
+      "reserve1": "250000000000"
+    }
+  },
+  "trades": {
+    "data": [
+      {
+        "id": "sanitized_ton_trade_002",
+        "type": "trade",
+        "attributes": {
+          "block_timestamp": "2026-11-27T01:30:00Z",
+          "tx_hash": "0x000000000000000000000000000000000000000000000000000000000000aaa2",
+          "from_token_address": "EQCM3B12QK1e4yZSf8GtBRT0aLMNyEsBc_DhVfRRtOEffLez",
+          "to_token_address": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+          "price_from_in_usd": "5.13000000",
+          "price_to_in_usd": "0.00180000"
+        }
+      },
+      {
+        "id": "sanitized_ton_trade_001",
+        "type": "trade",
+        "attributes": {
+          "block_timestamp": "2026-11-27T01:00:00Z",
+          "tx_hash": "0x000000000000000000000000000000000000000000000000000000000000aaa1",
+          "from_token_address": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+          "to_token_address": "EQCM3B12QK1e4yZSf8GtBRT0aLMNyEsBc_DhVfRRtOEffLez",
+          "price_from_in_usd": "0.00174000",
+          "price_to_in_usd": "5.12000000"
+        }
+      }
+    ]
+  }
+}

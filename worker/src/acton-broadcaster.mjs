@@ -27,8 +27,8 @@ function normalizeFullTxHashHex(rawHex) {
   return `0x${clean.padStart(64, '0')}`;
 }
 
-function isDeterministicPreSendFailure(detail) {
-  return /insufficient hot wallet|not deployed yet|wallet address mismatch|ops_confirm|missing positive|missing a9_|exceeds single-cell|enoent/i.test(String(detail || ''));
+export function isDeterministicPreSendFailure(detail) {
+  return /insufficient hot wallet|insufficient.*inventory|insufficient.*balance|insufficient.*gas|not deployed yet|wallet address mismatch|ops_confirm|missing positive|missing a9_|exceeds single-cell|enoent/i.test(String(detail || ''));
 }
 
 async function runActonScript({ network, scriptRelPath, cwd, env, spawnImpl }) {
@@ -41,7 +41,10 @@ async function runActonScript({ network, scriptRelPath, cwd, env, spawnImpl }) {
     if (res.status !== 0) {
       const detail = `${res.stderr || res.stdout || ''}`.trim();
       const err = new Error(`acton script failed (exit=${res.status}): ${detail}`.trim());
-      if (isDeterministicPreSendFailure(detail)) err.notSent = true;
+      if (isDeterministicPreSendFailure(detail)) {
+        err.notSent = true;
+        err.deterministic = true;
+      }
       throw err;
     }
     return String(res.stdout || '');
@@ -59,6 +62,7 @@ async function runActonScript({ network, scriptRelPath, cwd, env, spawnImpl }) {
     const outErr = new Error(`acton script failed (${scriptRelPath}): ${detail}`);
     if (isDeterministicPreSendFailure(detail) || err?.code === 'ENOENT') {
       outErr.notSent = true;
+      outErr.deterministic = true;
     }
     throw outErr;
   }

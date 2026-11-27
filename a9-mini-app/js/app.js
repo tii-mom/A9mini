@@ -10,9 +10,10 @@ import { loadSnapshot, mapRoundView, submitStartAppAttribution, fetchChestById, 
 import { A9TMA, A9Haptic, isReducedMotion } from './tma.js';
 import { A9Audio, bindKineticSurfaces, cleanupKineticSurfaces } from './audio.js';
 import { matchRoute, getCachedRouteHandler, loadRouteHandler } from './router.js';
-import { escapeHtml, formatNum, formatTimer, showToast, cleanupActiveInteractions, buildSparklineSvgPath, syncRadarInPlace, syncSlidingSegTabs, openModal, closeModal } from './components.js';
+import { areStylesheetsLoaded, ensureStylesheets } from './css-loader.js';
+import { escapeHtml, formatNum, formatTimer, showToast, cleanupActiveInteractions, peekHeavyComponents, loadHeavyComponents, syncSlidingSegTabs, openModal, closeModal, openChoiceSheet, openActionSheet } from './components.js';
 import { icon } from './icons.js';
-import { t, L, initAutoLanguage, syncDocumentLang } from './i18n.js';
+import { t, L, LANGUAGES, initAutoLanguage, syncDocumentLang } from './i18n.js';
 import { tonConnect } from './tonconnect.js';
 import { shouldDeferRouteRender, pendingTxManager, renderPendingTxBannerHtml } from './tx-ux.js';
 
@@ -208,8 +209,13 @@ function renderHeader(route) {
   syncDocumentLang(isStack ? titleText : '');
   A9TMA.setBackButton(isStack, goBack);
 
-  const modeBadge = config.isDemo ? 'DEMO' : (!store.fundsEnabled ? L('只读', 'READ-ONLY') : '');
-  const nextSig = `${isStack ? '1' : '0'}|${titleText}|${user.connected ? '1' : '0'}|${walletLabel}|${settings?.language || ''}|${modeBadge}`;
+  const activeNet = store.state.round?.protocolConfig?.network || config.network || '';
+  const modeBadge = config.isDemo
+    ? 'DEMO'
+    : (activeNet === 'testnet'
+        ? (!store.fundsEnabled ? L('测试网 · 只读', 'TESTNET · RO') : L('测试网', 'TESTNET'))
+        : (!store.fundsEnabled ? L('只读', 'READ-ONLY') : ''));
+  const nextSig = `${isStack ? '1' : '0'}|${titleText}|${user.connected ? '1' : '0'}|${walletLabel}|${settings?.language || ''}|${activeNet}|${modeBadge}`;
   if (nextSig === lastHeaderSig && headerEl.innerHTML) {
     return;
   }
@@ -224,8 +230,9 @@ function renderHeader(route) {
       }
     </div>
     <div class="header-right">
-      ${config.isDemo ? `<button class="icon-btn has-demo-pip" id="btn-open-sim" aria-label="${L('演示控制台', 'Demo console')}" title="${L('演示控制台 (DEMO)', 'Demo console (DEMO)')}">${icon('sliders', 14)}</button>` : ''}
-      <button class="wallet-pill ${user.connected ? '' : 'disconnected'}" id="btn-wallet-pill">
+      ${config.isDemo ? `<button class="icon-btn has-demo-pip" id="btn-open-sim" type="button" aria-label="${L('演示控制台', 'Demo console')}" title="${L('演示控制台 (DEMO)', 'Demo console (DEMO)')}">${icon('sliders', 14)}</button>` : ''}
+      <button class="icon-btn" id="btn-header-more" type="button" aria-label="${L('更多快捷操作', 'More quick actions')}" title="${L('更多', 'More')}">${icon('more', 16)}</button>
+      <button class="wallet-pill ${user.connected ? '' : 'disconnected'}" id="btn-wallet-pill" type="button">
         <span class="live-dot ${user.connected ? '' : 'amber'}"></span>
         <span>${escapeHtml(walletLabel)}</span>
       </button>
@@ -239,8 +246,101 @@ function renderHeader(route) {
     tonConnect.openConnectModal(renderCurrentRoute);
   };
 
+  const moreBtn = headerEl.querySelector('#btn-header-more');
+  if (moreBtn) moreBtn.onclick = openMoreQuickSheet;
+
   const simBtn = headerEl.querySelector('#btn-open-sim');
   if (simBtn) simBtn.onclick = openSimDrawer;
+}
+
+/** 顶栏「更多」底部快捷面板（一屏 5 项，不遮挡页面、不直接触发资金签名，危险项独立分组） */
+function openMoreQuickSheet() {
+  const curTheme = getTheme();
+  const curLangObj = LANGUAGES.find((l) => l.code === store.state.settings.language) || LANGUAGES[0];
+  const items = [
+    {
+      icon: curTheme === 'dark' ? 'moon' : 'sun',
+      tone: 'is-amber',
+      label: L('界面主题', 'Theme'),
+      sub: L('雪白亮色 / 石墨暗夜', 'Crisp Light / Switch Dark'),
+      badge: curTheme === 'dark' ? L('石墨暗夜', 'Dark') : L('雪白亮色', 'Light'),
+      keepOpen: true,
+      onSelect: () => openChoiceSheet({
+        title: L('选择界面主题', 'Select Theme'),
+        selected: getTheme(),
+        options: [
+          { value: 'light', icon: 'sun', tone: 'is-amber', label: L('雪白亮色', 'Crisp Light'), sub: L('任天堂红白日间配色', 'Nintendo light theme') },
+          { value: 'dark', icon: 'moon', tone: 'is-blue', label: L('石墨暗夜', 'Switch Dark'), sub: L('OLED 深石墨夜间配色', 'Switch OLED dark theme') },
+        ],
+        onSelect: (mode) => {
+          if (mode !== getTheme()) {
+            applyTheme(mode);
+            renderCurrentRoute();
+            showToast(mode === 'dark' ? L('已切换石墨暗夜主题', 'Switched to Switch Dark') : L('已切换雪白亮色主题', 'Switched to Crisp Light'));
+          }
+        },
+      }),
+    },
+    {
+      icon: 'globe',
+      tone: 'is-blue',
+      label: L('界面语言', 'Language'),
+      sub: L('实时切换中英文', 'Switch Chinese / English'),
+      badge: curLangObj.label,
+      keepOpen: true,
+      onSelect: () => openChoiceSheet({
+        title: L('选择界面语言', 'Select Language'),
+        selected: store.state.settings.language,
+        options: LANGUAGES.map((l) => ({ value: l.code, icon: 'globe', tone: 'is-blue', label: l.label, sub: l.sub })),
+        onSelect: (code) => {
+          store.update((s) => { s.settings.language = code; });
+          showToast(`${L('已切换语言', 'Language')}: ${code}`);
+          renderCurrentRoute();
+        },
+      }),
+    },
+    {
+      icon: 'book',
+      tone: 'is-red',
+      label: L('用户指南', 'User Guide'),
+      sub: L('开宝箱、看冲价与费用说明', 'Chests, price push & fee guide'),
+      onSelect: () => navigate('/rules'),
+    },
+    {
+      icon: 'shieldCheck',
+      tone: 'is-green',
+      label: L('v17.0 链上验真', 'v17.0 On-Chain Audit'),
+      sub: L('合约地址、逃生舱与链上参数', 'Contracts, escape hatch & specs'),
+      onSelect: () => navigate('/risk/audit'),
+    },
+    {
+      icon: 'settings',
+      tone: 'is-muted',
+      label: L('提醒与设置', 'Alerts & Settings'),
+      sub: L('通知、音效、震动与钱包管理', 'Alerts, audio, haptics & wallet'),
+      onSelect: () => navigate('/settings'),
+    },
+  ];
+  const dangerItems = config.isDemo
+    ? [{
+        icon: 'refresh',
+        tone: 'is-red',
+        label: L('重置本地演示数据', 'Reset Demo Data'),
+        sub: L('仅恢复当前沙盒初始状态', 'Restore sandbox defaults only'),
+        onSelect: () => {
+          A9Haptic.warning();
+          store.reset();
+          showToast(L('已恢复初始演示数据', 'Demo reset'));
+          renderCurrentRoute();
+        },
+      }]
+    : [];
+  openActionSheet({
+    title: L('快捷菜单', 'Quick Menu'),
+    subtitle: L('常用设置与协议入口', 'Preferences & protocol links'),
+    items,
+    dangerItems,
+  });
 }
 
 function renderTicker(show) {
@@ -313,11 +413,11 @@ function renderDataError(error) {
   mainEl.innerHTML = `
     <div class="col-gap anim-page-enter">
       <div class="card card-glow-red">
-        <div class="row-between" style="margin-bottom:10px;">
+        <div class="row-between data-error-header">
           <div class="card-title">${icon('shieldAlert', 16, 'text-red')} ${L('数据源不可用', 'Data source unavailable')}</div>
-          <span class="chip chip-red">${code}</span>
+          <span class="chip chip-red data-error-code">${code}</span>
         </div>
-        <div class="text-sec" style="font-size:12px;line-height:1.6;">${escapeHtml(error?.message || L('无法读取轮次数据', 'Cannot load round data'))}</div>
+        <div class="text-sec" style="font-size:12px;line-height:1.6;overflow-wrap:anywhere;">${escapeHtml(error?.message || L('无法读取轮次数据', 'Cannot load round data'))}</div>
         <div class="num-xs text-muted" style="margin-top:8px;word-break:break-all;">${escapeHtml(config.apiBase || L('当前站点只读接口', 'Same-origin read-only API'))}</div>
       </div>
       <button class="btn btn-primary" id="data-retry">${icon('refresh', 16)} ${L('重试读取', 'Retry')}</button>
@@ -401,14 +501,19 @@ export async function renderCurrentRoute() {
   }
   try {
     const cachedRender = getCachedRouteHandler(route);
-    if (cachedRender) {
+    const stylesReady = areStylesheetsLoaded(route.styles);
+    if (cachedRender && stylesReady) {
       cachedRender(renderTarget, navigate, param, query);
     } else {
       renderTarget.setAttribute?.('aria-busy', 'true');
       renderTarget.innerHTML = route.shell === 'tab'
         ? `<div class="nt-boot-skeleton" role="status" aria-label="${L('正在加载页面', 'Loading page')}"><div class="nt-skel-card nt-skel-hero"></div><div class="nt-skel-grid"><i></i><i></i><i></i><i></i></div><div class="nt-skel-card"></div></div>`
         : `<div class="nt-boot-skeleton" role="status" aria-label="${L('正在加载页面', 'Loading page')}"><div class="nt-skel-card nt-skel-hero"></div><div class="nt-skel-card"></div></div>`;
+      const stylesPromise = ensureStylesheets(route.styles);
+      // 防止路由脚本先失败时样式 Promise 产生未处理的 rejection
+      stylesPromise.catch(() => {});
       const render = await loadRouteHandler(route);
+      await stylesPromise;
       if (seq !== routeRenderSeq) return;
       renderTarget.removeAttribute?.('aria-busy');
       renderTarget.innerHTML = '';
@@ -438,6 +543,16 @@ export async function renderCurrentRoute() {
   syncPendingTxBanner();
   const restoredY = route.shell === 'tab' && prevPath && prevPath !== route.path ? (scrollMemory.get(currentHash) || 0) : 0;
   window.scrollTo({ top: restoredY, behavior: 'instant' });
+
+  // 触发页面首屏就绪事件（性能测量用）：关键 DOM + 样式 + 数据状态实际可用
+  if (typeof window !== 'undefined' && !window.__A9_APP_READY_TS && dataReady) {
+    requestAnimationFrame(() => {
+      if (!window.__A9_APP_READY_TS && seq === routeRenderSeq && renderTarget.isConnected && !mainEl.querySelector('.nt-boot-skeleton')) {
+        window.__A9_APP_READY_TS = performance.now() + performance.timeOrigin;
+        window.dispatchEvent(new Event('a9:app-ready'));
+      }
+    });
+  }
 }
 
 async function syncData({ forceRender = false } = {}) {
@@ -454,9 +569,25 @@ async function syncData({ forceRender = false } = {}) {
     lastLoadError = null;
     lastDataKey = key;
 
+    // 触发数据加载完成事件（性能测量用）
+    if (typeof window !== 'undefined' && !window.__A9_DATA_READY_TS) {
+      window.__A9_DATA_READY_TS = performance.now() + performance.timeOrigin;
+      window.dispatchEvent(new Event('a9:data-ready'));
+    }
+
     // If staying on observation/proof radar with only slot/count progression, update in-place without full DOM rebuild
     if (!forceRender && !changed && document.getElementById('a9-radar-grid')) {
-      syncRadarInPlace(store.state.round);
+      const heavy = peekHeavyComponents();
+      if (heavy?.syncRadarInPlace) {
+        heavy.syncRadarInPlace(store.state.round);
+      } else {
+        const expectedSeq = routeRenderSeq;
+        loadHeavyComponents().then((m) => {
+          if (expectedSeq === routeRenderSeq && document.getElementById('a9-radar-grid')) {
+            m?.syncRadarInPlace?.(store.state.round);
+          }
+        });
+      }
       return;
     }
 
@@ -498,8 +629,21 @@ async function syncData({ forceRender = false } = {}) {
 function simulateRadarEvent(type) {
   const r = store.state.round;
   if (!Array.isArray(r.candles) || r.candles.length < 1) return;
+  const runSync = (opts) => {
+    const heavy = peekHeavyComponents();
+    if (heavy?.syncRadarInPlace) {
+      heavy.syncRadarInPlace(r, opts);
+      return;
+    }
+    const expectedSeq = routeRenderSeq;
+    loadHeavyComponents().then((m) => {
+      if (expectedSeq === routeRenderSeq && document.getElementById('a9-radar-grid')) {
+        m?.syncRadarInPlace?.(r, opts);
+      }
+    });
+  };
   if (type === 'duplicate') {
-    syncRadarInPlace(r);
+    runSync();
     showToast(L('已重放相同数据（无多余动效）', 'Duplicate payload synced (no anim)'));
     return;
   }
@@ -523,7 +667,7 @@ function simulateRadarEvent(type) {
     r.qualifiedCandles = r.candles.filter(c => c.status === 'closed' && c.bull).length;
     r.candlesSeen = target;
     r.needMore = Math.max(0, (r.minQualifiedCandles || 8) - r.qualifiedCandles);
-    syncRadarInPlace(r, { batch: true });
+    runSync({ batch: true });
     showToast(L(`已批量补齐至第 ${target} 段（直接同步）`, `Batch backfilled to slot #${target}`));
     return;
   }
@@ -541,7 +685,7 @@ function simulateRadarEvent(type) {
   r.qualifiedCandles = r.candles.filter(c => c.status === 'closed' && c.bull).length;
   r.candlesSeen = r.candles.filter(c => c.status === 'closed').length;
   r.needMore = Math.max(0, (r.minQualifiedCandles || 8) - r.qualifiedCandles);
-  syncRadarInPlace(r);
+  runSync();
 }
 
 function openSimDrawer() {
@@ -844,8 +988,9 @@ function startDisplayLoop() {
     const sLine = document.getElementById('spark-line');
     const sArea = document.getElementById('spark-area');
     const sDot = document.getElementById('spark-dot');
-    if (sLine && sArea && sDot) {
-      const sp = buildSparklineSvgPath(r.priceHistory);
+    const heavy = peekHeavyComponents();
+    if (sLine && sArea && sDot && heavy?.buildSparklineSvgPath) {
+      const sp = heavy.buildSparklineSvgPath(r.priceHistory);
       sLine.setAttribute('d', sp.line);
       sArea.setAttribute('d', sp.area);
       sDot.setAttribute('cx', sp.last.x);

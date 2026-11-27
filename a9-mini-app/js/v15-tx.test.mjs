@@ -7,6 +7,7 @@ import {
   encodeTicketClaimBoc,
   encodeEarlyExitBoc,
   parseTonAddress,
+  formatTonAddress,
   buildV15StakeTx,
   buildV15ClaimTx,
   buildV17EarlyExitTx,
@@ -183,6 +184,26 @@ test('v17 EarlyExit (0x52540306) and TicketClaim instantDiscount=true encode dua
   assert.equal(normalClaim.messages[0].amount, '220000000');
   assert.equal(fastClaim.messages[0].amount, '340000000');
   assert.notEqual(normalClaim.messages[0].payload, fastClaim.messages[0].payload);
+});
+
+test('wallet display formats preserve account identity across network flags and bounce modes', () => {
+  const raw = '0:' + '12'.repeat(32);
+  for (const testnet of [false, true]) {
+    for (const bounceable of [false, true]) {
+      const friendly = formatTonAddress(raw, { testnet, bounceable });
+      assert.equal(friendly.length, 48);
+      const parsed = parseTonAddress(friendly);
+      assert.equal(parsed.workchain, 0);
+      assert.equal(Buffer.from(parsed.hash).toString('hex'), '12'.repeat(32));
+      assert.equal(parsed.testOnly, testnet);
+      assert.equal(parsed.bounceable, bounceable);
+      assert.equal(formatTonAddress(friendly, { testnet, bounceable }), friendly);
+    }
+  }
+  const masterchain = parseTonAddress(formatTonAddress('-1:' + '34'.repeat(32)));
+  assert.equal(masterchain.workchain, -1);
+  assert.equal(Buffer.from(masterchain.hash).toString('hex'), '34'.repeat(32));
+  assert.throws(() => formatTonAddress('not-an-address'));
 });
 
 console.log(`All ${passed} v15 frontend tx-builder tests passed.`);

@@ -93,6 +93,7 @@ export function routeNeedsChainState(pathname, request = null, body = null, env 
     pathname.startsWith('/api/progression/') ||
     pathname.startsWith('/api/warmup/') ||
     pathname.startsWith('/api/admin/warmup/') ||
+    pathname === '/api/admin/prediction/settle' ||
     pathname.startsWith('/c/')
   );
 }
@@ -304,6 +305,14 @@ const CANDIDATE_REQUIRED_VARS = [
   'A9_ALLOWED_ORIGINS',
 ];
 
+const CANDIDATE_REQUIRED_TIMING_VARS = [
+  'A9_STAKE_SECONDS',
+  'A9_EARLY_WINDOW_SECONDS',
+  'A9_OBS_SECONDS',
+  'A9_ABORT_TIMEOUT_SECONDS',
+  'A9_VESTING_SECONDS',
+];
+
 export function validateCandidateEnv(env = {}) {
   // P1-3 双热钱包强制隔离校验：只要两项同时配置，严禁归一化后指向同一钱包地址
   const promoHot = String(env.A9_PROMO_HOT_WALLET_ADDRESS || '').trim();
@@ -377,6 +386,37 @@ export function validateCandidateEnv(env = {}) {
     if (!env.DB) missing.push('DB');
     for (const key of CANDIDATE_REQUIRED_VARS) {
       if (!String(env[key] || '').trim()) missing.push(key);
+    }
+    // 独立候选环境必须显式配置全部 5 项时序参数，杜绝漏配后静默回退主网默认值（86400/21600/43200/604800/1209600）
+    if (envName === 'candidate') {
+      const parsedTiming = {};
+      for (const key of CANDIDATE_REQUIRED_TIMING_VARS) {
+        const raw = String(env[key] ?? '').trim();
+        const num = Number(raw);
+        if (!raw || !Number.isInteger(num) || num <= 0) {
+          missing.push(key);
+        } else {
+          parsedTiming[key] = num;
+        }
+      }
+      if (
+        parsedTiming.A9_STAKE_SECONDS &&
+        parsedTiming.A9_EARLY_WINDOW_SECONDS &&
+        parsedTiming.A9_EARLY_WINDOW_SECONDS > parsedTiming.A9_STAKE_SECONDS
+      ) {
+        missing.push('A9_EARLY_WINDOW_SECONDS<=A9_STAKE_SECONDS');
+      }
+      if (parsedTiming.A9_OBS_SECONDS && parsedTiming.A9_OBS_SECONDS % 12 !== 0) {
+        missing.push('A9_OBS_SECONDS%12==0');
+      }
+    }
+    // 独立候选环境不得静默回落到正式 Bot 句柄：句柄为空或等于正式句柄时失败关闭，
+    // 否则候选的 Bot 回复按钮、深链与播报会以 @A9_TonBot 生成链接。
+    if (envName === 'candidate') {
+      const candidateHandle = String(env.A9_TG_BOT_HANDLE || '').trim().replace(/^@+/, '').toLowerCase();
+      if (!candidateHandle) missing.push('A9_TG_BOT_HANDLE');
+      // 归一化后大小写不敏感：a9_tonbot / A9_TONBOT / @A9_TonBot 都视为正式句柄
+      else if (candidateHandle === 'a9_tonbot') missing.push('A9_TG_BOT_HANDLE!=A9_TonBot');
     }
     return { ok: missing.length === 0, missing, code: 'CANDIDATE_CONFIG_INCOMPLETE' };
   }
@@ -525,7 +565,13 @@ export default {
       } else {
         const d1Rounds = hasD1 ? await readCachedRoundsFromD1(env.DB, nowSec) : null;
         try {
-          ps = { dataAvailable: true, ...(await tc.fetchProtocolState(rcAddr)) };
+          const jmState = jmAddr ? await tc.fetchJettonMasterState(jmAddr).catch(() => null) : null;
+          ps = {
+            dataAvailable: true,
+            ...(await tc.fetchProtocolState(rcAddr)),
+            syncedAt: nowSec * 1000,
+            adminRenounced: typeof jmState?.adminRenounced === 'boolean' ? jmState.adminRenounced : null,
+          };
           if (d1Rounds && d1Rounds.length && d1Rounds[d1Rounds.length - 1].roundId === ps.currentRoundId) {
             rounds = d1Rounds;
           } else if (ps.currentRoundId > 0) {
@@ -543,6 +589,13 @@ export default {
             rounds = fetched;
             if (hasD1) await writeRoundsCacheToD1(env.DB, rounds, nowSec);
           }
+          if (url.pathname === '/api/admin/prediction/settle') {
+            const targetRid = Number(body?.roundId || 0);
+            if (Number.isInteger(targetRid) && targetRid >= 1 && targetRid <= Number(ps.currentRoundId || 0) && !rounds.some((r) => r.roundId === targetRid)) {
+              const extraRd = await tc.fetchRound(rcAddr, targetRid);
+              rounds = [...rounds, { roundId: targetRid, round: extraRd, candles: [] }];
+            }
+          }
           memChainCacheByTarget.set(cacheKey, { fetchedAt: nowSec, ps, rounds });
         } catch {
           // 仅允许在最大容忍窗口（60s）内短时降级读缓存，超时后绝不拿陈旧快照冒充实时状态
@@ -558,9 +611,11 @@ export default {
 
     const stateStore = {
       getTiming: () => ({
+        stakeDurationSeconds: Number(env.A9_STAKE_SECONDS || 86400),
         observationSeconds: Number(env.A9_OBS_SECONDS || 43200),
         vestingSeconds: Number(env.A9_VESTING_SECONDS || 1209600),
         earlyWindowSeconds: Number(env.A9_EARLY_WINDOW_SECONDS || 21600),
+        abortTimeoutSeconds: Number(env.A9_ABORT_TIMEOUT_SECONDS || 604800),
       }),
       getProtocolState: () => ps,
       listRounds: () => rounds,

@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 // A9 Protocol v15 — Minimalist 4-contract deployment CLI (default dry-run).
 import { spawnSync } from 'node:child_process';
-import { validateDeployPreflight, withActonNetworkKeyEnv } from './lib/v15-core.mjs';
+import { withActonNetworkKeyEnv } from './lib/v15-core.mjs';
+import { readFileSync } from 'node:fs';
+import { checkDeploymentReadiness } from './lib/deploy-readiness.mjs';
 
 function parseArgs(argv) {
   const out = {
     profile: process.env.A9_PROFILE || process.env.A9_NETWORK || 'testnet',
     execute: false,
     strict: false,
-    skipMetadataProbe: false,
+    deploymentMode: 'local',
+    signerManifestPath: null,
     protocol: process.env.A9_PROTOCOL_VERSION || 'v17',
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -16,79 +19,39 @@ function parseArgs(argv) {
     else if (argv[i] === '--protocol') out.protocol = argv[++i];
     else if (argv[i] === '--execute') out.execute = true;
     else if (argv[i] === '--strict') out.strict = true;
-    else if (argv[i] === '--skip-metadata-probe') out.skipMetadataProbe = true;
+    else if (argv[i] === '--deployment-mode') out.deploymentMode = argv[++i];
+    else if (argv[i] === '--signer-manifest') out.signerManifestPath = argv[++i];
+    else if (argv[i] === '--skip-metadata-probe') throw new Error('Metadata probe cannot be bypassed');
     else if (argv[i] === '--dry-run') out.execute = false;
   }
   return out;
 }
 
-async function probeMainnetMetadataUri(uri) {
-  const res = await fetch(uri, { method: 'GET', signal: AbortSignal.timeout(10000) });
-  if (!res.ok) {
-    throw new Error(`A9_METADATA_URI returned HTTP ${res.status} (${uri})`);
-  }
-  let meta;
-  try {
-    meta = await res.json();
-  } catch {
-    throw new Error(`A9_METADATA_URI did not return valid JSON (${uri})`);
-  }
-  if (!meta || typeof meta !== 'object') throw new Error('metadata JSON is not an object');
-  if (String(meta.symbol || '').trim() !== 'A9') throw new Error(`metadata.symbol must be "A9", got "${meta.symbol}"`);
-  if (String(meta.decimals ?? '').trim() !== '9') throw new Error(`metadata.decimals must be "9", got "${meta.decimals}"`);
-  if (!String(meta.name || '').trim()) throw new Error('metadata.name is empty');
-  const imgUrl = String(meta.image || '').trim();
-  if (!/^https:\/\//i.test(imgUrl)) throw new Error(`metadata.image must be https:// URL, got "${imgUrl}"`);
-  const imgRes = await fetch(imgUrl, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
-  if (!imgRes.ok) {
-    const getRes = await fetch(imgUrl, { method: 'GET', signal: AbortSignal.timeout(10000) });
-    if (!getRes.ok) throw new Error(`metadata.image unreachable (HTTP ${getRes.status}): ${imgUrl}`);
-  }
-  return meta;
-}
-
 const args = parseArgs(process.argv.slice(2));
-const preflight = validateDeployPreflight({
-  protocol: args.protocol,
-  profile: args.profile,
-  env: process.env,
-  execute: args.execute,
-  strict: args.strict,
+let signerManifest = null;
+try {
+  if (args.signerManifestPath) signerManifest = JSON.parse(readFileSync(args.signerManifestPath, 'utf8'));
+} catch {
+  console.log(JSON.stringify({ readyForExecute: false, errors: ['SIGNER_MANIFEST_UNREADABLE'] }));
+  process.exit(1);
+}
+const preflight = await checkDeploymentReadiness({
+  protocol: args.protocol, profile: args.profile, env: process.env, execute: args.execute,
+  deploymentMode: args.deploymentMode, signerManifest,
 });
-const { profile, params: p, protocolRoot, artifacts } = preflight;
-
-const metadataUri = String(process.env.A9_METADATA_URI || '').trim();
-if (p.network === 'mainnet' && !args.skipMetadataProbe && (args.strict || args.execute) && /^https:\/\//i.test(metadataUri)) {
-  try {
-    const probed = await probeMainnetMetadataUri(metadataUri);
-    console.log(`[${args.protocol}-deploy] Metadata probe OK: ${probed.name} (${probed.symbol}, decimals=${probed.decimals})`);
-  } catch (e) {
-    console.error(`[${args.protocol}-deploy] Metadata probe FAILED: ${e?.message || e}`);
-    process.exit(1);
-  }
-}
-
-console.log(`[${args.protocol}-deploy] Verified ${artifacts.length} compiled artifacts against ci/artifacts.sha256`);
-console.log(`[${args.protocol}-deploy] Profile loaded: ${profile} (network=${p.network})`);
-
-if (!args.execute) {
-  console.log(`[${args.protocol}-deploy] DRY-RUN mode: no on-chain transaction will be broadcast.`);
-  console.log(`[${args.protocol}-deploy] Summary:`, JSON.stringify({
-    protocol: args.protocol,
-    network: p.network,
-    totalSupplyA9: (BigInt(p.supply.totalSupplyRaw) / 1_000_000_000n).toString(),
-    rcFundingA9: (BigInt(p.supply.rcFundingRaw) / 1_000_000_000n).toString(),
-    timing: p.timing,
-    promoUserFeeTon: p.promoHotWallet.userFeeTon,
-    artifacts: artifacts.map((a) => ({ path: a.relPath, sha256: a.sha256 })),
-    derivedAddresses: preflight.derivedAddresses || null,
-    missingRequiredForExecute: preflight.missing,
-    invalidConfigForExecute: preflight.invalid,
-    warnings: preflight.warnings,
-    readyForExecute: preflight.readyForExecute,
-  }, null, 2));
-  process.exit(preflight.invalid.length > 0 ? 1 : 0);
-}
+console.log(`[${args.protocol}-deploy] ${args.execute ? 'Execution preflight' : 'DRY-RUN: no on-chain transaction will be broadcast.'}`);
+console.log(JSON.stringify({
+  protocol: args.protocol, network: preflight.params?.network,
+  deploymentMode: preflight.deploymentMode,
+  derivedAddresses: preflight.derivedAddresses || null,
+  checks: preflight.checks, errors: preflight.errors,
+  readyForExecute: preflight.readyForExecute,
+  readyForExternalDeployment: preflight.readyForExternalDeployment,
+  readyForPayouts: preflight.readyForPayouts,
+}, null, 2));
+if (!args.execute) process.exit(preflight.readyForExecute || preflight.readyForExternalDeployment ? 0 : 1);
+if (!preflight.readyForExecute) process.exit(1);
+const { params: p, protocolRoot } = preflight;
 
 const env = {
   ...withActonNetworkKeyEnv(p.network, process.env),

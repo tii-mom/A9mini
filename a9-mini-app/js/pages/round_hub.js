@@ -23,7 +23,8 @@ function formatExactA9FromRaw(raw) {
 }
 import { A9Haptic, A9TMA, isReducedMotion } from '../tma.js';
 import { A9Audio } from '../audio.js';
-import { escapeHtml, formatNum, showToast, copyText, mountSlider, burstParticles, openChoiceSheet, openModal, closeModal, bindCorridorRadarEvents } from '../components.js';
+import { escapeHtml, formatNum, showToast, copyText, openChoiceSheet, openModal, closeModal } from '../components.js';
+import { mountSlider, burstParticles, bindCorridorRadarEvents } from '../components-heavy.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { tonConnect } from '../tonconnect.js';

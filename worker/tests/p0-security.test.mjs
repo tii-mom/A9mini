@@ -14,7 +14,7 @@ import { PredictionEngine, ProgressionEngine, VOUCHER_TTL_MS } from '../src/grow
 import { TelegramBroadcaster, MemoryBroadcastLog, D1BroadcastLog, buildTeamDeepLink } from '../src/tg-broadcaster.mjs';
 import { parseDecimalUnits, formatUnits } from '../src/money.mjs';
 import { normalizeTonAddress, formatTonAddress, parseTonAddress } from '../src/ton-address.mjs';
-import { TEST_BOT_TOKEN, tgHeaders, createSqliteD1, FRESH_SCHEMA, MIGRATIONS, completePurchase, dumpDb, createMiniflareD1, makeV4R2Wallet, signTonProof, PROOF_FIXTURES } from './helpers/test-env.mjs';
+import { TEST_BOT_TOKEN, tgHeaders, createSqliteD1, FRESH_SCHEMA, MIGRATIONS, completePurchase, dumpDb, createMiniflareD1, makeV4R2Wallet, makeV5R1Wallet, signTonProof, PROOF_FIXTURES } from './helpers/test-env.mjs';
 import { verifyTonProof, REBIND_DELAY_SEC, TON_PROOF_MAX_SKEW_SEC } from '../src/auth.mjs';
 import { inspectWalletStateInit, cellFromBits, serializeBoc, WALLET_TG_TRAMPOLINE_HASH } from '../src/ton-cell.mjs';
 import { TonCenterClient, encodeAddressSliceBoc, decodeAddressFromCellBoc } from '../src/toncenter.mjs';
@@ -244,6 +244,57 @@ await test('ton_proof negatives on real vectors: wrong network, tampered signatu
   assert.equal(await code({ nowSec: v.proof.timestamp - TON_PROOF_MAX_SKEW_SEC - 1 }), 'PROOF_EXPIRED');
   assert.equal(await code({ nowSec: v.proof.timestamp + TON_PROOF_MAX_SKEW_SEC - 1 }), 'OK');
   assert.equal(TON_PROOF_MAX_SKEW_SEC, 600);
+});
+
+await test('ton_proof W5 (v5r1): enforces wallet_id networkGlobalId (-239 vs -3) and is_signature_allowed == 1', async () => {
+  const nowSec = 1_765_000_000;
+  const wTest = await makeV5R1Wallet({ network: '-3', subwallet: 0, isSignatureAllowed: true });
+  const wMainSub1 = await makeV5R1Wallet({ network: '-239', subwallet: 1, isSignatureAllowed: true });
+  const wDisabled = await makeV5R1Wallet({ network: '-3', subwallet: 0, isSignatureAllowed: false });
+
+  const infoTest = await inspectWalletStateInit(wTest.stateInit);
+  assert.equal(infoTest.version, 'v5r1');
+  assert.equal(infoTest.isSignatureAllowed, true);
+  assert.equal(infoTest.chainId, '-3');
+  assert.equal(infoTest.subwalletNumber, 0);
+
+  const infoMain = await inspectWalletStateInit(wMainSub1.stateInit);
+  assert.equal(infoMain.chainId, '-239');
+  assert.equal(infoMain.subwalletNumber, 1);
+
+  const okTestProof = await signTonProof(wTest, { payload: 'w5-challenge-1', timestamp: nowSec });
+  const rTest = await verifyTonProof({
+    address: wTest.address, network: '-3', publicKey: wTest.pubHex, proof: okTestProof,
+    expectedNetwork: '-3', allowedDomains: ['a9.example'], nowSec,
+  });
+  assert.equal(rTest.walletVersion, 'v5r1');
+  assert.equal(rTest.keySource, 'state_init');
+
+  const okMainProof = await signTonProof(wMainSub1, { payload: 'w5-challenge-2', timestamp: nowSec });
+  const rMain = await verifyTonProof({
+    address: wMainSub1.address, network: '-239', publicKey: wMainSub1.pubHex, proof: okMainProof,
+    expectedNetwork: '-239', allowedDomains: ['a9.example'], nowSec,
+  });
+  assert.equal(rMain.walletVersion, 'v5r1');
+
+  // Testnet W5 StateInit disguised with raw/UQ address claiming network: '-239' on mainnet -> PROOF_WRONG_NETWORK
+  await assert.rejects(
+    verifyTonProof({
+      address: wTest.address, network: '-239', publicKey: wTest.pubHex, proof: okTestProof,
+      expectedNetwork: '-239', allowedDomains: ['a9.example'], nowSec,
+    }),
+    { code: 'PROOF_WRONG_NETWORK' },
+  );
+
+  // Signature-disabled W5 StateInit -> PROOF_SIGNATURE_DISABLED
+  const disabledProof = await signTonProof(wDisabled, { payload: 'w5-challenge-3', timestamp: nowSec });
+  await assert.rejects(
+    verifyTonProof({
+      address: wDisabled.address, network: '-3', publicKey: wDisabled.pubHex, proof: disabledProof,
+      expectedNetwork: '-3', allowedDomains: ['a9.example'], nowSec,
+    }),
+    { code: 'PROOF_SIGNATURE_DISABLED' },
+  );
 });
 
 async function proofFlow(route, h, w, now, extra = {}) {
@@ -883,6 +934,10 @@ await test('[d1-sqlite] restart after broadcast: new process resumes from DB, co
   await e3.processPayouts(2010, { a9Broadcaster: bc, verifier: async () => ({ state: 'NOT_FOUND' }) });
   assert.equal(sends, 0);
   await e3.processPayouts(2003 + STALE_BROADCAST_SEC, { a9Broadcaster: bc, verifier: async (q) => (q.txHash ? { state: 'CONFIRMED' } : { state: 'NOT_FOUND' }) });
+  assert.equal(sends, 0, 'index absence cannot authorize resending an uncertain transfer');
+  assert.equal((await e3.repo.getPayout(p.payoutId)).status, 'BROADCASTING');
+  // A real terminal failure is positive evidence that this attempt did not pay.
+  await e3.processPayouts(2004 + STALE_BROADCAST_SEC, { a9Broadcaster: bc, verifier: async (q) => (q.txHash ? { state: 'CONFIRMED' } : { state: 'FAILED' }) });
   assert.equal(sends, 1);
   assert.equal((await e3.getOrder(o2.orderId)).status, PRESALE_STATUS.COMPLETED);
 });
@@ -922,10 +977,17 @@ await test('[d1-sqlite] P0-E: refund confirmation is atomic; crash at every writ
   assert.equal(refundSends, 0);
   assert.equal((await eAfterCrash1.getOrder(oLate.orderId)).status, PRESALE_STATUS.REFUND_PENDING);
 
-  // 超时后 verifier=NOT_FOUND -> 广播 1 次并进入 SENT
+  // 超时后 NOT_FOUND 仍不自动重发，避免索引延迟造成重复退款。
   await eAfterCrash1.processPayouts(3000 + STALE_BROADCAST_SEC, {
     refundBroadcaster: async () => { refundSends += 1; return { txHash: 'rf-tx-1' }; },
     verifier: async (p) => (p.txHash ? { state: 'PENDING' } : { state: 'NOT_FOUND' }),
+  });
+  assert.equal(refundSends, 0);
+  assert.equal((await eAfterCrash1.repo.getPayout(pId)).status, 'BROADCASTING');
+  // 只有明确的链上失败证据才恢复自动重试。
+  await eAfterCrash1.processPayouts(3001 + STALE_BROADCAST_SEC, {
+    refundBroadcaster: async () => { refundSends += 1; return { txHash: 'rf-tx-1' }; },
+    verifier: async (p) => (p.txHash ? { state: 'PENDING' } : { state: 'FAILED' }),
   });
   assert.equal(refundSends, 1);
   assert.equal((await eAfterCrash1.getOrder(oLate.orderId)).status, PRESALE_STATUS.REFUND_SENT);

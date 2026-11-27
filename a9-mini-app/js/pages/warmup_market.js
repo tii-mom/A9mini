@@ -35,7 +35,8 @@ import { tonConnect, canonicalWalletKey } from '../tonconnect.js';
 import { pendingTxManager } from '../tx-ux.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
-import { escapeHtml, formatNum, formatTimer, showToast, copyText, burstParticles, openModal, closeModal } from '../components.js';
+import { escapeHtml, formatNum, formatTimer, showToast, copyText, openModal, closeModal, openChoiceSheet } from '../components.js';
+import { burstParticles } from '../components-heavy.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { renderChestSvg, resolveChestTier, CHEST_TIER_META } from '../chest-art.js';
@@ -1563,13 +1564,12 @@ export function renderInternalRecords(root) {
             </div>
           </section>
 
-          <div class="filter-row">
-            ${[
-              ['all', L('全部', 'All')],
-              ['completed', L('已完成', 'Done')],
-              ['pending', L('处理中', 'Pending')],
-              ['refund', L('退款/异常', 'Refund')],
-            ].map(([k, lbl]) => `<button type="button" class="filter-pill ${activeFilter === k ? 'active' : ''}" data-rcpt-filter="${k}">${lbl}</button>`).join('')}
+          <div class="row-between" style="gap:8px;">
+            <span class="sw-section-label" style="margin:0;">${L('订单状态筛选', 'Order Status')}</span>
+            <button type="button" class="sw-filter-trigger" id="btn-rcpt-filter-sheet">
+              <span class="row-start" style="gap:6px;">${icon('filter', 14)} ${escapeHtml(([['all', L('全部', 'All')], ['completed', L('已完成', 'Done')], ['pending', L('处理中', 'Pending')], ['refund', L('退款/异常', 'Refund')]].find(([k]) => k === activeFilter) || ['', L('全部', 'All')])[1])}</span>
+              ${icon('chevronDown', 13)}
+            </button>
           </div>
 
           ${note ? `<div class="num-xs text-muted" style="padding:0 2px;">${escapeHtml(note)}</div>` : ''}
@@ -1619,13 +1619,20 @@ export function renderInternalRecords(root) {
         </div>
       `;
 
-      root.querySelectorAll('[data-rcpt-filter]').forEach((b) => {
-        b.onclick = () => {
-          A9Haptic.light();
-          activeFilter = b.dataset.rcptFilter;
-          paintLiveOrders(liveOrdersCache, note);
-        };
-      });
+      const liveFilterBtn = root.querySelector('#btn-rcpt-filter-sheet');
+      if (liveFilterBtn) {
+        liveFilterBtn.onclick = () => openChoiceSheet({
+          title: L('筛选订单小票', 'Filter Order Receipts'),
+          selected: activeFilter,
+          options: [
+            { value: 'all', icon: 'receipt', tone: 'is-blue', label: L('全部小票', 'All Receipts') },
+            { value: 'completed', icon: 'checkCircle', tone: 'is-green', label: L('已完成', 'Completed') },
+            { value: 'pending', icon: 'clock', tone: 'is-amber', label: L('处理中', 'Pending') },
+            { value: 'refund', icon: 'shieldAlert', tone: 'is-red', label: L('退款 / 异常', 'Refund / Exception') },
+          ],
+          onSelect: (val) => { activeFilter = val; paintLiveOrders(liveOrdersCache, note); },
+        });
+      }
       bindCopyButtons();
     };
 
@@ -1676,12 +1683,12 @@ export function renderInternalRecords(root) {
           </div>
         </section>
 
-        <div class="filter-row">
-          ${[
-            ['all', L('全部', 'All')],
-            ['completed', L('已成交', 'Done')],
-            ['refund', L('退款', 'Refund')],
-          ].map(([k, lbl]) => `<button type="button" class="filter-pill ${activeFilter === k ? 'active' : ''}" data-rcpt-filter="${k}">${lbl}</button>`).join('')}
+        <div class="row-between" style="gap:8px;">
+          <span class="sw-section-label" style="margin:0;">${L('订单状态筛选', 'Order Status')}</span>
+          <button type="button" class="sw-filter-trigger" id="btn-demo-rcpt-filter-sheet">
+            <span class="row-start" style="gap:6px;">${icon('filter', 14)} ${escapeHtml(([['all', L('全部', 'All')], ['completed', L('已成交', 'Done')], ['refund', L('退款', 'Refund')]].find(([k]) => k === activeFilter) || ['', L('全部', 'All')])[1])}</span>
+            ${icon('chevronDown', 13)}
+          </button>
         </div>
 
         ${filtered.length === 0 ? `
@@ -1732,13 +1739,19 @@ export function renderInternalRecords(root) {
       </div>
     `;
 
-    root.querySelectorAll('[data-rcpt-filter]').forEach((b) => {
-      b.onclick = () => {
-        A9Haptic.light();
-        activeFilter = b.dataset.rcptFilter;
-        paintDemo();
-      };
-    });
+    const demoFilterBtn = root.querySelector('#btn-demo-rcpt-filter-sheet');
+    if (demoFilterBtn) {
+      demoFilterBtn.onclick = () => openChoiceSheet({
+        title: L('筛选订单小票', 'Filter Order Receipts'),
+        selected: activeFilter,
+        options: [
+          { value: 'all', icon: 'receipt', tone: 'is-blue', label: L('全部小票', 'All Receipts') },
+          { value: 'completed', icon: 'checkCircle', tone: 'is-green', label: L('已成交', 'Completed') },
+          { value: 'refund', icon: 'shieldAlert', tone: 'is-muted', label: L('退款', 'Refunded') },
+        ],
+        onSelect: (val) => { activeFilter = val; paintDemo(); },
+      });
+    }
     bindCopyButtons();
   };
 

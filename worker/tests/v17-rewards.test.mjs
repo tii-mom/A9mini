@@ -313,3 +313,25 @@ for (const kind of ['memory', 'd1']) {
     assert.equal(summary.estimatedIntentA9Min, 100);
   });
 }
+
+test('Mainnet / production admin reward writes remain fail-closed until chain settlement evidence verifier exists', async () => {
+  let writes = 0;
+  for (const envVariant of [
+    { A9_NETWORK: 'mainnet', A9_ADMIN_TOKEN: ADMIN_TOKEN },
+    { A9_NETWORK: ' MainNet ', A9_ADMIN_TOKEN: ADMIN_TOKEN },
+    { A9_NETWORK: 'testnet', A9_ENVIRONMENT: 'production', A9_ADMIN_TOKEN: ADMIN_TOKEN },
+    { A9_NETWORK: 'testnet', A9_ENVIRONMENT: ' PRODUCTION ', A9_ADMIN_TOKEN: ADMIN_TOKEN },
+  ]) {
+    const route = createApiRouter({
+      env: envVariant, stateStore: makeStateStore(),
+      v17RewardEngine: { settleStakeReferral: async()=>{writes++;}, drawRoundAirdrop:async()=>{writes++;} },
+      promoEngine: {},
+    });
+    for (const pathname of ['/api/admin/v17/stake-referral/settle','/api/admin/v17/airdrop/draw']) {
+      const response = await route({ method: 'POST', pathname, headers: { authorization: `Bearer ${ADMIN_TOKEN}` }, body: { roundId: 1 } });
+      assert.equal(response.status,503);
+      assert.equal(response.body.error.code,'V17_CHAIN_SETTLEMENT_UNAVAILABLE');
+    }
+  }
+  assert.equal(writes,0);
+});

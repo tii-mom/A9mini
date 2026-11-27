@@ -117,44 +117,80 @@ export function serverNowMs() {
   return Date.now() + serverClockOffsetMs;
 }
 
+/** 飞行中请求去重（仅限只读请求） */
+const inflightRequests = new Map();
+
+/** 生成请求去重键：纳入路径、方法、认证身份、有效头与超时 */
+function makeRequestKey(path, method, initData, extraHeaders, timeoutMs) {
+  const headers = Object.entries(extraHeaders || {}).map(([key, value]) => [key.toLowerCase(), String(value)]).sort(([a], [b]) => a.localeCompare(b));
+  // This key stays in memory only; never log it or persist authentication data.
+  return JSON.stringify([config.isDemo, config.network, apiUrl(path), method, initData, timeoutMs, headers]);
+}
+
 /** BAM ApiResponse<T> 信封：{ ok, data, ts } | { ok:false, error:{code,message} } */
 async function request(path, { timeoutMs = config.timeoutMs, method = 'GET', body: payload, headers: extraHeaders = null } = {}) {
+  // 只读请求去重：同一路径、方法、身份、头、超时在途时复用 Promise
+  const initData = config.isDemo ? '' : A9TMA.getRawInitData();
+  const isReadOnly = payload === undefined && (method === 'GET' || method === 'HEAD');
+  const requestKey = isReadOnly ? makeRequestKey(path, method, initData, extraHeaders, timeoutMs) : null;
+
+  if (isReadOnly && requestKey && inflightRequests.has(requestKey)) {
+    return inflightRequests.get(requestKey);
+  }
+
   // apiBase 为空表示同源（本地 dev-server 已把 /api/* 代理到 BAM worker），不是配置缺失。
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
-  try {
-    const init = { method, signal: controller.signal, credentials: 'same-origin', headers: { ...(extraHeaders || {}) } };
-    if (payload !== undefined) {
-      init.headers['content-type'] = 'application/json';
-      init.body = JSON.stringify(payload);
-    }
-    // 真实模式：附带 Telegram 原始 initData，由服务端验签确定用户身份（P0-1）。
-    // 演示模式永不附带，演示身份不能冒充已认证用户。
-    const initData = config.isDemo ? '' : A9TMA.getRawInitData();
-    if (initData) init.headers.authorization = `tma ${initData}`;
-    const res = await fetch(apiUrl(path), init);
-    let body;
+
+  const executeRequest = async () => {
     try {
-      body = await res.json();
-    } catch (_) {
-      throw new ApiError('BAD_RESPONSE', L(`接口返回非 JSON（HTTP ${res.status}）`, `Non-JSON API response (HTTP ${res.status})`), res.status);
+      const init = { method, signal: controller.signal, credentials: 'same-origin', headers: { ...(extraHeaders || {}) } };
+      if (payload !== undefined) {
+        init.headers['content-type'] = 'application/json';
+        init.body = JSON.stringify(payload);
+      }
+      // 真实模式：附带 Telegram 原始 initData，由服务端验签确定用户身份（P0-1）。
+      // 演示模式永不附带，演示身份不能冒充已认证用户。
+      if (initData) init.headers.authorization = `tma ${initData}`;
+      const res = await fetch(apiUrl(path), init);
+      let body;
+      try {
+        body = await res.json();
+      } catch (_) {
+        throw new ApiError('BAD_RESPONSE', L(`接口返回非 JSON（HTTP ${res.status}）`, `Non-JSON API response (HTTP ${res.status})`), res.status);
+      }
+      if (!body || typeof body !== 'object' || !('ok' in body)) {
+        throw new ApiError('BAD_RESPONSE', L('接口返回格式错误', 'Malformed API response'), res.status);
+      }
+      if (typeof body.ts === 'number' && Number.isFinite(body.ts) && body.ts > 1_000_000_000_000) {
+        serverClockOffsetMs = body.ts - Date.now();
+      }
+      if (!body.ok) throw new ApiError(body.error?.code || 'API_ERROR', body.error?.message || L('接口返回错误', 'API error'), res.status);
+      return body.data;
+    } catch (e) {
+      if (timedOut) throw new ApiError('NETWORK', L('请求超时，请重试', 'Request timed out; please retry'), 408);
+      if (e instanceof ApiError) throw e;
+      throw new ApiError('NETWORK', L('网络异常或接口不可达，请重试', 'Network error or API unreachable; please retry'), 0);
+    } finally {
+      clearTimeout(timer);
     }
-    if (!body || typeof body !== 'object' || !('ok' in body)) {
-      throw new ApiError('BAD_RESPONSE', L('接口返回格式错误', 'Malformed API response'), res.status);
-    }
-    if (typeof body.ts === 'number' && Number.isFinite(body.ts) && body.ts > 1_000_000_000_000) {
-      serverClockOffsetMs = body.ts - Date.now();
-    }
-    if (!body.ok) throw new ApiError(body.error?.code || 'API_ERROR', body.error?.message || L('接口返回错误', 'API error'), res.status);
-    return body.data;
-  } catch (e) {
-    if (timedOut) throw new ApiError('NETWORK', L('请求超时，请重试', 'Request timed out; please retry'), 408);
-    if (e instanceof ApiError) throw e;
-    throw new ApiError('NETWORK', L('网络异常或接口不可达，请重试', 'Network error or API unreachable; please retry'), 0);
-  } finally {
-    clearTimeout(timer);
+  };
+
+  const promise = executeRequest();
+
+  // 只读请求缓存飞行中 Promise，捕获 rejection 避免未处理错误
+  if (isReadOnly && requestKey) {
+    inflightRequests.set(requestKey, promise);
+    promise.then(() => {
+      if (inflightRequests.get(requestKey) === promise) inflightRequests.delete(requestKey);
+    }, () => {
+      // 失败或完成后清理，允许重试
+      inflightRequests.delete(requestKey);
+    });
   }
+
+  return promise;
 }
 
 /** 焦点轮：进行中最高轮 → 最近已开启轮 → 第一轮（与 BAM buildRoundDetail/focusRound 一致）。 */
@@ -335,7 +371,7 @@ export function mapRoundView(snapshot) {
     chestMall: c.chestMall || null,
     protocolConfig: c,
     result: d.result || null,
-    updatedAt: d.updatedAt || snapshot.fetchedAt,
+    updatedAt: d.updatedAt ?? c.syncedAt ?? null,
     source: snapshot.source,
     sourceLabel: snapshot.label,
     fetchedAt: snapshot.fetchedAt,

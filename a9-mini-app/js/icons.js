@@ -58,7 +58,9 @@ const PATHS = {
   chest: '<rect x="3" y="9" width="18" height="11" rx="2.5" fill="currentColor" fill-opacity="0.14"/><path d="M4 9V7.5C4 5.6 5.6 4 7.5 4h9C18.4 4 20 5.6 20 7.5V9"/><path d="M3 13h18"/><rect x="10" y="11" width="4" height="4" rx="1" fill="currentColor" stroke="none"/>',
   chestOpen: '<rect x="3" y="11" width="18" height="9" rx="2.2" fill="currentColor" fill-opacity="0.14"/><path d="M4 11L6.5 5.2C7 4.4 7.8 4 8.7 4h6.6c.9 0 1.7.4 2.2 1.2L20 11"/><path d="M9.5 11v2.5a2.5 2.5 0 0 0 5 0V11"/><path d="M12 7v1.5"/>',
   stamp: '<path d="M5 19h14"/><rect x="4" y="14" width="16" height="5" rx="2" fill="currentColor" fill-opacity="0.14"/><path d="M9 14v-2.2a2 2 0 0 1 .7-1.5c.9-.8 1.3-1.8 1.3-3A2.5 2.5 0 0 1 13.5 5h-3A2.5 2.5 0 0 1 13 7.3c0 1.2.4 2.2 1.3 3a2 2 0 0 1 .7 1.5V14"/><circle cx="12" cy="6.5" r="2.5"/>',
-  squadEmblem: '<path d="M12 3L4.5 6v6.2c0 4.6 3.2 8.2 7.5 9.3 4.3-1.1 7.5-4.7 7.5-9.3V6L12 3Z" fill="currentColor" fill-opacity="0.14" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 7.5l1.4 2.9 3.1.4-2.2 2.2.5 3.1L12 14.6l-2.8 1.5.5-3.1-2.2-2.2 3.1-.4L12 7.5Z" fill="currentColor" stroke="none"/>'
+  squadEmblem: '<path d="M12 3L4.5 6v6.2c0 4.6 3.2 8.2 7.5 9.3 4.3-1.1 7.5-4.7 7.5-9.3V6L12 3Z" fill="currentColor" fill-opacity="0.14" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 7.5l1.4 2.9 3.1.4-2.2 2.2.5 3.1L12 14.6l-2.8 1.5.5-3.1-2.2-2.2 3.1-.4L12 7.5Z" fill="currentColor" stroke="none"/>',
+  more: '<circle cx="6" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.7" fill="currentColor" stroke="none"/>',
+  filter: '<path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/>'
 };
 
 export function icon(name, size = 16, cls = '') {

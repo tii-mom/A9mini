@@ -30,7 +30,7 @@ function formatExactGramFromNano(nano) {
 }
 import { pendingTxManager } from '../tx-ux.js';
 import { A9Haptic, A9TMA } from '../tma.js';
-import { escapeHtml, formatNum, formatTimer, showToast, copyText, openChoiceSheet } from '../components.js';
+import { escapeHtml, formatNum, formatTimer, showToast, copyText, openChoiceSheet, openActionSheet } from '../components.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { renderReferralPoster, renderProofFlexPoster, renderStoryPoster, renderScenarioPoster, downloadPosterPng } from '../poster.js';
@@ -147,6 +147,7 @@ function renderReferralDetailsLinks(promoClaimableA9, { loading = false } = {}) 
       <div class="sw-section-label">${L('推广奖励', 'Referral Rewards')}</div>
       <div class="sw-menu-group">
         <a class="sw-menu-row" href="#/team/invite">
+          <span class="sw-row-icon is-amber" aria-hidden="true">${icon('trophy', 16)}</span>
           <div class="sw-menu-left">
             <span class="sw-menu-title">${L('推广奖励余额', 'Referral Balance')}</span>
             <span class="sw-menu-sub">${L('查看 6% 商城直推与提现明细', 'View 6% mall referral & claim details')}</span>
@@ -260,6 +261,7 @@ function renderCaptainHomeHtml({
 
       <div class="sw-menu-group">
         <a class="sw-menu-row" href="#/team/bind-tg">
+          <span class="sw-row-icon is-blue" aria-hidden="true">${icon('send', 16)}</span>
           <div class="sw-menu-left"><span class="sw-menu-title">${L('TG 群人数', 'TG Group Members')}</span></div>
           <div class="sw-menu-right">
             <span class="sw-menu-amount ${Number.isFinite(tgMembers) && tgMembers >= 50 ? 'is-green' : ''}">${tgVal}</span>
@@ -267,6 +269,7 @@ function renderCaptainHomeHtml({
           </div>
         </a>
         <a class="sw-menu-row" href="#/team/invite">
+          <span class="sw-row-icon is-red" aria-hidden="true">${icon('team', 16)}</span>
           <div class="sw-menu-left"><span class="sw-menu-title">${L('战队成员', 'Squad Members')}</span></div>
           <div class="sw-menu-right">
             <span class="sw-menu-amount ${Number.isFinite(memberCount) && memberCount >= 3 ? 'is-green' : ''}">${memVal}</span>
@@ -326,10 +329,12 @@ function renderMemberHomeHtml({
 
       <div class="sw-menu-group">
         <div class="sw-menu-row is-static">
+          <span class="sw-row-icon is-blue" aria-hidden="true">${icon('team', 16)}</span>
           <div class="sw-menu-left"><span class="sw-menu-title">${L('我的有效邀请', 'My Valid Invites')}</span></div>
           <div class="sw-menu-right"><span class="sw-menu-amount">${validInvites === null || validInvites === undefined ? (loading ? '…' : '—') : formatNum(validInvites)}</span></div>
         </div>
         <a class="sw-menu-row" href="#/team/invite">
+          <span class="sw-row-icon is-amber" aria-hidden="true">${icon('trophy', 16)}</span>
           <div class="sw-menu-left">
             <span class="sw-menu-title">${L('我的推广奖励', 'My Referral Rewards')}</span>
             <span class="sw-menu-sub">${L('商城直推 6% 等奖励明细', '6% mall referral & details')}</span>
@@ -348,10 +353,7 @@ function renderMemberHomeHtml({
     ${renderMemberRankingBlock(topMembers)}
 
     ${isDemo ? `
-      <div class="row-between num-xs" style="padding:2px;">
-        <button class="btn btn-sm" id="btn-switch-team" type="button" style="background:transparent;color:var(--ink-soft);padding:0;box-shadow:none;">${L('切换战队', 'Switch Squad')}</button>
-        <button class="btn btn-sm" id="btn-leave-team" type="button" style="background:transparent;color:var(--nt-rose);padding:0;box-shadow:none;">${L('退出战队', 'Leave')}</button>
-      </div>
+      <button class="btn btn-secondary" id="btn-squad-more" type="button">${icon('more', 16)} ${L('更多战队操作', 'More Squad Actions')}</button>
     ` : ''}
   `;
 }
@@ -821,23 +823,53 @@ export function renderTeamHome(root, navigate, _param = null, query = {}) {
     });
   }
 
-  const switchBtn = root.querySelector('#btn-switch-team');
-  if (switchBtn) {
-    switchBtn.onclick = () => {
-      A9Haptic.light();
-      store.update((s) => { s.team.role = 'none'; });
-      showToast(L('已回到未加入视图，可选择新战队', 'Browse squads to switch'));
-      renderTeamHome(root, navigate);
-    };
-  }
-  const leaveBtn = root.querySelector('#btn-leave-team');
-  if (leaveBtn) {
-    leaveBtn.onclick = () => {
-      A9Haptic.warning();
-      store.update((s) => { s.team.role = 'none'; });
-      showToast(L('已退出当前战队', 'Left squad'), 'amber');
-      renderTeamHome(root, navigate);
-    };
+  const squadMoreBtn = root.querySelector('#btn-squad-more');
+  if (squadMoreBtn) {
+    squadMoreBtn.onclick = () => openActionSheet({
+      title: L('战队操作', 'Squad Actions'),
+      subtitle: L('次级导航与退出操作已分区隔离', 'Navigation and leave action separated'),
+      items: [
+        {
+          icon: 'qr',
+          tone: 'is-red',
+          label: L('邀请好友与招募海报', 'Invite & Posters'),
+          sub: L('商城直推 6% · 通关返佣 8%', '6% mall · 8% pass credits'),
+          onSelect: () => navigate('/team/invite'),
+        },
+        {
+          icon: 'trophy',
+          tone: 'is-amber',
+          label: L('查看完整排行榜', 'Full Leaderboard'),
+          sub: L('个人榜、战队榜与邀请榜', 'Personal, squad & invite boards'),
+          onSelect: () => navigate('/leaderboard'),
+        },
+        {
+          icon: 'swap',
+          tone: 'is-blue',
+          label: L('切换战队', 'Switch Squad'),
+          sub: L('返回战队大厅浏览其他战队', 'Return to lobby to pick another squad'),
+          onSelect: () => {
+            store.update((s) => { s.team.role = 'none'; });
+            showToast(L('已回到未加入视图，可选择新战队', 'Browse squads to switch'));
+            renderTeamHome(root, navigate);
+          },
+        },
+      ],
+      dangerItems: [
+        {
+          icon: 'x',
+          tone: 'is-red',
+          label: L('退出当前战队', 'Leave Current Squad'),
+          sub: L('演示模式操作，退出后可重新加入', 'Demo action; you can rejoin anytime'),
+          onSelect: () => {
+            A9Haptic.warning();
+            store.update((s) => { s.team.role = 'none'; });
+            showToast(L('已退出当前战队', 'Left squad'), 'amber');
+            renderTeamHome(root, navigate);
+          },
+        },
+      ],
+    });
   }
 
   root.querySelectorAll('[data-join-team]').forEach((b) => {

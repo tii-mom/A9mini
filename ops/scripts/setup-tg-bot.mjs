@@ -69,12 +69,16 @@ export function buildBotSetupPlan({
     method: 'setMyCommands',
     body: {
       commands: [
-        { command: 'start', description: '打开 A9 财富大冒险 · 领青铜箱与绑归因' },
-        { command: 'status', description: '查看链上当前轮次与 12H 冲价战况' },
-        { command: 'help', description: '查看玩法规则、+0.06/0.03 GRAM Gas 与安全提示' },
+        { command: 'start', description: '开始冒险 · A9' },
+        { command: 'status', description: '本轮状态 · Round' },
+        { command: 'market', description: '宝箱商城 · Chests' },
+        { command: 'team', description: '我的战队 · Squad' },
+        { command: 'profile', description: '我的资产 · Assets' },
+        { command: 'rules', description: '用户指南 · Guide' },
+        { command: 'help', description: '帮助与安全 · Help' },
       ],
     },
-    summary: { commandCount: 3, commands: ['start', 'status', 'help'] },
+    summary: { commandCount: 7, commands: ['start', 'status', 'market', 'team', 'profile', 'rules', 'help'] },
   });
 
   calls.push({

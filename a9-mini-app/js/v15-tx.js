@@ -83,6 +83,19 @@ export function parseTonAddress(addr) {
   return { workchain, hash: bytes.subarray(2, 34), bounceable: baseTag === 0x11, testOnly };
 }
 
+/** Display/copy format only; never changes the wallet identity or transaction source. */
+export function formatTonAddress(addr, { testnet = false, bounceable = false } = {}) {
+  const { workchain, hash } = parseTonAddress(addr);
+  const bytes = new Uint8Array(36);
+  bytes[0] = (bounceable ? 0x11 : 0x51) | (testnet ? 0x80 : 0);
+  bytes[1] = workchain & 0xff;
+  bytes.set(hash, 2);
+  const checksum = crc16Ccitt(bytes.subarray(0, 34));
+  bytes[34] = checksum >> 8;
+  bytes[35] = checksum & 0xff;
+  return bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_');
+}
+
 /** 强校验所有链上交易目标地址为 Basechain(workchain=0) 合法地址；主网模式额外拒绝 testOnly(kQ/0Q)。 */
 function assertValidBasechainAddress(addr, label, network = null) {
   if (!addr) throw new Error(`${label} is required`);

@@ -1,0 +1,23 @@
+{
+  "purpose": "Independent v17 testnet candidate; never production",
+  "network": "testnet",
+  "profile": "testnet-fast",
+  "workerName": "a9-v17-testnet-candidate",
+  "d1Name": "a9-v17-testnet-candidate",
+  "d1Id": "",
+  "frontendOrigin": "",
+  "apiOrigin": "",
+  "testBotHandle": "",
+  "contracts": { "jettonMaster": "", "roundController": "" },
+  "wallets": {
+    "deployer": { "address": "", "source": "", "version": "v5r1" },
+    "treasury": { "address": "", "source": "", "version": "v5r1" },
+    "keeper": { "address": "", "source": "", "version": "v5r1" },
+    "roundOpener": { "address": "", "source": "", "version": "v5r1" },
+    "teamWallet": { "address": "", "source": "", "version": "v5r1" },
+    "presaleHotWallet": { "address": "", "source": "", "version": "v5r1" },
+    "promoHotWallet": { "address": "", "source": "", "version": "v5r1" }
+  },
+  "secretNamesOnly": ["A9_BOT_TOKEN", "A9_TG_WEBHOOK_SECRET", "A9_ADMIN_TOKEN", "TONCENTER_TESTNET_API_KEY"],
+  "gates": { "liveFundsEnabled": false, "A9_PRESALE_OPEN": "0", "A9_CHEST_OPEN_ENABLED": "0", "A9_BROADCAST_ENABLED": "0" }
+}

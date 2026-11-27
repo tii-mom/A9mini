@@ -26,15 +26,22 @@ const HOT = '0:' + '11'.repeat(32);
 const A9 = 1_000_000_000n;
 const W = (hexByte) => '0:' + hexByte.repeat(32);
 
-const baseStateStore = {
-  getTiming: () => ({ observationSeconds: 86400 }),
-  getProtocolState: () => ({ dataAvailable: true, currentRoundId: 1, successCount: 0 }),
-  listRounds: () => [{ roundId: 1, round: { status: 1, stakeOpenAt: 500, stakeCloseAt: 50000 }, candles: [] }],
-  getRound: (id) => (Number(id) === 1 ? { roundId: 1, round: { status: 1, stakeOpenAt: 500, stakeCloseAt: 50000 }, candles: [] } : null),
-};
+function makeStateStore() {
+  const round1 = { status: 1, stakeOpenAt: 500, stakeCloseAt: 50000, qualifiedCandles: 0 };
+  return {
+    round1,
+    stateStore: {
+      getTiming: () => ({ observationSeconds: 86400 }),
+      getProtocolState: () => ({ dataAvailable: true, currentRoundId: 1, successCount: 0 }),
+      listRounds: () => [{ roundId: 1, round: round1, candles: [] }],
+      getRound: (id) => (Number(id) === 1 ? { roundId: 1, round: round1, candles: [] } : null),
+    },
+  };
+}
 
 async function buildStack(backend, { budgetOverrides = null, walletStateResolver = null, telegramGroupVerifier = null } = {}) {
   const activeWallets = new Set();
+  const { round1, stateStore } = makeStateStore();
   const stateResolver = walletStateResolver || (async (addr) => ({ state: activeWallets.has(addr) ? 'active' : 'uninitialized' }));
   if (backend === 'memory') {
     const budgetLedger = new MemoryPromoBudgetLedger(budgetOverrides ? { caps: budgetOverrides } : undefined);
@@ -50,11 +57,11 @@ async function buildStack(backend, { budgetOverrides = null, walletStateResolver
     });
     const router = createApiRouter({
       env: { A9_BOT_TOKEN: TEST_BOT_TOKEN, A9_ADMIN_TOKEN: 'adm-act', A9_CHEST_OPEN_ENABLED: '1', A9_TON_PROOF_DOMAINS: 'a9.example', A9_NETWORK: 'testnet' },
-      stateStore: baseStateStore, promoEngine, presaleEngine, socialStore, predictionEngine, chestEngine, budgetLedger, identityStore,
+      stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, chestEngine, budgetLedger, identityStore,
       walletStateResolver: stateResolver,
       telegramGroupVerifier,
     });
-    return { db: null, router, budgetLedger, promoEngine, presaleEngine, socialStore, predictionEngine, chestEngine, identityStore, activeWallets };
+    return { db: null, router, round1, budgetLedger, promoEngine, presaleEngine, socialStore, predictionEngine, chestEngine, identityStore, activeWallets };
   }
   const db = createSqliteD1(MIGRATIONS);
   if (budgetOverrides) {
@@ -76,11 +83,11 @@ async function buildStack(backend, { budgetOverrides = null, walletStateResolver
   });
   const router = createApiRouter({
     env: { A9_BOT_TOKEN: TEST_BOT_TOKEN, A9_ADMIN_TOKEN: 'adm-act', A9_CHEST_OPEN_ENABLED: '1', A9_TON_PROOF_DOMAINS: 'a9.example', A9_NETWORK: 'testnet' },
-    stateStore: baseStateStore, promoEngine, presaleEngine, socialStore, predictionEngine, chestEngine, budgetLedger, identityStore,
+    stateStore, promoEngine, presaleEngine, socialStore, predictionEngine, chestEngine, budgetLedger, identityStore,
     walletStateResolver: stateResolver,
     telegramGroupVerifier,
   });
-  return { db, router, budgetLedger, promoEngine, presaleEngine, socialStore, predictionEngine, chestEngine, identityStore, activeWallets };
+  return { db, router, round1, budgetLedger, promoEngine, presaleEngine, socialStore, predictionEngine, chestEngine, identityStore, activeWallets };
 }
 
 console.log('Running A9 v16.1 Actuarial & Anti-Abuse Hardening tests (Memory + D1 0001..0012)...');
@@ -274,7 +281,7 @@ for (const backend of ['memory', 'd1']) {
   });
 
   await test(`[${backend}] M-3: active wallet gate on prediction bet, dynamic pool + 2,500 A9 per-user cap, and pending TTL anti-extension`, async () => {
-    const { router, identityStore, predictionEngine, activeWallets } = await buildStack(backend);
+    const { router, round1, identityStore, predictionEngine, activeWallets } = await buildStack(backend);
 
     // 1) Unbound user -> 403 WALLET_NOT_VERIFIED
     const rUnbound = await router({ method: 'POST', pathname: '/api/prediction/bet', headers: await tgHeaders(300, { nowSec: 1000 }), body: { roundId: 1, side: 'PASS' }, nowSec: 1000 });
@@ -298,6 +305,27 @@ for (const backend of ['memory', 'd1']) {
       const rLose = await router({ method: 'POST', pathname: '/api/prediction/bet', headers: await tgHeaders(300 + i, { nowSec: 1000 + i }), body: { roundId: 1, side: 'BURN' }, nowSec: 1000 + i });
       assert.equal(rLose.status, 200);
     }
+    // Unfinalized on-chain round (status === 1) must be blocked before prediction settlement
+    const settleEarly = await router({
+      method: 'POST', pathname: '/api/admin/prediction/settle',
+      headers: { 'x-a9-admin-token': 'adm-act' },
+      body: { roundId: 1, passed: true, actualQualified: 10 },
+      nowSec: 1500,
+    });
+    assert.equal(settleEarly.status, 409);
+    assert.equal(settleEarly.body.error.code, 'ROUND_NOT_FINALIZED');
+
+    round1.status = 2;
+    round1.qualifiedCandles = 10;
+    const settleMismatch = await router({
+      method: 'POST', pathname: '/api/admin/prediction/settle',
+      headers: { 'x-a9-admin-token': 'adm-act' },
+      body: { roundId: 1, passed: false, actualQualified: 10 },
+      nowSec: 1999,
+    });
+    assert.equal(settleMismatch.status, 409);
+    assert.equal(settleMismatch.body.error.code, 'CHAIN_OUTCOME_MISMATCH');
+
     const settleRes = await router({
       method: 'POST', pathname: '/api/admin/prediction/settle',
       headers: { 'x-a9-admin-token': 'adm-act' },
@@ -357,6 +385,8 @@ for (const backend of ['memory', 'd1']) {
 
     // 2) Prediction settle hits PROMO_BUDGET_EXHAUSTED (503) -> round stays unsettled, pending stays 0
     await router({ method: 'POST', pathname: '/api/prediction/bet', headers: await tgHeaders(501, { nowSec: 1010 }), body: { roundId: 1, side: 'PASS' }, nowSec: 1010 });
+    stack.round1.status = 2;
+    stack.round1.qualifiedCandles = 10;
     const settleFail = await router({
       method: 'POST', pathname: '/api/admin/prediction/settle',
       headers: { 'x-a9-admin-token': 'adm-act' },

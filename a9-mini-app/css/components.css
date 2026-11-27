@@ -618,6 +618,8 @@ img {
 .chip-muted { background: var(--paper-tray); color: var(--ink-soft); }
 .chip-green { background: var(--nt-green-soft); color: var(--nt-green); }
 .chip-red   { background: var(--nt-rose-soft); color: var(--nt-rose); }
+.data-error-header { flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.data-error-code { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .chip-gold, .chip-amber { background: var(--nt-gold-soft); color: var(--nt-gold-ink); }
 .chip-cyan, .chip-blue  { background: var(--nt-blue-soft); color: var(--nt-blue); }
 
@@ -2846,11 +2848,85 @@ img {
 .guide-tile-icon {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: 10px;
   color: var(--nt-red);
   background: var(--nt-red-soft);
+}
+.guide-tile-icon.is-red   { color: var(--nt-red); background: var(--nt-red-soft); }
+.guide-tile-icon.is-green { color: var(--nt-green); background: var(--nt-green-soft); }
+.guide-tile-icon.is-blue  { color: var(--nt-blue); background: var(--nt-blue-soft); }
+.guide-tile-icon.is-amber { color: var(--nt-gold-ink); background: var(--nt-gold-soft); }
+
+/* 底部快捷选择 / 操作面板样式（复用 tokens.css 单源变量） */
+.sw-sheet-subtitle {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  margin-top: 2px;
+}
+
+.sw-sheet-choice-row {
+  min-height: 48px;
+}
+
+.sw-sheet-choice-row.is-selected {
+  background: var(--nt-green-soft);
+}
+
+.sw-sheet-danger-wrap {
+  margin-top: 2px;
+}
+
+.sw-sheet-danger-group {
+  border-color: var(--red-border);
+}
+
+.sw-sheet-choice-row.is-danger-row .sw-menu-title {
+  color: var(--nt-rose);
+}
+
+.sw-sheet-cancel {
+  min-height: 44px;
+}
+
+.sw-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 13px;
+  border-radius: 13px;
+  border: 1.5px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: var(--card-shadow-sm);
+  transition: transform 0.1s var(--ease-spring), box-shadow 0.1s ease;
+}
+
+.sw-filter-trigger:active {
+  transform: translateY(2px);
+  box-shadow: 0 0.5px 0 var(--card-thickness);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-filter-trigger { transition: none; }
+  .sw-filter-trigger:active { transform: none; }
+}
+
+:root[data-reduced-motion="true"] .sw-filter-trigger { transition: none; }
+:root[data-reduced-motion="true"] .sw-filter-trigger:active { transform: none; }
+
+@media (max-width: 350px) {
+  .plaza-pool-amount {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 .guide-tile strong { font-size: .91rem; padding-inline-end: 10px; }
 .guide-tile small, .guide-track small, .guide-stamp-board small, .guide-result small {
@@ -2918,3 +2994,87 @@ img {
 .guide-fee-row dd { font-family: var(--font-mono); font-weight: 800; white-space: nowrap; }
 .guide-list { display: grid; gap: 6px; padding-inline-start: 1.15em; }
 .guide-audit { border: 1px solid var(--card-border); border-radius: 13px; background: var(--card-bg); }
+
+/* 首屏公共基础动效、广场概览条与全局减弱动态保障（避免首屏阻塞加载页面专属 CSS） */
+@keyframes page-enter {
+  from { opacity: 0.35; transform: translateY(8px) scale(0.99); }
+  to   { opacity: 1;    transform: translateY(0) scale(1); }
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.5; }
+}
+@keyframes toast-pop {
+  from { opacity: 0; transform: translateY(-8px) scale(0.94); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.anim-page-enter {
+  animation: page-enter 210ms var(--ease-standard) both;
+}
+.live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--nt-green);
+  animation: pulse-dot 2.6s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.live-dot.gold, .live-dot.amber { background: var(--nt-gold); }
+.plaza-overview h2 {
+  margin: 0;
+  font-size: clamp(1.25rem, 5.5vw, 1.6rem);
+  line-height: 1.2;
+}
+.plaza-overview .plaza-mini-strip {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 3px;
+  cursor: default;
+}
+.plaza-overview .plaza-mini-cell {
+  height: 24px;
+  display: grid;
+  place-items: center;
+  font-style: normal;
+  font-weight: 800;
+  color: var(--ink);
+  background: var(--paper-tray);
+}
+.plaza-overview .plaza-mini-cell.pass { border-bottom: 4px solid var(--nt-green); }
+.plaza-overview .plaza-mini-cell.miss { border-bottom: 4px solid var(--nt-rose); }
+.plaza-overview .plaza-mini-cell.active { border: 2px dashed var(--nt-blue); }
+.plaza-gates a { color: var(--ink); text-decoration: none; }
+.plaza-gates small { color: var(--text-secondary); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .btn:active, .sw-gate-tile:active, .sw-record-tile:active, .sw-menu-row:active,
+  .sw-stamp-cell:active, .candle-cell:active, .stamp-pad:active, .icon-btn:active,
+  .wallet-pill:active, .quick-btn:active, .hero-amt-pill:active {
+    transform: none !important;
+  }
+}
+:root[data-reduced-motion="true"] *,
+:root[data-reduced-motion="true"] *::before,
+:root[data-reduced-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+:root[data-reduced-motion="true"] .btn:active,
+:root[data-reduced-motion="true"] .sw-gate-tile:active,
+:root[data-reduced-motion="true"] .sw-record-tile:active,
+:root[data-reduced-motion="true"] .sw-menu-row:active,
+:root[data-reduced-motion="true"] .sw-stamp-cell:active,
+:root[data-reduced-motion="true"] .candle-cell:active,
+:root[data-reduced-motion="true"] .stamp-pad:active,
+:root[data-reduced-motion="true"] .icon-btn:active,
+:root[data-reduced-motion="true"] .wallet-pill:active,
+:root[data-reduced-motion="true"] .quick-btn:active,
+:root[data-reduced-motion="true"] .hero-amt-pill:active {
+  transform: none !important;
+}

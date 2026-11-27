@@ -11,6 +11,11 @@ import {
   parseTonAddressForOps,
   withActonNetworkKeyEnv,
 } from './lib/v15-core.mjs';
+import {
+  ORACLE_BUNDLE_VERSION,
+  assertRealCaptureEvidence,
+  verifySettlementInputBundle,
+} from './lib/market-oracle.mjs';
 
 function parseArgs(argv) {
   const out = {
@@ -30,6 +35,7 @@ function parseArgs(argv) {
     else if (a === '--twap') out.twap = argv[++i];
     else if (a === '--target') out.target = argv[++i];
     else if (a === '--candles-file') out.candlesFile = argv[++i];
+    else if (a === '--trusted-market-config') out.trustedMarketConfig = argv[++i];
     else if (a === '--stake-close-at') out.stakeCloseAt = Number(argv[++i]);
     else if (a === '--qualified') out.qualified = Number(argv[++i]);
     else if (a === '--candle-hash') out.candleHash = argv[++i];
@@ -85,7 +91,60 @@ if (args.action === 'open-round') {
     if (p.network === 'mainnet' && (!Number.isInteger(args.stakeCloseAt) || args.stakeCloseAt <= 0)) {
       throw new Error('mainnet settle-round requires --stake-close-at <unix_sec> to verify 12h observation window alignment');
     }
-    const candles = JSON.parse(readFileSync(args.candlesFile, 'utf8'));
+    const parsedCandlesFile = JSON.parse(readFileSync(args.candlesFile, 'utf8'));
+    let candles;
+    if (p.network === 'mainnet') {
+      // 主网严禁原始 candles 数组绕过：统一强制要求验证后的行情输入包及可信配置
+      if (!parsedCandlesFile || Array.isArray(parsedCandlesFile) || parsedCandlesFile.version !== ORACLE_BUNDLE_VERSION) {
+        throw new Error(
+          `mainnet settle-round requires verified market settlement input bundle (${ORACLE_BUNDLE_VERSION}); raw candles array bypass is forbidden on mainnet`,
+        );
+      }
+      let trustedBinding = null;
+      if (args.trustedMarketConfig) {
+        trustedBinding = JSON.parse(readFileSync(args.trustedMarketConfig, 'utf8'));
+      } else if (process.env.A9_MARKET_POOL_ADDRESS || process.env.A9_JETTON_MASTER_ADDRESS) {
+        trustedBinding = {
+          network: p.network,
+          provider: process.env.A9_MARKET_PROVIDER || parsedCandlesFile.binding?.provider || 'stonfi-archive',
+          poolAddress: process.env.A9_MARKET_POOL_ADDRESS || '',
+          a9JettonMaster: process.env.A9_JETTON_MASTER_ADDRESS || '',
+          quoteAsset: process.env.A9_MARKET_QUOTE_ASSET || 'GRAM',
+        };
+      }
+      if (!trustedBinding || !trustedBinding.poolAddress || !trustedBinding.a9JettonMaster) {
+        throw new Error(
+          'mainnet settle-round requires trusted market binding (--trusted-market-config or A9_MARKET_POOL_ADDRESS + A9_JETTON_MASTER_ADDRESS); refusing self-declared bundle binding',
+        );
+      }
+      const verified = verifySettlementInputBundle(parsedCandlesFile, trustedBinding);
+      assertRealCaptureEvidence(parsedCandlesFile.coverageSegments, verified.binding);
+      if (verified.binding.network !== 'mainnet') {
+        throw new Error(`settlement bundle network (${verified.binding.network}) does not match mainnet`);
+      }
+      if (Number(parsedCandlesFile.roundId) !== Number(args.round)) {
+        throw new Error(`settlement bundle roundId (${parsedCandlesFile.roundId}) != --round (${args.round})`);
+      }
+      if (String(parsedCandlesFile.targetPriceUsdE8) !== String(args.target)) {
+        throw new Error(`settlement bundle target (${parsedCandlesFile.targetPriceUsdE8}) != --target (${args.target})`);
+      }
+      if (args.stakeCloseAt !== undefined && Number(parsedCandlesFile.stakeCloseAt) !== Number(args.stakeCloseAt)) {
+        throw new Error(`settlement bundle stakeCloseAt (${parsedCandlesFile.stakeCloseAt}) != --stake-close-at (${args.stakeCloseAt})`);
+      }
+      candles = parsedCandlesFile.candles;
+      console.log(`[round-ops] Verified mainnet market settlement bundle against trusted config: provider=${verified.binding.provider}, pool=${verified.binding.poolAddress}, outputSha256=${verified.outputSha256}`);
+    } else {
+      // 测试网兼容路径单独隔离：支持验真后的行情输入包，也兼容历史测试网原始 candles 数组
+      if (parsedCandlesFile && !Array.isArray(parsedCandlesFile) && parsedCandlesFile.version === ORACLE_BUNDLE_VERSION) {
+        const verified = verifySettlementInputBundle(parsedCandlesFile);
+        if (verified.binding.network !== p.network) {
+          throw new Error(`settlement bundle network (${verified.binding.network}) does not match profile (${p.network})`);
+        }
+        candles = parsedCandlesFile.candles;
+      } else {
+        candles = parsedCandlesFile;
+      }
+    }
     const canEnforceObs = p.timing.observationSeconds % p.timing.candleCount === 0;
     const agg = aggregateCandles(args.round, args.target, candles, p.timing.candleCount, {
       ...(canEnforceObs ? { observationSeconds: p.timing.observationSeconds } : {}),

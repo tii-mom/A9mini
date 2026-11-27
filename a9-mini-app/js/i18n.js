@@ -4,6 +4,7 @@
  */
 
 import { store } from './store.js';
+import { config } from './config.js';
 
 export const LANGUAGES = [
   { code: 'zh-CN', label: '简体中文', sub: 'Chinese (Simplified)' },
@@ -22,8 +23,10 @@ export function syncDocumentLang(routeTitle) {
   const lang = getLang();
   if (typeof document !== 'undefined') {
     document.documentElement.lang = lang;
+    const isTestnet = (store.state.round?.protocolConfig?.network || config.network) === 'testnet';
+    const prefix = isTestnet ? '[Testnet] ' : '';
     const brand = lang === 'en-US' ? 'A9 · Wealth Quest' : 'A9 · 财富大冒险';
-    document.title = routeTitle ? `${routeTitle} · A9` : brand;
+    document.title = routeTitle ? `${prefix}${routeTitle} · A9` : `${prefix}${brand}`;
   }
 }
 

@@ -122,7 +122,7 @@ test('validateDeployPreflight rejects malformed URI, invalid/wrong-network TON a
     capturedActon = { cmd, args, env: opts.env };
     return {
       status: 0,
-      stdout: 'Deployer = kQ_mock_deployer\nTreasury = kQ_mock_treasury\nDRY-RUN: no on-chain messages sent.\n',
+      stdout: `Deployer = ${TESTNET_ADDR}\nTreasury = ${TESTNET_ADDR}\nJettonMaster = ${TESTNET_ADDR}\nRoundController = ${TESTNET_ADDR}\nDRY-RUN: no on-chain messages sent.\n`,
       stderr: '',
     };
   };
@@ -265,7 +265,7 @@ test('Mainnet preflight hardening: Acton network API key mapping, ample mainnet 
   const MASTERCHAIN_ADDR = `-1:${'33'.repeat(32)}`;
   const okSpawn = () => ({
     status: 0,
-    stdout: 'Deployer = EQ_mock\nTreasury = EQ_mock\nDRY-RUN: no on-chain messages sent.\n',
+    stdout: `Deployer = ${MAINNET_ADDR}\nTreasury = ${MAINNET_ADDR}\nJettonMaster = ${MAINNET_ADDR}\nRoundController = ${MAINNET_ADDR}\nDRY-RUN: no on-chain messages sent.\n`,
     stderr: '',
   });
 
@@ -320,6 +320,7 @@ test('Mainnet preflight hardening: Acton network API key mapping, ample mainnet 
     },
   });
   assert.ok(okV17 && okV17.protocol === 'v17');
+  assert.equal(okV17.readyForExecute, false, 'mainnet synchronous validation cannot grant online readiness');
   assert.match(invokedScript, /deploy_v17\.tolk/);
 });
 

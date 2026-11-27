@@ -5,10 +5,10 @@ import { store } from '../store.js';
 
 export function renderUserGuide(root) {
   const destinations = [
-    ['/internal/market?tab=free', 'trophy', L('免费宝箱', 'Free Chests'), L('查看开启条件', 'Check eligibility')],
-    ['/internal/market', 'chest', L('宝箱商城', 'Chest Mall'), L('6 档 · 直发钱包', '6 tiers · wallet delivery')],
-    ['/round', 'navRound', L('轮次闯关', 'Round Quest'), L('看进度和仓位', 'See slots and positions')],
-    ['/profile', 'wallet', L('我的资产', 'My Assets'), L('查凭证与奖励', 'Find tickets and rewards')],
+    ['/internal/market?tab=free', 'chestOpen', 'is-green', L('免费宝箱', 'Free Chests'), L('查看开启条件', 'Check eligibility')],
+    ['/internal/market', 'chest', 'is-red', L('宝箱商城', 'Chest Mall'), L('6 档 · 直发钱包', '6 tiers · wallet delivery')],
+    ['/round', 'navRound', 'is-blue', L('轮次闯关', 'Round Quest'), L('看进度和仓位', 'See slots and positions')],
+    ['/profile', 'wallet', 'is-amber', L('我的资产', 'My Assets'), L('查凭证与奖励', 'Find tickets and rewards')],
   ];
   const outcomes = [
     ['pass', L('通关', 'Passed'), L('退 100% 本金', '100% principal back'), L('20% 奖金秒提，80% 在 14 天内逐秒解锁。', '20% of rewards available now. The other 80% unlocks over 14 days.')],
@@ -38,9 +38,9 @@ export function renderUserGuide(root) {
     </header>
 
     <nav class="guide-destinations" aria-label="${L('常用入口', 'Quick links')}">
-      ${destinations.map(([route, glyph, title, caption]) => `
+      ${destinations.map(([route, glyph, tone, title, caption]) => `
         <a class="guide-tile" href="#${route}">
-          <span class="guide-tile-icon" aria-hidden="true">${icon(glyph, 20)}</span>
+          <span class="guide-tile-icon ${tone}" aria-hidden="true">${icon(glyph, 20)}</span>
           <strong>${title}</strong><small>${caption}</small>
           <span class="guide-tile-arrow" aria-hidden="true">›</span>
         </a>`).join('')}

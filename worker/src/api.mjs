@@ -174,24 +174,26 @@ function resolveTicketRoundRange(query = {}, stateStore = null) {
   return { fromRound, toRound, currentRoundId, roundIds };
 }
 
-async function checkRunnerHeartbeatGate(roles, env, runnerHeartbeatReader, nowSec) {
+async function checkRunnerHeartbeatGate(roles, env, runnerHeartbeatReader, nowSec, { flow = null, requiredA9Raw = 0n, minGramNano = 100_000_000n } = {}) {
   if (env?.A9_REQUIRE_RUNNER_HEARTBEAT !== '1') return { ok: true };
   if (typeof runnerHeartbeatReader !== 'function') {
-    return { ok: false, reason: 'runner heartbeat reader unavailable' };
+    return { ok: false, code: 'PAYOUT_RUNNER_OFFLINE', reason: 'runner heartbeat reader unavailable' };
   }
   const maxStaleSec = Math.max(30, Number(env.A9_RUNNER_HEARTBEAT_MAX_STALE_SEC || 120));
   let rows = [];
   try {
     rows = (await runnerHeartbeatReader()) || [];
   } catch (e) {
-    return { ok: false, reason: e?.message || 'failed to query runner heartbeats' };
+    return { ok: false, code: 'PAYOUT_RUNNER_OFFLINE', reason: e?.message || 'failed to query runner heartbeats' };
   }
   const expectedNetwork = String(env?.A9_NETWORK || '').trim().toLowerCase();
   const matched = rows.filter((r) => roles.includes(String(r.role || '').toLowerCase()));
   if (!matched.length) {
-    return { ok: false, reason: `no heartbeat recorded for roles: ${roles.join('/')}` };
+    return { ok: false, code: 'PAYOUT_RUNNER_OFFLINE', reason: `no heartbeat recorded for roles: ${roles.join('/')}` };
   }
   let newestOkAt = 0;
+  let newestMeta = null;
+  let recentInventoryLowReason = null;
   for (const r of matched) {
     const rowNet = String(r.network || '').trim().toLowerCase();
     if (expectedNetwork && rowNet !== expectedNetwork) continue;
@@ -199,22 +201,72 @@ async function checkRunnerHeartbeatGate(roles, env, runnerHeartbeatReader, nowSe
     if (!meta && typeof r.meta_json === 'string' && r.meta_json.trim()) {
       try { meta = JSON.parse(r.meta_json); } catch { continue; }
     }
+    const ts = Number(r.lastSeenAt ?? r.last_seen_at ?? r.lastOkAt ?? r.last_ok_at ?? r.lastTickAt ?? 0);
+    const isFresh = Number.isFinite(ts) && ts > 0 && (nowSec - ts) <= maxStaleSec;
+    if (meta && meta.executeLive === false) continue;
+    if (isFresh && flow && meta?.inventory?.[flow]?.ok === false) {
+      recentInventoryLowReason = meta.inventory[flow].reason || 'LOW_INVENTORY';
+    }
     const status = String(r.status ?? meta?.status ?? 'ok').toLowerCase();
     // P1-2: 仅认可 status === 'ok' 且非 DRY-RUN（executeLive !== false）的同网心跳
     if (status !== 'ok') continue;
-    if (meta && meta.executeLive === false) continue;
-    const ts = Number(r.lastSeenAt ?? r.last_seen_at ?? r.lastOkAt ?? r.last_ok_at ?? r.lastTickAt ?? 0);
-    if (Number.isFinite(ts) && ts > newestOkAt) newestOkAt = ts;
+    if (Number.isFinite(ts) && ts > newestOkAt) {
+      newestOkAt = ts;
+      newestMeta = meta;
+    }
   }
   if (!newestOkAt || nowSec - newestOkAt > maxStaleSec) {
+    if (recentInventoryLowReason) {
+      return {
+        ok: false,
+        code: 'HOT_WALLET_LOW_INVENTORY',
+        reason: `hot wallet (${flow}) low inventory/gas circuit breaker active: ${recentInventoryLowReason}`,
+      };
+    }
     return {
       ok: false,
+      code: 'PAYOUT_RUNNER_OFFLINE',
       reason: newestOkAt
         ? `payout runner heartbeat stale (${Math.max(0, nowSec - newestOkAt)}s > ${maxStaleSec}s)`
         : 'payout runner has no healthy heartbeat',
     };
   }
+  if (flow && newestMeta?.inventory?.[flow]) {
+    const inv = newestMeta.inventory[flow];
+    if (inv.ok === false) {
+      return {
+        ok: false,
+        code: 'HOT_WALLET_LOW_INVENTORY',
+        reason: `hot wallet (${flow}) low inventory/gas: ${inv.reason || 'LOW_INVENTORY'}`,
+      };
+    }
+    const gramAvail = inv.gramAvailableNano ?? inv.gramNano ?? null;
+    if (gramAvail !== null && /^\d+$/.test(String(gramAvail)) && BigInt(gramAvail) < minGramNano) {
+      return {
+        ok: false,
+        code: 'HOT_WALLET_LOW_INVENTORY',
+        reason: `hot wallet (${flow}) GRAM gas below watermark (${gramAvail} < ${minGramNano})`,
+      };
+    }
+    const a9Avail = inv.a9AvailableRaw ?? inv.a9Raw ?? null;
+    if (requiredA9Raw > 0n && a9Avail !== null && /^\d+$/.test(String(a9Avail)) && BigInt(a9Avail) < requiredA9Raw) {
+      return {
+        ok: false,
+        code: 'HOT_WALLET_LOW_INVENTORY',
+        reason: `hot wallet (${flow}) A9 inventory insufficient for order (${a9Avail} < ${requiredA9Raw})`,
+      };
+    }
+  }
   return { ok: true, lastSeenAt: newestOkAt };
+}
+
+function resolveRequestedChestSku(skuId, amount) {
+  if (skuId && CHEST_MALL_CATALOG[skuId]) return CHEST_MALL_CATALOG[skuId];
+  if (amount !== undefined && amount !== null && amount !== '') {
+    const clean = String(amount).trim();
+    return Object.values(CHEST_MALL_CATALOG).find((s) => s.priceGram === clean) || null;
+  }
+  return null;
 }
 
 export function createApiRouter({
@@ -398,7 +450,7 @@ export function createApiRouter({
           return ok({ handled: false, ignored: true });
         }
 
-        const cmdMatch = String(msg.text).trim().match(/^\/(start|status|help)(?:@[A-Za-z0-9_]+)?(?:\s+([\s\S]*))?$/i);
+        const cmdMatch = String(msg.text).trim().match(/^\/(start|status|market|team|profile|rules|help)(?:@[A-Za-z0-9_]+)?(?:\s+([\s\S]*))?$/i);
         if (!cmdMatch) {
           return ok({ handled: false, ignored: true });
         }
@@ -410,10 +462,19 @@ export function createApiRouter({
         const fromUserId = msg.from?.id ? String(msg.from.id) : null;
         const replyToMessageId = msg.message_id ?? null;
         const botHandle = String(env.A9_TG_BOT_HANDLE || 'A9_TonBot').replace(/^@/, '').trim() || 'A9_TonBot';
+        const entry = (label, payload, style = null) => ({
+          text: label,
+          ...(chatType === 'private' && /^https:\/\//.test(String(env.A9_PUBLIC_ORIGIN || ''))
+            ? { web_app: { url: `${String(env.A9_PUBLIC_ORIGIN).replace(/\/+$/, '')}/?startapp=${encodeURIComponent(payload)}` } }
+            : { url: `https://t.me/${botHandle}?startapp=${encodeURIComponent(payload)}` }),
+          ...(style ? { style } : {}),
+        });
 
         let replyText = '';
         let buttonText = null;
         let buttonUrl = null;
+        let inlineKeyboard = null;
+        let welcomePhoto = null;
 
         if (command === 'start') {
           if (chatType === 'private' && fromUserId && socialStore && typeof socialStore.ensureDefaultNotificationPrefs === 'function') {
@@ -434,18 +495,19 @@ export function createApiRouter({
               }
             }
           }
-          const lines = [
-            'A9 · 财富大冒险官方助手（TON v17.0 涨价解锁）',
-            '1. 新人 0 GRAM 秒开 200 A9 青铜新手箱，100 A9 无门槛入池，拉好友享通关奖金 8% 返佣 + 每轮空投抽奖',
-            '2. 24H 锁仓（头矿 6H 享 5% 轻止损 / 之后 10% 止损，锁仓期可提前解押退 85% 扣 15% 销毁）→ 封盘 12H 冲价（>= 8/12 通关）',
-            '3. 通关退 100% 本金 + 20% 秒提 + 80% 分 14 天逐秒解锁（支持未解锁部分 3 折急提、7 折销毁）；未通关永不爆仓自动退本 95%/90%',
+          const isTestnet = String(env.A9_NETWORK || '').toLowerCase() === 'testnet';
+          if (/^https:\/\//.test(String(env.A9_PUBLIC_ORIGIN || ''))) welcomePhoto = `${String(env.A9_PUBLIC_ORIGIN).replace(/\/+$/, '')}/assets/brand/bot-welcome.png`;
+          replyText = [
+            isTestnet ? 'A9 · 财富大冒险  /  测试网' : 'A9 · 财富大冒险',
+            '开宝箱 · 闯关 · 与战队同行',
+            '点击下方，开始你的冒险。',
+          ].join('\n\n');
+          inlineKeyboard = [
+            [entry('开始冒险', safePayload || 'plaza', 'danger')],
+            [entry('宝箱商城', 'market', 'primary'), entry('轮次闯关', 'round', 'success')],
+            [entry('我的战队', 'team'), entry('我的资产', 'profile')],
+            [entry('用户指南', 'rules'), { text: 'A9 官网', url: 'https://a9.lat' }],
           ];
-          if (chatType === 'private') {
-            lines.push('默认已开启轮次结算私聊提醒，可在小程序「我的 -> 系统设置」随时开关。');
-          }
-          replyText = lines.join('\n');
-          buttonText = '打开 A9 · 财富大冒险';
-          buttonUrl = `https://t.me/${botHandle}?startapp=${encodeURIComponent(safePayload || 'market')}`;
         } else if (command === 'status') {
           const ps = stateStore?.getProtocolState?.() || null;
           const curId = Number(ps?.currentRoundId || 0);
@@ -470,19 +532,69 @@ export function createApiRouter({
             buttonText = `查看第 #${curId} 轮实时走势`;
             buttonUrl = `https://t.me/${botHandle}?startapp=${encodeURIComponent(`round_${curId}`)}`;
           }
+        } else if (command === 'market') {
+          replyText = [
+            'A9 宝箱商城与免费宝箱',
+            '6 档宝箱保底加赠合并直发钱包，也可查看 5 阶免费箱开启条件。',
+            '实际开售状态、档位与订单小票请在小程序内核验。',
+          ].join('\n\n');
+          inlineKeyboard = [
+            [entry('打开宝箱商城', 'market', 'primary')],
+            [entry('下轮预热', 'warmup'), entry('闯关', 'round', 'success')],
+          ];
+        } else if (command === 'team') {
+          replyText = [
+            'A9 战队与推广返佣',
+            '加入或管理战队，查看 6% 商城直推与 8% 好友通关返佣明细。',
+            '群绑定与创世金库核验状态以小程序服务端返回为准。',
+          ].join('\n\n');
+          inlineKeyboard = [
+            [entry('进入我的战队', 'team', 'danger')],
+            [entry('排行榜', 'leaderboard'), entry('宝箱商城', 'market', 'primary')],
+          ];
+        } else if (command === 'profile') {
+          replyText = [
+            '我的资产、凭证与领奖中心',
+            '个人余额、StakeTicket 凭证与可领取金额仅在小程序完成身份与钱包验签后展示。',
+            '点击下方按钮直接进入我的页面核验。',
+          ].join('\n\n');
+          inlineKeyboard = [
+            [entry('打开我的资产', 'profile', 'danger')],
+            [entry('领奖中心', 'claim', 'success'), entry('用户指南', 'rules')],
+          ];
+        } else if (command === 'rules') {
+          replyText = [
+            'A9 · 财富大冒险用户指南',
+            '24H 锁仓（头矿 6H 5% 止损 / 普通 10% 止损）→ 12H 冲价 >= 8/12 通关，通关 20% 秒提 + 14 天逐秒解锁。',
+            '完整规则、费用说明与链上合约验真请在小程序内查看。',
+          ].join('\n\n');
+          inlineKeyboard = [
+            [entry('阅读用户指南', 'rules', 'primary')],
+            [entry('进入 A9', 'plaza', 'danger'), entry('闯关', 'round', 'success')],
+          ];
         } else {
           replyText = [
             'A9 · 财富大冒险 Bot 命令与安全指南（v17.0 涨价解锁）',
-            '/start — 打开 Mini App 并绑定邀请归因（好友通关 8% 返佣）',
+            '/start — 打开主菜单并绑定邀请归因（好友通关 8% 返佣）',
             '/status — 实时查询链上轮次、头矿 6H 与 12H 冲价进度',
-            '/help — 查看涨价解锁规则与资金安全红线',
+            '/market — 直达宝箱商城与免费宝箱入口',
+            '/team — 直达我的战队与推广返佣明细',
+            '/profile — 直达我的资产、凭证与领奖中心',
+            '/rules — 查看用户指南与费用说明',
+            '/help — 查看全部命令与资金安全红线',
             '核心规则：24H 锁仓（头矿 6H 5% 止损 / 普通 10% 止损，锁仓期可提前解押扣 15% 销毁）→ 12H 冲价 >= 8/12 通关；通关 20% 秒提 + 14 天逐秒解锁（支持 3 折急提、7 折销毁）；超 7 天未结算无许可 AbortRound 100% 退本。',
             '安全提示：严禁未下单直接向热钱包转账；商城购箱含 +0.06 GRAM 配送 Gas，逾期/异常自动退款固定扣除 0.03 GRAM Gas。',
           ].join('\n');
-          buttonText = '阅读完整闯关指南';
+          buttonText = '阅读完整用户指南';
           buttonUrl = `https://t.me/${botHandle}?startapp=rules`;
         }
 
+        if (!inlineKeyboard && buttonText && buttonUrl) {
+          const target = new URL(buttonUrl);
+          const payload = target.hostname === 't.me' && target.pathname.toLowerCase() === `/${botHandle.toLowerCase()}`
+            ? target.searchParams.get('startapp') : null;
+          if (payload) inlineKeyboard = [[entry(buttonText, payload)]];
+        }
         const replySender =
           broadcaster && typeof broadcaster.sendBotReply === 'function'
             ? broadcaster
@@ -490,7 +602,7 @@ export function createApiRouter({
                 ? new TelegramBroadcaster({ enabled: false, botToken: env.A9_BOT_TOKEN, botHandle })
                 : null);
         const sendRes = replySender
-          ? await replySender.sendBotReply({ chatId, text: replyText, buttonText, buttonUrl, replyToMessageId })
+          ? await replySender.sendBotReply({ chatId, text: replyText, photoUrl: welcomePhoto, buttonText, buttonUrl, replyToMessageId: command === 'start' ? null : replyToMessageId, inlineKeyboard })
           : { sent: false, reason: 'NO_BROADCASTER' };
 
         return ok({
@@ -724,12 +836,19 @@ export function createApiRouter({
       // Promo hot-wallet (0.06 GRAM user-covered gas)
       if (method === 'POST' && pathname === '/api/promo/intent') {
         if (!promoEngine) return err('PROMO_DISABLED', 'promo hot wallet not configured', 503);
-        const hb = await checkRunnerHeartbeatGate(['promo', 'payout_daemon', 'daemon'], env, runnerHeartbeatReader, nowSec);
-        if (!hb.ok) return err('PAYOUT_RUNNER_OFFLINE', `推广出账进程离线或心跳超时：${hb.reason}`, 503);
         const { binding, walletAddress } = await auth.wallet(body?.walletAddress || null);
         if (binding?.pending) {
           return err('PENDING_REBIND_ACTIVE', 'cannot create promo claim intent while a wallet rebind is pending; cancel rebind or wait for switch', 409);
         }
+        const balSnap = typeof promoEngine.getBalance === 'function' ? await promoEngine.getBalance(walletAddress) : null;
+        const reqA9Raw = balSnap?.claimableRaw && /^\d+$/.test(String(balSnap.claimableRaw)) ? BigInt(balSnap.claimableRaw) : 0n;
+        const minGramNano = BigInt(env.A9_HOT_WALLET_MIN_GRAM_NANO || '100000000');
+        const hb = await checkRunnerHeartbeatGate(['promo', 'payout_daemon', 'daemon'], env, runnerHeartbeatReader, nowSec, {
+          flow: 'promo',
+          requiredA9Raw: reqA9Raw,
+          minGramNano,
+        });
+        if (!hb.ok) return err(hb.code || 'PAYOUT_RUNNER_OFFLINE', `推广出账进程离线或库存不足：${hb.reason}`, 503);
         return ok(await promoEngine.createClaimIntent(walletAddress, nowSec));
       }
 
@@ -760,15 +879,24 @@ export function createApiRouter({
       if (method === 'POST' && pathname === '/api/presale/intent') {
         if (!presaleEngine) return err('PRESALE_DISABLED', 'presale hot wallet not configured', 503);
         const { identity, walletAddress } = await auth.wallet(body?.walletAddress || null);
-        if (presaleEngine.open) {
-          const hb = await checkRunnerHeartbeatGate(['presale', 'payout_daemon', 'daemon'], env, runnerHeartbeatReader, nowSec);
-          if (!hb.ok) return err('PAYOUT_RUNNER_OFFLINE', `出账签名进程离线或心跳超时：${hb.reason}`, 503);
-        }
         const skuId = body?.skuId ? String(body.skuId).trim() : null;
         const openMode = body?.openMode ? String(body.openMode).trim().toUpperCase() : undefined;
         const amount = body?.tonAmount ?? body?.gramAmount;
         if (!skuId && (amount === undefined || amount === null || amount === '')) {
           return err('SKU_REQUIRED', 'skuId is required; only the 6 valid Chest Mall SKUs are accepted', 400);
+        }
+        if (presaleEngine.open) {
+          const matchedSku = resolveRequestedChestSku(skuId, amount);
+          const reqA9Raw = matchedSku
+            ? BigInt(matchedSku.baseA9Raw) + BigInt(matchedSku.maxBoostA9Raw || '0')
+            : BigInt(env.A9_PRESALE_MIN_A9_RAW || '2500000000000');
+          const minGramNano = BigInt(env.A9_HOT_WALLET_MIN_GRAM_NANO || '100000000');
+          const hb = await checkRunnerHeartbeatGate(['presale', 'payout_daemon', 'daemon'], env, runnerHeartbeatReader, nowSec, {
+            flow: 'presale',
+            requiredA9Raw: reqA9Raw,
+            minGramNano,
+          });
+          if (!hb.ok) return err(hb.code || 'PAYOUT_RUNNER_OFFLINE', `出账签名进程离线或热钱包库存不足：${hb.reason}`, 503);
         }
         const rawRef = String(body?.referrerId || '').trim() || null;
         if (socialStore && rawRef) await socialStore.bindReferral(walletAddress, rawRef, nowSec, { aliases: [identity.telegramUserId] });
@@ -1488,6 +1616,14 @@ export function createApiRouter({
         if (!timingSafeEqualStr(providedToken, expectedToken)) {
           return err('UNAUTHORIZED', 'invalid or missing admin token', 401);
         }
+        // Mainnet / production must not credit admin-supplied reward amounts before the
+        // chain-finality/allocation verifier is implemented and independently accepted.
+        // No URL/config toggle can bypass this temporary fail-closed guard.
+        const settleNet = String(env.A9_NETWORK || '').trim().toLowerCase();
+        const settleEnv = String(env.A9_ENVIRONMENT || '').trim().toLowerCase();
+        if (settleNet === 'mainnet' || settleEnv === 'production') {
+          return err('V17_CHAIN_SETTLEMENT_UNAVAILABLE', 'Mainnet reward settlement requires verified chain finality and allocation evidence', 503);
+        }
         if (!v17RewardEngine) return err('V17_REWARD_DISABLED', 'v17 reward engine not configured', 503);
         if (!promoEngine) return err('PROMO_DISABLED', 'promo hot wallet not configured', 503);
         const roundId = Number(body?.roundId);
@@ -1533,6 +1669,11 @@ export function createApiRouter({
         const providedToken = extractAdminToken(headers);
         if (!timingSafeEqualStr(providedToken, expectedToken)) {
           return err('UNAUTHORIZED', 'invalid or missing admin token', 401);
+        }
+        const drawNet = String(env.A9_NETWORK || '').trim().toLowerCase();
+        const drawEnv = String(env.A9_ENVIRONMENT || '').trim().toLowerCase();
+        if (drawNet === 'mainnet' || drawEnv === 'production') {
+          return err('V17_CHAIN_SETTLEMENT_UNAVAILABLE', 'Mainnet airdrop requires verified chain finality and participant/seed evidence', 503);
         }
         if (!v17RewardEngine) return err('V17_REWARD_DISABLED', 'v17 reward engine not configured', 503);
         if (!promoEngine) return err('PROMO_DISABLED', 'promo hot wallet not configured', 503);
@@ -1584,6 +1725,23 @@ export function createApiRouter({
         const actualQualified = Number(body?.actualQualified);
         if (!Number.isInteger(roundId) || roundId < 1 || typeof body?.passed !== 'boolean' || !Number.isInteger(actualQualified) || actualQualified < 0 || actualQualified > 12) {
           return err('BAD_REQUEST', 'roundId (>=1), passed (boolean), and actualQualified (0..12) are required', 400);
+        }
+        const chainItem = stateStore?.getRound?.(roundId) || null;
+        const ps = stateStore?.getProtocolState?.() || null;
+        if (chainItem?.round) {
+          const st = Number(chainItem.round.status);
+          if (st !== 2 && st !== 3) {
+            return err('ROUND_NOT_FINALIZED', `round #${roundId} is not finalized on-chain (status=${st})`, 409);
+          }
+          const chainPassed = st === 2;
+          const chainQualified = chainItem.round.qualifiedCandles !== undefined && chainItem.round.qualifiedCandles !== null
+            ? Number(chainItem.round.qualifiedCandles)
+            : actualQualified;
+          if (body.passed !== chainPassed || actualQualified !== chainQualified) {
+            return err('CHAIN_OUTCOME_MISMATCH', `supplied outcome (${body.passed}/${actualQualified}) mismatches finalized chain round (${chainPassed}/${chainQualified})`, 409);
+          }
+        } else if (ps?.dataAvailable === true) {
+          return err('ROUND_NOT_FINALIZED', `round #${roundId} is not available as a finalized on-chain round`, 409);
         }
         const poolArg = body?.poolA9Raw !== undefined && body?.poolA9Raw !== null
           ? body.poolA9Raw

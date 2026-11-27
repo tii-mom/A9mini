@@ -163,6 +163,17 @@ await test('Webhook commands (/start, /status, /help) reply even when A9_BROADCA
   assert.equal(socialStore.getReferrer('9001'), '777888');
   assert.equal(socialStore.getNotificationPrefs('9001').settlementPush, true);
   assert.equal(socialStore.getNotificationPrefs('9001').subscribedExplicitly, true);
+  const menu = calls[0].body.reply_markup.inline_keyboard;
+  assert.deepEqual(menu.map(row => row.map(item => item.text)), [
+    ['开始冒险'], ['宝箱商城', '轮次闯关'], ['我的战队', '我的资产'], ['用户指南', 'A9 官网'],
+  ]);
+  assert.ok(menu[0][0].url.endsWith('startapp=invite_777888'));
+  assert.equal(menu[0][0].style, 'danger');
+  assert.equal(menu[1][0].style, 'primary');
+  assert.equal(menu[1][1].style, 'success');
+  assert.deepEqual(menu.slice(1).flat().filter(item => item.url.includes('t.me/')).map(item => new URL(item.url).searchParams.get('startapp')),
+    ['market', 'round', 'team', 'profile', 'rules']);
+  assert.equal(menu[3][1].url, 'https://a9.lat');
 
   // 2) /start for opted-out user -> keeps settlementPush === false
   await routerEmpty({
@@ -247,6 +258,29 @@ await test('Webhook commands (/start, /status, /help) reply even when A9_BROADCA
   assert.ok(resHelp.body.data.replyText.includes('AbortRound'));
   assert.equal(calls.length, 5);
   assert.ok(calls[0].body.reply_markup.inline_keyboard[0][0].url.includes('startapp=invite_777888'));
+
+  // 6) /market, /team, /profile, /rules all return structured replies with matching startapp deep links
+  const extraCmds = [
+    ['/market', 'market', 'market'],
+    ['/team', 'team', 'team'],
+    ['/profile', 'profile', 'profile'],
+    ['/rules', 'rules', 'rules'],
+  ];
+  for (let i = 0; i < extraCmds.length; i += 1) {
+    const [text, cmd, expectedParam] = extraCmds[i];
+    const res = await routerLive({
+      method: 'POST',
+      pathname: '/api/telegram/webhook',
+      headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+      body: { message: { message_id: 20 + i, chat: { id: 9001, type: 'private' }, from: { id: 9001 }, text } },
+      nowSec: 2510 + i,
+    });
+    assert.equal(res.status, 200, cmd);
+    assert.equal(res.body.data.command, cmd, cmd);
+    assert.equal(res.body.data.replied, true, cmd);
+    const kb = calls[calls.length - 1].body.reply_markup.inline_keyboard;
+    assert.equal(new URL(kb[0][0].url).searchParams.get('startapp'), expectedParam, cmd);
+  }
 });
 
 await test('GET/POST /api/me/notifications enforces TG auth, validates boolean, and persists in Memory + D1 (0001..0013)', async () => {

@@ -9,7 +9,8 @@ import { config } from '../config.js';
 import { peekDemoModule } from '../demo-loader.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { A9Audio } from '../audio.js';
-import { escapeHtml, formatNum, showToast, copyText, mountSlider, renderCorridorRadar, bindCorridorRadarEvents, animateSlotCounter, launchCoinArc, burstParticles, openModal, closeModal } from '../components.js';
+import { escapeHtml, formatNum, showToast, copyText, openModal, closeModal, openChoiceSheet } from '../components.js';
+import { mountSlider, renderCorridorRadar, bindCorridorRadarEvents, animateSlotCounter, launchCoinArc, burstParticles } from '../components-heavy.js';
 import { renderVaultChestSvg, renderNintendoGateIcon } from '../paper-art.js';
 import { renderChestSvg } from '../chest-art.js';
 import { renderProofFlexPoster, renderStoryPoster, downloadPosterPng } from '../poster.js';
@@ -1509,7 +1510,8 @@ export function renderLedgerPage(root) {
     const seq = ++ledgerRenderSeq;
     const addr = store.state.user.address || null;
     const hasTg = Boolean(A9TMA.getRawInitData());
-    const tonviewerHref = addr ? buildTonviewerUrl(addr, config.tonNetwork || 'mainnet') : null;
+    const activeNet = store.state.round?.protocolConfig?.network || config.network || 'mainnet';
+    const tonviewerHref = addr ? buildTonviewerUrl(addr, activeNet) : null;
 
     const paintLive = ({ loading = false, orders = [], ordersErr = false, refs = null, refsErr = false } = {}) => {
       if (seq !== ledgerRenderSeq || !root.isConnected) return;
@@ -1736,7 +1738,13 @@ export function renderLedgerPage(root) {
           </div>
         </section>
 
-        <div class="filter-row">${categories.map(([v, label]) => `<button class="filter-pill ${activeFilter === v ? 'active' : ''}" data-lf="${v}" type="button">${label}</button>`).join('')}</div>
+        <div class="row-between" style="gap:8px;">
+          <span class="sw-section-label" style="margin:0;">${L('记录筛选', 'Filter Records')}</span>
+          <button type="button" class="sw-filter-trigger" id="btn-ledger-filter-sheet">
+            <span class="row-start" style="gap:6px;">${icon('filter', 14)} ${escapeHtml(categories.find(([v]) => v === activeFilter)?.[1] || L('全部', 'All'))}</span>
+            ${icon('chevronDown', 13)}
+          </button>
+        </div>
 
         <div class="sw-menu-group">
           ${list.length === 0
@@ -1756,7 +1764,15 @@ export function renderLedgerPage(root) {
       </div>
     `;
     root.querySelectorAll('[data-lmode]').forEach(b => { b.onclick = () => { A9Haptic.light(); A9Audio.tick(); viewMode = b.dataset.lmode; paint(); }; });
-    root.querySelectorAll('[data-lf]').forEach(b => { b.onclick = () => { A9Haptic.light(); A9Audio.tick(); activeFilter = b.dataset.lf; paint(); }; });
+    const filterSheetBtn = root.querySelector('#btn-ledger-filter-sheet');
+    if (filterSheetBtn) {
+      filterSheetBtn.onclick = () => openChoiceSheet({
+        title: L('筛选收支记录', 'Filter Ledger Records'),
+        selected: activeFilter,
+        options: categories.map(([v, label]) => ({ value: v, icon: 'filter', tone: v === activeFilter ? 'is-green' : 'is-blue', label })),
+        onSelect: (val) => { activeFilter = val; paint(); },
+      });
+    }
   };
   paint();
 }

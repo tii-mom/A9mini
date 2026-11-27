@@ -276,6 +276,7 @@ export function buildV15ConfigPayload(env = {}, protocolState = null) {
     stakeDurationSeconds: Number(env.A9_STAKE_SECONDS || 86400),
     earlyWindowSeconds: Number(env.A9_EARLY_WINDOW_SECONDS || 21600),
     observationSeconds: Number(env.A9_OBS_SECONDS || 43200),
+    abortTimeoutSeconds: Number(env.A9_ABORT_TIMEOUT_SECONDS || 604800),
     candleCount: 12,
     minQualifiedCandles: 8,
     maxRewardCapMultiplier: 5,
@@ -294,10 +295,12 @@ export function buildV15ConfigPayload(env = {}, protocolState = null) {
     teamRoundRaw: String(120_000_000n * A9),
     minStakeRaw: String(100n * A9),
     token: { symbol: 'A9', decimals: 9 },
+    syncedAt: ps?.syncedAt ? Number(ps.syncedAt) : null,
     contracts: {
       jettonMaster: env.A9_JETTON_MASTER_ADDRESS || null,
       roundController: env.A9_ROUND_CONTROLLER_ADDRESS || null,
       stakingEnabled: Boolean(env.A9_ROUND_CONTROLLER_ADDRESS),
+      adminRenounced: typeof ps?.adminRenounced === 'boolean' ? ps.adminRenounced : null,
     },
     promoHotWallet: {
       enabled: Boolean(env.A9_PROMO_HOT_WALLET_ADDRESS),

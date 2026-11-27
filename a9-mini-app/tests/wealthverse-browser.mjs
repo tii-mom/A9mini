@@ -210,12 +210,54 @@ async function mobile(width, height, locale, theme) {
   await visit(page, '/proof');
   assert.ok((await page.locator('.cert-pass').count()) >= 1);
 
+  // Header "More" quick action sheet + theme choice sheet keyboard navigation & Escape focus restore
+  await visit(page, '/challenge');
+  const moreBtn = page.locator('#btn-header-more');
+  await moreBtn.waitFor({ state: 'visible' });
+  await moreBtn.click();
+  await page.locator('#modal-root:not(.hidden) .modal-sheet').waitFor({ state: 'visible' });
+  await capture(page, (width === 390 ? 'after' : 'narrow') + '-quick-menu-sheet');
+  await page.locator('#modal-root [data-sheet-group="normal"][data-sheet-idx="0"]').click();
+  await page.locator('#sheet-radiogroup [role="radio"]').first().waitFor({ state: 'visible' });
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Escape');
+  await page.locator('#modal-root.hidden').waitFor({ state: 'attached' });
+  assert.equal(await page.evaluate(() => document.activeElement?.id || ''), 'btn-header-more');
+
+  // Route change cleans up open modal sheet
+  await moreBtn.click();
+  await page.locator('#modal-root:not(.hidden) .modal-sheet').waitFor({ state: 'visible' });
+  await visit(page, '/ledger');
+  await page.locator('#modal-root.hidden').waitFor({ state: 'attached' });
+
+  // Ledger filter choice sheet
+  await page.locator('#btn-ledger-filter-sheet').click();
+  await page.locator('#sheet-radiogroup [role="radio"]').nth(1).click();
+  await page.locator('#modal-root.hidden').waitFor({ state: 'attached' });
+
+  // Order receipts filter choice sheet
+  await visit(page, '/internal/records');
+  await page.locator('#btn-demo-rcpt-filter-sheet').click();
+  await page.locator('#sheet-radiogroup [role="radio"]').nth(1).click();
+  await page.locator('#modal-root.hidden').waitFor({ state: 'attached' });
+
+  // Squad member "More Squad Actions" sheet with isolated danger group
+  await visit(page, '/team');
+  await page.locator('#btn-role-sheet').click();
+  await page.locator('#sheet-radiogroup [data-choice-val="member"]').click();
+  await page.locator('#btn-squad-more').waitFor({ state: 'visible' });
+  await page.locator('#btn-squad-more').click();
+  await page.locator('#modal-root .sw-sheet-danger-group').waitFor({ state: 'visible' });
+  await capture(page, (width === 390 ? 'after' : 'narrow') + '-squad-actions-sheet');
+  await page.keyboard.press('Escape');
+  await page.locator('#modal-root.hidden').waitFor({ state: 'attached' });
+
   await page.close();
 }
 
 try {
   await mobile(390, 844, 'zh-CN', 'light');
-  await mobile(360, 780, 'en-US', 'dark');
+  await mobile(320, 568, 'en-US', 'dark');
 
   const page = await browser.newPage({
     viewport: { width: 390, height: 844 },
@@ -268,7 +310,7 @@ try {
           ? { ok: true, data, ts: Date.now() }
           : {
               ok: false,
-              error: { code: 'UNAVAILABLE', message: 'Test source offline' },
+              error: { code: 'CANDIDATE_CONFIG_INCOMPLETE', message: 'Test source offline' },
             },
     });
   });
@@ -276,6 +318,10 @@ try {
   // Live offline -> retry recovery
   await page.goto(base + '/?mode=live#/challenge');
   await page.locator('#data-retry').waitFor({ state: 'visible' });
+  await page.setViewportSize({ width: 320, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, 'long error code must fit narrow screens');
+  await capture(page, 'live-offline-narrow-long-error');
+  await page.setViewportSize({ width: 390, height: 844 });
   await capture(page, 'live-offline');
   online = true;
   await page.locator('#data-retry').click();
