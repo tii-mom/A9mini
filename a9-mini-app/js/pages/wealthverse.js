@@ -314,46 +314,7 @@ function demoProgressionInitSnapshot(uid, roundId) {
   };
 }
 
-/** 历史图鉴与角色深链（#/gallery、#/gallery/:id、startapp=gallery_*）兼容说明页 */
-export function gallery(root, _navigate, param) {
-  const archivedRef = param ? String(param).replace(/[^A-Za-z0-9._-]/g, '').slice(0, 32) : '';
-  root.innerHTML = `<div class="col-gap anim-page-enter">
-    <section class="card card-hero col-gap">
-      <div class="row-between">
-        <span class="chip chip-muted">${L('历史内容', 'Archived')}</span>
-        ${archivedRef ? `<span class="num-xs text-muted mono">#${escapeHtml(archivedRef)}</span>` : ''}
-      </div>
-      <div class="row-start" style="gap:12px;">
-        <span class="nt-art-badge tone-red" aria-hidden="true">${icon('book', 24)}</span>
-        <div style="min-width:0;">
-          <h1 style="margin:0;font-size:17px;font-weight:900;line-height:1.25;">${L('原角色图鉴功能已退役', 'Character Archive Retired')}</h1>
-          <p class="num-xs text-sec" style="margin:4px 0 0;line-height:1.5;">${L('现役小程序已聚焦广场、闯关、宝箱商城与战队，不再提供角色解锁、装备或图鉴展示；历史分享链接仍可安全访问此页。', 'The active app now focuses on Plaza, Quest, Chest Mall, and Squad. Character unlocks, equips, and gallery views have been retired, while legacy links remain safely handled here.')}</p>
-        </div>
-      </div>
-      <div class="grid-2" style="gap:8px;">
-        <a class="btn btn-primary" href="#/challenge">${icon('navCity', 16)} ${L('前往 A9 广场', 'Go to Plaza')}</a>
-        <a class="btn btn-secondary" href="#/rules">${icon('book', 15)} ${L('查看用户指南', 'User Guide')}</a>
-      </div>
-    </section>
-
-    <div class="sw-menu-group">
-      <a class="sw-menu-row" href="#/round">
-        <div class="sw-menu-left">
-          <span class="sw-menu-title">${L('进入本轮闯关', 'Enter Round Quest')}</span>
-          <span class="sw-menu-sub">${L('查看 12H 冲价进度与实时参考价', 'Track 12H Push slots & reference price')}</span>
-        </div>
-        <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-      </a>
-      <a class="sw-menu-row" href="#/internal/market">
-        <div class="sw-menu-left">
-          <span class="sw-menu-title">${L('前往宝箱商城', 'Open Chest Mall')}</span>
-          <span class="sw-menu-sub">${L('6 档宝箱 · 保底加赠直发钱包', '6 tiers · base + bonus direct to wallet')}</span>
-        </div>
-        <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-      </a>
-    </div>
-  </div>`;
-}
+// 历史 gallery 已迁出至 js/pages/_retired/gallery.js；#/gallery 与 #/gallery/:id 由 ROUTE_ALIASES 统一收敛至 #/profile。
 
 let rewardsRenderSeq = 0;
 
@@ -603,11 +564,10 @@ export function portfolioPanel(root, guild = false, onPortfolio) {
         ['/leaderboard', '财富榜', 'Rich List'],
       ]
     : [
-        ['/claim', '金库领奖', 'Claim Prizes'],
-        ['/ledger', '收益账本', 'Reward Ledger'],
+        ['/rewards', '我的奖励', 'My Rewards'],
+        ['/records?type=ledger', '记录', 'Records'],
         ['/proof', '闯关凭证', 'Quest Pass'],
-        ['/renew', '开盘提醒', 'Open Alert'],
-        ['/settings', '偏好设置', 'Settings'],
+        ['/settings', '设置', 'Settings'],
       ];
   function show(data, state, isError = false) {
     onPortfolio?.(data);

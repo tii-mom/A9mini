@@ -243,7 +243,7 @@ export function renderSettingsPage(root) {
           <a class="sw-menu-row" href="#/rules">
             <span class="sw-row-icon is-red" aria-hidden="true">${icon('book', 16)}</span>
             <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('用户指南', 'User Guide')}</span>
+              <span class="sw-menu-title">${L('规则与透明', 'Rules & Transparency')}</span>
               <span class="sw-menu-sub">${L('找宝箱、看冲价、领 A9', 'Chests, price checks and claiming A9')}</span>
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
@@ -547,7 +547,7 @@ export function renderRiskMatrix(root) {
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
           <a class="sw-menu-row" href="#/rules">
-            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回闯关指南', 'Back to Guide')}</span></div>
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回规则与透明', 'Back to Rules & Transparency')}</span></div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
           <a class="sw-menu-row" href="#/settings">
@@ -692,7 +692,7 @@ export function renderRiskAudit(root) {
         ${rcAddr
           ? `<a class="btn btn-primary btn-sm" href="${escapeHtml(buildTonviewerUrl(rcAddr, network))}" target="_blank" rel="noopener noreferrer">${icon('external', 13)} ${L('Tonviewer 查主合约', 'Inspect on Tonviewer')}</a>
              <button class="btn btn-secondary btn-sm" id="btn-audit-copy-rc" type="button">${icon('copy', 13)} ${L('复制合约地址', 'Copy Address')}</button>`
-          : `<a class="btn btn-secondary btn-sm" href="#/rules">${icon('book', 13)} ${L('查看用户指南', 'View User Guide')}</a>
+          : `<a class="btn btn-secondary btn-sm" href="#/rules">${icon('book', 13)} ${L('规则与透明', 'Rules & Transparency')}</a>
              <a class="btn btn-secondary btn-sm" href="#/challenge">${icon('arrowLeft', 13)} ${L('返回广场', 'Back to Plaza')}</a>`}
       </div>
     </section>
@@ -775,14 +775,14 @@ export function renderNotFoundPage(root) {
         <div class="icon-badge red" style="width:46px;height:46px;border-radius:13px;">${icon('shieldAlert', 22)}</div>
         <div class="num-xl" style="margin-top:4px;">404</div>
         <div class="text-sec" style="font-size:12px;">${L('该页面不存在或路由链接已失效', 'This page was not found or the link has expired')}</div>
-        <button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/challenge">${icon('arrowLeft', 14)} ${L('返回 A9 广场', 'Back to Plaza')}</button>
+        <button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/challenge">${icon('arrowLeft', 14)} ${L('返回广场', 'Back to Plaza')}</button>
       </div>
       <div class="sw-menu-group">
         <a class="sw-menu-row" href="#/round">
-          <div class="sw-menu-left"><span class="sw-menu-title">${L('进入闯关战场', 'Enter Quest Arena')}</span></div>
+          <div class="sw-menu-left"><span class="sw-menu-title">${L('进入闯关', 'Enter Quest')}</span></div>
           <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
         </a>
-        <a class="sw-menu-row" href="#/internal/market">
+        <a class="sw-menu-row" href="#/market">
           <div class="sw-menu-left"><span class="sw-menu-title">${L('前往宝箱商城', 'Go to Chest Mall')}</span></div>
           <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
         </a>

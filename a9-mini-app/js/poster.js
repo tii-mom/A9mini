@@ -362,7 +362,7 @@ function paintCartridgePoster(canvas, {
   }
   ctx.fillStyle = '#00A859';
   ctx.font = '900 22px Rubik, sans-serif';
-  ctx.fillText(L('扫码进入 A9 广场', 'Scan to Enter A9 Plaza'), textX, stubY + 84, stageW - qrSize - 86);
+  ctx.fillText(L('扫码进入广场', 'Scan to Enter Plaza'), textX, stubY + 84, stageW - qrSize - 86);
   ctx.fillStyle = '#7B8396';
   ctx.font = '700 17px Rubik, monospace';
   ctx.fillText('A9 PROTOCOL v17.0 · TON', textX, stubY + 116, stageW - qrSize - 86);

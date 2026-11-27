@@ -578,7 +578,8 @@ export function renderWarmupRank(root) {
 
 export function renderInternalMarket(root, navigate, _param = null, query = {}) {
   const { market } = store.state;
-  let activeTab = query?.tab === 'free' ? 'free' : 'mall';
+  // 5a: ?tab=free 兼容回落至宝箱商城默认视图（不报 404）
+  let activeTab = 'mall';
   let selectedSkuId = 'chest_bronze';
   const openMode = 'INSTANT';
   let chestData = { freeChests: [], shopChests: [], loaded: false };

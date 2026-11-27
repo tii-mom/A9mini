@@ -1777,22 +1777,69 @@ export function renderLedgerPage(root) {
   paint();
 }
 
-export function renderRecordsPage(root) {
+export function renderRecordsPage(root, navigate, _param = null, query = {}) {
+  const rawType = String(query?.type || 'round').toLowerCase();
+  const activeType = (rawType === 'ledger' || rawType === 'market') ? rawType : 'round';
+
+  const renderTabsHeader = () => `
+    <div class="seg-tabs" id="records-type-tabs" style="margin-bottom:10px;">
+      <button class="seg-tab ${activeType === 'round' ? 'active' : ''}" data-rec-type="round" type="button">${L('闯关记录', 'Quest')}</button>
+      <button class="seg-tab ${activeType === 'ledger' ? 'active' : ''}" data-rec-type="ledger" type="button">${L('收支账本', 'Ledger')}</button>
+      <button class="seg-tab ${activeType === 'market' ? 'active' : ''}" data-rec-type="market" type="button">${L('宝箱小票', 'Receipts')}</button>
+    </div>
+  `;
+
+  const bindTabs = (container) => {
+    container.querySelectorAll('[data-rec-type]').forEach((btn) => {
+      btn.onclick = () => {
+        const nextType = btn.dataset.recType || 'round';
+        if (nextType === activeType) return;
+        A9Haptic.light();
+        const target = nextType === 'round' ? '/records' : `/records?type=${nextType}`;
+        if (typeof navigate === 'function') navigate(target, { replace: true });
+        else renderRecordsPage(root, navigate, _param, { type: nextType });
+      };
+    });
+  };
+
+  if (activeType === 'ledger') {
+    root.innerHTML = `<div class="col-gap anim-page-enter">${renderTabsHeader()}<div id="records-sub-host"></div></div>`;
+    bindTabs(root);
+    const subHost = root.querySelector('#records-sub-host');
+    if (subHost) renderLedgerPage(subHost);
+    return;
+  }
+
+  if (activeType === 'market') {
+    root.innerHTML = `<div class="col-gap anim-page-enter">${renderTabsHeader()}<div id="records-sub-host"><div class="card num-xs text-muted">${L('加载中…', 'Loading…')}</div></div></div>`;
+    bindTabs(root);
+    const subHost = root.querySelector('#records-sub-host');
+    import('./warmup_market.js')
+      .then((m) => {
+        if (subHost && subHost.isConnected && typeof m.renderInternalRecords === 'function') {
+          m.renderInternalRecords(subHost, navigate);
+        }
+      })
+      .catch(() => {
+        if (subHost && subHost.isConnected) {
+          subHost.innerHTML = `<div class="card num-xs text-red">${L('宝箱记录加载失败，请重试', 'Failed to load receipts, please retry')}</div>`;
+        }
+      });
+    return;
+  }
+
   if (!config.isDemo) {
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
+        ${renderTabsHeader()}
         <section class="card card-hero empty-state">
           <span class="nt-art-badge tone-red" aria-hidden="true">${renderNintendoGateIcon('ticket', 32)}</span>
-          <div style="font-size:16px;font-weight:900;margin-top:4px;">${L('链上闯关记录', 'On-Chain Quest Records')}</div>
-          <p class="num-xs text-sec" style="margin:0;max-width:260px;">${L('请在闯关凭证页查看各轮 StakeTicket 链上状态，或在收支账本查看商城订单与返佣记录。', 'Inspect per-round StakeTickets in Passes or view orders and referrals in Ledger.')}</p>
+          <div style="font-size:16px;font-weight:900;margin-top:4px;">${L('闯关记录', 'Quest Records')}</div>
+          <p class="num-xs text-sec" style="margin:0;max-width:260px;">${L('可在闯关凭证查看各轮状态，或切换上方标签查看收支账本与宝箱小票。', 'Inspect round passes below, or switch tabs for Ledger and Chest Receipts.')}</p>
         </section>
         <div class="sw-menu-group">
           <a class="sw-menu-row" href="#/proof">
-            <div class="sw-menu-left"><span class="sw-menu-title">${L('查看链上闯关凭证', 'View On-Chain Passes')}</span></div>
-            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-          </a>
-          <a class="sw-menu-row" href="#/ledger">
-            <div class="sw-menu-left"><span class="sw-menu-title">${L('查看收支账本', 'View Ledger')}</span></div>
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('查看闯关凭证', 'View Quest Passes')}</span></div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
           <a class="sw-menu-row" href="#/profile">
@@ -1802,6 +1849,7 @@ export function renderRecordsPage(root) {
         </div>
       </div>
     `;
+    bindTabs(root);
     return;
   }
 
@@ -1813,6 +1861,7 @@ export function renderRecordsPage(root) {
     const list = activeFilter === 'all' ? history : history.filter(h => h.status === activeFilter);
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
+        ${renderTabsHeader()}
         <section class="card card-hero">
           <div class="num-xs text-muted">${L('累计锁仓本金', 'Total Locked')} · ${history.length} ${L('轮', 'Rounds')}</div>
           <div class="sw-asset-main" style="margin-top:4px;">${formatNum(totalStaked)} <span class="sw-asset-main-unit">A9</span></div>
@@ -1842,6 +1891,7 @@ export function renderRecordsPage(root) {
         </div>
       </div>
     `;
+    bindTabs(root);
     root.querySelectorAll('[data-rf]').forEach(b => { b.onclick = () => { A9Haptic.light(); activeFilter = b.dataset.rf; paint(); }; });
   };
   paint();

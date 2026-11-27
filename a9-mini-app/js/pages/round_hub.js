@@ -130,7 +130,33 @@ async function syncMyRoundPositionCard(root, onQualifiedChange = null) {
 }
 
 export function renderChallengeHome(root, navigate, _param, query = {}) {
-  if (query.panel === 'prediction') store.state.referral.pendingScrollTarget = 'prediction';
+  // 5a: /round?panel=prediction 落到闯关页并忽略预言面板
+  const requestedStage = String(query?.stage || '').toLowerCase();
+  if (requestedStage === 'warmup') {
+    root.innerHTML = `<div class="col-gap anim-page-enter"><section class="card num-xs text-muted">${L('加载预热信息中…', 'Loading warm-up…')}</section></div>`;
+    import('./warmup_market.js')
+      .then((m) => {
+        if (root.isConnected && typeof m.renderWarmupHome === 'function') {
+          m.renderWarmupHome(root, navigate, _param, query);
+        }
+      })
+      .catch(() => {
+        if (root.isConnected) {
+          root.innerHTML = `<div class="col-gap anim-page-enter"><section class="card num-xs text-red">${L('预热模块加载失败，请重试', 'Warm-up failed to load')}</section></div>`;
+        }
+      });
+    return;
+  }
+  if (requestedStage === 'charge') {
+    import('./round_stages.js')
+      .then((m) => {
+        if (root.isConnected && typeof m.renderObservationRecords === 'function') {
+          m.renderObservationRecords(root, navigate);
+        }
+      })
+      .catch(() => {});
+    return;
+  }
   const { round, user } = store.state;
   const stage = round.stage;
   if (!stage) {
@@ -1248,7 +1274,7 @@ function renderLiveStakeConfirm(root, navigate) {
                 portfolio = next;
                 return {
                   confirmed: true,
-                  detail: '锁仓凭证 StakeTicket 已更新到账，可在「金库领奖」核验。',
+                  detail: '锁仓凭证已更新到账，可在「我的奖励」核验。',
                   detailEn: 'StakeTicket updated on-chain; check Claim center.',
                 };
               }

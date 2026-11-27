@@ -9,7 +9,7 @@ import { config } from './config.js';
 import { loadSnapshot, mapRoundView, submitStartAppAttribution, fetchChestById, assistChestById, rawToA9, fetchMe, serverNowMs } from './data.js';
 import { A9TMA, A9Haptic, isReducedMotion } from './tma.js';
 import { A9Audio, bindKineticSurfaces, cleanupKineticSurfaces } from './audio.js';
-import { matchRoute, getCachedRouteHandler, loadRouteHandler } from './router.js';
+import { matchRoute, resolveRouteAlias, getCachedRouteHandler, loadRouteHandler } from './router.js';
 import { areStylesheetsLoaded, ensureStylesheets } from './css-loader.js';
 import { escapeHtml, formatNum, formatTimer, showToast, cleanupActiveInteractions, peekHeavyComponents, loadHeavyComponents, syncSlidingSegTabs, openModal, closeModal, openChoiceSheet, openActionSheet } from './components.js';
 import { icon } from './icons.js';
@@ -303,21 +303,21 @@ function openMoreQuickSheet() {
     {
       icon: 'book',
       tone: 'is-red',
-      label: L('用户指南', 'User Guide'),
-      sub: L('开宝箱、看冲价与费用说明', 'Chests, price push & fee guide'),
+      label: L('规则与透明', 'Rules & Transparency'),
+      sub: L('规则、费用、合约与风控明细', 'Rules, fees, contracts & risk specs'),
       onSelect: () => navigate('/rules'),
     },
     {
       icon: 'shieldCheck',
       tone: 'is-green',
-      label: L('v17.0 链上验真', 'v17.0 On-Chain Audit'),
+      label: L('合约与链上验真', 'Contracts & Audit'),
       sub: L('合约地址、逃生舱与链上参数', 'Contracts, escape hatch & specs'),
-      onSelect: () => navigate('/risk/audit'),
+      onSelect: () => navigate('/rules#audit'),
     },
     {
       icon: 'settings',
       tone: 'is-muted',
-      label: L('提醒与设置', 'Alerts & Settings'),
+      label: L('设置', 'Settings'),
       sub: L('通知、音效、震动与钱包管理', 'Alerts, audio, haptics & wallet'),
       onSelect: () => navigate('/settings'),
     },
@@ -399,12 +399,13 @@ function renderTabBar(route) {
 
 /** 允许在首屏轮次快照尚未就绪或失败时直接打开的静态 / 独立接口路由。 */
 const ROUTES_ALLOW_WITHOUT_SNAPSHOT = new Set([
-  '/internal/market',
   '/market',
+  '/internal/market',
   '/warmup',
   '/warmup/rank',
   '/rules',
   '/settings',
+  '/records',
   '/risk/matrix',
   '/risk/audit',
   '/gallery',
@@ -439,10 +440,10 @@ function renderStaticIntroCardHtml() {
 
 function renderStaticQuickGatesHtml() {
   const gates = [
-    ['/internal/market', 'chest', 'is-red', L('宝箱商城', 'Chest Mall'), L('6 档 · 直发钱包', '6 tiers · direct')],
-    ['/internal/market?tab=free', 'chestOpen', 'is-green', L('免费宝箱', 'Free Chests'), L('查看开启条件', 'Check eligibility')],
-    ['/warmup', 'flame', 'is-blue', L('下轮预热', 'Next Warm-Up'), L('预约抢头矿', 'Reserve First 6H')],
-    ['/rules', 'book', 'is-amber', L('闯关指南', 'How to Play'), L('了解完整规则', 'Read full rules')],
+    ['/market', 'chest', 'is-red', L('宝箱商城', 'Chest Mall'), L('6 档 · 直发钱包', '6 tiers · direct')],
+    ['/market?tab=free', 'chestOpen', 'is-green', L('免费宝箱', 'Free Chests'), L('查看开启条件', 'Check eligibility')],
+    ['/round?stage=warmup', 'flame', 'is-blue', L('下轮预热', 'Next Warm-Up'), L('预约抢头矿', 'Reserve First 6H')],
+    ['/rules', 'book', 'is-amber', L('规则与透明', 'Rules & Transparency'), L('了解完整规则', 'Read full rules')],
   ];
   return `
     <nav class="sw-gate-grid" aria-label="${L('快捷入口', 'Quick Menu')}">
@@ -537,9 +538,20 @@ export async function renderCurrentRoute() {
   if (simDrawerEl && typeof simDrawerEl.classList?.contains === 'function' && !simDrawerEl.classList.contains('hidden')) simDrawerEl.classList.add('hidden');
   cleanupActiveInteractions();
   cleanupKineticSurfaces();
-  const currentHash = window.location.hash || '#/challenge';
+  let currentHash = window.location.hash || '#/challenge';
+  // 仅在解析完成后、加载页面之前对旧路由别名进行规范化（保留 query 与锚点，规范路径不触发重定向，避免自循环）
+  const resolvedAlias = resolveRouteAlias(currentHash);
+  if (resolvedAlias && resolvedAlias.to !== currentHash) {
+    currentHash = resolvedAlias.to;
+    try {
+      if (window.history?.replaceState) {
+        window.history.replaceState(null, '', resolvedAlias.to);
+      }
+    } catch (_) {}
+  }
   const fullPath = currentHash.replace(/^#/, '') || '/challenge';
-  const { route, param, query } = matchRoute(currentHash);
+  const { route, param, query: rawQuery, anchor } = matchRoute(currentHash);
+  const query = anchor ? { ...rawQuery, _anchor: anchor } : rawQuery;
   if (route.shell === 'tab') {
     navStack.length = 0;
     navStack.push({ basePath: route.path, fullPath });
@@ -874,12 +886,12 @@ function openSimDrawer() {
 
       <div class="caps text-muted">${L('快捷直达', 'Jump To')}</div>
       <div class="grid-2">
-        <button class="quick-btn" data-sim-nav="/warmup">${icon('flame', 13)} ${L('开局预热', 'Pre-Round')}</button>
-        <button class="quick-btn" data-sim-nav="/internal/market">${icon('swap', 13)} ${L('宝箱商城', 'Chest Mall')}</button>
+        <button class="quick-btn" data-sim-nav="/round?stage=warmup">${icon('flame', 13)} ${L('开局预热', 'Pre-Round')}</button>
+        <button class="quick-btn" data-sim-nav="/market">${icon('swap', 13)} ${L('宝箱商城', 'Chest Mall')}</button>
         <button class="quick-btn" data-sim-nav="/team/invite">${icon('qr', 13)} ${L('邀友赢奖', 'Invite & Earn')}</button>
-        <button class="quick-btn" data-sim-nav="/claim">${icon('bolt', 13)} ${L('金库领奖', 'Claim Prizes')}</button>
-        <button class="quick-btn" data-sim-nav="/settings">${icon('settings', 13)} ${L('偏好设置', 'Settings')}</button>
-        <button class="quick-btn" data-sim-nav="/rules">${icon('book', 13)} ${L('闯关指南', 'How to Play')}</button>
+        <button class="quick-btn" data-sim-nav="/rewards">${icon('bolt', 13)} ${L('我的奖励', 'My Rewards')}</button>
+        <button class="quick-btn" data-sim-nav="/settings">${icon('settings', 13)} ${L('设置', 'Settings')}</button>
+        <button class="quick-btn" data-sim-nav="/rules">${icon('book', 13)} ${L('规则与透明', 'Rules & Transparency')}</button>
       </div>
     </div>
   `;

@@ -516,7 +516,7 @@ export function renderPredictionCard(round, pred, user) {
   const pendingBlock = pendingA9 > 0 ? `
     <div class="sub-tile" style="border-color:var(--green-border);margin-top:12px;">
       <div class="row-between" style="margin-bottom:4px;">
-        <span class="num-xs text-green" style="font-weight:800;">${L('奖金金库待解锁余额', 'Pending Vault Balance')}</span>
+        <span class="num-xs text-green" style="font-weight:800;">${L('待激活奖励余额', 'Pending Activation Balance')}</span>
         <span class="num-md text-green mono">${formatNum(pendingA9)} A9${usdEst !== null ? ` <span class="num-xs text-sec">(${L('约', '~')} $${formatNum(usdEst, 2)})</span>` : ''}</span>
       </div>
       <div class="num-xs text-muted" style="margin-bottom:6px;">${expRemSec !== null ? `<span id="pred-exp-cd" class="mono text-red">${L('距过期', 'Expires')} ${formatTimer(expRemSec)}</span>` : L('48 小时内未激活将自动作废回流奖池', 'Expires in 48H if unactivated')}</div>
@@ -841,7 +841,7 @@ export function renderObservationRecords(root) {
 
       <section class="star-reading stamp-detail-card" aria-live="polite"></section>
 
-      <a class="btn btn-secondary" href="#/round">${icon('arrowLeft', 15)} ${L('返回轮次闯关', 'Back to Quest')}</a>
+      <a class="btn btn-secondary" href="#/round">${icon('arrowLeft', 15)} ${L('返回闯关', 'Back to Quest')}</a>
     </div>
   `;
 

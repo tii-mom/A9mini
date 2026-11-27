@@ -1,19 +1,26 @@
+/**
+ * 规则与透明（#/rules）：统一承接玩法说明、费用明细、链上验真（#audit）与风控矩阵（#matrix）。
+ * 严格复用 system.js 导出的 renderRiskAudit 与 renderRiskMatrix，保持既有测试契约 100% 兼容。
+ */
 import { L } from '../i18n.js';
 import { icon } from '../icons.js';
 import { config } from '../config.js';
 import { store } from '../store.js';
+import { renderRiskAudit, renderRiskMatrix } from './system.js';
 
-export function renderUserGuide(root) {
+export function renderUserGuide(root, _navigate, _param = null, query = {}, anchor = '') {
+  const hashAnchor = typeof window !== 'undefined' ? (String(window.location?.hash || '').split('#')[2] || '') : '';
+  const activeAnchor = String(anchor || query?._anchor || query?.section || hashAnchor || '').toLowerCase();
   const destinations = [
-    ['/internal/market?tab=free', 'chestOpen', 'is-green', L('免费宝箱', 'Free Chests'), L('查看开启条件', 'Check eligibility')],
-    ['/internal/market', 'chest', 'is-red', L('宝箱商城', 'Chest Mall'), L('6 档 · 直发钱包', '6 tiers · wallet delivery')],
-    ['/round', 'navRound', 'is-blue', L('轮次闯关', 'Round Quest'), L('看进度和仓位', 'See slots and positions')],
-    ['/profile', 'wallet', 'is-amber', L('我的资产', 'My Assets'), L('查凭证与奖励', 'Find tickets and rewards')],
+    ['/market', 'chest', 'is-red', L('宝箱商城', 'Chest Mall'), L('6 档 · 直发钱包', '6 tiers · wallet delivery')],
+    ['/round', 'navRound', 'is-blue', L('闯关', 'Quest'), L('看进度和仓位', 'See slots and positions')],
+    ['/rewards', 'trophy', 'is-green', L('我的奖励', 'My Rewards'), L('查看可领与解锁', 'Check claimable & unlocking')],
+    ['/profile', 'wallet', 'is-amber', L('我的', 'Me'), L('查凭证与记录', 'Find passes and records')],
   ];
   const outcomes = [
     ['pass', L('通关', 'Passed'), L('退 100% 本金', '100% principal back'), L('20% 奖金秒提，80% 在 14 天内逐秒解锁。', '20% of rewards available now. The other 80% unlocks over 14 days.')],
     ['miss', L('未通关', 'Missed'), L('退 95% 或 90% 本金', '95% or 90% principal back'), L('头矿 6H 锁仓退 95%，普通时段退 90%。', '95% for the first 6 hours, 90% for later locks.')],
-    ['halt', L('异常中止', 'Aborted'), L('可领回 100% 本金', '100% principal refundable'), L('在对应轮次凭证查看退本。', 'Check the round ticket for your refund.')],
+    ['halt', L('异常中止', 'Aborted'), L('可领回 100% 本金', '100% principal refundable'), L('轮次异常 7 天后可无损取回本金。', 'Recover 100% principal if a round aborts for 7 days.')],
   ];
   const attachedFees = [
     [L('锁仓', 'Lock A9'), '0.30 GRAM'],
@@ -30,8 +37,8 @@ export function renderUserGuide(root) {
 
   root.innerHTML = `<article class="user-guide anim-page-enter">
     <header class="guide-hero">
-      <h1>${L('A9 用户指南', 'A9 User Guide')}</h1>
-      <p>${L('开宝箱、看冲价、领 A9。', 'Open chests, follow rounds and claim A9.')}</p>
+      <h1>${L('规则与透明', 'Rules & Transparency')}</h1>
+      <p>${L('锁仓 A9，币价涨上去，大家一起分奖池。', 'Lock A9, push price above target, share the pool.')}</p>
       ${config.isDemo || !store.fundsEnabled ? `<small>${config.isDemo
         ? L('演示模式 · 使用模拟数据', 'Demo mode · simulated data')
         : L('实盘只读 · 资金操作暂未开放', 'Live read-only · fund actions unavailable')}</small>` : ''}
@@ -51,7 +58,7 @@ export function renderUserGuide(root) {
       <ol class="guide-track">
         <li><strong>24H</strong><span>${L('锁仓', 'Lock')}</span><small>${L('最低 100 A9', 'From 100 A9')}</small></li>
         <li><strong>12H</strong><span>${L('冲价', 'Price push')}</span><small>${L('封盘禁进禁出', 'Positions locked')}</small></li>
-        <li><strong>${L('结算', 'Settle')}</strong><span>${L('查看结果', 'Check results')}</span><small>${L('在我的凭证里', 'In your ticket')}</small></li>
+        <li><strong>${L('结算', 'Settle')}</strong><span>${L('查看结果', 'Check results')}</span><small>${L('在我的奖励里', 'In My Rewards')}</small></li>
       </ol>
       <div class="guide-stamp-board">
         <strong>${L('12 个时段，至少 8 个达标', 'At least 8 of 12 slots must qualify')}</strong>
@@ -72,12 +79,12 @@ export function renderUserGuide(root) {
         `).join('')}
       </div>
       <p>${L('3 折急提只处理尚未解锁的奖金，这部分领 30%，销毁 70%。', 'Instant cashout applies to still-locked rewards. Receive 30% of that portion and burn 70%.')}</p>
-      <a class="btn btn-secondary btn-sm" href="#/claim">${L('查看轮次奖励', 'View round rewards')} ›</a>
+      <a class="btn btn-secondary btn-sm" href="#/rewards">${L('前往我的奖励', 'Open My Rewards')} ›</a>
     </section>
 
     <section class="card guide-panel">
       <h2>${L('签名前看费用', 'Fees before you sign')}</h2>
-      <h3>${L('链上操作 · 预附 GRAM', 'On-chain actions · attached GRAM')}</h3>
+      <h3>${L('链上操作 · 网络手续费（多退）', 'On-chain actions · network fee (refundable excess)')}</h3>
       <dl class="guide-fees">${feeRows(attachedFees)}</dl>
       <p>${L('扣除链上费用和必要留存后，可退余量原路返回。', 'Refundable excess returns after network fees and required reserves.')}</p>
       <h3>${L('热钱包服务 · 固定收费', 'Hot wallet services · fixed fees')}</h3>
@@ -86,14 +93,68 @@ export function renderUserGuide(root) {
     </section>
 
     <section class="card guide-panel">
-      <h2>${L('预言与战队奖励', 'Predictions & squad rewards')}</h2>
+      <h2>${L('战队与推广奖励', 'Squad & referral rewards')}</h2>
       <ul class="guide-list">
-        <li>${L('预言 0 GRAM 参与。待激活奖励以页面条件和到期时间为准。', 'Predictions cost 0 GRAM to enter. Check activation requirements and expiry.')}</li>
-        <li>${L('商城直推 6%，好友通关奖金返佣 8%。已入推广余额的奖励可合并领取。', 'Earn 6% from direct mall referrals and 8% of friends’ passing rewards. Claim credited rewards together.')}</li>
+        <li>${L('商城直推 6%，好友通关奖金返佣 8%。已入推广余额的奖励在「我的奖励」合并领取。', 'Earn 6% from direct mall referrals and 8% of friends’ passing rewards. Claim credited rewards together in My Rewards.')}</li>
       </ul>
-      <a class="btn btn-secondary btn-sm" href="#/team/invite">${L('查看推广奖励', 'View referral rewards')} ›</a>
+      <a class="btn btn-secondary btn-sm" href="#/team/invite">${L('查看邀请明细', 'View invite details')} ›</a>
     </section>
 
-    <a class="sw-menu-row guide-audit" href="#/risk/audit"><strong>${L('链上验真', 'On-chain audit')}</strong><span aria-hidden="true">›</span></a>
+    <details class="card guide-panel" id="rules-section-audit" ${activeAnchor === 'audit' ? 'open' : ''}>
+      <summary style="cursor:pointer;font-weight:800;font-size:14px;list-style:none;">
+        <div class="row-between">
+          <span>${L('查看合约地址与链上透明参数', 'Inspect Contracts & On-Chain Parameters')}</span>
+          <span class="num-xs text-muted">${L('展开 / 收起', 'Toggle')}</span>
+        </div>
+      </summary>
+      <div id="rules-audit-mount" style="margin-top:12px;"></div>
+    </details>
+
+    <details class="card guide-panel" id="rules-section-matrix" ${activeAnchor === 'matrix' ? 'open' : ''}>
+      <summary style="cursor:pointer;font-weight:800;font-size:14px;list-style:none;">
+        <div class="row-between">
+          <span>${L('22 种链上保护与异常说明', '22 On-Chain Guard States & Error Codes')}</span>
+          <span class="num-xs text-muted">${L('展开 / 收起', 'Toggle')}</span>
+        </div>
+      </summary>
+      <div id="rules-matrix-mount" style="margin-top:12px;"></div>
+    </details>
   </article>`;
+
+  const auditHost = root.querySelector('#rules-audit-mount');
+  const auditDetails = root.querySelector('#rules-section-audit');
+  let auditMounted = false;
+  const ensureAudit = () => {
+    if (auditMounted || !auditHost) return;
+    auditMounted = true;
+    renderRiskAudit(auditHost);
+  };
+
+  const matrixHost = root.querySelector('#rules-matrix-mount');
+  const matrixDetails = root.querySelector('#rules-section-matrix');
+  let matrixMounted = false;
+  const ensureMatrix = () => {
+    if (matrixMounted || !matrixHost) return;
+    matrixMounted = true;
+    renderRiskMatrix(matrixHost);
+  };
+
+  if (auditDetails) {
+    auditDetails.addEventListener('toggle', () => {
+      if (auditDetails.open) ensureAudit();
+    });
+    if (auditDetails.open) {
+      ensureAudit();
+      auditDetails.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    }
+  }
+  if (matrixDetails) {
+    matrixDetails.addEventListener('toggle', () => {
+      if (matrixDetails.open) ensureMatrix();
+    });
+    if (matrixDetails.open) {
+      ensureMatrix();
+      matrixDetails.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    }
+  }
 }

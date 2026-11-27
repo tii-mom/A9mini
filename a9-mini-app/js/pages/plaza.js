@@ -237,7 +237,7 @@ export function renderCity(root) {
         <strong class="mono num-md plaza-pool-amount">${poolDisplayText}</strong>
       </div>
 
-      <a class="btn btn-primary" href="#/round">${observing ? L('进入冲价战场', 'Enter Push Arena') : L('进入本轮战场', 'Enter Round Arena')} ›</a>
+      <a class="btn btn-primary" href="#/round">${observing ? L('查看 12H 冲价', 'View 12H Push') : L('进入闯关', 'Enter Quest')} ›</a>
     </section>
 
     <nav class="sw-gate-grid" aria-label="${L('快捷入口', 'Quick Menu')}">
