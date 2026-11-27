@@ -2362,3 +2362,125 @@ test('Testnet accuracy: #/ledger Tonviewer link targets testnet.tonviewer.com, u
   assert.equal(out.auditPendingSync, true);
 });
 
+test('UX Phase 1: index.html uses defer (not async) for Telegram SDK, loadSnapshot streams config+rounds before detail, unknown values never become 0, and offline falls back to memory lastGoodSnapshot only', () => {
+  const indexHtml = readFileSync(join(JS_DIR, '..', 'index.html'), 'utf8');
+  assert.match(
+    indexHtml,
+    /<script\s+defer\s+src="https:\/\/telegram\.org\/js\/telegram-web-app\.js"><\/script>/,
+    'Telegram WebApp SDK must use defer (never async or render-blocking sync)'
+  );
+  assert.doesNotMatch(indexHtml, /telegram-web-app\.js[^>]*\basync\b/, 'Telegram WebApp SDK must never use async');
+  assert.ok(indexHtml.includes('href="#/internal/market"'), 'Static first-paint shell must expose Chest Mall entry');
+  assert.ok(indexHtml.includes('id="app-tabbar"'), 'Static first-paint shell must include bottom navigation');
+
+  const out = runScenario(
+    {
+      href: 'https://app.a9.lat/?mode=live',
+      injectedConfig: CANDIDATE_LIVE_CFG,
+    },
+    `
+      let failAll = false;
+      const callOrder = [];
+      let releaseDetail;
+      const detailGate = new Promise((resolve) => { releaseDetail = resolve; });
+      globalThis.fetch = async (target) => {
+        const u = String(target);
+        callOrder.push(u.replace(/^https?:\\/\\/[^/]+/, ''));
+        if (failAll) throw new Error('network down');
+        if (u.endsWith('/api/config')) {
+          return { ok: true, status: 200, async json() { return { ok: true, data: { network: 'testnet', candleCount: 12, minQualifiedCandles: 8, token: { symbol: 'A9', decimals: 9 } }, ts: Date.now() }; } };
+        }
+        if (u.endsWith('/api/rounds')) {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                ok: true,
+                data: [{ roundId: 6, state: 'OBSERVING', targetPriceUsdE8: '210000', priceUsdE8: '150000', priceValid: true }],
+                ts: Date.now(),
+              };
+            },
+          };
+        }
+        if (u.endsWith('/api/rounds/6')) {
+          await detailGate;
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                ok: true,
+                data: {
+                  roundId: 6,
+                  state: 'OBSERVING',
+                  targetPriceUsdE8: '210000',
+                  priceUsdE8: '180000',
+                  priceValid: true,
+                  candlesSeen: 4,
+                  qualifiedCandles: 3,
+                  rewardBudgetRaw: '700000000000000000',
+                  entryCount: 12,
+                  candles: [],
+                },
+                ts: Date.now(),
+              };
+            },
+          };
+        }
+        throw new Error('unexpected url: ' + u);
+      };
+
+      const { loadSnapshot, mapRoundView } = await import(JS_URL + '/data.js');
+      const partials = [];
+      const snapPromise = loadSnapshot({
+        onPartial: (p) => {
+          partials.push(mapRoundView(p));
+          releaseDetail();
+        },
+      });
+      const finalSnap = await snapPromise;
+      const finalView = mapRoundView(finalSnap);
+
+      // 模拟随后断网：应命中内存 lastGoodSnapshot 并标 stale=true，且不写 localStorage / sessionStorage
+      failAll = true;
+      const staleSnap = await loadSnapshot();
+
+      console.log(JSON.stringify({
+        callOrder,
+        partialCount: partials.length,
+        partialDetailLoading: partials[0]?.detailLoading,
+        partialRound: partials[0]?.currentRound,
+        partialCandlesSeen: partials[0]?.candlesSeen,
+        partialStakerCount: partials[0]?.stakerCount,
+        partialRewardBudgetA9: partials[0]?.rewardBudgetA9,
+        finalDetailLoading: finalView.detailLoading,
+        finalCandlesSeen: finalView.candlesSeen,
+        finalEntryCount: finalView.entryCount,
+        finalRewardBudgetA9: finalView.rewardBudgetA9,
+        staleFlag: staleSnap.stale,
+        staleRound: staleSnap.detail?.roundId,
+        localStorageKeys: Object.keys(localStorage._dump()),
+        sessionStorageKeys: Object.keys(sessionStorage._dump()),
+      }));
+    `,
+  );
+
+  assert.deepEqual(out.callOrder.slice(0, 3), ['/api/config', '/api/rounds', '/api/rounds/6']);
+  assert.equal(out.partialCount, 1);
+  assert.equal(out.partialDetailLoading, true);
+  assert.equal(out.partialRound, 6);
+  assert.equal(out.partialCandlesSeen, null, 'missing candlesSeen must stay null, never 0');
+  assert.equal(out.partialStakerCount, null, 'missing stakerCount must stay null, never 0');
+  assert.equal(out.partialRewardBudgetA9, null, 'missing rewardBudgetA9 must stay null, never 0');
+  assert.equal(out.finalDetailLoading, false);
+  assert.equal(out.finalCandlesSeen, 4);
+  assert.equal(out.finalEntryCount, 12);
+  assert.equal(out.finalRewardBudgetA9, 700000000);
+  assert.equal(out.staleFlag, true);
+  assert.equal(out.staleRound, 6);
+  assert.deepEqual(out.localStorageKeys, []);
+  assert.deepEqual(out.sessionStorageKeys, []);
+});
+
+

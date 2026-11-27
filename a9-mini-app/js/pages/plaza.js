@@ -160,13 +160,15 @@ export function renderCity(root) {
   const candles = r.candles || [];
   const confirmed = candles.filter((c) => c.confirmed || c.status === 'closed');
   const lastConfirmedAvg = confirmed.at(-1)?.p ?? null;
-  const price = (value) => (Number(value) > 0 ? '$' + Number(value).toFixed(4) : '—');
+  const pendingLabel = r.detailLoading ? L('加载中…', 'Loading…') : L('待确认', 'Pending');
+  const unavailLabel = r.detailLoading ? L('加载中…', 'Loading…') : L('暂不可用', 'Unavailable');
+  const price = (value) => (Number(value) > 0 ? '$' + Number(value).toFixed(4) : unavailLabel);
   const validLive = r.priceValid !== false && Number(r.livePrice ?? r.twap24h) > 0 ? Number(r.livePrice ?? r.twap24h) : null;
   const validTarget = Number(r.targetPrice) > 0 ? Number(r.targetPrice) : null;
   const deltaPct = (validLive !== null && validTarget !== null) ? (((validLive - validTarget) / validTarget) * 100) : null;
   const isAbove = deltaPct !== null && deltaPct >= 0;
   const deltaText = deltaPct === null
-    ? L('价格待同步', 'Syncing price')
+    ? (r.detailLoading ? L('价格加载中…', 'Loading price…') : L('价格待确认', 'Price pending'))
     : isAbove
       ? L(`高于目标 +${deltaPct.toFixed(1)}%`, `Above +${deltaPct.toFixed(1)}%`)
       : L(`距目标 ${deltaPct.toFixed(1)}%`, `Gap ${deltaPct.toFixed(1)}%`);
@@ -174,6 +176,12 @@ export function renderCity(root) {
   const [statusChipCls, statusChipText] = roundStatusChip(r);
   const isUrgent = typeof r.countdownSec === 'number' && r.countdownSec > 0 && r.countdownSec <= 3600;
   const minQualified = r.minQualifiedCandles ?? 8;
+  const poolDisplayText = r.rewardBudgetA9 == null
+    ? pendingLabel
+    : `${formatNum(r.rewardBudgetA9)} A9`;
+  const countdownDisplayText = r.countdownSec == null
+    ? pendingLabel
+    : formatTimer(r.countdownSec);
 
   const gates = [
     ['/internal/market', 'chest', 'is-red', L('宝箱商城', 'Chest Mall'), L('6 档 · 直发钱包', '6 tiers · direct')],
@@ -189,7 +197,7 @@ export function renderCity(root) {
           <strong class="num-sm">${r.currentRound == null ? L('本轮现场', 'Round Overview') : L(`第 ${r.currentRound} 轮`, `Round ${r.currentRound}`)}</strong>
           <span class="chip ${statusChipCls}" style="min-height:20px;font-size:10.5px;padding:0 7px;">${statusChipText}</span>
         </div>
-        <span id="round-cd" class="mono num-sm ${isUrgent ? 'text-red' : 'text-sec'}" style="white-space:nowrap;flex-shrink:0;">${r.countdownSec == null ? '—' : formatTimer(r.countdownSec)}</span>
+        <span id="round-cd" class="mono num-sm ${isUrgent ? 'text-red' : 'text-sec'}" style="white-space:nowrap;flex-shrink:0;">${countdownDisplayText}</span>
       </div>
 
       <h2>${roundSummary(r)}</h2>
@@ -214,17 +222,19 @@ export function renderCity(root) {
 
       ${observing ? `
         <div class="plaza-stamp-block">
-          ${renderPlazaStampStrip(candles, r.currentRound ?? 'cur')}
-          <div class="row-between num-xs text-sec" style="flex-wrap:wrap;gap:4px 8px;">
-            <span class="mono">${L('已确认', 'Confirmed')} <b>${r.candlesSeen ?? '—'}/12</b> · ${L('已达标', 'Qualified')} <b class="${Number(r.qualifiedCandles) >= minQualified ? 'text-green' : ''}">${r.qualifiedCandles ?? '—'}/${minQualified}</b></span>
-            <span class="text-muted">${L(`任意 ≥ ${minQualified} 格达标`, `Any ${minQualified}+ qualify`)}</span>
-          </div>
+          ${r.detailLoading
+            ? `<div class="num-xs text-muted" style="padding:6px 0;">${L('正在同步 12H 冲价明细…', 'Loading 12H push details…')}</div>`
+            : `${renderPlazaStampStrip(candles, r.currentRound ?? 'cur')}
+               <div class="row-between num-xs text-sec" style="flex-wrap:wrap;gap:4px 8px;">
+                 <span class="mono">${L('已确认', 'Confirmed')} <b>${r.candlesSeen == null ? pendingLabel : `${r.candlesSeen}/12`}</b> · ${L('已达标', 'Qualified')} <b class="${Number(r.qualifiedCandles) >= minQualified ? 'text-green' : ''}">${r.qualifiedCandles == null ? pendingLabel : `${r.qualifiedCandles}/${minQualified}`}</b></span>
+                 <span class="text-muted">${L(`任意 ≥ ${minQualified} 格达标`, `Any ${minQualified}+ qualify`)}</span>
+               </div>`}
         </div>
       ` : ''}
 
       <div class="plaza-pool-row">
         <span class="num-xs text-muted">${L('本轮奖池', 'Round Pool')}</span>
-        <strong class="mono num-md plaza-pool-amount">${r.rewardBudgetA9 == null ? '—' : formatNum(r.rewardBudgetA9)} A9</strong>
+        <strong class="mono num-md plaza-pool-amount">${poolDisplayText}</strong>
       </div>
 
       <a class="btn btn-primary" href="#/round">${observing ? L('进入冲价战场', 'Enter Push Arena') : L('进入本轮战场', 'Enter Round Arena')} ›</a>

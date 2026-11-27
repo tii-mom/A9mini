@@ -206,8 +206,13 @@ function pickFocusRound(rounds) {
 let lastGoodSnapshot = null;
 let currentView = null;
 
-/** 读取只读快照。失败时保留上一次成功数据并标记 stale，交由页面提示重试。 */
-export async function loadSnapshot() {
+/** 读取内存中的最近一次成功快照（绝不使用 sessionStorage/localStorage 持久化）。 */
+export function getLastGoodSnapshot() {
+  return lastGoodSnapshot;
+}
+
+/** 读取只读快照。先并发拉取 config + rounds 并可选通过 onPartial 先行渲染，再补齐当前轮详情 detail；失败时保留内存 lastGoodSnapshot 并标记 stale。 */
+export async function loadSnapshot({ onPartial } = {}) {
   if (config.isDemo) {
     const demo = await loadDemoModule();
     const fixture = demo.demoFixture();
@@ -225,8 +230,63 @@ export async function loadSnapshot() {
     }
     const focus = pickFocusRound(rounds);
     // 轮次尚未开启（/api/config 正常、/api/rounds 为空）时允许进入只读广场与宝箱商城；
-    // detail 置 null，由各页面明确显示“等待核验”，绝不伪造任何轮次或价格数据。
-    const detail = focus ? await request(ENDPOINTS.round(focus.roundId)) : null;
+    // detail 置 null，由各页面明确显示“待确认”，绝不伪造任何轮次或价格数据。
+    if (!focus) {
+      const snapshot = {
+        source: 'api',
+        label: L('实时数据', 'Live'),
+        fetchedAt: Date.now(),
+        config: protocolConfig,
+        rounds,
+        detail: null,
+        stale: false,
+        partial: false,
+      };
+      lastGoodSnapshot = snapshot;
+      return snapshot;
+    }
+
+    const partialSnapshot = {
+      source: 'api',
+      label: L('实时数据', 'Live'),
+      fetchedAt: Date.now(),
+      config: protocolConfig,
+      rounds,
+      detail: focus,
+      stale: false,
+      partial: true,
+    };
+    if (typeof onPartial === 'function') {
+      try { onPartial(partialSnapshot); } catch (_) {}
+    }
+
+    let detail = null;
+    try {
+      detail = await request(ENDPOINTS.round(focus.roundId));
+    } catch (detailError) {
+      if (lastGoodSnapshot && Number(lastGoodSnapshot.detail?.roundId) === Number(focus.roundId)) {
+        return {
+          ...lastGoodSnapshot,
+          config: protocolConfig,
+          rounds,
+          stale: true,
+          detailStale: true,
+          staleReason: detailError?.message || '',
+          error: detailError,
+        };
+      }
+      const fallbackPartial = {
+        ...partialSnapshot,
+        partial: false,
+        stale: true,
+        detailStale: true,
+        staleReason: detailError?.message || '',
+        error: detailError,
+      };
+      lastGoodSnapshot = fallbackPartial;
+      return fallbackPartial;
+    }
+
     const snapshot = {
       source: 'api',
       label: L('实时数据', 'Live'),
@@ -234,7 +294,8 @@ export async function loadSnapshot() {
       config: protocolConfig,
       rounds,
       detail,
-      stale: false
+      stale: false,
+      partial: false,
     };
     lastGoodSnapshot = snapshot;
     return snapshot;
@@ -284,7 +345,12 @@ export function mapRoundView(snapshot) {
   const minQualified = c.minQualifiedCandles || 8;
   const target = d.targetLocked === false ? null : e8ToUsd(d.targetPriceUsdE8);
   const judgePrice = d.priceValid === false ? null : e8ToUsd(d.priceUsdE8);
-  const seen = Number(d.candlesSeen) || 0;
+  const finiteNonNegIntOrNull = (v) => {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return Number.isInteger(n) && n >= 0 ? n : null;
+  };
+  const seen = finiteNonNegIntOrNull(d.candlesSeen);
   const confirmed = Array.isArray(d.candles) ? d.candles.length : seen;
   const qualified = Number.isInteger(d.qualifiedCandles) && d.qualifiedCandles >= 0 && d.qualifiedCandles <= candleCount ? d.qualifiedCandles : null;
   const liveIndex = d.state === 'OBSERVING' && d.live?.candleIndex != null ? Number(d.live.candleIndex) : -1;
@@ -324,7 +390,7 @@ export function mapRoundView(snapshot) {
         progressBps: Number(d.live?.progressBps) || 0
       });
     } else {
-      const missing = !Array.isArray(d.candles) || periodEnded || i < seen ||
+      const missing = !Array.isArray(d.candles) || periodEnded || (seen !== null && i < seen) ||
         (d.state === 'OBSERVING' && (liveIndex < 0 || i < liveIndex));
       candles.push({ index: i + 1, status: missing ? 'unknown' : 'pending', confirmed: false, bull: null, p: null });
     }
@@ -346,8 +412,8 @@ export function mapRoundView(snapshot) {
     earlyCloseAt: d.earlyCloseAt ?? (d.stakeOpenAt ? Number(d.stakeOpenAt) + Number(d.earlyWindowSeconds || c.earlyWindowSeconds || 21600) : null),
     earlyWindowSeconds: Number(d.earlyWindowSeconds || c.earlyWindowSeconds || 21600),
     inFirst6h: Boolean(d.inFirst6h),
-    earlySecondsRemaining: Number(d.earlySecondsRemaining || 0),
-    earlyStakeRaw: d.earlyStakeRaw ?? '0',
+    earlySecondsRemaining: finiteNonNegIntOrNull(d.earlySecondsRemaining),
+    earlyStakeRaw: d.earlyStakeRaw ?? null,
     countdownSec: d.secondsRemaining === null || d.secondsRemaining === undefined ? null : Number(d.secondsRemaining),
     nextState: d.nextState || null,
     candlesSeen: seen,
@@ -362,8 +428,8 @@ export function mapRoundView(snapshot) {
     rewardBudgetA9: rawToA9(d.rewardBudgetRaw, decimals),
     totalStakedRaw: d.totalAcceptedStakeRaw ?? null,
     totalWeightRaw: d.totalWeightRaw ?? null,
-    stakerCount: Number(d.stakerCount ?? d.entryCount) || 0,
-    entryCount: Number(d.entryCount) || 0,
+    stakerCount: finiteNonNegIntOrNull(d.stakerCount ?? d.entryCount),
+    entryCount: finiteNonNegIntOrNull(d.entryCount),
     successCount: Number.isInteger(c.poolState?.successCount) ? c.poolState.successCount : null,
     unlock: d.unlock || null,
     poolState: c.poolState || null,
@@ -376,6 +442,9 @@ export function mapRoundView(snapshot) {
     sourceLabel: snapshot.label,
     fetchedAt: snapshot.fetchedAt,
     stale: Boolean(snapshot.stale),
+    detailLoading: Boolean(snapshot.partial),
+    detailStale: Boolean(snapshot.detailStale),
+    staleReason: snapshot.staleReason || null,
     stakingEnabled: Boolean(c.contracts?.stakingEnabled)
   };
   currentView = view;

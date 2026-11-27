@@ -216,9 +216,10 @@ function renderHeader(route) {
         ? (!store.fundsEnabled ? L('测试网 · 只读', 'TESTNET · RO') : L('测试网', 'TESTNET'))
         : (!store.fundsEnabled ? L('只读', 'READ-ONLY') : ''));
   const nextSig = `${isStack ? '1' : '0'}|${titleText}|${user.connected ? '1' : '0'}|${walletLabel}|${settings?.language || ''}|${activeNet}|${modeBadge}`;
-  if (nextSig === lastHeaderSig && headerEl.innerHTML) {
+  if (nextSig === lastHeaderSig && headerEl.innerHTML && !headerEl.hasAttribute?.('data-static-shell')) {
     return;
   }
+  headerEl.removeAttribute?.('data-static-shell');
   lastHeaderSig = nextSig;
 
   headerEl.innerHTML = `
@@ -368,7 +369,8 @@ function renderTabBar(route) {
   mainEl.classList.remove('no-tabbar');
   const activeIdx = Math.max(0, TABS.findIndex(item => item.key === route.tab));
 
-  if (!tabbarEl.querySelector('.dock-pill')) {
+  if (tabbarEl.hasAttribute?.('data-static-shell') || !tabbarEl.querySelector('.dock-pill')) {
+    tabbarEl.removeAttribute?.('data-static-shell');
     tabbarEl.innerHTML = `<div class="dock-pill" id="dock-pill"></div>` + TABS.map(item => `
       <button class="tab-item" data-tab-key="${item.key}" data-nav="${item.path}">
         ${icon(item.ic, 22)}
@@ -395,32 +397,96 @@ function renderTabBar(route) {
   });
 }
 
+/** 允许在首屏轮次快照尚未就绪或失败时直接打开的静态 / 独立接口路由。 */
+const ROUTES_ALLOW_WITHOUT_SNAPSHOT = new Set([
+  '/internal/market',
+  '/market',
+  '/warmup',
+  '/warmup/rank',
+  '/rules',
+  '/settings',
+  '/risk/matrix',
+  '/risk/audit',
+  '/gallery',
+]);
+
+function formatLastUpdatedHHMM(ts) {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  try {
+    const d = new Date(n);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  } catch (_) {
+    return null;
+  }
+}
+
+function renderStaticIntroCardHtml() {
+  return `
+    <section class="card">
+      <div class="row-between" style="gap:8px;">
+        <strong class="num-sm">${L('锁仓 A9，币价涨上去，大家一起分奖池', 'Lock A9, push price above target, share the pool')}</strong>
+        <span class="chip chip-gold" style="flex-shrink:0;">${L('三步玩法', '3 Steps')}</span>
+      </div>
+      <div class="num-xs text-sec" style="margin-top:6px;line-height:1.55;">
+        ${L('24H 锁仓 → 12H 冲价 → 达标分奖 / 未达标自动止损退本', '24H Lock → 12H Price Push → Share Pool / Auto Stop-Loss')}
+      </div>
+    </section>
+  `;
+}
+
+function renderStaticQuickGatesHtml() {
+  const gates = [
+    ['/internal/market', 'chest', 'is-red', L('宝箱商城', 'Chest Mall'), L('6 档 · 直发钱包', '6 tiers · direct')],
+    ['/internal/market?tab=free', 'chestOpen', 'is-green', L('免费宝箱', 'Free Chests'), L('查看开启条件', 'Check eligibility')],
+    ['/warmup', 'flame', 'is-blue', L('下轮预热', 'Next Warm-Up'), L('预约抢头矿', 'Reserve First 6H')],
+    ['/rules', 'book', 'is-amber', L('闯关指南', 'How to Play'), L('了解完整规则', 'Read full rules')],
+  ];
+  return `
+    <nav class="sw-gate-grid" aria-label="${L('快捷入口', 'Quick Menu')}">
+      ${gates.map(([path, glyph, tone, title, hint]) => `
+        <a class="sw-gate-tile" href="#${path}">
+          <span class="sw-gate-icon ${tone}">${icon(glyph, 20)}</span>
+          <span class="sw-gate-title">${title}</span>
+          <span class="sw-gate-sub">${hint}</span>
+        </a>
+      `).join('')}
+    </nav>
+  `;
+}
+
 function renderLoading() {
   mainEl.innerHTML = `
     <div class="col-gap anim-page-enter">
-      <div class="card card-hero">
-        <div class="row-between"><span class="chip chip-muted">${L('读取中', 'LOADING')}</span>${icon('radar', 18, 'text-green')}</div>
-        <div style="font-size:16px;font-weight:700;margin-top:10px;">${L('正在读取当前轮次…', 'Reading current round…')}</div>
-        <div class="num-xs text-muted" style="margin-top:4px;">${L('正在准备轮次视图', 'Preparing the round view')}</div>
-        <div class="progress-track" style="margin-top:14px;"><div class="progress-fill no-anim" style="width:42%"></div></div>
-      </div>
+      ${renderStaticIntroCardHtml()}
+      <section class="card card-hero nt-boot-skeleton" role="status" aria-busy="true" aria-label="${L('正在加载当前轮次', 'Loading current round')}" style="height:auto;padding:16px;">
+        <div class="row-between" style="margin-bottom:8px;">
+          <strong class="num-sm">${L('当前轮次', 'Current Round')}</strong>
+          <span class="chip chip-muted">${L('加载中…', 'Loading…')}</span>
+        </div>
+        <div class="num-xs text-sec">${L('正在同步最新轮次状态、目标价与奖池…', 'Syncing latest round status, target price and pool…')}</div>
+        <div class="nt-skel-card" style="height:56px;margin-top:12px;"></div>
+      </section>
+      ${renderStaticQuickGatesHtml()}
     </div>
   `;
 }
 
 function renderDataError(error) {
-  const code = escapeHtml(error?.code || 'NETWORK');
   mainEl.innerHTML = `
     <div class="col-gap anim-page-enter">
-      <div class="card card-glow-red">
+      <div class="card card-glow-red data-error-card" role="alert">
         <div class="row-between data-error-header">
-          <div class="card-title">${icon('shieldAlert', 16, 'text-red')} ${L('数据源不可用', 'Data source unavailable')}</div>
-          <span class="chip chip-red data-error-code">${code}</span>
+          <div class="card-title">${icon('shieldAlert', 16, 'text-red')} ${L('轮次数据暂不可用', 'Round data unavailable')}</div>
+          <span class="chip chip-red">${L('暂不可用', 'Unavailable')}</span>
         </div>
-        <div class="text-sec" style="font-size:12px;line-height:1.6;overflow-wrap:anywhere;">${escapeHtml(error?.message || L('无法读取轮次数据', 'Cannot load round data'))}</div>
-        <div class="num-xs text-muted" style="margin-top:8px;word-break:break-all;">${escapeHtml(config.apiBase || L('当前站点只读接口', 'Same-origin read-only API'))}</div>
+        <div class="text-sec" style="font-size:12px;line-height:1.6;overflow-wrap:anywhere;">${escapeHtml(error?.message || L('网络连接异常，暂时无法获取最新轮次数据。你可以重试或先逛宝箱商城。', 'Network unavailable. Retry loading round data or explore Chest Mall below.'))}</div>
+        <button class="btn btn-primary" id="data-retry" type="button" style="margin-top:12px;">${icon('refresh', 16)} ${L('重试', 'Retry')}</button>
       </div>
-      <button class="btn btn-primary" id="data-retry">${icon('refresh', 16)} ${L('重试读取', 'Retry')}</button>
+      ${renderStaticIntroCardHtml()}
+      ${renderStaticQuickGatesHtml()}
       ${config.lockMode ? '' : `
       <div class="card row-between">
         <span class="num-xs text-muted">${L('需要体验完整交互？切换到演示模式', 'Want full interaction? Use demo mode')}</span>
@@ -430,16 +496,30 @@ function renderDataError(error) {
     </div>
   `;
   const btn = mainEl.querySelector('#data-retry');
-  if (btn) btn.onclick = () => (!dataReady ? bootApp() : syncData({ forceRender: true }));
+  if (btn) {
+    btn.onclick = () => {
+      lastLoadError = null;
+      if (!dataReady) {
+        renderLoading();
+        bootApp();
+      } else {
+        syncData({ forceRender: true });
+      }
+    };
+  }
 }
 
 function staleBanner() {
   const r = store.state.round;
   if (!r.stale) return '';
+  const hhmm = formatLastUpdatedHHMM(r.fetchedAt);
+  const label = hhmm
+    ? L(`上次更新 ${hhmm}`, `Last updated ${hhmm}`)
+    : L('上次更新 待确认', 'Last updated pending');
   return `
-    <div class="card row-between" style="border-color:var(--gold-border);margin-bottom:2px;">
-      <span class="row-start num-xs text-sec">${icon('clock', 13, 'text-gold')} ${L('数据可能已过期，正在重试', 'Data may be stale, retrying')}</span>
-      <button class="btn btn-secondary btn-sm" id="stale-retry">${L('刷新', 'Refresh')}</button>
+    <div class="card row-between" id="a9-stale-banner" role="status" style="border-color:var(--gold-border);margin-bottom:2px;gap:8px;">
+      <span class="row-start num-xs text-sec" style="min-width:0;">${icon('clock', 13, 'text-gold')} ${escapeHtml(label)}</span>
+      <button class="btn btn-secondary btn-sm" id="stale-retry" type="button" style="flex-shrink:0;">${L('重试', 'Retry')}</button>
     </div>
   `;
 }
@@ -478,7 +558,7 @@ export async function renderCurrentRoute() {
   renderTicker(route.ticker);
   renderTabBar(route);
 
-  if (!dataReady) {
+  if (!dataReady && !ROUTES_ALLOW_WITHOUT_SNAPSHOT.has(route.path)) {
     if (lastLoadError) renderDataError(lastLoadError);
     else renderLoading();
     return;
@@ -555,60 +635,88 @@ export async function renderCurrentRoute() {
   }
 }
 
+function applySnapshotToStore(snapshot, { forceRender = false } = {}) {
+  const view = mapRoundView(snapshot);
+  const key = [
+    view.rawState,
+    view.currentRound,
+    view.qualifiedCandles,
+    view.candlesSeen,
+    view.source,
+    view.stale,
+    view.detailLoading,
+    view.detailStale,
+    view.result,
+    view.targetPrice,
+    view.twap24h,
+    view.priceValid,
+    view.successCount,
+    JSON.stringify(view.unlock),
+    JSON.stringify(view.candles)
+  ].join('|');
+  const changed = key !== lastDataKey;
+
+  store.update(s => { Object.assign(s.round, view); });
+  dataReady = true;
+  lastLoadError = null;
+  lastDataKey = key;
+
+  // 触发数据加载完成事件（性能测量用）
+  if (typeof window !== 'undefined' && !window.__A9_DATA_READY_TS) {
+    window.__A9_DATA_READY_TS = performance.now() + performance.timeOrigin;
+    window.dispatchEvent(new Event('a9:data-ready'));
+  }
+
+  // If staying on observation/proof radar with only slot/count progression, update in-place without full DOM rebuild
+  if (!forceRender && !changed && document.getElementById('a9-radar-grid')) {
+    const heavy = peekHeavyComponents();
+    if (heavy?.syncRadarInPlace) {
+      heavy.syncRadarInPlace(store.state.round);
+    } else {
+      const expectedSeq = routeRenderSeq;
+      loadHeavyComponents().then((m) => {
+        if (expectedSeq === routeRenderSeq && document.getElementById('a9-radar-grid')) {
+          m?.syncRadarInPlace?.(store.state.round);
+        }
+      });
+    }
+    return;
+  }
+
+  if (forceRender || changed) {
+    if (!forceRender && shouldDeferRouteRender(document)) {
+      pendingDeferredRender = true;
+      const activeRoute = matchRoute(window.location.hash || '#/challenge').route;
+      renderHeader(activeRoute);
+      renderTicker(activeRoute.ticker);
+      renderTabBar(activeRoute);
+    } else {
+      renderCurrentRoute();
+    }
+  } else {
+    renderHeader(matchRoute(window.location.hash).route);
+  }
+}
+
 async function syncData({ forceRender = false } = {}) {
   if (isSyncing) return;
   isSyncing = true;
   try {
-    const snapshot = await loadSnapshot();
-    const view = mapRoundView(snapshot);
-    const key = [view.rawState, view.currentRound, view.qualifiedCandles, view.candlesSeen, view.source, view.stale, view.result, view.targetPrice, view.twap24h, view.priceValid, view.successCount, JSON.stringify(view.unlock), JSON.stringify(view.candles)].join('|');
-    const changed = key !== lastDataKey;
-
-    store.update(s => { Object.assign(s.round, view); });
-    dataReady = true;
-    lastLoadError = null;
-    lastDataKey = key;
-
-    // 触发数据加载完成事件（性能测量用）
-    if (typeof window !== 'undefined' && !window.__A9_DATA_READY_TS) {
-      window.__A9_DATA_READY_TS = performance.now() + performance.timeOrigin;
-      window.dispatchEvent(new Event('a9:data-ready'));
-    }
-
-    // If staying on observation/proof radar with only slot/count progression, update in-place without full DOM rebuild
-    if (!forceRender && !changed && document.getElementById('a9-radar-grid')) {
-      const heavy = peekHeavyComponents();
-      if (heavy?.syncRadarInPlace) {
-        heavy.syncRadarInPlace(store.state.round);
-      } else {
-        const expectedSeq = routeRenderSeq;
-        loadHeavyComponents().then((m) => {
-          if (expectedSeq === routeRenderSeq && document.getElementById('a9-radar-grid')) {
-            m?.syncRadarInPlace?.(store.state.round);
-          }
-        });
+    const snapshot = await loadSnapshot({
+      onPartial: (partialSnapshot) => {
+        // config + rounds 先到先渲染，避免用户死等当前轮 detail 才看到首屏数据
+        applySnapshotToStore(partialSnapshot, { forceRender: !dataReady || forceRender });
       }
-      return;
-    }
-
-    if (forceRender || changed) {
-      if (!forceRender && shouldDeferRouteRender(document)) {
-        pendingDeferredRender = true;
-        const activeRoute = matchRoute(window.location.hash || '#/challenge').route;
-        renderHeader(activeRoute);
-        renderTicker(activeRoute.ticker);
-        renderTabBar(activeRoute);
-      } else {
-        renderCurrentRoute();
-      }
-    } else {
-      renderHeader(matchRoute(window.location.hash).route);
-    }
+    });
+    applySnapshotToStore(snapshot, { forceRender });
   } catch (error) {
     if (!dataReady) {
       lastLoadError = error;
       dataReady = false;
-      renderDataError(error);
+      const activeRoute = matchRoute(window.location.hash || '#/challenge').route;
+      if (!ROUTES_ALLOW_WITHOUT_SNAPSHOT.has(activeRoute.path)) {
+        renderDataError(error);
+      }
     } else {
       store.update(s => { s.round.stale = true; });
       if (shouldDeferRouteRender(document)) {
@@ -923,7 +1031,9 @@ function startDisplayLoop() {
     if (typeof r.earlyBirdSec === 'number' && r.earlyBirdSec > 0) r.earlyBirdSec -= 1;
     r.activeCandleSec = r.activeCandleEndAt ? Math.max(0, Math.ceil((r.activeCandleEndAt - serverNowMs()) / 1000)) : null;
 
-    const cdText = r.countdownSec === null ? '—' : formatTimer(r.countdownSec);
+    const cdText = r.countdownSec === null || r.countdownSec === undefined
+      ? (r.detailLoading ? L('加载中…', 'Loading…') : L('待确认', 'Pending'))
+      : formatTimer(r.countdownSec);
     const isUrgent = typeof r.countdownSec === 'number' && r.countdownSec > 0 && r.countdownSec <= 3600;
     const roundCd = document.getElementById('round-cd');
     if (roundCd) {
@@ -935,7 +1045,7 @@ function startDisplayLoop() {
     const teamCd = document.getElementById('team-battle-cd');
     if (teamCd) teamCd.textContent = cdText;
     const earlyCd = document.getElementById('early-cd');
-    if (earlyCd) earlyCd.textContent = r.earlyBirdSec === null ? '—' : formatTimer(r.earlyBirdSec);
+    if (earlyCd) earlyCd.textContent = r.earlyBirdSec === null || r.earlyBirdSec === undefined ? L('待确认', 'Pending') : formatTimer(r.earlyBirdSec);
     const earlyWinEl = document.getElementById('early-window-cd');
     if (earlyWinEl) {
       const normSec = (v) => {
@@ -957,7 +1067,7 @@ function startDisplayLoop() {
       if (left === null && config.isDemo && typeof r.earlyBirdSec === 'number') {
         left = Math.max(0, Math.floor(r.earlyBirdSec));
       }
-      earlyWinEl.textContent = formatTimer(left ?? 0);
+      earlyWinEl.textContent = left === null ? L('待确认', 'Pending') : formatTimer(left);
     }
     const candleCd = document.getElementById('active-candle-cd');
     if (candleCd) {
@@ -1187,7 +1297,10 @@ async function bootApp() {
   } catch (error) {
     lastLoadError = error;
     dataReady = false;
-    renderDataError(error);
+    const activeRoute = matchRoute(window.location.hash || '#/challenge').route;
+    if (!ROUTES_ALLOW_WITHOUT_SNAPSHOT.has(activeRoute.path)) {
+      renderDataError(error);
+    }
     if (simDrawerEl && !simDrawerEl.classList.contains('hidden')) {
       openSimDrawer();
     }
