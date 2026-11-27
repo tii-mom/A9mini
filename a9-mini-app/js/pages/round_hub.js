@@ -34,7 +34,10 @@ import { openXShareSheet, buildOgShareUrl, buildTmaDeepLink, getShareRef } from 
 import {
   renderWarmupStage,
   renderParticipation,
+  renderLowBalanceChestCtaHtml,
   renderObservation,
+  renderInlineStampBoard,
+  bindInlineStampBoard,
   renderSettlementSuccess,
   renderSettlementFailed,
   renderTechnicalHalt,
@@ -100,14 +103,25 @@ async function syncMyRoundPositionCard(root, onQualifiedChange = null) {
     if (onQualifiedChange) onQualifiedChange(Boolean(cert && Number(cert.stakeTon) >= 100));
     return;
   }
+  const buySlot = root.querySelector('#hero-buy-chest-slot');
+  const setBuyChestVisibility = (visible) => {
+    if (!buySlot) return;
+    buySlot.hidden = !visible;
+    buySlot.innerHTML = visible ? renderLowBalanceChestCtaHtml() : '';
+  };
   if (!user?.address) {
     mount.innerHTML = '';
+    setBuyChestVisibility(false);
     if (onQualifiedChange) onQualifiedChange(false);
     return;
   }
   try {
     const port = await fetchUserPortfolio(user.address);
     if (!mount.isConnected || store.state.user.address !== user.address) return;
+    // Live 锁仓期余额不足 100 A9 时显示「去宝箱商城」次按钮；balanceAvailable 非 true 或 raw 缺失绝不误判
+    const hasConfirmedBal = port?.balanceAvailable === true && port?.a9BalanceRaw !== null && port?.a9BalanceRaw !== undefined;
+    const liveBalA9 = hasConfirmedBal ? rawToA9(port.a9BalanceRaw) : null;
+    setBuyChestVisibility(liveBalA9 !== null && liveBalA9 < 100);
     const ticket = Array.isArray(port?.tickets)
       ? port.tickets.find((t) => Number(t.roundId) === Number(curRoundId))
       : null;
@@ -124,42 +138,128 @@ async function syncMyRoundPositionCard(root, onQualifiedChange = null) {
       }).trim();
       if (wrap.firstElementChild) settleEl.replaceWith(wrap.firstElementChild);
     }
+    const settleCta = root.querySelector('#round-settlement-cta');
+    if (settleCta && ticket?.ticketAddress) {
+      settleCta.setAttribute('href', `#/rewards?ticket=${encodeURIComponent(ticket.ticketAddress)}`);
+    }
   } catch (_) {
     if (mount.isConnected) mount.innerHTML = '';
+    setBuyChestVisibility(false);
     if (onQualifiedChange) onQualifiedChange(null);
   }
 }
 
+/** 将 9 种规范 stage 归一化到闯关顶部 4 段时间轴键（warmup / stake / charge / settle）。 */
+function mapStageToTimelineKey(stage) {
+  if (stage === 'warmup') return 'warmup';
+  if (stage === 'stake') return 'stake';
+  if (stage === 'sealed' || stage === 'charge') return 'charge';
+  if (stage === 'settling' || stage === 'passed' || stage === 'failed' || stage === 'aborted') return 'settle';
+  return 'settle';
+}
+
+function renderStageExplainerCard(viewKey, liveKey, round) {
+  const stageMeta = {
+    stake: {
+      title: L('24H 锁仓阶段说明', '24H Lock Stage Guide'),
+      body: L(
+        '本阶段开放 24 小时 A9 锁仓（最低 100 A9，全员 1 A9 = 1 份公平分奖，封顶 5×）。前 6 小时为「头矿 6H · 5% 止损」，之后为「10% 止损」；24H 锁仓期内随时可提前解押（退 85% 本金 / 扣 15% 销毁）。',
+        'Open for 24 hours (min 100 A9, 1 A9 = 1 equal share, 5× cap). First 6H carries 5% stop-loss (95% refund if missed); 6H–24H carries 10% stop-loss. Early exit (85% refund / 15% burn) is open during the 24H lock window.'
+      ),
+    },
+    charge: {
+      title: L('12H 冲价阶段说明', '12H Push Stage Guide'),
+      body: L(
+        '封盘禁进禁出后进入 12 小时冲价期，共 12 个 1H 判定时段。任意 ≥ 8 个时段 1H 均价达到目标价即通关分奖；下方可随时查阅本轮 12 格达标进度。',
+        'Locked for 12 hourly TWAP slots after staking closes. Any 8+ qualified slots pass the round and unlock the pool. Inspect the 12-slot qualification board below.'
+      ),
+    },
+    settle: {
+      title: L('结算与领取阶段说明', 'Settlement & Claim Stage Guide'),
+      body: L(
+        '通关后 100% 退本 + 20% 奖金秒提，余下 80% 分 14 天逐秒解锁（支持对未解锁余额走 3 折急提：30% 秒提 + 70% 销毁）；未达标按头矿 95% / 普通 90% 自动止损退本，永不爆仓。',
+        'On pass: 100% principal + 20% instant reward, remaining 80% unlocks per second over 14 days (optional 30% instant / 70% burn cashout on unvested balance). If missed, 95% (First 6H) or 90% principal refunds automatically.'
+      ),
+    },
+  };
+  const info = stageMeta[viewKey] || stageMeta.settle;
+  const isAlreadyCharge = viewKey === 'charge';
+  return `
+    <section class="card col-gap" id="round-stage-guide-card">
+      <div class="row-between">
+        <strong class="num-sm">${escapeHtml(info.title)}</strong>
+        <button type="button" class="sw-retry-link" data-round-timeline="${escapeHtml(liveKey)}">${L('回到当前阶段', 'Back to Live Stage')} ›</button>
+      </div>
+      <div class="num-xs text-sec" style="line-height:1.6;">${escapeHtml(info.body)}</div>
+    </section>
+    ${isAlreadyCharge ? renderInlineStampBoard(round) : ''}
+  `;
+}
+
+function renderBottomFoldsHtml(round, activeViewKey = 'settle') {
+  const historyList = Array.isArray(round?.rounds)
+    ? [...round.rounds]
+        .sort((a, b) => (Number(b?.roundId) || 0) - (Number(a?.roundId) || 0))
+        .slice(0, 8)
+    : [];
+  const isWarmupView = activeViewKey === 'warmup';
+  return `
+    <section class="card col-gap" style="gap:8px;" id="round-bottom-folds">
+      ${!isWarmupView ? `
+      <details class="rewards-secondary-fold" id="round-rules-fold">
+        <summary>${L('本轮规则与安全垫', 'Round Rules & Safety Cushions')}</summary>
+        <div class="col-gap" style="gap:8px;margin-top:8px;">
+          <div class="num-xs text-sec" style="line-height:1.6;">
+            ${L(
+              '• 锁仓节奏：24H 锁仓（最低 100 A9，前 6H 为头矿 5% 止损、6H–24H 为 10% 止损，锁仓期内可提前解押退 85% / 烧 15%）。<br/>• 冲价判定：封盘后 12H 共 12 个 1H 均价时段，任意 ≥ 8 格达到目标价即通关。<br/>• 派奖解锁：通关退 100% 本金 + 20% 秒提，余下 80% 按 14 天逐秒解锁进度释放（随时支持 3 折急提）；未达标永不爆仓，自动止损退本。',
+              '• 24H Lock: min 100 A9 (First 6H 5% SL, 6H–24H 10% SL; 85% Early Exit open during lock).<br/>• 12H Push: 12 hourly TWAP slots, any 8+ meeting target pass.<br/>• Payout: 100% principal + 20% instant + 80% 14-day per-second unlock (optional 30% instant cashout); auto stop-loss refund if missed.'
+            )}
+          </div>
+          <a class="sw-retry-link" href="#/rules" style="align-self:flex-start;">${L('查看完整规则与透明合约', 'Full Rules & Transparency')} ›</a>
+        </div>
+      </details>
+
+      <details class="rewards-secondary-fold" id="round-intent-fold">
+        <summary>${L('下轮意向档位（免锁仓）', 'Next-Round Pledge Tiers (No Lock)')}</summary>
+        <div class="col-gap" style="gap:8px;margin-top:8px;">
+          <div class="num-xs text-sec" style="line-height:1.6;">
+            ${L(
+              '预热报名可登记意向档位（100 / 1,000 / 5,000 / 20,000 A9），仅作开盘提醒与意愿统计，不扣费、不锁仓。',
+              'Choose an optional pledge tier (100 / 1,000 / 5,000 / 20,000 A9) during Warm-Up for opening reminders only — zero cost, no lock.'
+            )}
+          </div>
+          <button type="button" class="sw-retry-link" data-round-timeline="warmup" style="align-self:flex-start;">${L('前往预热设置意向档位', 'Set Pledge Tier in Warm-Up')} ›</button>
+        </div>
+      </details>
+      ` : ''}
+
+      <details class="rewards-secondary-fold" id="round-history-fold">
+        <summary>${L('往期轮次', 'Past Rounds')}</summary>
+        <div class="col-gap" style="gap:6px;margin-top:8px;">
+          ${historyList.length === 0
+            ? `<div class="num-xs text-muted">${L('暂无往期轮次记录。', 'No past rounds available yet.')}</div>`
+            : historyList.map((item) => {
+                const stUi = deriveRoundUiState({ detail: item, user: { connected: true }, serverNowMs: serverNowMs() });
+                const qual = Number.isInteger(item?.qualifiedCandles) ? `${item.qualifiedCandles}/${item?.minQualifiedCandles || 8}` : '—';
+                const ridText = item?.roundId !== null && item?.roundId !== undefined ? String(item.roundId) : '—';
+                return `
+                  <div class="list-row" style="padding:7px 10px;">
+                    <span class="num-xs" style="font-weight:700;">${L(`第 ${ridText} 轮`, `Round #${ridText}`)}</span>
+                    <span class="row-start" style="gap:6px;">
+                      <span class="mono num-xs text-sec">${escapeHtml(qual)}</span>
+                      <span class="chip ${stUi.chipTone}" style="min-height:18px;font-size:11px;padding:0 6px;">${escapeHtml(stUi.badgeLabel)}</span>
+                    </span>
+                  </div>
+                `;
+              }).join('')}
+          <a class="sw-retry-link" href="#/records" style="align-self:flex-start;">${L('前往全部记录', 'View All Records')} ›</a>
+        </div>
+      </details>
+    </section>
+  `;
+}
+
 export function renderChallengeHome(root, navigate, _param, query = {}) {
-  // 5a: /round?panel=prediction 落到闯关页并忽略预言面板
-  const requestedStage = String(query?.stage || '').toLowerCase();
-  if (requestedStage === 'warmup') {
-    root.innerHTML = `<div class="col-gap anim-page-enter"><section class="card num-xs text-muted">${L('加载预热信息中…', 'Loading warm-up…')}</section></div>`;
-    import('./warmup_market.js')
-      .then((m) => {
-        if (root.isConnected && typeof m.mountWarmupSection === 'function') {
-          m.mountWarmupSection(root, { navigate, param: _param, query, embedded: false });
-        } else if (root.isConnected && typeof m.renderWarmupHome === 'function') {
-          m.renderWarmupHome(root, navigate, _param, query);
-        }
-      })
-      .catch(() => {
-        if (root.isConnected) {
-          root.innerHTML = `<div class="col-gap anim-page-enter"><section class="card num-xs text-red">${L('预热模块加载失败，请重试', 'Warm-up failed to load')}</section></div>`;
-        }
-      });
-    return;
-  }
-  if (requestedStage === 'charge') {
-    import('./round_stages.js')
-      .then((m) => {
-        if (root.isConnected && typeof m.renderObservationRecords === 'function') {
-          m.renderObservationRecords(root, navigate);
-        }
-      })
-      .catch(() => {});
-    return;
-  }
   const { round, user } = store.state;
   const uiState = deriveRoundUiState({
     detail: round,
@@ -168,99 +268,196 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
     serverNowMs: serverNowMs(),
   });
   const stage = uiState.stage;
-  if (stage === 'unknown') {
-    root.innerHTML = `<div class="col-gap anim-page-enter"><section class="card empty-state"><div class="num-sm text-sec">${escapeHtml(uiState.title)}</div><button class="btn btn-secondary btn-sm" id="btn-round-retry-sync" type="button" style="margin-top:8px;">${escapeHtml(uiState.primaryAction.label)}</button></section></div>`;
+  const liveTimelineKey = mapStageToTimelineKey(stage);
+
+  // 支持深链定位对应阶段：/round?stage=warmup（原 /warmup）、/round?stage=charge（原 /observation/records）
+  // /round?panel=prediction 落到当前阶段并忽略预言面板
+  const requestedRaw = String(query?.stage || '').toLowerCase();
+  const initialViewKey = ['warmup', 'stake', 'charge', 'settle'].includes(requestedRaw)
+    ? requestedRaw
+    : liveTimelineKey;
+  let activeViewKey = initialViewKey;
+
+  const paintQuest = () => {
+    if (!root.isConnected) return;
+    const timelineItems = [
+      { key: 'warmup', label: L('预热', 'Warm-Up') },
+      { key: 'stake',  label: L('锁仓', 'Lock') },
+      { key: 'charge', label: L('冲价', 'Push') },
+      { key: 'settle', label: L('结算', 'Settle') },
+    ];
+
+    const timelineBarHtml = `
+      <div class="round-timeline-bar" id="round-timeline-bar">
+        <div class="round-timeline-tabs" role="tablist" aria-label="${L('闯关四阶段时间轴', 'Quest 4-stage timeline')}">
+          ${timelineItems.map((item) => {
+            const isSelected = activeViewKey === item.key;
+            const isLiveNow = stage !== 'unknown' && liveTimelineKey === item.key;
+            return `
+              <button type="button" role="tab" aria-selected="${isSelected ? 'true' : 'false'}" class="round-timeline-tab ${isSelected ? 'is-selected' : ''} ${isLiveNow ? 'is-live' : ''}" data-round-timeline="${item.key}">
+                ${isLiveNow ? '<i class="round-live-dot" aria-hidden="true"></i>' : ''}
+                <span>${escapeHtml(item.label)}</span>
+              </button>
+            `;
+          }).join('')}
+        </div>
+        <button type="button" class="icon-btn round-share-icon-btn" id="btn-round-share-icon" aria-label="${L('分享本轮战况', 'Share round update')}" title="${L('分享本轮', 'Share')}">${icon('share', 15)}</button>
+      </div>
+    `;
+
+    let bodyHtml = '';
+    let inlineStampHtml = '';
+    let shouldMountWarmup = false;
+    let shouldBindInlineStamps = false;
+    let showPositionAfterHero = false;
+
+    if (activeViewKey === 'warmup') {
+      // 预热阶段直接挂载独立组件 mountWarmupSection（替换旧 renderWarmupStage 渲染）
+      bodyHtml = `<div id="round-warmup-mount"><section class="card num-xs text-muted">${L('加载预热信息中…', 'Loading warm-up…')}</section></div>`;
+      shouldMountWarmup = true;
+    } else if (stage === 'unknown') {
+      bodyHtml = `<section class="card empty-state"><div class="num-sm text-sec">${escapeHtml(uiState.title)}</div><button class="btn btn-secondary btn-sm" id="btn-round-retry-sync" type="button" style="margin-top:8px;">${escapeHtml(uiState.primaryAction.label)}</button></section>`;
+    } else if (activeViewKey !== liveTimelineKey) {
+      bodyHtml = renderStageExplainerCard(activeViewKey, liveTimelineKey, round);
+      shouldBindInlineStamps = activeViewKey === 'charge';
+    } else if (stage === 'stake') {
+      bodyHtml = renderParticipation(round);
+      showPositionAfterHero = true;
+    } else if (stage === 'sealed' || stage === 'charge') {
+      bodyHtml = renderObservation(round);
+      inlineStampHtml = renderInlineStampBoard(round);
+      shouldBindInlineStamps = true;
+      showPositionAfterHero = true;
+    } else if (stage === 'settling') {
+      bodyHtml = renderObservation(round);
+      inlineStampHtml = renderInlineStampBoard(round);
+      shouldBindInlineStamps = true;
+      showPositionAfterHero = true;
+    } else if (stage === 'passed') {
+      bodyHtml = renderSettlementSuccess(round, user);
+      showPositionAfterHero = true;
+    } else if (stage === 'aborted') {
+      bodyHtml = renderTechnicalHalt(round);
+      showPositionAfterHero = true;
+    } else {
+      bodyHtml = renderSettlementFailed(round);
+      showPositionAfterHero = true;
+    }
+
+    // 5d 极简闯关结构：顶部固定 4 段时间轴 + 分享图标 → 主卡 → 我的本轮仓位（紧贴主卡）→ 12 格达标板（冲价/待结算）→ 底部折叠区
+    // 不渲染预言、空投面板与中间插入的喊单卡
+    root.innerHTML = `
+      <div class="col-gap anim-page-enter" id="round-quest-root">
+        ${timelineBarHtml}
+        ${bodyHtml}
+        ${showPositionAfterHero ? '<div id="a9-my-round-position-mount"></div>' : ''}
+        ${inlineStampHtml}
+        ${renderBottomFoldsHtml(round, activeViewKey)}
+      </div>
+    `;
+
+    // 绑定时间轴切换
+    root.querySelectorAll('[data-round-timeline]').forEach((btn) => {
+      btn.onclick = () => {
+        const nextKey = btn.dataset.roundTimeline;
+        if (!nextKey || nextKey === activeViewKey) return;
+        A9Haptic.light();
+        activeViewKey = nextKey;
+        paintQuest();
+      };
+    });
+
+    // 绑定右上角分享图标（替代页面中间插入的喊单卡）
+    const shareIconBtn = root.querySelector('#btn-round-share-icon');
+    if (shareIconBtn) {
+      shareIconBtn.onclick = () => {
+        A9Haptic.light();
+        const shareRef = getShareRef();
+        const inviteLink = config.isDemo
+          ? `${window.location.origin}${window.location.pathname}?mode=${config.mode}&startapp=invite_${encodeURIComponent(shareRef)}`
+          : buildTmaDeepLink(`invite_${shareRef}`);
+        const copyTextStr = buildBattleRallyCopy(store.state.round, inviteLink, 'push');
+        openChoiceSheet({
+          title: L('分享本轮战况', 'Share Round Update'),
+          options: [
+            { value: 'copy', label: L('复制战况话术', 'Copy Battle Copy'), sub: L('含本轮实时进度与专属邀请链接', 'Includes round status & invite link') },
+            { value: 'tg',   label: L('转发至 Telegram', 'Share via Telegram'), sub: L('直接发给好友或群聊', 'Send to friends or group') },
+          ],
+          onSelect: (val) => {
+            if (val === 'copy') copyText(copyTextStr, L('已复制战况话术', 'Copied battle copy'));
+            else if (val === 'tg') {
+              A9TMA.shareInvite(inviteLink, copyTextStr);
+              showToast(L('已调起 Telegram 分享', 'Share opened'));
+            }
+          },
+        });
+      };
+    }
+
     const rBtn = root.querySelector('#btn-round-retry-sync');
     if (rBtn) rBtn.onclick = () => window.dispatchEvent(new Event('a9:force-sync'));
-    return;
-  }
 
-  const body = stage === 'warmup'
-    ? renderWarmupStage(round, user)
-    : stage === 'stake'
-      ? renderParticipation(round)
-      : (stage === 'sealed' || stage === 'charge' || stage === 'settling')
-        ? renderObservation(round)
-        : stage === 'passed'
-          ? renderSettlementSuccess(round, user)
-          : stage === 'aborted'
-            ? renderTechnicalHalt(round)
-            : renderSettlementFailed(round);
-
-  const rallyBlock = (stage === 'stake' || stage === 'charge' || stage === 'sealed') ? renderRoundRallyCard(round) : '';
-  const interactBlock = stage !== 'warmup' && stage !== 'aborted'
-    ? renderRoundInteractDeck(round, store.state.prediction, user)
-    : `${renderPredictionCard(round, store.state.prediction, user)}<div id="a9-airdrop-draws-mount">${renderAirdropDrawsCard({ loading: true })}</div>`;
-
-  // 信息顺序严格统一：1. 当前阶段战场 → 2. 个人本金 → 3. 战队动员助推 → 4. 预言与空投
-  root.innerHTML = `<div class="col-gap anim-page-enter">${body}<div id="a9-my-round-position-mount"></div>${rallyBlock}${interactBlock}</div>`;
-
-  const copyRallyBtn = root.querySelector('#btn-round-copy-rally');
-  if (copyRallyBtn) {
-    copyRallyBtn.onclick = () => {
-      A9Haptic.light();
-      const shareRef = getShareRef();
-      const inviteLink = config.isDemo
-        ? `${window.location.origin}${window.location.pathname}?mode=${config.mode}&startapp=invite_${encodeURIComponent(shareRef)}`
-        : buildTmaDeepLink(`invite_${shareRef}`);
-      copyText(buildBattleRallyCopy(store.state.round, inviteLink, 'push'), L('已复制实时战况喊单', 'Copied live battle call'));
-    };
-  }
-
-  const stageBtn = config.isDemo ? root.querySelector('#btn-stage-sheet') : null;
-  if (stageBtn) {
-    stageBtn.onclick = () => openChoiceSheet({
-      title: L('切换轮次阶段 (演示)', 'Switch Round Stage (Demo)'),
-      selected: round.stage,
-      options: [
-        { value: 'warmup',             label: L('1. 开局倒计时', '1. Pre-Round'), sub: L('开局预热池报名', 'Pre-round registration') },
-        { value: 'participation',      label: L('2. 24H 锁仓', '2. 24H Lock'), sub: L('头矿 6H · 5% 止损 · 100 A9 起锁仓', 'First 6H · 5% Stop-Loss · 100 A9+') },
-        { value: 'observation',        label: L('3. 12H 冲价', '3. 12H Push'), sub: L('12 个时段 ≥ 8/12 通关 · 封盘禁出', '12 slots · ≥ 8/12 pass · locked') },
-        { value: 'settlement_success', label: L('4. 通关派奖', '4. Passed'), sub: L('20% 秒提 + 14 天逐秒解锁 / 3 折急提（7 折销毁）', '20% Instant + 14D Per-Second Unlock / Instant Cashout (30% Now / 70% Burn)') },
-        { value: 'settlement_burn',    label: L('5. 未通关 · 自动止损', '5. No Liquidation · Auto Stop-Loss'), sub: L('永不爆仓 · 头矿 6H 退 95% / 普通退 90%', 'No Liquidation · 95% First 6H / 90% refund') },
-        { value: 'halted',             label: L('6. 异常中止 · 退回本金', '6. Aborted · Refund'), sub: L('本金原路退回', 'Principal refunded') }
-      ],
-      onSelect: (val) => {
-        store.update(s => { peekDemoModule()?.setDemoRoundStage(s.round, val); });
-        renderChallengeHome(root, navigate);
+    if (shouldMountWarmup) {
+      const wMount = root.querySelector('#round-warmup-mount');
+      if (wMount) {
+        import('./warmup_market.js')
+          .then((m) => {
+            if (wMount.isConnected && typeof m.mountWarmupSection === 'function') {
+              m.mountWarmupSection(wMount, { navigate, param: _param, query, embedded: true });
+            }
+          })
+          .catch(() => {
+            if (wMount.isConnected) {
+              wMount.innerHTML = `<section class="card num-xs text-red">${L('预热模块加载失败，请重试', 'Warm-up failed to load')}</section>`;
+            }
+          });
       }
+    }
+
+    if (shouldBindInlineStamps) {
+      bindInlineStampBoard(root, round);
+    }
+
+    const stageBtn = config.isDemo ? root.querySelector('#btn-stage-sheet') : null;
+    if (stageBtn) {
+      stageBtn.onclick = () => openChoiceSheet({
+        title: L('切换轮次阶段 (演示)', 'Switch Round Stage (Demo)'),
+        selected: round.stage,
+        options: [
+          { value: 'warmup',             label: L('1. 开局倒计时', '1. Pre-Round'), sub: L('开局预热池报名', 'Pre-round registration') },
+          { value: 'participation',      label: L('2. 24H 锁仓', '2. 24H Lock'), sub: L('头矿 6H · 5% 止损 · 100 A9 起锁仓', 'First 6H · 5% Stop-Loss · 100 A9+') },
+          { value: 'observation',        label: L('3. 12H 冲价', '3. 12H Push'), sub: L('12 个时段 ≥ 8/12 通关 · 封盘禁出', '12 slots · ≥ 8/12 pass · locked') },
+          { value: 'settlement_success', label: L('4. 通关派奖', '4. Passed'), sub: L('20% 秒提 + 14 天逐秒解锁 / 3 折急提（7 折销毁）', '20% Instant + 14D Per-Second Unlock / Instant Cashout (30% Now / 70% Burn)') },
+          { value: 'settlement_burn',    label: L('5. 未达标 · 自动止损', '5. No Liquidation · Auto Stop-Loss'), sub: L('永不爆仓 · 头矿 6H 退 95% / 普通退 90%', 'No Liquidation · 95% First 6H / 90% refund') },
+          { value: 'halted',             label: L('6. 异常中止 · 退回本金', '6. Aborted · Refund'), sub: L('本金原路退回', 'Principal refunded') }
+        ],
+        onSelect: (val) => {
+          store.update(s => { peekDemoModule()?.setDemoRoundStage(s.round, val); });
+          renderChallengeHome(root, navigate);
+        }
+      });
+    }
+
+    root.querySelectorAll('[data-hero-amt]').forEach(btn => {
+      btn.onclick = () => {
+        A9Haptic.light();
+        const amt = Number(btn.dataset.heroAmt);
+        store.update(s => { s.round.quickStakeA9 = amt; s.round.quickStakeTon = amt; });
+        root.querySelectorAll('[data-hero-amt]').forEach(b => b.classList.toggle('active', Number(b.dataset.heroAmt) === amt));
+        const est = estimateRewardA9(amt);
+        const estEl = root.querySelector('#hero-est-a9');
+        const ctaEl = root.querySelector('#hero-stake-cta');
+        if (estEl) estEl.textContent = est === null ? '—' : `~${formatNum(Math.round(est))} A9`;
+        if (ctaEl) ctaEl.innerHTML = `${icon('bolt', 16)} ${L(`立即锁仓 ${formatNum(amt)} A9`, `Lock ${formatNum(amt)} A9`)}`;
+      };
     });
-  }
 
-  root.querySelectorAll('[data-hero-amt]').forEach(btn => {
-    btn.onclick = () => {
-      A9Haptic.light();
-      const amt = Number(btn.dataset.heroAmt);
-      store.update(s => { s.round.quickStakeA9 = amt; s.round.quickStakeTon = amt; });
-      root.querySelectorAll('[data-hero-amt]').forEach(b => b.classList.toggle('active', Number(b.dataset.heroAmt) === amt));
-      const est = estimateRewardA9(amt);
-      const estEl = root.querySelector('#hero-est-a9');
-      const ctaEl = root.querySelector('#hero-stake-cta');
-      if (estEl) estEl.textContent = est === null ? '—' : `~${formatNum(Math.round(est))} A9`;
-      if (ctaEl) ctaEl.innerHTML = `${icon('bolt', 16)} ${L(`立即锁仓 ${formatNum(amt)} A9`, `Lock ${formatNum(amt)} A9`)}`;
-    };
-  });
-
-  const airdropState = { loading: true, error: null, items: [], bucketRemainingRaw: null, hasQualifiedPosition: null };
-  const paintAirdrop = () => {
-    const mount = root.querySelector('#a9-airdrop-draws-mount');
-    if (!mount || !mount.isConnected) return;
-    mount.innerHTML = renderAirdropDrawsCard(airdropState);
-    const retryBtn = mount.querySelector('#btn-retry-airdrop-draws');
-    if (retryBtn) retryBtn.onclick = () => syncAirdropDrawsCard(root, airdropState, paintAirdrop);
+    if (showPositionAfterHero) {
+      void syncMyRoundPositionCard(root, null);
+    }
   };
 
-  bindRoundDeckTabs(root);
-  bindCorridorRadarEvents(root);
-  bindXShareTriggers(root);
-  bindPredictionCardEvents(root, navigate);
-  syncPredictionState(root, navigate);
-  syncAirdropDrawsCard(root, airdropState, paintAirdrop);
-  syncMyRoundPositionCard(root, (qualified) => {
-    airdropState.hasQualifiedPosition = qualified;
-    paintAirdrop();
-  });
-  handlePendingDeepLinkScroll(root);
+  paintQuest();
 }
 
 async function syncAirdropDrawsCard(root, state, paint) {

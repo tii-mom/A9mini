@@ -3384,6 +3384,58 @@ img {
   gap: 3px;
 }
 
+/* 5d 闯关顶部 4 段时间轴 + 右上角分享图标 */
+.round-timeline-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.round-timeline-tabs {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  padding: 4px;
+  border-radius: 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+}
+.round-timeline-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 4px 2px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-sec, var(--text-secondary));
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.round-timeline-tab.is-selected {
+  background: var(--nt-red-soft);
+  border-color: var(--red, #E60012);
+  color: var(--ink);
+  font-weight: 800;
+}
+.round-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--nt-green);
+  flex-shrink: 0;
+}
+.round-share-icon-btn {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;

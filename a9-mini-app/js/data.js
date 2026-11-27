@@ -445,7 +445,8 @@ export function mapRoundView(snapshot) {
     detailLoading: Boolean(snapshot.partial),
     detailStale: Boolean(snapshot.detailStale),
     staleReason: snapshot.staleReason || null,
-    stakingEnabled: Boolean(c.contracts?.stakingEnabled)
+    stakingEnabled: Boolean(c.contracts?.stakingEnabled),
+    rounds: Array.isArray(snapshot.rounds) ? snapshot.rounds : [],
   };
   currentView = view;
   return view;

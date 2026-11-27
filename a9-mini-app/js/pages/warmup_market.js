@@ -404,7 +404,7 @@ export function mountWarmupSection(root, ctx = {}) {
               <div class="row-between" style="padding-top:6px;border-top:1px solid var(--card-border);">
                 <div>
                   <div class="num-xs" style="font-weight:700;color:var(--ink);">${L('开轮 Bot 私信通知', 'Bot Opening Alert')}</div>
-                  <div class="num-xs text-muted">${L(`第 ${targetRoundId} 轮开盘时推送头矿 6H 入口`, `Notifies when Round ${targetRoundId} opens`)}</div>
+                  <div class="num-xs text-muted">${targetRoundId ? L(`第 ${targetRoundId} 轮开盘时推送头矿 6H 入口`, `Notifies when Round ${targetRoundId} opens`) : L('下轮开盘时推送头矿 6H 入口', 'Notifies when next round opens')}</div>
                 </div>
                 <button type="button" class="chip ${state.remindEnabled ? 'chip-green' : 'chip-muted'}" id="btn-toggle-remind" style="cursor:pointer;border:none;" ${!isRoundOpen || state.busy ? 'disabled' : ''}>
                   ${state.remindEnabled ? L('已开启', 'ON') : L('已关闭', 'OFF')}
