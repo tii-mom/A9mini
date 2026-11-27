@@ -15,20 +15,10 @@ import {
   getEffectiveUserId,
   fetchUserPortfolio,
   fetchPromoBalance,
-  fetchPromoClaim,
-  requestPromoClaimIntent,
   fetchMyStakeReferrals,
   rawToA9,
 } from '../data.js';
 import { tonConnect, canonicalWalletKey } from '../tonconnect.js';
-
-function formatExactGramFromNano(nano) {
-  const v = BigInt(String(nano || '0'));
-  const whole = v / 1_000_000_000n;
-  const frac = String(v % 1_000_000_000n).padStart(9, '0').replace(/0+$/, '');
-  return frac ? `${whole.toString()}.${frac}` : whole.toString();
-}
-import { pendingTxManager } from '../tx-ux.js';
 import { A9Haptic, A9TMA } from '../tma.js';
 import { escapeHtml, formatNum, formatTimer, showToast, copyText, openChoiceSheet, openActionSheet } from '../components.js';
 import { icon } from '../icons.js';
@@ -1191,8 +1181,6 @@ export function renderInviteShare(root) {
   let template = 'push';
   let livePromo = null;
   let livePromoErr = null;
-  let promoClaimBusy = false;
-  let lastClaimStatus = null;
 
   const buildScenarioPitch = (tpl) => {
     const r = store.state.round || {};
@@ -1255,9 +1243,6 @@ export function renderInviteShare(root) {
   const paint = () => {
     const claimableA9 = livePromo ? (rawToA9(livePromo.claimableRaw) ?? 0) : null;
     const totalClaimedA9 = livePromo ? (rawToA9(livePromo.totalClaimedRaw) ?? 0) : null;
-    const canLiveClaim = !config.isDemo && store.fundsEnabled;
-    const promoTxLocked = pendingTxManager.isLocked('promo');
-    const promoDisabled = promoClaimBusy || promoTxLocked;
 
     const displayClaimable = config.isDemo ? Number(store.state.user.promoClaimableA9 ?? 0) : claimableA9;
     const displayClaimed = config.isDemo ? Number(store.state.user.promoClaimedA9 ?? 0) : totalClaimedA9;
@@ -1265,35 +1250,19 @@ export function renderInviteShare(root) {
     root.innerHTML = `
       <div class="col-gap anim-page-enter">
         <section class="card card-hero col-gap">
-          <div>
-            <div class="num-xs text-muted">${L('推广可领余额', 'Claimable Referral Balance')}</div>
-            <div class="sw-asset-main" style="margin-top:4px;">${displayClaimable === null || displayClaimable === undefined ? (store.state.user.address && !livePromoErr ? '…' : '—') : `${formatNum(displayClaimable, displayClaimable % 1 === 0 ? 0 : 2)} <span class="sw-asset-main-unit">A9</span>`}</div>
+          <div class="row-between">
+            <span class="num-xs text-muted">${L('推广可领余额', 'Claimable Referral Balance')}</span>
+            <span class="num-xs text-muted">${L('累计已领', 'Total Claimed')} <b class="mono">${fmtA9OrDash(displayClaimed)}</b></span>
           </div>
-          <div class="sw-menu-group">
-            <div class="sw-menu-row is-static">
-              <div class="sw-menu-left"><span class="sw-menu-title">${L('累计已领', 'Total Claimed')}</span></div>
-              <div class="sw-menu-right"><span class="sw-menu-amount">${fmtA9OrDash(displayClaimed)}</span></div>
-            </div>
-            <div class="sw-menu-row is-static">
-              <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('固定领币费', 'Fixed Claim Fee')}</span>
-                <span class="sw-menu-sub">${L('热钱包自动核验并转入当前钱包', 'Auto-verified hot wallet payout')}</span>
-              </div>
-              <div class="sw-menu-right"><span class="sw-menu-amount">0.06 GRAM</span></div>
-            </div>
-          </div>
+          <div class="sw-asset-main">${displayClaimable === null || displayClaimable === undefined ? (store.state.user.address && !livePromoErr ? '…' : '—') : `${formatNum(displayClaimable, displayClaimable % 1 === 0 ? 0 : 2)} <span class="sw-asset-main-unit">A9</span>`}</div>
           ${!config.isDemo && livePromoErr ? `<div class="sw-menu-error" role="alert"><span>${escapeHtml(livePromoErr)}</span><button type="button" class="sw-retry-link" id="btn-promo-retry">${L('重试', 'Retry')}</button></div>` : ''}
-          ${lastClaimStatus ? `<div class="num-xs text-green mono">${L('最近领奖单', 'Latest claim')}: ${escapeHtml(lastClaimStatus.claimId)} · ${escapeHtml(lastClaimStatus.status)}${lastClaimStatus.payoutTxHash ? ` · ${escapeHtml(lastClaimStatus.payoutTxHash.slice(0, 14))}…` : ''}</div>` : ''}
-          <button class="btn ${config.isDemo || (canLiveClaim && !promoTxLocked) ? 'btn-primary' : 'btn-secondary'}" id="btn-claim-promo-hot" ${promoDisabled ? 'disabled' : ''}>${icon(store.fundsEnabled ? (promoTxLocked ? 'clock' : 'wallet') : 'lock', 14)} ${config.isDemo
-            ? L('领取推广 A9（0.06 GRAM 说明）', 'Claim Referral A9 (0.06 GRAM Spec)')
-            : canLiveClaim
-              ? (promoTxLocked
-                  ? L('推广发放确认中（防重锁）', 'Promo Payout Confirming…')
-                  : promoClaimBusy
-                    ? L('等待 0.06 GRAM 签名确认…', 'Waiting for 0.06 GRAM tx…')
-                    : L('领取推广 A9（固定费 0.06 GRAM）', 'Claim Referral A9 (0.06 GRAM fee)'))
-              : L('当前只读 · 推广领奖暂未开放', 'Read-Only · Referral Claim Disabled')}</button>
-          ${!config.isDemo && !canLiveClaim ? `<div class="num-xs text-muted" id="live-readonly-promo-notice">${L('当前真实模式仅支持只读浏览与连接钱包，暂不创建 0.06 GRAM 付款单或发起签名。', 'Live mode is read-only; no 0.06 GRAM payment intent or signature will be created.')}</div>` : ''}
+          <a class="sw-menu-row" href="#/rewards" style="padding:10px 0 0;border-top:1px solid var(--card-border);">
+            <div class="sw-menu-left">
+              <span class="sw-menu-title">${L('前往「我的奖励」统一领取', 'Claim in My Rewards')}</span>
+              <span class="sw-menu-sub">${L('6% 商城直推与 8% 通关返佣均在我的奖励页领取', '6% Chest Mall & 8% Quest referrals are claimed in My Rewards')}</span>
+            </div>
+            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
+          </a>
         </section>
 
         <div>
@@ -1398,129 +1367,6 @@ export function renderInviteShare(root) {
       A9TMA.shareInvite(inviteLink, activePitch);
       showToast(L('已调起 Telegram 分享', 'Share opened'));
     };
-    const promoBtn = root.querySelector('#btn-claim-promo-hot');
-    if (promoBtn) {
-      promoBtn.onclick = async () => {
-        if (!store.fundsEnabled) {
-          A9Haptic.warning();
-          showToast(L('当前真实模式处于只读验收阶段，推广领奖付款单与 0.06 GRAM 签名暂未开放', 'Live mode is read-only; promo payout intent and 0.06 GRAM signing are disabled'), 'amber');
-          return;
-        }
-        if (config.isDemo) {
-          A9Haptic.success();
-          const res = store.claimPromoDemo();
-          if (res?.error) {
-            showToast(res.error, 'amber');
-            return;
-          }
-          showToast(L(`[演示模式] 已模拟领取 ${formatNum(res.amountA9)} A9 (${res.txHash})`, `[Demo] Simulated ${formatNum(res.amountA9)} A9 promo claim`));
-          return;
-        }
-        const wallet = store.state.user.address;
-        if (!store.state.user.connected || !wallet) {
-          showToast(L('请先连接并验证 TON 钱包后再领取', 'Connect and verify TON wallet first'), 'amber');
-          tonConnect.openConnectModal(() => loadLivePromo());
-          return;
-        }
-        if (promoClaimBusy || pendingTxManager.isLocked('promo')) {
-          showToast(L('已有推广领币交易正在发放确认中', 'Promo payout already confirming'), 'amber');
-          return;
-        }
-        try {
-          tonConnect.assertWalletReadyForLiveTx();
-        } catch (guardErr) {
-          showToast(guardErr?.message || L('请检查钱包连接与网络状态', 'Check wallet connection and network'), 'error');
-          return;
-        }
-        A9Haptic.light();
-        promoClaimBusy = true;
-        paint();
-        try {
-          const intent = await requestPromoClaimIntent(wallet);
-          const expectedPromoHot = store.state.round?.protocolConfig?.promoHotWallet?.address || '';
-          if (expectedPromoHot && canonicalWalletKey(intent.payTo) !== canonicalWalletKey(expectedPromoHot)) {
-            throw new Error(L('领奖目标热钱包地址与协议配置不一致，已拦截签名', 'Promo hot wallet mismatch with protocol config; signature blocked'));
-          }
-          const feeNano = BigInt(String(intent.feeRequiredNano || '60000000'));
-          const feeGramText = formatExactGramFromNano(feeNano);
-          const payoutA9 = rawToA9(intent.amountRaw ?? livePromo?.claimableRaw) ?? 0;
-          const ok = await tonConnect.confirmBeforeSign({
-            title: L('确认推广领币手续费（签名前核验）', 'Confirm Promo A9 Claim Fee'),
-            contractLabel: L('推广热钱包 PromoHotWallet', 'PromoHotWallet'),
-            targetAddress: intent.payTo,
-            principalText: `${formatNum(payoutA9, 2)} A9 (${L('热钱包发放', 'Hot wallet payout')})`,
-            gasText: `${feeGramText} GRAM (${L('固定领币费', 'fixed claim fee')})`,
-            totalText: `${feeGramText} GRAM`,
-            memo: intent.memo,
-            note: L(`钱包发起费另计。固定领币费按单收取，发放成功后不按实际成本退差。`, `Wallet sending fees apply separately. The fixed claim fee is charged per order without a cost-based rebate after payout.`),
-            confirmText: L(`确认并支付 ${feeGramText} GRAM 领币`, `Confirm & Pay ${feeGramText} GRAM`),
-          });
-          if (!ok) return;
-
-          await tonConnect.sendV15PromoFee(intent);
-          A9Haptic.success();
-          showToast(L(`已支付 ${feeGramText} GRAM 手续费（单号 ${intent.claimId}），热钱包正在自动发放 A9…`, `${feeGramText} GRAM fee sent (claim ${intent.claimId}), awaiting automatic A9 payout…`));
-          const pendingTx = pendingTxManager.start({
-            kind: 'promo',
-            title: '推广 A9 自动发放',
-            titleEn: 'Promo A9 Payout',
-            amountText: `${formatNum(payoutA9, 2)} A9`,
-            explorerAddress: intent.payTo,
-            refId: intent.claimId,
-            targetRoute: '/team/invite',
-            maxAttempts: 12,
-          });
-          pendingTxManager.pollUntilConfirmed({
-            txId: pendingTx?.id,
-            intervalMs: 4000,
-            maxAttempts: 12,
-            checkFn: async () => {
-              const c = await fetchPromoClaim(intent.claimId);
-              if (c) {
-                lastClaimStatus = c;
-                if (root.isConnected) paint();
-                if (c.status === 'COMPLETED') {
-                  return {
-                    confirmed: true,
-                    detail: `推广 ${formatNum(payoutA9, 2)} A9 已自动发放至钱包。`,
-                    detailEn: `Promo ${formatNum(payoutA9, 2)} A9 credited on-chain.`,
-                  };
-                }
-                if (c.status === 'FAILED' || c.status === 'EXPIRED') {
-                  return { terminal: true, claim: c };
-                }
-              }
-              return false;
-            },
-            onConfirmed: () => {
-              showToast(L('推广 A9 已发放至你的链上钱包！', 'Promo A9 sent to your wallet!'));
-              loadLivePromo();
-            },
-            onTimeout: () => {
-              showToast(L('热钱包发放确认较慢，可点击顶部状态条 Tonviewer 核验', 'Payout confirming slowly; check Tonviewer via top bar'), 'amber');
-            },
-          }).then((res) => {
-            if (res?.terminal && res.result?.claim) {
-              const st = res.result.claim.status;
-              showToast(
-                st === 'EXPIRED'
-                  ? L(`领奖单 ${intent.claimId} 已过期，余额已保留，可重新发起领取`, `Claim ${intent.claimId} expired; balance kept`)
-                  : L(`领奖单 ${intent.claimId} 发放异常，请核查钱包或在记录中重试`, `Claim ${intent.claimId} failed; please check details`),
-                'error',
-              );
-              loadLivePromo();
-            }
-          });
-          await loadLivePromo();
-        } catch (e) {
-          A9Haptic.error();
-          showToast(e?.message || L('发起推广领奖失败，请重试', 'Promo claim failed'), 'error');
-        } finally {
-          promoClaimBusy = false;
-          if (root.isConnected) paint();
-        }
-      };
-    }
   };
 
   paint();

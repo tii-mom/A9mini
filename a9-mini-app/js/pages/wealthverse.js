@@ -12,6 +12,7 @@ import { burstParticles } from '../components-heavy.js';
 import { tonConnect, canonicalWalletKey } from '../tonconnect.js';
 import { renderNintendoGateIcon } from '../paper-art.js';
 import { deriveRoundUiState } from '../round-state.js';
+import { renderMyRewardsPage } from './rewards.js';
 
 const link = (path, label, glyph) =>
   `<a href="#${path}">${icon(glyph, 16)}${label}</a>`;
@@ -318,189 +319,13 @@ function demoProgressionInitSnapshot(uid, roundId) {
 
 // 历史 gallery 已迁出至 js/pages/_retired/gallery.js；#/gallery 与 #/gallery/:id 由 ROUTE_ALIASES 统一收敛至 #/profile。
 
-let rewardsRenderSeq = 0;
-
-function fmtRewardsA9(val, loading = false) {
-  if (val === null || val === undefined || !Number.isFinite(Number(val))) return loading ? '…' : '—';
-  const n = Number(val);
-  return `${formatNum(n, n % 1 === 0 ? 0 : 2)} A9`;
-}
-
 /**
- * 奖金解锁详情页（#/rewards）：
+ * 我的奖励页（#/rewards，已合并原 #/claim）：
  * v17.0 极简 14 天逐秒解锁机制（通关退 100% 本金 + 秒提 20% 奖金，余下 80% 分 14 天每日 +5.71% 逐秒解锁，支持随时 3 折急提，永久累计不倒扣）
+ * 统一委托给 js/pages/rewards.js 最终形态渲染。
  */
-export function rewards(root) {
-  const n = store.state.round.successCount;
-
-  const renderSwitchRewards = ({ claimableA9 = null, lockedA9 = null, tickets = [], loading = false, error = false, hasWallet = true, isLive = false } = {}) => {
-    const dailyRateA9 = lockedA9 !== null && lockedA9 !== undefined && Number.isFinite(Number(lockedA9))
-      ? Math.round(Number(lockedA9) * (PROTOCOL_SPECS.dailyUnlockPct / 80))
-      : null;
-    const lockedTickets = tickets.filter((t) => Number(rawToA9(t?.lockedRemainingRaw) || 0) > 0);
-
-    root.innerHTML = `
-      <div class="col-gap anim-page-enter">
-        <section class="card card-hero col-gap">
-          <div class="row-between">
-            <div>
-              <div class="num-xs text-muted">${L('14 天逐秒待解锁总额', '14D Per-Second Unlock Remaining')}</div>
-              <div class="sw-asset-main" style="margin-top:4px;">${lockedA9 === null || lockedA9 === undefined ? (loading ? '…' : '—') : `${formatNum(Number(lockedA9), Number(lockedA9) % 1 === 0 ? 0 : 2)} <span class="sw-asset-main-unit">A9</span>`}</div>
-            </div>
-            <span class="nt-art-badge tone-blue" aria-hidden="true">${renderNintendoGateIcon('vault', 34)}</span>
-          </div>
-          <div class="sw-status-steps">
-            <div class="sw-status-step is-done">
-              <small>${L('通关即领', 'Day 0')}</small>
-              <strong>20%</strong>
-            </div>
-            <div class="sw-status-step is-active">
-              <small>${L('14 天逐秒解锁', '14D Unlock')}</small>
-              <strong>+5.71%/${L('天', 'd')}</strong>
-            </div>
-            <div class="sw-status-step">
-              <small>${L('3 折急提', 'Instant')}</small>
-              <strong>${L('30% 实拿', '30% Now')}</strong>
-            </div>
-          </div>
-          <div class="num-xs text-sec" style="line-height:1.5;">
-            ${L('通关秒提 20% + 100% 本金，余下 80% 按 14 天逐秒解锁（永久累计不倒扣）；如需提前变现，仅未解锁部分按 30% 实发、70% 永久销毁。', '20% instant + 100% principal on win; remaining 80% unlocks per second over 14 days (never forfeited). Instant Cashout pays 30% of unvested rewards now and burns 70%.')} · ${L('全网通关', 'Wins')}: <b class="mono">${n ?? waiting()}</b>
-          </div>
-        </section>
-
-        <div>
-          <div class="sw-section-label">${L('解锁明细', 'Unlock Breakdown')}</div>
-          <div class="sw-menu-group">
-            <a class="sw-menu-row" href="#/claim">
-              <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('已解锁待领取', 'Unlocked & Claimable')}</span>
-                <span class="sw-menu-sub">${L('前往领奖中心发起领取（0.22 GRAM Gas）', 'Go to Claims (0.22 GRAM gas)')}</span>
-              </div>
-              <div class="sw-menu-right">
-                <span class="sw-menu-amount ${Number(claimableA9) > 0 ? 'is-green' : (claimableA9 == null ? 'is-muted' : '')}">${fmtRewardsA9(claimableA9, loading)}</span>
-                <span class="sw-menu-arrow" aria-hidden="true">›</span>
-              </div>
-            </a>
-            <div class="sw-menu-row is-static">
-              <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('每日解锁节奏（5.71%/天）', 'Daily Unlock Pace (5.71%/day)')}</span>
-                <span class="sw-menu-sub">${L('按秒连续释放，随时可领', 'Continuous per-second release')}</span>
-              </div>
-              <div class="sw-menu-right">
-                <span class="sw-menu-amount ${dailyRateA9 == null ? 'is-muted' : ''}">${fmtRewardsA9(dailyRateA9, loading)}</span>
-              </div>
-            </div>
-            ${error ? `
-              <div class="sw-menu-error" role="alert">
-                <span>${L('读取失败', 'Read failed')}</span>
-                <button type="button" class="sw-retry-link" id="btn-rewards-retry">${L('重试', 'Retry')}</button>
-              </div>
-            ` : ''}
-          </div>
-        </div>
-
-        ${isLive && !hasWallet ? `
-          <div class="sw-menu-group">
-            <button type="button" class="sw-menu-row" id="btn-rewards-connect">
-              <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('连接钱包查看各凭证解锁进度', 'Connect Wallet for Per-Pass Unlock')}</span>
-                <span class="sw-menu-sub">${L('读取链上 StakeTicket 实时待解锁余额', 'Read on-chain StakeTicket locked balances')}</span>
-              </div>
-              <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-            </button>
-          </div>
-        ` : ''}
-
-        ${isLive && hasWallet && !loading && !error ? `
-          <div>
-            <div class="sw-section-label">${L('各凭证待解锁余额', 'Per-Pass Locked Balances')}</div>
-            <div class="sw-menu-group">
-              ${lockedTickets.length === 0
-                ? `<div class="sw-menu-row is-static"><div class="sw-menu-left"><span class="sw-menu-title text-muted">${L('当前无待解锁凭证余额', 'No locked rewards on passes')}</span></div></div>`
-                : lockedTickets.map((t) => {
-                    const remA9 = rawToA9(t.lockedRemainingRaw);
-                    const cashA9 = rawToA9(t.instantCashoutTotalRaw);
-                    const burnA9 = rawToA9(t.instantCashoutBurnRaw);
-                    const pctText = (t.unlockedPctBps !== null && t.unlockedPctBps !== undefined && Number.isFinite(Number(t.unlockedPctBps)))
-                      ? `${(Number(t.unlockedPctBps) / 100).toFixed(1)}%`
-                      : null;
-                    const href = t.ticketAddress ? `#/claim?ticket=${encodeURIComponent(t.ticketAddress)}` : '#/claim';
-                    return `
-                      <a class="sw-menu-row" href="${href}">
-                        <div class="sw-menu-left">
-                          <span class="sw-menu-title">${L(`第 ${escapeHtml(String(t.roundId ?? '—'))} 轮凭证`, `Round #${escapeHtml(String(t.roundId ?? '—'))} Pass`)}${pctText ? ` · ${L('已解锁', 'Unlocked')} ${pctText}` : ''}</span>
-                          <span class="sw-menu-sub">${cashA9 != null && burnA9 != null ? L(`3 折急提实拿 ${formatNum(cashA9, 2)} A9 / 销毁 ${formatNum(burnA9, 2)} A9`, `Instant Cashout ${formatNum(cashA9, 2)} A9 / Burn ${formatNum(burnA9, 2)} A9`) : L('点击前往领奖或查看 3 折急提', 'Tap to claim or view Instant Cashout')}</span>
-                        </div>
-                        <div class="sw-menu-right">
-                          <span class="sw-menu-amount is-amber">${fmtRewardsA9(remA9)}</span>
-                          <span class="sw-menu-arrow" aria-hidden="true">›</span>
-                        </div>
-                      </a>
-                    `;
-                  }).join('')}
-            </div>
-          </div>
-        ` : ''}
-
-        <div class="sw-menu-group">
-          <a class="sw-menu-row" href="#/claim">
-            <div class="sw-menu-left"><span class="sw-menu-title">${L('前往领奖中心', 'Go to Claims')}</span></div>
-            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-          </a>
-          <a class="sw-menu-row" href="#/profile">
-            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回我的', 'Back to Me')}</span></div>
-            <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
-          </a>
-        </div>
-      </div>
-    `;
-
-    const connBtn = root.querySelector('#btn-rewards-connect');
-    if (connBtn) connBtn.onclick = () => tonConnect.openConnectModal(() => rewards(root));
-    const retryBtn = root.querySelector('#btn-rewards-retry');
-    if (retryBtn) retryBtn.onclick = () => rewards(root);
-  };
-
-  if (!config.isDemo) {
-    const seq = ++rewardsRenderSeq;
-    const addr = store.state.user.address || null;
-    if (!addr) {
-      renderSwitchRewards({ hasWallet: false, isLive: true });
-      return;
-    }
-    renderSwitchRewards({ loading: true, hasWallet: true, isLive: true });
-    fetchUserPortfolio(addr)
-      .then((data) => {
-        if (seq !== rewardsRenderSeq || !root.isConnected || store.state.user.address !== addr) return;
-        const claimableA9 = data?.claimableRaw !== null && data?.claimableRaw !== undefined ? rawToA9(data.claimableRaw) : null;
-        const lockedA9 = data?.lockedRaw !== null && data?.lockedRaw !== undefined ? rawToA9(data.lockedRaw) : null;
-        renderSwitchRewards({
-          claimableA9,
-          lockedA9,
-          tickets: Array.isArray(data?.tickets) ? data.tickets : [],
-          loading: false,
-          error: data?.ticketsAvailable === false,
-          hasWallet: true,
-          isLive: true,
-        });
-      })
-      .catch(() => {
-        if (seq !== rewardsRenderSeq || !root.isConnected || store.state.user.address !== addr) return;
-        renderSwitchRewards({ loading: false, error: true, hasWallet: true, isLive: true });
-      });
-    return;
-  }
-
-  const u = store.state.user;
-  const lockedNum = Number.isFinite(Number(u.a9Locked)) ? Number(u.a9Locked) : null;
-  renderSwitchRewards({
-    claimableA9: Number.isFinite(Number(u.a9Claimable)) ? Number(u.a9Claimable) : null,
-    lockedA9: lockedNum,
-    loading: false,
-    error: false,
-    hasWallet: true,
-    isLive: false,
-  });
+export function rewards(root, navigate, param, query = {}) {
+  return renderMyRewardsPage(root, navigate, param, query);
 }
 
 export function tower(round) {

@@ -3106,6 +3106,103 @@ img {
   color: var(--ink-muted, var(--text-muted));
 }
 
+/* P3 我的奖励：整行可领主值、双列次栏、待激活说明、二级折叠与 4 项确认表 */
+.rewards-hero-amount {
+  margin-top: 4px;
+  font-size: clamp(22px, 6.2vw, 30px);
+  font-weight: 900;
+  line-height: 1.15;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.rewards-hero-amount::-webkit-scrollbar { display: none; }
+.rewards-dual-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.rewards-stat-box {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+  min-width: 0;
+}
+.rewards-stat-val {
+  font-size: clamp(12px, 3.5vw, 14px);
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.rewards-stat-val::-webkit-scrollbar { display: none; }
+.rewards-activation-note {
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+}
+.rewards-secondary-fold {
+  border-top: 1px solid var(--card-border);
+  padding-top: 8px;
+}
+.rewards-secondary-fold > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-sec, var(--text-secondary));
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rewards-secondary-fold > summary::-webkit-details-marker { display: none; }
+.rewards-secondary-fold > summary::after {
+  content: '›';
+  font-size: 15px;
+  transition: transform 0.16s ease;
+}
+.rewards-secondary-fold[open] > summary::after {
+  transform: rotate(90deg);
+}
+.rewards-confirm-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--paper-tray);
+  border: 1px solid var(--card-border);
+}
+.rewards-confirm-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--card-border);
+}
+.rewards-confirm-row:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+.rewards-confirm-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted, var(--text-muted));
+}
+.rewards-confirm-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
