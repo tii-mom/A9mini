@@ -936,7 +936,9 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
       if (slot?.status === 'active' && !showProvisional) return { index, status: 'unknown' };
       return slot || { index, status: 'pending' };
     });
-    const pickedCandle = local.selectedFlagIdx !== null
+    const showSlots = ['charge', 'settling', 'passed', 'failed', 'aborted'].includes(ui.stage) ||
+      candles.some(candle => candle.status === 'closed' || candle.status === 'active');
+    const pickedCandle = showSlots && local.selectedFlagIdx !== null
       ? (candles.find((c) => Number(c.index) === Number(local.selectedFlagIdx)) || null)
       : null;
     const flagsHtml = candles.map((c) => {
@@ -944,8 +946,8 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
       const { tone, statusText } = describeCandleSlotDetail(c);
       const aria = escapeHtml(L(`第 ${c.index} 小时 · ${statusText}`, `Hour ${c.index} · ${statusText}`));
       const stateClass = { win: 'pass', lose: 'fail', active: 'now', missing: 'missing', idle: 'idle' }[tone];
-      const marker = tone === 'win' ? qIcon('check', 13, 3) : tone === 'lose' ? qIcon('x', 11, 3) : c.index;
-      return `<button type="button" class="q-flag ${stateClass}${isPicked ? ' is-picked' : ''}" data-q-flag-idx="${c.index}" aria-pressed="${isPicked}" aria-label="${aria}">${marker}</button>`;
+      const marker = tone === 'win' ? qIcon('check', 12, 3) : tone === 'lose' ? qIcon('x', 11, 3) : tone === 'active' ? '<i></i>' : '';
+      return `<button type="button" class="q-flag ${stateClass}${isPicked ? ' is-picked' : ''}" data-q-flag-idx="${c.index}" aria-pressed="${isPicked}" aria-label="${aria}"><span>${c.index}</span>${marker}</button>`;
     }).join('');
     const flagDetailHtml = pickedCandle ? (() => {
       const d = describeCandleSlotDetail(pickedCandle, r.targetPrice);
@@ -1122,9 +1124,15 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
               ${qualified !== null ? L(`${qualified} / ${slotCount} 段达标`, `${qualified} / ${slotCount} met`) : L(`≥ ${threshold} / ${slotCount} 段达标`, `≥ ${threshold} / ${slotCount} required`)}
             </span>
           </div>
-          <div id="q-race-plot">${racePriceChart(r, config.isDemo)}</div>
-          <div class="q-flags">${flagsHtml}</div>
-          ${flagDetailHtml}
+          <div id="q-race-plot">${racePriceChart(r, config.isDemo, pickedCandle ? Number(pickedCandle.index) : null)}</div>
+          ${showSlots ? `
+            <div class="q-race-slots-heading">
+              <strong>${L('时段判定', 'Hourly results')}</strong>
+              <small>${L('点选查看均价', 'Tap to inspect')}</small>
+            </div>
+            <div class="q-flags" role="group" aria-label="${L('选择冲价时段', 'Select an hourly period')}">${flagsHtml}</div>
+            ${flagDetailHtml}
+          ` : ''}
           <div class="q-flag-status ${flagStatus.tone}" id="q-flag-status">
             ${qIcon(flagStatus.tone === 'win' ? 'trophy' : flagStatus.tone === 'lose' ? 'shield' : 'info', 17)}
             <span>${escapeHtml(flagStatus.text)}</span>
@@ -1276,14 +1284,19 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
     const retryBtn = root.querySelector('#q-stage-retry');
     if (retryBtn) retryBtn.onclick = () => window.dispatchEvent(new Event('a9:force-sync'));
 
+    const pickSlot = (idx, selector) => {
+      local.selectedFlagIdx = local.selectedFlagIdx === idx ? null : idx;
+      paint();
+      root.querySelector(`[${selector}="${idx}"]`)?.focus?.({ preventScroll: true });
+    };
     root.querySelectorAll('[data-q-flag-idx]').forEach((btn) => {
-      btn.onclick = () => {
-        const idx = Number(btn.dataset.qFlagIdx);
-        local.selectedFlagIdx = local.selectedFlagIdx === idx ? null : idx;
-        paint();
-        root.querySelector(`[data-q-flag-idx="${idx}"]`)?.focus?.({ preventScroll: true });
-      };
+      btn.onclick = () => pickSlot(Number(btn.dataset.qFlagIdx), 'data-q-flag-idx');
     });
+    const racePlot = root.querySelector('#q-race-plot');
+    if (racePlot) racePlot.onclick = (event) => {
+      const marker = event.target.closest?.('[data-race-point]');
+      if (marker) pickSlot(Number(marker.dataset.racePoint), 'data-race-point');
+    };
 
     const connBtn = root.querySelector('#q-stage-connect');
     if (connBtn) connBtn.onclick = () => tonConnect.openConnectModal(() => renderStageView(root, navigate, _param, query));

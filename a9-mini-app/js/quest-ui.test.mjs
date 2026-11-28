@@ -244,8 +244,11 @@ test('live race chart preserves missing hourly samples and excludes paused provi
     { index: 3, status: 'closed', p: 0.0015 },
     { index: 4, status: 'active', p: 0.0018, progressBps: 5000 },
   ] };
-  const active = racePriceChart(round, false);
+  const active = racePriceChart(round, false, 4);
   assert.match(active, /本时段暂定均价/);
+  assert.match(active, /q-race-selected-guide/);
+  assert.match(active, /data-race-point="4" aria-pressed="true"/);
+  assert.doesNotMatch(active, /data-race-point="2"/);
   assert.equal(active.match(/class="q-ch-line"/g)?.length, 1);
   const paused = racePriceChart({ ...round, rawState: 'ORACLE_PAUSED' }, false);
   assert.match(paused, /最近确认均价/);
@@ -253,6 +256,9 @@ test('live race chart preserves missing hourly samples and excludes paused provi
   assert.doesNotMatch(paused, /0\.00180000|class="q-ch-line"/);
   assert.match(active, /采样周期: 1 小时 \/ 格 · 共 12 格/);
   assert.match(active, /最后有效行情:/);
+  const demo = racePriceChart({ ...round, rawState: 'STAKING_OPEN', candles: [], priceHistory: [0.001, 0.0012], syncedAt: Date.now() }, true, 2);
+  assert.match(demo, /模拟走势仅供参考，不计入冲价达标/);
+  assert.doesNotMatch(demo, /data-race-point|q-race-selected-guide|接口同步:/);
 });
 
 test('race chart and pool preserve USD_E8 and A9 precision and mark missing hours', async () => {

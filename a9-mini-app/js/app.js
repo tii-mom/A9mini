@@ -1032,7 +1032,10 @@ document.addEventListener('keydown', (e) => {
 
 function syncLivePriceDomInPlace(r) {
   const race = document.getElementById('q-race-plot');
-  if (race) race.innerHTML = racePriceChart(r, config.isDemo);
+  // Demo ticks update the reference series only. Hourly points reflect their fixture/round snapshot.
+  if (race && r.rawState === 'STAKING_OPEN' && !race.querySelector('[data-race-point]')) {
+    race.innerHTML = racePriceChart(r, config.isDemo);
+  }
   const live = finiteOrNull(r.livePrice ?? r.twap24h);
   const target = finiteOrNull(r.targetPrice);
   const validLive = canShowProvisionalPrice(r) && live !== null && live > 0 ? live : null;

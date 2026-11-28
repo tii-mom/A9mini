@@ -1,3 +1,4 @@
+import { escapeHtml } from '../components.js';
 import { L } from '../i18n.js';
 import { fmtUsdOrDash } from './quest-ui.js';
 
@@ -64,7 +65,7 @@ function resolveLastValidTime(round, lastPoint, accepting) {
   return null;
 }
 
-export function racePriceChart(round, demo) {
+export function racePriceChart(round, demo, selectedSlot = null) {
   const accepting = canShowProvisionalPrice(round);
   const configuredCount = Number(round.protocolConfig?.candleCount);
   const count = Number.isInteger(configuredCount) && configuredCount > 0 ? configuredCount : 12;
@@ -76,7 +77,7 @@ export function racePriceChart(round, demo) {
     if (!Number.isInteger(index) || index < 1 || index > count) continue;
     const active = slot.status === 'active';
     if (slot.status !== 'closed' && !(active && accepting)) continue;
-    const price = active && demo ? round.livePrice : slot.p;
+    const price = slot.p;
     if (!positive(price)) continue;
     const progress = Math.max(0, Math.min(1, (Number(slot.progressBps) || 0) / 10000));
     points.push({
@@ -117,7 +118,15 @@ export function racePriceChart(round, demo) {
   const cadenceText = formatCadenceLabel(seconds, count);
   const validTime = resolveLastValidTime(round, last, accepting);
   const syncTime = formatSampleTime(round.syncedAt ?? round.updatedAt ?? round.fetchedAt);
-  const metaStrip = `<div class="q-chart-meta"><span>${L('采样周期', 'Cadence')}: ${cadenceText}</span><span>${L('最后有效行情', 'Last valid price')}: <b class="q-num" data-price-time="1">${validTime || L('待同步', 'Pending')}</b></span>${syncTime ? `<span>${L('接口同步', 'API sync')}: <span class="q-num" data-sync-time="1">${syncTime}</span></span>` : ''}</div>`;
+  const metaStrip = demo
+    ? `<div class="q-chart-meta">${preview
+      ? L('模拟走势仅供参考，不计入冲价达标。', 'Demo prices are illustrative and do not count toward the result.')
+      : L('演示时段数据', 'Demo hourly data')}</div>`
+    : `<div class="q-chart-meta">
+        <span>${L('采样周期', 'Cadence')}: ${cadenceText}</span>
+        <span>${L('最后有效行情', 'Last valid price')}: <b class="q-num" data-price-time="1">${validTime || L('待同步', 'Pending')}</b></span>
+        ${syncTime ? `<span>${L('接口同步', 'API sync')}: <span class="q-num" data-sync-time="1">${syncTime}</span></span>` : ''}
+      </div>`;
   const gapPct = (accepting && value !== null && target !== null)
     ? ((value - target) / target) * 100
     : null;
@@ -132,13 +141,18 @@ export function racePriceChart(round, demo) {
         ? `<div class="q-price-gap q-up">${L(`已高于目标 ${aboveTarget}`, `Above target ${aboveTarget}`)}</div>`
         : `<div class="q-price-gap q-down">${L(`距目标还差 ${gapSize}`, `${gapSize} below target`)}</div>`;
 
-  const header = `<div class="q-price-row"><div><small>${label}</small><b class="q-num">${fmtUsdOrDash(value)}</b>${gapHtml}</div><div class="q-ta-r"><small>${L('本关目标价', 'Target price')}</small><b class="q-num q-target-price">${fmtUsdOrDash(target)}</b></div></div>`;
+  const header = `<div class="q-price-row">
+    <div class="q-race-quote"><small>${label}</small><b class="q-num">${fmtUsdOrDash(value)}</b>${gapHtml}</div>
+    <div class="q-race-quote q-race-quote-target"><small>${L('本关目标价', 'Target price')}</small><b class="q-num q-target-price">${fmtUsdOrDash(target)}</b></div>
+  </div>`;
   if (!points.length) {
     const emptyText = ['UNOPENED', 'STAKING_OPEN', 'STAKING_CLOSED'].includes(round.rawState)
       ? L('冲价尚未开始', 'Price push has not started')
       : L('暂无冲价时段均价', 'No hourly averages yet');
     return header + `<div class="q-price-empty">${status || emptyText}</div>` + metaStrip;
   }
+
+  // Keep the target in view. Only adjacent samples are connected, so missing hours remain visible.
   const values = points.map(point => point.price);
   if (target !== null) values.push(target);
   const min = Math.min(...values);
@@ -146,33 +160,56 @@ export function racePriceChart(round, demo) {
   const padding = Math.max((max - min) * 0.14, max * 0.001, 0.00000001);
   const bottom = Math.max(min / 2, min - padding);
   const top = max + padding;
-  const x = time => (5 + 250 * time / count).toFixed(2);
-  const y = price => (110 - 100 * (price - bottom) / (top - bottom)).toFixed(2);
+  const x = time => (5 + 90 * time / count).toFixed(2);
+  const y = price => (84 - 68 * (price - bottom) / (top - bottom)).toFixed(2);
+  const picked = !preview ? points.find(point => point.slot === selectedSlot) : null;
+  const guides = [0, 0.25, 0.5, 0.75, 1].map(fraction => `M${x(count * fraction)} 16V84`).join(' ');
   const segments = points.map((point, i) => {
-    const prev = points[i - 1];
-    const adjacent = prev && prev.slot + 1 === point.slot;
+    const previous = points[i - 1];
+    if (!previous || previous.slot + 1 !== point.slot) return '';
+    const ax = x(previous.time);
+    const ay = y(previous.price);
+    const bx = x(point.time);
+    const by = y(point.price);
     const provisional = point.active && !preview;
-    return (adjacent ? `<line class="q-ch-line" ${provisional ? 'data-provisional="1" stroke-dasharray="4 3"' : ''} x1="${x(prev.time)}" y1="${y(prev.price)}" x2="${x(point.time)}" y2="${y(point.price)}"/>` : '') +
-      `<circle ${point.active ? 'class="q-price-active"' : ''} cx="${x(point.time)}" cy="${y(point.price)}" r="${point.active ? 4 : 3}" fill="${point.active ? 'var(--q-blue-ink)' : point.qualified === true ? 'var(--q-green)' : point.qualified === false ? 'var(--q-red)' : 'var(--q-ink)'}"/>`;
+    const area = provisional ? '' : `<path class="q-race-chart-area" d="M${ax} 84V${ay}L${bx} ${by}V84Z"/>`;
+    return area + `<line class="q-ch-line" ${provisional ? 'data-provisional="1"' : ''} x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}"/>`;
   }).join('');
-  const duration = slots => {
-    const total = slots * seconds;
-    return total % 3600 === 0 ? L(`${total / 3600} 小时`, `${total / 3600}h`) : L(`${total / 60} 分钟`, `${total / 60}m`);
-  };
-  const legend = `<div class="q-race-chart-key" aria-hidden="true">
+  const markers = points.map((point, i) => {
+    const provisional = point.active && !preview;
+    const tone = provisional ? 'provisional' : point.qualified === true ? 'passed' : point.qualified === false ? 'missed' : '';
+    const latest = i === points.length - 1;
+    const classes = `q-race-point ${tone}${latest ? ' is-latest' : ''}${point === picked ? ' is-picked' : ''}${provisional ? ' q-price-active' : ''}`;
+    const style = `--plot-x:${x(point.time)}%;--plot-y:${y(point.price)}%`;
+    if (preview) return `<span class="${classes}" style="${style}" aria-hidden="true"></span>`;
+    const name = provisional ? L('暂定均价', 'Provisional average') : L('确认均价', 'Confirmed average');
+    const aria = L(`第 ${point.slot} 小时 · ${name} ${fmtUsdOrDash(point.price)}`, `Hour ${point.slot} · ${name} ${fmtUsdOrDash(point.price)}`);
+    return `<button type="button" class="${classes}" style="${style}" data-race-point="${point.slot}" aria-pressed="${point === picked}" aria-label="${escapeHtml(aria)}"></button>`;
+  }).join('');
+  const timeLabels = preview
+    ? [L('近期采样', 'Recent samples'), L('现在', 'Now')]
+    : [0, count / 4, count / 2, count * 0.75, count].map(slots => {
+        const minutes = slots * seconds / 60;
+        return minutes % 60 === 0 ? L(`${minutes / 60} 小时`, `${minutes / 60}h`) : L(`${minutes} 分钟`, `${minutes}m`);
+      });
+  const legend = `<div class="q-race-chart-key">
     ${points.some(point => !point.active) || preview ? `<span>${preview ? L('模拟采样', 'Demo samples') : L('确认均价', 'Confirmed average')}</span>` : ''}
     ${last?.active && !preview ? `<span class="q-race-key-provisional">${L('暂定均价', 'Provisional average')}</span>` : ''}
-    ${target !== null ? `<span class="q-race-key-target">${L('目标价', 'Target')}</span>` : ''}
   </div>`;
   const chartLabel = L(`${label} ${fmtUsdOrDash(value)}。目标价 ${fmtUsdOrDash(target)}。`, `${label}: ${fmtUsdOrDash(value)}. Target: ${fmtUsdOrDash(target)}.`);
-  return header + `<div class="q-race-chart-frame">
-    <div class="q-race-price-axis q-num" aria-hidden="true"><span>${fmtUsdOrDash(top)}</span><span>${fmtUsdOrDash(bottom)}</span></div>
-    <svg class="q-race-chart-plot" role="img" aria-label="${chartLabel}" viewBox="0 0 260 120" preserveAspectRatio="none">
-      ${[10, 60, 110].map(row => `<path class="q-race-chart-grid" d="M5 ${row}h250"/>`).join('')}
-      ${target === null ? '' : `<path class="q-ch-target" d="M5 ${y(target)}h250"/>`}${segments}
-    </svg>
-    <div class="q-race-time-axis q-num" aria-hidden="true"><span>${preview ? L('近期采样', 'Recent samples') : duration(0)}</span><span>${preview ? '' : duration(count / 2)}</span><span>${preview ? L('现在', 'Now') : duration(count)}</span></div>
-  </div>${legend}
-    ${metaStrip}
-    ${status ? `<small class="q-chart-status">${status}</small>` : ''}`;
+  const targetY = target === null ? null : y(target);
+  return header + (status ? `<small class="q-chart-status">${status}</small>` : '') + `<div class="q-race-chart-frame">
+    <div class="q-race-chart-canvas">
+      <div class="q-race-price-axis q-num" aria-hidden="true"><span>${fmtUsdOrDash(top)}</span><span>${fmtUsdOrDash(bottom)}</span></div>
+      <svg class="q-race-chart-plot" role="img" aria-label="${escapeHtml(chartLabel)}" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <path class="q-race-chart-grid" d="${guides} M5 16H95 M5 50H95 M5 84H95"/>
+        ${segments}
+        ${targetY === null ? '' : `<path class="q-ch-target" d="M5 ${targetY}H95"/>`}
+        ${picked ? `<path class="q-race-selected-guide" d="M${x(picked.time)} 16V84"/>` : ''}
+      </svg>
+      ${targetY === null ? '' : `<span class="q-race-target-pin" style="--target-y:${targetY}%">${L('目标价', 'Target')}</span>`}
+      ${markers}
+    </div>
+    <div class="q-race-time-axis q-num" aria-hidden="true">${timeLabels.map(time => `<span>${time}</span>`).join('')}</div>
+  </div>${legend}${metaStrip}`;
 }
