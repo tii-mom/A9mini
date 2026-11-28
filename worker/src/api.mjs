@@ -499,7 +499,7 @@ export function createApiRouter({
           const isTestnet = String(env.A9_NETWORK || '').toLowerCase() === 'testnet';
           if (/^https:\/\//.test(String(env.A9_PUBLIC_ORIGIN || ''))) welcomePhoto = `${String(env.A9_PUBLIC_ORIGIN).replace(/\/+$/, '')}/assets/brand/bot-welcome.png`;
           replyText = [
-            isTestnet ? 'A9 · 财富大冒险  /  测试网' : 'A9 · 财富大冒险',
+            isTestnet ? 'A9  /  测试网' : 'A9',
             '开宝箱 · 闯关 · 与战队同行',
             '点击下方，开始你的冒险。',
           ].join('\n\n');
@@ -565,7 +565,7 @@ export function createApiRouter({
           ];
         } else if (command === 'rules') {
           replyText = [
-            'A9 · 财富大冒险用户指南',
+            'A9用户指南',
             '24H 锁仓（头矿 6H 5% 止损 / 普通 10% 止损）→ 12H 冲价 >= 8/12 通关，通关 20% 秒提 + 14 天逐秒解锁。',
             '完整规则、费用说明与链上合约验真请在小程序内查看。',
           ].join('\n\n');
@@ -575,7 +575,7 @@ export function createApiRouter({
           ];
         } else {
           replyText = [
-            'A9 · 财富大冒险 Bot 命令与安全指南（v17.0 涨价解锁）',
+            'A9 Bot 命令与安全指南（v17.0 涨价解锁）',
             '/start — 打开主菜单并绑定邀请归因（好友通关 8% 返佣）',
             '/status — 实时查询链上轮次、头矿 6H 与 12H 冲价进度',
             '/market — 直达宝箱商城与免费宝箱入口',

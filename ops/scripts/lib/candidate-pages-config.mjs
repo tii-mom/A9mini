@@ -61,7 +61,7 @@ export function buildCandidateManifest(pagesOrigin) {
   assertNotProduction(origin, 'pagesOrigin');
   return {
     url: origin,
-    name: 'A9 · 财富大冒险 [Testnet]',
+    name: 'A9',
     iconUrl: `${origin}/assets/token/a9-token-2048.png`,
     termsOfUseUrl: `${origin}/terms.html`,
     privacyPolicyUrl: `${origin}/privacy.html`,
@@ -77,7 +77,7 @@ export function buildCandidateTokenMetadata(pagesOrigin, botHandle = CANDIDATE_T
     name: 'A9',
     symbol: 'A9',
     decimals: '9',
-    description: 'A9 · Wealth Quest (TON Testnet Candidate v17.0) — 10,000,000,000 fixed supply TON Jetton powering the Price-Unlock protocol.',
+    description: 'A9 (TON Testnet Candidate v17.0) — 10,000,000,000 fixed supply TON Jetton powering the Price-Unlock protocol.',
     image: `${origin}/assets/token/a9-token-2048.png`,
     websites: [origin],
     social: [`https://t.me/${handle}`],

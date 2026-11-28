@@ -238,7 +238,7 @@ function renderHeader(route) {
     <div class="header-left">
       ${isStack ? `<button class="icon-btn" id="hdr-back" type="button" aria-label="${L('返回', 'Back')}">${icon('arrowLeft', 16)}</button>` : ''}
       ${!isStack
-        ? `<a class="quest-brand" href="#/profile" aria-label="${L('我的', 'My profile')}"><img class="quest-brand-mark" src="./assets/brand/apple-touch-icon.png" width="34" height="34" alt="" /><span class="quest-brand-copy"><b>${L('财富大冒险', 'Wealth Quest')}</b>${stageLabel ? `<small>${escapeHtml(stageLabel)}</small>` : ''}</span></a>`
+        ? `<a class="quest-brand" href="#/profile" aria-label="${L('我的', 'My profile')}"><img class="quest-brand-mark" src="./assets/brand/apple-touch-icon.png" width="34" height="34" alt="" /><span class="quest-brand-copy"><b>A9</b>${stageLabel ? `<small>${escapeHtml(stageLabel)}</small>` : ''}</span></a>`
         : `<div class="header-title"><span class="header-title-text">${titleText}</span></div>`
       }
     </div>

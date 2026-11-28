@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-A9 · 财富大冒险 Telegram Bot 配套服务（命令菜单 + 安全 Mini App 深链）。
+A9 Telegram Bot 配套服务（命令菜单 + 安全 Mini App 深链）。
 
 数据真实性约束（P0-3）：
 - 严禁打印任何硬编码轮次、价格、锁仓或收益数字；
@@ -201,7 +201,7 @@ async def render_start():
     s = await current_round_summary()
     if s["status"] == "unopened":
         return (
-            "<b>A9 · 财富大冒险</b>\n"
+            "<b>A9</b>\n"
             "首轮涨价解锁蓄水筹备中，免费青铜宝箱与宝箱商城入口已就绪。\n\n"
             "• 免费宝箱：0 成本秒开 200 A9 青铜新手箱，进阶 5 阶梯队最高可领 200,000 A9（好友购箱 1 抵 3 助力加速）\n"
             "• 宝箱商城：0.99–500 GRAM 共 6 档纯区间随机开箱，保底 + 随机加赠合并直发钱包（最高 1,300,000 A9）\n"
@@ -210,12 +210,12 @@ async def render_start():
         )
     if s["status"] == "unavailable":
         return (
-            "<b>A9 · 财富大冒险</b>\n"
+            "<b>A9</b>\n"
             "协议状态接口暂不可达或返回数据异常，当前轮次与行情数据待核验，请稍后重试或在小程序内刷新查看。\n\n"
             "你仍可直接打开小程序查看规则、免费宝箱与宝箱商城入口。参与有风险，结果以链上结算为准。"
         )
     return (
-        "<b>A9 · 财富大冒险</b>\n"
+        "<b>A9</b>\n"
         "基于 TON 区块链智能合约（v17.0 涨价解锁）。以下数据来自协议接口，缺失时显示“待核验”。\n\n"
         f"• 当前轮次：<code>{_esc(s['round'])}</code>（{_esc(s['state'])}）\n"
         f"• 目标价：<code>{_esc(s['target'])}</code>\n"
@@ -256,7 +256,7 @@ def build_bot():
 
     async def post_init(app: Application):
         await app.bot.set_my_commands([
-            BotCommand("start", "打开 A9 · 财富大冒险"),
+            BotCommand("start", "打开 A9"),
             BotCommand("round", "查看当前轮次状态"),
             BotCommand("claim", "打开金库领奖页"),
             BotCommand("position", "查看我的资产与凭证"),
@@ -265,7 +265,7 @@ def build_bot():
             BotCommand("help", "查看闯关指南"),
         ])
         await app.bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(text="A9 · 财富大冒险", web_app=WebAppInfo(url=build_mini_app_url()))
+            menu_button=MenuButtonWebApp(text="A9", web_app=WebAppInfo(url=build_mini_app_url()))
         )
 
     async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -279,7 +279,7 @@ def build_bot():
         start_payload = context.args[0].strip() if context.args else None
         primary_url = build_mini_app_url(start_payload)
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("打开 A9 · 财富大冒险", web_app=WebAppInfo(url=primary_url))],
+            [InlineKeyboardButton("打开 A9", web_app=WebAppInfo(url=primary_url))],
             [InlineKeyboardButton("免费领青铜宝箱 / 宝箱商城", web_app=WebAppInfo(url=build_mini_app_url("market")))],
             [InlineKeyboardButton("查看我的领取状态", web_app=WebAppInfo(url=build_mini_app_url("claim")))],
         ])

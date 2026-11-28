@@ -282,7 +282,7 @@ export function renderSettingsPage(root) {
           <div class="row-start" style="gap:12px;">
             <span class="sw-about-logo" aria-hidden="true"><img src="./assets/brand/apple-touch-icon.png" width="40" height="40" alt="A9" decoding="async" /></span>
             <div style="min-width:0;">
-              <strong style="font-size:15px;font-weight:900;display:block;line-height:1.25;">${L('A9 · 财富大冒险', 'A9 · Wealth Quest')}</strong>
+              <strong style="font-size:15px;font-weight:900;display:block;line-height:1.25;">A9</strong>
               <p class="num-xs text-sec" style="margin:3px 0 0;line-height:1.4;">${L('基于 TON 的非托管涨价解锁应用', 'Non-custodial Price-Unlock app on TON')}</p>
             </div>
           </div>

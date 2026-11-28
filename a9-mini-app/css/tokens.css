@@ -20,6 +20,11 @@
   --wv-safe-left: max(env(safe-area-inset-left, 0px), var(--tg-safe-area-inset-left, 0px), var(--tg-content-safe-area-inset-left, 0px));
   --wv-safe-right: max(env(safe-area-inset-right, 0px), var(--tg-safe-area-inset-right, 0px), var(--tg-content-safe-area-inset-right, 0px));
 
+  --app-dock-row-height: 48px;
+  --app-dock-bottom-padding: max(8px, var(--wv-safe-bottom));
+  --app-dock-viewport-gap: max(0px, calc(100dvh - var(--tg-viewport-stable-height, 100dvh)));
+  --app-dock-space: calc(var(--app-dock-row-height) + 5px + var(--app-dock-bottom-padding) + var(--app-dock-viewport-gap) + 16px);
+
   /* 90% 洁净中性底色与精工实体表面（双端统一） */
   --paper-bg: #F4F5F8;
   --paper-tray: #EAECEF;

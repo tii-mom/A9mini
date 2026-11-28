@@ -1,5 +1,5 @@
 /* =====================================================================
-   A9 · 财富大冒险 — Quest 视图层样式（基于 tokens.css 融合）
+   A9 — Quest 视图层样式（基于 tokens.css 融合）
    设计语言：Switch 系统级「红白卡带」+ Joy-Con 双色语义
    阶段色：红 = 锁仓可进 / 石墨黑 = 封盘冲价 / 绿 = 通关 / 灰 = 止损 / 蓝 = 金库与战队
    兼容底层 components.css 钱包弹窗、风控确认卡 (#tx-confirm-ok) 与在途横幅 (#a9-pending-tx-bar)
@@ -105,11 +105,6 @@ body.quest-shell-active {
 .quest-shell-active .app-main {
   padding-left: calc(14px + var(--wv-safe-left, 0px));
   padding-right: calc(14px + var(--wv-safe-right, 0px));
-  padding-bottom: calc(104px + var(--wv-safe-bottom, 0px));
-}
-
-.quest-shell-active .app-main.no-tabbar {
-  padding-bottom: calc(28px + var(--wv-safe-bottom, 0px));
 }
 
 .quest-shell-active .quest-brand {
@@ -125,7 +120,7 @@ body.quest-shell-active {
   flex: none;
   border-radius: 12px;
 }
-.quest-brand-copy { display: grid; min-width: 0; font-size: clamp(13px, 3.8vw, 15px); line-height: 1.2; }
+.quest-brand-copy { display: grid; min-width: 0; font-size: clamp(15px, 4vw, 17px); line-height: 1.2; white-space: nowrap; }
 .quest-brand-copy small { color: var(--q-ink-3); font-size: 11px; }
 .quest-shell-active .header-right { flex-shrink: 0; }
 
@@ -177,81 +172,6 @@ body.quest-shell-active {
   .quest-shell-active .wallet-pill-balance { max-width: 118px; }
 }
 
- /* 悬浮 Quest 4-Tab Dock */
-.quest-shell-active .app-tabbar {
-  position: fixed;
-  z-index: 40;
-  transform: none;
-  width: auto;
-  left: max(calc(12px + var(--wv-safe-left, 0px)), calc(50% - 204px));
-  right: max(calc(12px + var(--wv-safe-right, 0px)), calc(50% - 204px));
-  bottom: calc(10px + var(--wv-safe-bottom, 0px));
-  max-width: 416px;
-  margin: 0 auto;
-  height: 66px;
-  padding: 5px;
-  border-radius: 24px;
-  border: 0;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  background: color-mix(in srgb, var(--q-surface) 90%, transparent);
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
-  backdrop-filter: blur(18px) saturate(1.4);
-  box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.28), inset 0 0 0 1px var(--q-line);
-}
-
-.quest-shell-active .app-tabbar.hidden {
-  display: none;
-}
-
-.quest-shell-active .app-tabbar .tab-item {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  min-height: 48px;
-  padding: 4px 2px;
-  border-radius: 18px;
-  font-size: 11px;
-  font-weight: 800;
-  color: var(--q-ink-3);
-  text-decoration: none;
-  transition: background 0.18s, color 0.18s, transform 0.08s;
-}
-
-.quest-shell-active .app-tabbar .tab-item:active {
-  transform: translateY(1px);
-}
-
-.quest-shell-active .app-tabbar .tab-item.active {
-  color: #FFFFFF;
-  background: var(--q-red);
-  box-shadow: 0 3px 0 var(--q-red-d);
-}
-
-.quest-shell-active .app-tabbar .tab-item.active svg {
-  color: #FFFFFF;
-  stroke: #FFFFFF;
-}
-
-.quest-shell-active .app-tabbar .tab-badge {
-  position: absolute;
-  top: 7px;
-  left: calc(50% + 9px);
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--q-red);
-  box-shadow: 0 0 0 2px var(--q-surface);
-}
-
-.quest-shell-active .app-tabbar .tab-item.active .tab-badge {
-  background: #FFFFFF;
-  box-shadow: 0 0 0 2px var(--q-red);
-}
 
 /* ---------------- Quest 通用工具与卡片 ---------------- */
 .q-view {

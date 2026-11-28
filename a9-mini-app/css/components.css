@@ -320,7 +320,7 @@ img {
 .app-main {
   flex: 1;
   width: 100%;
-  padding: 6px calc(14px + var(--wv-safe-right)) calc(98px + var(--wv-safe-bottom)) calc(14px + var(--wv-safe-left));
+  padding: 6px calc(14px + var(--wv-safe-right)) var(--app-dock-space) calc(14px + var(--wv-safe-left));
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1495,30 +1495,23 @@ img {
 }
 
 /* --------------------------------------------------------------------------
-   七、精装缝线悬浮底栏 (#app-tabbar) — 完整适配 Telegram 安全区
+   七、主导航底栏
    -------------------------------------------------------------------------- */
 .app-tabbar {
   position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: max(10px, var(--wv-safe-bottom));
-  width: min(calc(100% - 24px - var(--wv-safe-left) - var(--wv-safe-right)), 416px);
-  min-height: 58px;
-  padding: 4px;
-  border-radius: var(--radius-lg, 16px);
-  border: 1.5px solid var(--card-border);
+  inset-inline: 0;
+  top: min(100%, var(--tg-viewport-stable-height, 100%));
+  transform: translateY(-100%);
+  max-width: 440px;
+  margin-inline: auto;
+  padding: 4px max(10px, var(--wv-safe-right)) var(--app-dock-bottom-padding) max(10px, var(--wv-safe-left));
+  border-top: 1px solid var(--card-border);
   background: var(--tabbar-bg);
-  box-shadow:
-    inset 0 1px 0 var(--card-highlight),
-    0 3.5px 0 var(--card-thickness),
-    0 10px 20px rgba(20, 22, 30, 0.10);
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
   z-index: 45;
 }
-
-.app-tabbar::before { display: none; }
 
 .quest-lock-card,
 .quest-pool,
@@ -1564,22 +1557,6 @@ img {
   }
 }
 
-/* 底栏下方视口级渐隐收口遮罩（避开 .app-tabbar 的 transform 包含块陷阱） */
-.tma-shell:not(:has(.app-main.no-tabbar))::after {
-  content: '';
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 0;
-  width: min(100vw, 440px);
-  height: calc(24px + var(--wv-safe-bottom));
-  background: var(--paper-bg);
-  pointer-events: none;
-  z-index: 42;
-}
-
-.dock-pill { display: none; }
-
 .tab-item {
   position: relative;
   z-index: 1;
@@ -1589,7 +1566,7 @@ img {
   justify-content: center;
   gap: 2px;
   min-width: 0;
-  min-height: 46px;
+  min-height: var(--app-dock-row-height);
   text-decoration: none;
   border: 0;
   border-radius: var(--radius-md, 12px);
@@ -1604,7 +1581,7 @@ img {
 
 .tab-item svg { width: 21px; height: 21px; }
 
-/* Switch 精工指示灯选中态：柔和哑光底 + 高对比品牌红字 + 顶部 3px 指示短杠 */
+/* 选中态保留红色图文和浅红底。 */
 .tab-item.active {
   background: var(--nt-red-soft);
   color: var(--nt-red-ink, var(--nt-red));
@@ -1612,24 +1589,10 @@ img {
   transform: none;
 }
 
-.tab-item.active::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 22px;
-  height: 3px;
-  border-radius: 0 0 3px 3px;
-  background: var(--nt-red);
-}
-
-.tab-item.active svg { animation: tab-boing 260ms var(--ease-spring); }
-
 .tab-badge {
   position: absolute;
-  top: 6px;
-  right: 16px;
+  top: 5px;
+  inset-inline-start: calc(50% + 9px);
   width: 7px;
   height: 7px;
   border-radius: 50%;

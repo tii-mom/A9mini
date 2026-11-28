@@ -25,8 +25,7 @@ export function syncDocumentLang(routeTitle) {
     document.documentElement.lang = lang;
     const isTestnet = (store.state.round?.protocolConfig?.network || config.network) === 'testnet';
     const prefix = isTestnet ? '[Testnet] ' : '';
-    const brand = lang === 'en-US' ? 'A9 · Wealth Quest' : 'A9 · 财富大冒险';
-    document.title = routeTitle ? `${prefix}${routeTitle} · A9` : `${prefix}${brand}`;
+    document.title = routeTitle ? `${prefix}${routeTitle} · A9` : `${prefix}A9`;
   }
 }
 

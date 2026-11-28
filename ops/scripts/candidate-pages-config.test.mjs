@@ -56,8 +56,10 @@ test('candidate pages config never accepts production hosts or non-https origins
 test('candidate manifest and token metadata point only at the candidate pages origin and the test bot', () => {
   const manifest = buildCandidateManifest(PAGES);
   assert.equal(manifest.url, PAGES);
-  assert.match(manifest.name, /\[Testnet\]/);
-  for (const v of Object.values(manifest)) assert.ok(v.startsWith(PAGES) || v.includes('[Testnet]'), v);
+  assert.equal(manifest.name, 'A9');
+  for (const [key, value] of Object.entries(manifest)) {
+    if (key !== 'name') assert.equal(new URL(value).origin, PAGES);
+  }
   const meta = buildCandidateTokenMetadata(PAGES);
   assert.deepEqual(meta.websites, [PAGES]);
   assert.deepEqual(meta.social, ['https://t.me/A9_TestnetBot']);

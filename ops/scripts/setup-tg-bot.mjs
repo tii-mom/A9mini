@@ -86,14 +86,14 @@ export function buildBotSetupPlan({
     body: {
       menu_button: {
         type: 'web_app',
-        text: '进入 A9 财富大冒险',
+        text: 'A9',
         web_app: { url: normalizedAppUrl },
       },
     },
     summary: {
       menu_button: {
         type: 'web_app',
-        text: '进入 A9 财富大冒险',
+        text: 'A9',
         web_app: { url: normalizedAppUrl },
       },
     },
