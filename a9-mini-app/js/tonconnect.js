@@ -116,6 +116,7 @@ class A9TonConnect {
     this._proofPayload = null;
     this._proofExpiresAtSec = 0;
     this._proofPurpose = 'bind';
+    this._proofRequest = null;
     this.returnEntry = null;
     this.returnEntryError = null;
     this._modalSeq = 0;
@@ -276,7 +277,7 @@ class A9TonConnect {
             if (!config.isDemo && expectedChain && chain && chain !== expectedChain) {
               const wantLabel = expectedChain === '-239' ? L('TON 主网 (-239)', 'TON Mainnet (-239)') : L('TON 测试网 (-3)', 'TON Testnet (-3)');
               showToast(L(`检测到错链钱包 (${chain})，请切换至 ${wantLabel}`, `Wrong wallet network (${chain}); please switch to ${wantLabel}`), 'error');
-            } else {
+            } else if (!proofFlowEnabled()) {
               showToast(L(`钱包已连接：${short}`, `Wallet connected: ${short}`));
             }
             await this._verifyOwnership(wallet);
@@ -307,23 +308,35 @@ class A9TonConnect {
   /** 预取一次性 ton_proof 载荷，并记录过期时间，避免超过 15 分钟 TTL 签出失效挑战。 */
   async _prepareProofPayload(purpose = 'bind') {
     if (!this.ui || !proofFlowEnabled() || typeof this.ui.setConnectRequestParameters !== 'function') return false;
-    try {
-      this._proofPurpose = purpose;
-      this.ui.setConnectRequestParameters({ state: 'loading' });
-      const res = await requestTonProofPayload(purpose);
-      const payload = res?.payload || '';
-      if (!payload) throw new Error('empty ton_proof payload');
-      this._proofPayload = payload;
-      this._proofExpiresAtSec = Number(res?.expiresAt || (Math.floor(Date.now() / 1000) + 900));
-      this.ui.setConnectRequestParameters({ state: 'ready', value: { tonProof: payload } });
-      return true;
-    } catch (e) {
-      this._proofPayload = null;
-      this._proofExpiresAtSec = 0;
-      this.lastError = e?.message || L('获取钱包归属挑战失败', 'Failed to fetch wallet proof challenge');
-      this.ui.setConnectRequestParameters(null);
-      return false;
-    }
+    if (this._proofRequest?.purpose === purpose) return this._proofRequest.promise;
+
+    const request = { purpose };
+    this._proofRequest = request;
+    this._proofPurpose = purpose;
+    this._proofPayload = null;
+    this._proofExpiresAtSec = 0;
+    this.ui.setConnectRequestParameters({ state: 'loading' });
+    request.promise = (async () => {
+      try {
+        const res = await requestTonProofPayload();
+        if (this._proofRequest !== request) return false;
+        const payload = res?.payload || '';
+        if (!payload) throw new Error('empty ton_proof payload');
+        this._proofPayload = payload;
+        this._proofExpiresAtSec = Number(res?.expiresAt || (Math.floor(Date.now() / 1000) + 900));
+        this.ui.setConnectRequestParameters({ state: 'ready', value: { tonProof: payload } });
+        return true;
+      } catch (e) {
+        if (this._proofRequest === request) {
+          this.lastError = e?.message || L('获取钱包归属挑战失败', 'Failed to fetch wallet proof challenge');
+          this.ui.setConnectRequestParameters(null);
+        }
+        return false;
+      } finally {
+        if (this._proofRequest === request) this._proofRequest = null;
+      }
+    })();
+    return request.promise;
   }
 
   /** 拉起钱包连接前确保 ton_proof 挑战有效且剩余寿命 > 120s，防止过期或首次预取失败竞态。 */
@@ -393,10 +406,12 @@ class A9TonConnect {
         s.user.pendingSwitch = pendingSwitch;
         s.user.serverBoundWallet = serverBoundWallet;
       });
-      if (verificationState === 'restored_binding') {
+      if (freshVerified) {
+        showToast(L('钱包归属已验证', 'Wallet ownership verified'));
+      } else if (verificationState === 'restored_binding') {
         showToast(L('已恢复连接（沿用服务端历史绑定，本次未重新签名验证）', 'Session restored (reusing server binding; no fresh proof this session)'), 'amber');
       } else if (!freshVerified && !pending && !(proof && 'error' in proof)) {
-        showToast(L('钱包尚未完成归属验证，请断开后重新连接并签名', 'Wallet ownership not verified; disconnect and reconnect to sign'), 'amber');
+        showToast(L('钱包尚未完成归属验证，请在钱包面板重新验证', 'Wallet ownership not verified; verify again in the wallet panel'), 'amber');
       }
     } catch (e) {
       store.update(s => {
@@ -405,9 +420,10 @@ class A9TonConnect {
       });
       showToast(L(`钱包归属验证失败：${e?.message || '请重试'}`, `Wallet verification failed: ${e?.message || 'please retry'}`), 'error');
     } finally {
-      this._proofPayload = null;
-      this._proofExpiresAtSec = 0;
-      this._prepareProofPayload('bind');
+      if (proof?.proof?.payload && proof.proof.payload === this._proofPayload) {
+        this._proofPayload = null;
+        this._proofExpiresAtSec = 0;
+      }
     }
   }
 
@@ -457,8 +473,9 @@ class A9TonConnect {
         L('每笔交易都需你在钱包中确认', 'Every transaction requires your confirmation in your wallet'),
       ];
 
+      const needsProof = isConnected && proofFlowEnabled() && !user.walletVerified && !user.pendingSwitch;
       const primaryBtnHtml = isConnected
-        ? ''
+        ? needsProof ? `<button class="btn btn-primary" id="tc-reverify-wallet" type="button">${L('重新验证归属', 'Verify ownership again')}</button>` : ''
         : isLoading
           ? `<button class="btn btn-primary" id="tc-real-connect" type="button" disabled aria-busy="true"><span class="tc-btn-spinner" aria-hidden="true"></span> ${L('正在加载钱包…', 'Loading wallet…')}</button>`
           : hasFailed
@@ -536,7 +553,7 @@ class A9TonConnect {
       return Boolean(el && Number(el.dataset.modalSeq) === seq);
     };
 
-    const launchWithProof = async (purpose = 'bind') => {
+    const launchWithProof = async (purpose = 'bind', { reconnect = false } = {}) => {
       if (canSandbox) {
         closeModal();
         A9Haptic.success();
@@ -573,10 +590,8 @@ class A9TonConnect {
 
       try {
         if (proofFlowEnabled()) {
-          if (purpose !== 'bind' && this.ui.connected) {
-            try { await this.ui.disconnect(); } catch (_) {}
-          }
-          const ready = await this._ensureFreshProofPayload(purpose);
+          if ((purpose !== 'bind' || reconnect) && this.ui.connected) await this.ui.disconnect();
+          const ready = reconnect ? await this._prepareProofPayload(purpose) : await this._ensureFreshProofPayload(purpose);
           if (!ready) {
             this.lastError = L('获取钱包归属验证信息失败，请重试', 'Failed to prepare ownership verification; please retry');
             if (isStillOpen()) renderSheet('failed');
@@ -606,8 +621,11 @@ class A9TonConnect {
       const connectBtn = document.getElementById('tc-real-connect');
       if (connectBtn && !connectBtn.disabled) connectBtn.onclick = () => launchWithProof('bind');
 
+      const reverifyBtn = document.getElementById('tc-reverify-wallet');
+      if (reverifyBtn) reverifyBtn.onclick = () => launchWithProof('bind', { reconnect: true });
+
       const switchBtn = document.getElementById('tc-switch-wallet');
-      if (switchBtn) switchBtn.onclick = () => launchWithProof('bind');
+      if (switchBtn) switchBtn.onclick = () => launchWithProof('bind', { reconnect: true });
 
       const cancelRebindBtn = document.getElementById('tc-cancel-rebind');
       if (cancelRebindBtn) cancelRebindBtn.onclick = () => launchWithProof('cancel_rebind');

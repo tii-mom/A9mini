@@ -2484,3 +2484,39 @@ test('UX Phase 1: index.html uses defer (not async) for Telegram SDK, loadSnapsh
 });
 
 
+
+test('wallet modal shares the in-flight proof challenge with SDK startup', () => {
+  const result = runScenario({
+    href: 'https://a9-v17-testnet-candidate.pages.dev/?mode=live',
+    injectedConfig: {
+      mode: 'live', lockMode: true, network: 'testnet',
+      apiBase: 'https://a9-v17-testnet-candidate.348421501.workers.dev',
+      allowedApiOrigins: ['https://a9-v17-testnet-candidate.348421501.workers.dev'],
+      botHandle: 'A9_TestnetBot', liveFundsEnabled: false,
+    },
+    startParam: 'tonconnect',
+  }, `
+    let resolveChallenge;
+    let requests = 0;
+    const params = [];
+    FakeTonConnectUI.prototype.setConnectRequestParameters = value => params.push(value);
+    globalThis.fetch = () => {
+      requests += 1;
+      return new Promise(resolve => { resolveChallenge = resolve; });
+    };
+    const { tonConnect } = await import(JS_URL + '/tonconnect.js');
+    tonConnect.init();
+    const ready = tonConnect._ensureFreshProofPayload();
+    resolveChallenge({
+      ok: true,
+      status: 200,
+      async json() { return { ok: true, data: { payload: 'proof-challenge' } }; },
+    });
+    console.log(JSON.stringify({ ready: await ready, requests, params }));
+  `);
+  assert.deepEqual(result, {
+    ready: true,
+    requests: 1,
+    params: [{ state: 'loading' }, { state: 'ready', value: { tonProof: 'proof-challenge' } }],
+  });
+});

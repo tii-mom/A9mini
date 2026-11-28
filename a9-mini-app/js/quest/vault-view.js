@@ -1258,7 +1258,9 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
       state.portfolioError = pfRes.reason?.message || L('读取票据失败', 'Failed to load tickets');
     }
     if (prRes.status === 'fulfilled') state.promo = prRes.value;
-    else state.promoError = prRes.reason?.message || L('读取推广余额失败', 'Failed to load promo balance');
+    else if (prRes.reason?.code === 'WALLET_NOT_VERIFIED') {
+      state.promoError = L('请在钱包面板验证钱包归属，再查看推广余额', 'Verify ownership in the wallet panel to view your promo balance');
+    } else state.promoError = prRes.reason?.message || L('读取推广余额失败', 'Failed to load promo balance');
 
     state.loading = false;
     paint();
