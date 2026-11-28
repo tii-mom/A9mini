@@ -25,6 +25,7 @@ import {
   serverNowMs,
   rawToA9,
   formatRoundA9,
+  formatEstimatedA9,
   fetchUserPortfolio,
   fetchPromoBalance,
   fetchPredictionUser,
@@ -44,10 +45,10 @@ import {
 let vaultViewSeq = 0;
 
 function vaultTickerParts(raw) {
-  const amount = formatRoundA9(raw);
+  const amount = formatEstimatedA9(raw);
   if (amount === '—') return null;
-  const [whole, fraction = ''] = amount.slice(0, -3).split('.');
-  return { whole, fraction: `.${fraction.padEnd(4, '0')}` };
+  const [whole, fraction] = amount.slice(0, -3).split('.');
+  return { whole, fraction: fraction ? '.' + fraction : '' };
 }
 
 /** 解析单张票据精确 BigInt 账目：严格区分已结清额度、实际到账与急提销毁 */
@@ -756,7 +757,7 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
           ` : `<div class="q-ticker q-ticker-empty">${state.loading ? L('加载中…', 'Loading…') : '—'}</div>`}
           ${claimableParts && d.perSec > 0 ? `<div class="q-v-rate"><span id="q-vault-rate">${escapeHtml(rateText)}</span> A9 / ${L('秒', 's')}</div>` : ''}
           <div class="q-v-strip" id="q-vault-overview-strip">
-            <div><small>${L('待解锁', 'Unvested')}</small><b>${escapeHtml(formatRoundA9(d.lockedRaw))}</b></div>
+            <div><small>${L('待解锁', 'Unvested')}</small><b>${escapeHtml(formatEstimatedA9(d.lockedRaw))}</b></div>
             <div><small>${L('已解锁进度', 'Vested')}</small><b>${vestingProgress === null ? '—' : `${vestingProgress.toFixed(1)}%`}</b>${vestingProgress === null ? '' : `<div class="q-v-progress" aria-hidden="true"><i style="width:${vestingProgress}%"></i></div>`}</div>
             <div><small>${L('推广余额', 'Promo balance')}</small><b>${escapeHtml(promoAmount)}</b></div>
           </div>
@@ -867,8 +868,8 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
                   </div>
                   <div class="q-tk-g">
                     <div>${L('本金', 'Principal')}<b class="q-num">${escapeHtml(formatRoundA9(acc.principalRaw))}</b></div>
-                    <div>${L('现在可领', 'Claimable')}<b class="q-num" data-q-tk-claimable="${escapeHtml(t.ticketAddress)}">${escapeHtml(formatRoundA9(acc.claimTotalRaw))}</b></div>
-                    <div>${L('尚未解锁', 'Unvested')}<b class="q-num" data-q-tk-unvested="${escapeHtml(t.ticketAddress)}">${escapeHtml(formatRoundA9(acc.lockedRemainingRaw))}</b></div>
+                    <div>${L('现在可领', 'Claimable')}<b class="q-num" data-q-tk-claimable="${escapeHtml(t.ticketAddress)}">${escapeHtml(formatEstimatedA9(acc.claimTotalRaw))}</b></div>
+                    <div>${L('尚未解锁', 'Unvested')}<b class="q-num" data-q-tk-unvested="${escapeHtml(t.ticketAddress)}">${escapeHtml(formatEstimatedA9(acc.lockedRemainingRaw))}</b></div>
                   </div>
                   <dl class="q-tk-ledger">${ledgerItems.map((it) => `<div class="q-tk-ledger-i ${it.cls}"><dt>${escapeHtml(it.label)}</dt><dd>${escapeHtml(it.value)}</dd></div>`).join('')}</dl>
                   ${canClaim || canInstant ? `<div class="q-tk-gas">${escapeHtml(gasText)}</div>` : ''}
@@ -988,13 +989,13 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
                       <div class="q-kv"><span>${L('实际到账奖金', 'Actual Received')}</span><b class="q-num green">${curveAcc.actualRewardReceivedRaw !== null ? escapeHtml(formatRoundA9(curveAcc.actualRewardReceivedRaw)) : L('未知（链上急提实发未单存）', 'Unknown (not stored separately)')}</b></div>
                       <div class="q-kv"><span>${L('急提已销毁', 'Cashout Burned')}</span><b class="q-num red">${curveAcc.burnedLockedRaw !== null ? escapeHtml(formatRoundA9(curveAcc.burnedLockedRaw)) : L('未知（需核验链上急提事件）', 'Unknown (verify cashout event)')}</b></div>
                     ` : activeSim?.isFuture ? `
-                      <div class="q-kv"><span>${L(`第 ${activeSim.day} 天试算 · 预计急提实得（扣已领）`, `Day ${activeSim.day} Est. · Cashout Payout (Net)`)}</span><b class="q-num green">${escapeHtml(formatRoundA9(activeSim.payoutRaw))}</b></div>
-                      <div class="q-kv"><span>${L(`第 ${activeSim.day} 天试算 · 预计销毁`, `Day ${activeSim.day} Est. · Burned`)}</span><b class="q-num red">${escapeHtml(formatRoundA9(activeSim.burnRaw))}</b></div>
-                      <div class="q-kv"><span>${L('较今天急提多保住（未来试算）', 'Saved vs Today (Forecast)')}</span><b class="q-num green">+${escapeHtml(formatRoundA9(activeSim.extraSavedRaw))}</b></div>
+                      <div class="q-kv"><span>${L(`第 ${activeSim.day} 天试算 · 预计急提实得（扣已领）`, `Day ${activeSim.day} Est. · Cashout Payout (Net)`)}</span><b class="q-num green">${escapeHtml(formatEstimatedA9(activeSim.payoutRaw))}</b></div>
+                      <div class="q-kv"><span>${L(`第 ${activeSim.day} 天试算 · 预计销毁`, `Day ${activeSim.day} Est. · Burned`)}</span><b class="q-num red">${escapeHtml(formatEstimatedA9(activeSim.burnRaw))}</b></div>
+                      <div class="q-kv"><span>${L('较今天急提多保住（未来试算）', 'Saved vs Today (Forecast)')}</span><b class="q-num green">${escapeHtml(formatEstimatedA9(activeSim.extraSavedRaw, { gain: true }))}</b></div>
                     ` : `
                       <div class="q-kv"><span>${L(`第 ${curveTicket.roundId ?? '—'} 关 · 实际累计已领`, `Stage ${curveTicket.roundId ?? '—'} · Actual Claimed`)}</span><b class="q-num">${escapeHtml(formatRoundA9(curveAcc.actualRewardReceivedRaw))}（${L('即时', 'Imm')} ${escapeHtml(formatRoundA9(curveAcc.immediateClaimedRaw))} + ${L('线性', 'Lin')} ${escapeHtml(formatRoundA9(curveAcc.actualLockedReceivedRaw))}）</b></div>
-                      <div class="q-kv"><span>${L('今天急提实得（扣已领）', 'Today Cashout Payout')}</span><b class="q-num green">${escapeHtml(formatRoundA9(curveAcc.instantTotalRaw))}</b></div>
-                      <div class="q-kv"><span>${L('今天急提销毁（未解锁 70%）', 'Today Cashout Burn')}</span><b class="q-num red">${escapeHtml(formatRoundA9(curveAcc.instantBurnRaw))}</b></div>
+                      <div class="q-kv"><span>${L('今天急提实得（扣已领）', 'Today Cashout Payout')}</span><b class="q-num green">${escapeHtml(formatEstimatedA9(curveAcc.instantTotalRaw))}</b></div>
+                      <div class="q-kv"><span>${L('今天急提销毁（未解锁 70%）', 'Today Cashout Burn')}</span><b class="q-num red">${escapeHtml(formatEstimatedA9(curveAcc.instantBurnRaw))}</b></div>
                     `}
                   </div>
                 ` : ''}
@@ -1039,8 +1040,8 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
           if (/^\d+$/.test(String(tk.claimableTotalRaw ?? ''))) totalRaw += BigInt(tk.claimableTotalRaw);
           const tkClaimEl = root.querySelector(`[data-q-tk-claimable="${tk.ticketAddress}"]`);
           const tkLockEl = root.querySelector(`[data-q-tk-unvested="${tk.ticketAddress}"]`);
-          if (tkClaimEl) tkClaimEl.textContent = formatRoundA9(tk.claimableTotalRaw);
-          if (tkLockEl) tkLockEl.textContent = formatRoundA9(tk.lockedRemainingRaw);
+          if (tkClaimEl) tkClaimEl.textContent = formatEstimatedA9(tk.claimableTotalRaw);
+          if (tkLockEl) tkLockEl.textContent = formatEstimatedA9(tk.lockedRemainingRaw);
         }
         updateTicker(totalRaw);
       }, 1000);

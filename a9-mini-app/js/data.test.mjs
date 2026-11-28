@@ -4,7 +4,7 @@ const storage=()=>({getItem:()=>null,setItem(){},removeItem(){}});
 globalThis.localStorage=storage();globalThis.sessionStorage=storage();
 globalThis.window={location:new URL('http://localhost/?mode=live&timeout=200'),__A9_CONFIG__:{network:'testnet'},Telegram:{WebApp:{initData:'x'.repeat(40)+'A'}},matchMedia:()=>({matches:false})};
 globalThis.document={documentElement:{dataset:{}},querySelector:()=>null,getElementById:()=>null,addEventListener(){}};
-const {fetchMe,requestTonProofPayload}=await import('./data.js');
+const {fetchMe,requestTonProofPayload,formatEstimatedA9,formatRoundA9}=await import('./data.js');
 const {fmtRawGramOrDash,fmtUsdOrDash}=await import('./quest/quest-ui.js');
 const reply=()=>({status:200,json:async()=>({ok:true,data:{valid:true}})});
 
@@ -16,6 +16,18 @@ test('small prices and raw GRAM keep their full precision while absent values st
   assert.equal(fmtRawGramOrDash(null), '—');
   assert.equal(fmtRawGramOrDash('0'), '0 GRAM');
   assert.equal(fmtRawGramOrDash('1000000000000000001'), '1,000,000,000.000000001 GRAM');
+});
+
+test('A9 previews round to two decimals without losing raw precision or hiding small positive amounts', () => {
+  const raw = '36250647332988';
+  assert.equal(formatEstimatedA9(raw, { gain: true }), '+36,250.65 A9');
+  assert.equal(formatRoundA9(raw), '36,250.647332988 A9');
+  assert.equal(formatEstimatedA9(152_500_000_000n), '152.5 A9');
+  assert.equal(formatEstimatedA9(152_000_000_000n), '152 A9');
+  assert.equal(formatEstimatedA9(1n, { gain: true }), '<0.01 A9');
+  assert.equal(formatEstimatedA9(0n, { gain: true }), '0 A9');
+  assert.equal(formatEstimatedA9(null), '—');
+  assert.equal(formatEstimatedA9(9_999_999_999_995_000_000n), '10,000,000,000 A9');
 });
 
 test('real request layer deduplicates reads, isolates complete identity, retries failures, and never merges writes',async()=>{

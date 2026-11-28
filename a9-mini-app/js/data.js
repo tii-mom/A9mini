@@ -852,6 +852,17 @@ export function formatRoundA9(raw) {
   return formatNanoTokenAmount(raw, 'A9');
 }
 
+// Display-only rounding for previews and summaries. Transactions use raw amounts.
+export function formatEstimatedA9(raw, { gain = false } = {}) {
+  const amount = nonNegativeRaw(raw);
+  if (amount === null) return '—';
+  const cent = 10_000_000n;
+  if (amount > 0n && amount < cent) return '<0.01 A9';
+  const rounded = ((amount + cent / 2n) / cent) * cent;
+  const label = formatRoundA9(rounded);
+  return gain && amount > 0n ? '+' + label : label;
+}
+
 export function parseA9InputToRaw(input) {
   if (typeof input === 'bigint') return input >= 0n ? input : null;
   if (input === null || input === undefined) return null;

@@ -22,6 +22,7 @@ import {
   serverNowMs,
   rawToA9,
   formatRoundA9,
+  formatEstimatedA9,
   parseA9InputToRaw,
   calculateStakePreview,
   fetchUserPortfolio,
@@ -293,30 +294,30 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
       const activeFailBurnRaw = hasExisting ? calc.combined.failBurnRaw : calc.addition.failBurnRaw;
       const activeExitRefRaw = hasExisting ? calc.combined.earlyExitRefundRaw : calc.addition.earlyExitRefundRaw;
       const activeExitBurnRaw = hasExisting ? calc.combined.earlyExitBurnRaw : calc.addition.earlyExitBurnRaw;
-      const winValText = isReady && activeWinRaw !== null ? `+${formatRoundA9(activeWinRaw)}` : '—';
+      const winValText = isReady && activeWinRaw !== null ? formatEstimatedA9(activeWinRaw, { gain: true }) : '—';
       const winSubText = isReady && activeWinRaw !== null
         ? L(
-            `20% 秒提 ${formatRoundA9(activeImmRaw)} · 80%（${formatRoundA9(activeLinRaw)}）14 天解锁`,
-            `20% instant (${formatRoundA9(activeImmRaw)}) · 80% (${formatRoundA9(activeLinRaw)}) 14D vest`
+            `20% 秒提 ${formatEstimatedA9(activeImmRaw)} · 80%（${formatEstimatedA9(activeLinRaw)}）14 天解锁`,
+            `20% instant (${formatEstimatedA9(activeImmRaw)}) · 80% (${formatEstimatedA9(activeLinRaw)}) 14D vest`
           )
         : (statusNote || L('输入锁仓数量后实时计算', 'Enter amount for live preview'));
-      const loseValText = addRaw > 0n || hasExisting ? L(`退 ${formatRoundA9(activeFailRefRaw)}`, `Refund ${formatRoundA9(activeFailRefRaw)}`) : '—';
+      const loseValText = addRaw > 0n || hasExisting ? L(`退 ${formatEstimatedA9(activeFailRefRaw)}`, `Refund ${formatEstimatedA9(activeFailRefRaw)}`) : '—';
       const loseSubText = addRaw > 0n || hasExisting
-        ? L(`止损销毁 ${formatRoundA9(activeFailBurnRaw)}`, `Stop-loss burn ${formatRoundA9(activeFailBurnRaw)}`)
+        ? L(`止损销毁 ${formatEstimatedA9(activeFailBurnRaw)}`, `Stop-loss burn ${formatEstimatedA9(activeFailBurnRaw)}`)
         : '—';
 
       const summaryRows = `
         <div class="q-kv"><span>${L('本次锁入', 'This Lock')}</span><b class="q-num">${addRaw > 0n ? formatRoundA9(calc.addition.principalRaw) : '—'}</b></div>
         ${hasExisting ? `
           <div class="q-kv"><span>${L('已有仓位 → 追加后总仓', 'Existing → Combined')}</span><b class="q-num">${formatRoundA9(calc.existing.principalRaw)} → ${formatRoundA9(calc.combined.principalRaw)}</b></div>
-          <div class="q-kv"><span>${L('本次新增份额奖金', 'New Share Reward')}</span><b class="q-num">${isReady && calc.addition.newShareRewardRaw !== null ? `+${formatRoundA9(calc.addition.newShareRewardRaw)}` : '—'}</b></div>
-          <div class="q-kv"><span>${L('追加后总奖金（较现有净增）', 'Combined Reward (Net Delta)')}</span><b class="q-num green">${isReady && calc.combined.winRewardRaw !== null ? `+${formatRoundA9(calc.combined.winRewardRaw)}（${calc.combined.netRewardDeltaRaw !== null ? `+${formatRoundA9(calc.combined.netRewardDeltaRaw)}` : '—'}）` : '—'}</b></div>
+          <div class="q-kv"><span>${L('本次新增份额奖金', 'New Share Reward')}</span><b class="q-num">${isReady && calc.addition.newShareRewardRaw !== null ? escapeHtml(formatEstimatedA9(calc.addition.newShareRewardRaw, { gain: true })) : '—'}</b></div>
+          <div class="q-kv"><span>${L('追加后总奖金（较现有净增）', 'Combined Reward (Net Delta)')}</span><b class="q-num green">${isReady && calc.combined.winRewardRaw !== null ? `${escapeHtml(formatEstimatedA9(calc.combined.winRewardRaw, { gain: true }))}（${calc.combined.netRewardDeltaRaw !== null ? escapeHtml(formatEstimatedA9(calc.combined.netRewardDeltaRaw, { gain: true })) : '—'}）` : '—'}</b></div>
         ` : `
-          <div class="q-kv"><span>${L('通关预估奖金', 'Est. Pass Reward')}</span><b class="q-num green">${isReady && calc.addition.newShareRewardRaw !== null ? `+${formatRoundA9(calc.addition.newShareRewardRaw)}` : '—'}</b></div>
+          <div class="q-kv"><span>${L('通关预估奖金', 'Est. Pass Reward')}</span><b class="q-num green">${isReady && calc.addition.newShareRewardRaw !== null ? escapeHtml(formatEstimatedA9(calc.addition.newShareRewardRaw, { gain: true })) : '—'}</b></div>
         `}
         <div class="q-kv"><span>${L('通关退回本金（100%）', 'Pass Principal Return (100%)')}</span><b class="q-num">${formatRoundA9(hasExisting ? calc.combined.principalRaw : calc.addition.principalRaw)}</b></div>
-        <div class="q-kv"><span>${hasExisting ? L('未通关总退款 / 总销毁', 'Miss Total Refund / Burn') : L('未通关退款 / 销毁', 'Miss Refund / Burn')}</span><b class="q-num">${formatRoundA9(activeFailRefRaw)} / <span style="color:var(--q-red-ink);">${formatRoundA9(activeFailBurnRaw)}</span></b></div>
-        <div class="q-kv"><span>${hasExisting ? L('提前解押总仓退回（85% / 烧 15%）', 'Early Exit Combined (85% / 15% Burn)') : L('提前解押退回（85% / 烧 15%）', 'Early Exit (85% / 15% Burn)')}</span><b class="q-num">${formatRoundA9(activeExitRefRaw)}（${L('烧', 'Burn')} ${formatRoundA9(activeExitBurnRaw)}）</b></div>
+        <div class="q-kv"><span>${hasExisting ? L('未通关总退款 / 总销毁', 'Miss Total Refund / Burn') : L('未通关退款 / 销毁', 'Miss Refund / Burn')}</span><b class="q-num">${escapeHtml(formatEstimatedA9(activeFailRefRaw))} / <span style="color:var(--q-red-ink);">${escapeHtml(formatEstimatedA9(activeFailBurnRaw))}</span></b></div>
+        <div class="q-kv"><span>${hasExisting ? L('提前解押总仓退回（85% / 烧 15%）', 'Early Exit Combined (85% / 15% Burn)') : L('提前解押退回（85% / 烧 15%）', 'Early Exit (85% / 15% Burn)')}</span><b class="q-num">${escapeHtml(formatEstimatedA9(activeExitRefRaw))}（${L('烧', 'Burn')} ${escapeHtml(formatEstimatedA9(activeExitBurnRaw))}）</b></div>
         <div class="q-kv"><span>${L('预付网络费', 'Attached Gas')}</span><b class="q-num">${PROTOCOL_SPECS.stakeGasGram.toFixed(2)} GRAM</b></div>
       `;
       return { winValText, winSubText, loseValText, loseSubText, summaryRows, hasExisting, statusNote };
@@ -548,8 +549,8 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
         });
         const hasEx = BigInt(confirmCalc.existing.principalRaw) > 0n;
         const estRewardText = hasEx
-          ? (confirmCalc.combined.winRewardRaw !== null ? formatRoundA9(confirmCalc.combined.winRewardRaw) : '—')
-          : (confirmCalc.addition.newShareRewardRaw !== null ? formatRoundA9(confirmCalc.addition.newShareRewardRaw) : '—');
+          ? (confirmCalc.combined.winRewardRaw !== null ? formatEstimatedA9(confirmCalc.combined.winRewardRaw) : '—')
+          : (confirmCalc.addition.newShareRewardRaw !== null ? formatEstimatedA9(confirmCalc.addition.newShareRewardRaw) : '—');
         const failRefText = formatRoundA9(hasEx ? confirmCalc.combined.failRefundRaw : confirmCalc.addition.failRefundRaw);
         const failBurnText = formatRoundA9(hasEx ? confirmCalc.combined.failBurnRaw : confirmCalc.addition.failBurnRaw);
         const exitRefText = formatRoundA9(hasEx ? confirmCalc.combined.earlyExitRefundRaw : confirmCalc.addition.earlyExitRefundRaw);
@@ -713,15 +714,15 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
           <div class="q-ocs" style="margin-top:6px;">
             <div class="q-oc q-oc-win">
               <small>${qIcon('trophy', 14)} ${L('若达标（≥ 8/12）', 'If Passed (≥ 8/12)')}</small>
-              <b class="q-num">${winRewardRaw !== null ? `+${escapeHtml(formatRoundA9(winRewardRaw))}` : '—'}</b>
+              <b class="q-num">${winRewardRaw !== null ? escapeHtml(formatEstimatedA9(winRewardRaw, { gain: true })) : '—'}</b>
               <span>${L(`本金 ${formatRoundA9(principalRaw)} 全退（按当前全轮锁仓估算）`, `100% principal (${formatRoundA9(principalRaw)}) back`)}</span>
             </div>
             <div class="q-oc q-oc-lose">
               <small>${qIcon('shield', 14)} ${L('若未达标', 'If Missed')}</small>
-              <b class="q-num">${L(`退 ${escapeHtml(formatRoundA9(missRefundRaw))}`, `Refund ${escapeHtml(formatRoundA9(missRefundRaw))}`)}</b>
+              <b class="q-num">${L(`退 ${escapeHtml(formatEstimatedA9(missRefundRaw))}`, `Refund ${escapeHtml(formatEstimatedA9(missRefundRaw))}`)}</b>
               <span>${BigInt(extraSavedRaw) > 0n
-                ? L(`仍比提前解押多保 ${formatRoundA9(extraSavedRaw)}（止损烧 ${formatRoundA9(missBurnRaw)}）`, `Preserves ${formatRoundA9(extraSavedRaw)} more than early exit (burn ${formatRoundA9(missBurnRaw)})`)
-                : L(`止损 ${formatRoundA9(missBurnRaw)} 销毁`, `Stop-loss ${formatRoundA9(missBurnRaw)} burned`)}</span>
+                ? L(`仍比提前解押多保 ${escapeHtml(formatEstimatedA9(extraSavedRaw))}（止损烧 ${escapeHtml(formatEstimatedA9(missBurnRaw))}）`, `Preserves ${escapeHtml(formatEstimatedA9(extraSavedRaw))} more than early exit (burn ${escapeHtml(formatEstimatedA9(missBurnRaw))})`)
+                : L(`止损 ${escapeHtml(formatEstimatedA9(missBurnRaw))} 销毁`, `Stop-loss ${escapeHtml(formatEstimatedA9(missBurnRaw))} burned`)}</span>
             </div>
           </div>
         ` : ''}
@@ -1191,13 +1192,13 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
           <div class="q-ocs" style="margin-top:10px;">
             <div class="q-oc q-oc-win">
               <small>${qIcon('trophy', 14)} ${L('已有仓位若达标（≥ 8/12）', 'Existing Position If Passed')}</small>
-              <b class="q-num">${ex.winRewardRaw !== null ? `+${escapeHtml(formatRoundA9(ex.winRewardRaw))}` : '—'}</b>
+              <b class="q-num">${ex.winRewardRaw !== null ? escapeHtml(formatEstimatedA9(ex.winRewardRaw, { gain: true })) : '—'}</b>
               <span>${L('按当前全轮锁仓量估算，最终以结算为准；本金全退', 'Est. from current stake; 100% principal back')}</span>
             </div>
             <div class="q-oc q-oc-lose">
               <small>${qIcon('shield', 14)} ${L('已有仓位若未达标', 'Existing Position If Missed')}</small>
-              <b class="q-num">${L(`退 ${escapeHtml(formatRoundA9(ex.failRefundRaw))}`, `Refund ${escapeHtml(formatRoundA9(ex.failRefundRaw))}`)}</b>
-              <span>${L(`止损 ${escapeHtml(formatRoundA9(ex.failBurnRaw))} 销毁`, `Stop-loss ${escapeHtml(formatRoundA9(ex.failBurnRaw))} burned`)}</span>
+              <b class="q-num">${L(`退 ${escapeHtml(formatEstimatedA9(ex.failRefundRaw))}`, `Refund ${escapeHtml(formatEstimatedA9(ex.failRefundRaw))}`)}</b>
+              <span>${L(`止损 ${escapeHtml(formatEstimatedA9(ex.failBurnRaw))} 销毁`, `Stop-loss ${escapeHtml(formatEstimatedA9(ex.failBurnRaw))} burned`)}</span>
             </div>
           </div>
           ${splitNote ? `<div class="q-foot-note">${escapeHtml(splitNote)}</div>` : ''}

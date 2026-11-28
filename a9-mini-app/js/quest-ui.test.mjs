@@ -2307,7 +2307,7 @@ test('p2 fix: Demo Vault hero card, ticket claimable, and confirm sheet use unif
 
     await store.ensureDemoReady();
 
-    // --- Part A: Default Day-0 fixed-time sample (wait 3s -> hero stays 3,000.0000 A9, ticket 3,000 A9, confirm sheet 3,000 A9) ---
+    // --- Part A: Default Day-0 fixed-time sample (wait 3s -> hero stays 3,000 A9, ticket 3,000 A9, confirm sheet 3,000 A9) ---
     let scheduledTicks = [];
     const origSetInterval = globalThis.setInterval;
     const origClearInterval = globalThis.clearInterval;
@@ -2321,7 +2321,7 @@ test('p2 fix: Demo Vault hero card, ticket claimable, and confirm sheet use unif
     tonConnect.confirmBeforeSign = async (spec) => { confirmSpec = spec; return false; };
 
     const heroIntEl = { textContent: '3,000' };
-    const heroDecEl = { textContent: '.0000' };
+    const heroDecEl = { textContent: '' };
     const heroClaimBtn = {};
     const tkClaimEl = { textContent: '3,000 A9' };
     const tkLockEl = { textContent: '12,000 A9' };
@@ -2344,13 +2344,13 @@ test('p2 fix: Demo Vault hero card, ticket claimable, and confirm sheet use unif
       await new Promise((r) => setTimeout(r, 20));
 
       assert.match(rootFixed.innerHTML, /<b id="q-vault-int">3,000<\\/b>/);
-      assert.match(rootFixed.innerHTML, /<span id="q-vault-dec">\\.0000<\\/span>/);
+      assert.match(rootFixed.innerHTML, /<span id="q-vault-dec"><\\/span>/);
       assert.match(rootFixed.innerHTML, /data-q-tk-claimable="A9-STAKE-R02-641205">3,000 A9<\\/b>/);
       assert.equal(scheduledTicks.length, 0, 'Fixed Day-0 Demo sample must not start a drifting hero ticker');
 
       // Wait 3 seconds and click Claim
       fakeNowMs += 3000;
-      assert.equal(heroIntEl.textContent + heroDecEl.textContent, '3,000.0000');
+      assert.equal(heroIntEl.textContent + heroDecEl.textContent, '3,000');
       assert.equal(typeof heroClaimBtn.onclick, 'function');
       await heroClaimBtn.onclick();
       await new Promise((r) => setTimeout(r, 20));
@@ -2360,7 +2360,7 @@ test('p2 fix: Demo Vault hero card, ticket claimable, and confirm sheet use unif
       assert.match(confirmSpec.note, /可领本金 0 A9，奖金 3,000 A9/);
       rootFixed.isConnected = false;
 
-      // --- Part B: Dynamic-vesting Demo ticket (vestingStartAt set -> after 3s, hero, ticket, and confirm sheet all match at T+3s) ---
+      // --- Part B: Dynamic-vesting Demo ticket (vestingStartAt set -> after 3s, summaries are rounded and confirmation stays exact at T+3s) ---
       const startSec = Math.floor(fakeNowMs / 1000);
       store.state.certificates[0].vestingStartAt = startSec;
       confirmSpec = null;
@@ -2381,8 +2381,8 @@ test('p2 fix: Demo Vault hero card, ticket claimable, and confirm sheet use unif
       scheduledTicks[0]();
 
       // Exact BigInt at +3s: 3000e9 + floor(12000e9 * 3 / 1209600) = 3000029761904 -> 3,000.029761904 A9
-      assert.equal(heroIntEl.textContent + heroDecEl.textContent, '3,000.029761904');
-      assert.equal(tkClaimEl.textContent, '3,000.029761904 A9');
+      assert.equal(heroIntEl.textContent + heroDecEl.textContent, '3,000.03');
+      assert.equal(tkClaimEl.textContent, '3,000.03 A9');
 
       await heroClaimBtn.onclick();
       await new Promise((r) => setTimeout(r, 20));
