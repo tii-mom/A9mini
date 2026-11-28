@@ -131,16 +131,16 @@ export function fmtStageCountdown(countdownMs, fallbackLabel = '') {
 export function openQuestSheet(title, bodyHtml, { badgeHtml = '', footHtml = '' } = {}) {
   openModal(`
     <div class="sheet-handle"></div>
-    <div class="row-between" style="margin-bottom:12px;">
-      <div class="card-title" style="font-size:17px;">${escapeHtml(title)}</div>
-      <div class="row-start" style="gap:6px;">
+    <div class="q-sheet-head">
+      <div class="card-title">${escapeHtml(title)}</div>
+      <div class="row-start">
         ${badgeHtml}
         <button class="icon-btn" id="q-sheet-close" type="button" aria-label="${L('关闭', 'Close')}">${qIcon('x', 16)}</button>
       </div>
     </div>
-    ${bodyHtml}
-    ${footHtml ? `<div class="sh-foot">${footHtml}</div>` : ''}
-  `);
+    <div class="q-sheet-body">${bodyHtml}</div>
+    ${footHtml ? `<div class="q-sheet-foot">${footHtml}</div>` : ''}
+  `, { quest: true });
   const closeBtn = typeof document !== 'undefined' ? document.getElementById('q-sheet-close') : null;
   if (closeBtn) closeBtn.onclick = () => closeModal();
 }

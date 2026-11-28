@@ -365,6 +365,7 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
     portfolioError: null,
     promo: null,
     promoError: null,
+    promoNeedsVerification: false,
     busyTicket: null,
     promoBusy: false,
     activationBusy: false,
@@ -717,7 +718,7 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
     const isBusyAny = Boolean(state.busyTicket) || pendingTxManager.isLocked();
 
     const claimableParts = vaultTickerParts(d.claimableRaw);
-    const promoAmount = isLive ? formatRoundA9(d.promoClaimableRaw) : fmtExactA9(d.promoClaimable);
+    const promoAmount = isLive ? formatEstimatedA9(d.promoClaimableRaw) : fmtExactA9(d.promoClaimable);
     const vestingProgress = d.avgProgress === null ? null : d.avgProgress * 100;
     const rateText = d.perSec < 1e-9 ? '< 0.000000001' : `+${formatNum(d.perSec, d.perSec < 0.0001 ? 9 : 4)}`;
     const vestingTickets = d.tickets.filter((t) => !t.forfeited && (rawToA9(t.lockedRemainingRaw) ?? 0) > 0);
@@ -786,14 +787,19 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
         <section class="q-card" id="q-tickets-card">
           <div class="q-card-h">
             <h3>${qIcon('book', 18)} ${L('轮次票据', 'Round Tickets')}</h3>
-            <span class="q-chip">${d.tickets.length} ${L('张', 'Tickets')}</span>
+            ${d.hasWallet && !state.loading && !state.portfolioError ? `<span class="q-chip">${d.tickets.length} ${L('张', 'Tickets')}</span>` : ''}
           </div>
           ${(() => {
             if (!d.hasWallet) {
               return `<div class="q-small q-muted">${L('连接钱包后查看票据。', 'Connect your wallet to view tickets.')}</div>`;
             }
+            if (state.loading || state.portfolioError) {
+              return `<div class="q-small q-muted">${state.loading
+                ? L('读取票据中…', 'Loading tickets…')
+                : L('票据状态暂不可用，重试后查看。', 'Ticket status is unavailable. Retry to view tickets.')}</div>`;
+            }
             if (d.tickets.length === 0) {
-              return `<div class="q-small q-muted">${state.loading ? L('读取票据中…', 'Loading tickets…') : L('暂无票据。参与锁仓后可查看。', 'Tickets appear after locking A9.')}</div>`;
+              return `<div class="q-small q-muted">${L('暂无票据。参与锁仓后可查看。', 'Tickets appear after locking A9.')}</div>`;
             }
             const enriched = d.tickets.map((t) => {
               const st = deriveRoundUiState({ detail: { rawState: t.roundState }, user: { connected: true }, serverNowMs: serverNowMs() }).stage;
@@ -812,10 +818,10 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
                 ? enriched.filter((x) => x.isCleared)
                 : enriched;
             const filterHtml = d.tickets.length > 1 ? `
-              <div class="q-tk-filters" id="q-ticket-filters" role="tablist" aria-label="${L('票据筛选', 'Filter tickets')}">
-                <button type="button" data-q-tk-filter="all" class="${activeFilter === 'all' ? 'is-active' : ''}" aria-selected="${activeFilter === 'all' ? 'true' : 'false'}">${L(`全部 (${enriched.length})`, `All (${enriched.length})`)}</button>
-                <button type="button" data-q-tk-filter="actionable" class="${activeFilter === 'actionable' ? 'is-active' : ''}" aria-selected="${activeFilter === 'actionable' ? 'true' : 'false'}">${L(`可操作 (${actionableCount})`, `Active (${actionableCount})`)}</button>
-                <button type="button" data-q-tk-filter="cleared" class="${activeFilter === 'cleared' ? 'is-active' : ''}" aria-selected="${activeFilter === 'cleared' ? 'true' : 'false'}">${L(`已结清 (${clearedCount})`, `Cleared (${clearedCount})`)}</button>
+              <div class="q-tk-filters" id="q-ticket-filters" role="group" aria-label="${L('票据筛选', 'Filter tickets')}">
+                <button type="button" data-q-tk-filter="all" class="${activeFilter === 'all' ? 'is-active' : ''}" aria-pressed="${activeFilter === 'all' ? 'true' : 'false'}">${L(`全部 (${enriched.length})`, `All (${enriched.length})`)}</button>
+                <button type="button" data-q-tk-filter="actionable" class="${activeFilter === 'actionable' ? 'is-active' : ''}" aria-pressed="${activeFilter === 'actionable' ? 'true' : 'false'}">${L(`可操作 (${actionableCount})`, `Active (${actionableCount})`)}</button>
+                <button type="button" data-q-tk-filter="cleared" class="${activeFilter === 'cleared' ? 'is-active' : ''}" aria-pressed="${activeFilter === 'cleared' ? 'true' : 'false'}">${L(`已结清 (${clearedCount})`, `Cleared (${clearedCount})`)}</button>
               </div>
             ` : '';
             if (visible.length === 0) {
@@ -898,7 +904,9 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
             <div class="q-notice red" id="q-promo-error-banner" style="margin-bottom:10px;">
               ${qIcon('info', 16)}
               <span class="q-grow">${escapeHtml(state.promoError)}</span>
-              <button type="button" class="q-btn q-btn-ghost q-btn-sm" id="q-promo-retry">${L('重试', 'Retry')}</button>
+              ${state.promoNeedsVerification
+                ? `<button type="button" class="q-btn q-btn-ghost q-btn-sm" id="q-promo-verify">${L('验证钱包', 'Verify Wallet')}</button>`
+                : `<button type="button" class="q-btn q-btn-ghost q-btn-sm" id="q-promo-retry">${L('重试', 'Retry')}</button>`}
             </div>
           ` : ''}
           ${hasPendingReward ? `
@@ -976,10 +984,10 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
                   <span>${L('整笔奖金（含 20% 秒提）', 'Total reward (incl. 20%)')}<b>44% / 72% / 100%</b></span>
                 </div>
                 ${canSim ? `
-                  <div class="q-tk-filters" id="q-curve-presets" style="margin-top:8px;margin-bottom:6px;" role="tablist" aria-label="${L('急提试算切点', 'Cashout simulator day')}">
-                    <button type="button" data-q-curve-preset="today" class="${activePreset === 'today' ? 'is-active' : ''}" aria-selected="${activePreset === 'today' ? 'true' : 'false'}">${L('今天（实际）', 'Today (Actual)')}</button>
-                    <button type="button" data-q-curve-preset="7" class="${activePreset === 7 ? 'is-active' : ''}" aria-selected="${activePreset === 7 ? 'true' : 'false'}" ${sim7?.disabled ? 'disabled' : ''}>${L('第 7 天试算', 'Day 7 Est.')}</button>
-                    <button type="button" data-q-curve-preset="14" class="${activePreset === 14 ? 'is-active' : ''}" aria-selected="${activePreset === 14 ? 'true' : 'false'}" ${sim14?.disabled ? 'disabled' : ''}>${L('第 14 天试算', 'Day 14 Est.')}</button>
+                  <div class="q-tk-filters" id="q-curve-presets" style="margin-top:8px;margin-bottom:6px;" role="group" aria-label="${L('急提试算切点', 'Cashout simulator day')}">
+                    <button type="button" data-q-curve-preset="today" class="${activePreset === 'today' ? 'is-active' : ''}" aria-pressed="${activePreset === 'today' ? 'true' : 'false'}">${L('今天（实际）', 'Today (Actual)')}</button>
+                    <button type="button" data-q-curve-preset="7" class="${activePreset === 7 ? 'is-active' : ''}" aria-pressed="${activePreset === 7 ? 'true' : 'false'}" ${sim7?.disabled ? 'disabled' : ''}>${L('第 7 天试算', 'Day 7 Est.')}</button>
+                    <button type="button" data-q-curve-preset="14" class="${activePreset === 14 ? 'is-active' : ''}" aria-pressed="${activePreset === 14 ? 'true' : 'false'}" ${sim14?.disabled ? 'disabled' : ''}>${L('第 14 天试算', 'Day 14 Est.')}</button>
                   </div>
                 ` : ''}
                 ${curveTicket && curveAcc ? `
@@ -1054,6 +1062,8 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
     if (retryBtn) retryBtn.onclick = () => loadAll();
     const promoRetryBtn = root.querySelector('#q-promo-retry');
     if (promoRetryBtn) promoRetryBtn.onclick = () => loadAll();
+    const promoVerifyBtn = root.querySelector('#q-promo-verify');
+    if (promoVerifyBtn) promoVerifyBtn.onclick = () => tonConnect.openConnectModal(() => loadAll());
 
     const heroClaimBtn = root.querySelector('#q-vault-claim-hero');
     if (heroClaimBtn) {
@@ -1095,6 +1105,7 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
         const val = btn.dataset.qCurvePreset;
         state.curvePreset = val === '7' ? 7 : val === '14' ? 14 : 'today';
         paint();
+        root.querySelector(`[data-q-curve-preset="${val}"]`)?.focus?.({ preventScroll: true });
       };
     });
 
@@ -1102,6 +1113,7 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
       btn.onclick = () => {
         state.ticketFilter = btn.dataset.qTkFilter || 'all';
         paint();
+        root.querySelector(`[data-q-tk-filter="${state.ticketFilter}"]`)?.focus?.({ preventScroll: true });
       };
     });
 
@@ -1226,6 +1238,9 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
     const addr = store.state.user.connected ? store.state.user.address : null;
     if (addr !== state.lastWallet) {
       state.lastWallet = addr;
+      state.portfolio = null;
+      state.promo = null;
+      state.pendingReward = null;
       state.ticketFilter = 'all';
       state.curvePreset = 'today';
       state.selectedTicketAddr = selectedTicket;
@@ -1236,6 +1251,7 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
     state.loading = isLive && Boolean(addr);
     state.portfolioError = null;
     state.promoError = null;
+    state.promoNeedsVerification = false;
     paint();
 
     if (!isLive && !peekDemoModule()) {
@@ -1252,16 +1268,17 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
     state.fetchedAtMs = serverNowMs();
     if (pfRes.status === 'fulfilled') {
       state.portfolio = pfRes.value;
-      if (pfRes.value?.ticketsAvailable === false) {
+      if (isLive && addr && pfRes.value?.ticketsAvailable !== true) {
         state.portfolioError = L('链上票据数据暂不可用，请重试', 'On-chain ticket data unavailable');
       }
     } else {
-      state.portfolioError = pfRes.reason?.message || L('读取票据失败', 'Failed to load tickets');
+      state.portfolioError = L('票据读取失败，请重试', 'Failed to load tickets. Please retry.');
     }
     if (prRes.status === 'fulfilled') state.promo = prRes.value;
     else if (prRes.reason?.code === 'WALLET_NOT_VERIFIED') {
+      state.promoNeedsVerification = true;
       state.promoError = L('请在钱包面板验证钱包归属，再查看推广余额', 'Verify ownership in the wallet panel to view your promo balance');
-    } else state.promoError = prRes.reason?.message || L('读取推广余额失败', 'Failed to load promo balance');
+    } else state.promoError = L('推广余额读取失败，请重试', 'Failed to load promo balance. Please retry.');
 
     state.loading = false;
     paint();

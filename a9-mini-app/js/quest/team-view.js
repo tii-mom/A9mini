@@ -29,6 +29,7 @@ import {
   PROTOCOL_SPECS,
   rawToA9,
   formatRoundA9,
+  formatEstimatedA9,
   getEffectiveUserId,
   fetchMyChests,
   fetchPromoBalance,
@@ -254,9 +255,9 @@ export function renderTeamView(root, _navigate, _param = null, query = {}) {
       state.inviteTeamId && activeTeamId && activeTeamId.toUpperCase() === state.inviteTeamId.toUpperCase()
     );
     const promoDisplay = isLive
-      ? formatRoundA9(state.promo?.claimableRaw ?? state.promo?.availableRaw)
+      ? formatEstimatedA9(state.promo?.claimableRaw ?? state.promo?.availableRaw)
       : fmtExactA9(store.state.user.promoClaimableA9);
-    const refTotalDisplay = formatRoundA9(state.stakeRefs?.totalCommissionRaw);
+    const refTotalDisplay = formatEstimatedA9(state.stakeRefs?.totalCommissionRaw);
     const refCount = finiteOrNull(state.stakeRefs?.count);
 
     const chestsData = state.chestsData || {};
@@ -306,6 +307,7 @@ export function renderTeamView(root, _navigate, _param = null, query = {}) {
             ${captainPaid ? `<span class="q-phase-pill">${L('创世金库已发 5,000 A9', 'Founding Vault paid 5,000 A9')}</span>` : ''}
           </div>` : ''}
           <h2 class="q-hero-count">${escapeHtml(teamName)}</h2>
+          ${state.teamError ? `<button type="button" class="q-btn q-btn-white is-blue q-btn-sm" id="q-team-retry">${qIcon('refresh', 15)} ${L('重试同步', 'Retry Sync')}</button>` : ''}
           <dl class="q-team-rebates">
             <div><dt>${L('好友购箱返佣', 'Chest rebate')}</dt><dd class="q-num">${PROTOCOL_SPECS.referralPct}%</dd></div>
             <div><dt>${L('好友通关返佣', 'Pass rebate')}</dt><dd class="q-num">${PROTOCOL_SPECS.stakeReferralPct}%</dd></div>
@@ -321,7 +323,7 @@ export function renderTeamView(root, _navigate, _param = null, query = {}) {
         <section class="q-card" id="team-commission-summary">
           <div class="q-card-h">
             <h3>${qIcon('gift', 18)} ${L('推广返佣', 'Referral earnings')}</h3>
-            <a class="q-chip q-chip-green" href="#/rewards" style="text-decoration:none;">${L('去金库领取', 'Claim in Vault')} ›</a>
+            <a class="q-chip q-chip-green" href="#/rewards" style="text-decoration:none;">${L('查看金库', 'View in Vault')} ›</a>
           </div>
           <div class="q-grid2">
             <div class="q-stat">
@@ -555,6 +557,13 @@ export function renderTeamView(root, _navigate, _param = null, query = {}) {
       };
     }
 
+    const retryBtn = root.querySelector('#q-team-retry');
+    if (retryBtn) retryBtn.onclick = () => {
+      state.loading = true;
+      state.teamError = false;
+      paint();
+      void loadAll();
+    };
     const copyBtn = root.querySelector('#q-copy-invite');
     if (copyBtn) {
       copyBtn.onclick = () => {

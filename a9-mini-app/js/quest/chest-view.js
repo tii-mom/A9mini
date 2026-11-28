@@ -511,11 +511,7 @@ export function renderChestView(root, _navigate, _param = null, _query = {}) {
   };
 
   const openBuySheet = (sku) => {
-    const u = store.state.user;
-    if (!u.connected) {
-      tonConnect.openConnectModal(() => renderChestView(root, _navigate, _param, _query));
-      return;
-    }
+    const needsWallet = !store.state.user.connected;
     const gates = resolveChestMallGates(store.state.round, store.fundsEnabled);
     const tier = String(sku.tier || 'gold').toLowerCase();
     const pal = CHEST_TIER_PALETTE[tier] || CHEST_TIER_PALETTE.gold;
@@ -561,7 +557,7 @@ export function renderChestView(root, _navigate, _param = null, _query = {}) {
       `,
       {
         footHtml: `<button class="q-btn q-btn-red q-btn-block" id="q-confirm-buy-chest" type="button" ${blockMsg || state.buying || pendingTxManager.isLocked('presale') ? 'disabled' : ''}>
-          ${qIcon('chest', 18)} ${blockMsg ? L('暂不可下单', 'Unavailable') : totalText ? L(`支付 ${totalText} GRAM`, `Pay ${totalText} GRAM`) : L('下单', 'Place order')}
+          ${qIcon(needsWallet && !blockMsg ? 'wallet' : 'chest', 18)} ${blockMsg ? L('暂不可下单', 'Ordering unavailable') : needsWallet ? L('连接钱包后下单', 'Connect Wallet to Order') : totalText ? L(`支付 ${totalText} GRAM`, `Pay ${totalText} GRAM`) : L('下单', 'Place order')}
         </button>`,
       }
     );
@@ -569,7 +565,14 @@ export function renderChestView(root, _navigate, _param = null, _query = {}) {
     const buyBtn = document.getElementById('q-confirm-buy-chest');
     if (buyBtn && !buyBtn.disabled) {
       buyBtn.onclick = async () => {
+        if (!store.state.user.connected) {
+          tonConnect.openConnectModal(() => {
+            if (root.isConnected && store.state.user.connected) openBuySheet(sku);
+          });
+          return;
+        }
         if (state.buying) return;
+        const walletAddress = store.state.user.address;
         state.buying = true;
         buyBtn.disabled = true;
         try {
@@ -600,12 +603,12 @@ export function renderChestView(root, _navigate, _param = null, _query = {}) {
           }
 
           const order = await requestChestPurchaseIntent({
-            walletAddress: u.address,
+            walletAddress,
             skuId: sku.skuId,
             openMode: 'INSTANT',
             referrerId: store.state.referral.referrerId,
           });
-          const unsentKey = `${canonicalWalletKey(u.address)}:${orderKey(order)}`;
+          const unsentKey = `${canonicalWalletKey(walletAddress)}:${orderKey(order)}`;
           const orderPayment = fmtRawGramOrDash(order.payTonNano || order.tonNano);
           const orderDeliveryFee = fmtRawGramOrDash(order.deliveryFeeNano);
           let explicitlyCancelled = false;
@@ -624,7 +627,7 @@ export function renderChestView(root, _navigate, _param = null, _query = {}) {
             if (explicitlyCancelled && orderKey(order)) confirmedUnsentOrders.set(unsentKey, { network: config.network, at: Date.now() });
             return;
           }
-          if (u.address !== store.state.user.address || pendingTxManager.isLocked('presale')) return;
+          if (walletAddress !== store.state.user.address || pendingTxManager.isLocked('presale')) return;
 
           confirmedUnsentOrders.delete(unsentKey);
           try {
@@ -662,7 +665,7 @@ export function renderChestView(root, _navigate, _param = null, _query = {}) {
             maxAttempts: 18,
             checkFn: async () => {
               const [ordersRes] = await Promise.allSettled([
-                fetchPresaleOrders(u.address),
+                fetchPresaleOrders(walletAddress),
                 fetchMyChests(),
               ]);
               const list = ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value) ? ordersRes.value : [];
@@ -686,8 +689,8 @@ export function renderChestView(root, _navigate, _param = null, _query = {}) {
               if (matched) {
                 const desc = describePresaleOrderStatus(matched);
                 if (!desc.inFlight && desc.group !== 'unpaid' && desc.group !== 'completed') {
-                  if (seq === chestViewSeq && root.isConnected && store.state.user.address === u.address) {
-                    processOrdersUpdate(u.address, list);
+                  if (seq === chestViewSeq && root.isConnected && store.state.user.address === walletAddress) {
+                    processOrdersUpdate(walletAddress, list);
                   }
                   return { terminal: true };
                 }
@@ -695,14 +698,14 @@ export function renderChestView(root, _navigate, _param = null, _query = {}) {
               return false;
             },
             onConfirmed: (res) => {
-              if (seq !== chestViewSeq || !root.isConnected || store.state.user.address !== u.address) return;
+              if (seq !== chestViewSeq || !root.isConnected || store.state.user.address !== walletAddress) return;
               const fullList = Array.isArray(res?.ordersList) ? res.ordersList : state.orders;
-              processOrdersUpdate(u.address, fullList);
-              revealCompletedOrderOnce(u.address, res?.order || order, res.settlement);
+              processOrdersUpdate(walletAddress, fullList);
+              revealCompletedOrderOnce(walletAddress, res?.order || order, res.settlement);
             },
             onTimeout: () => {
-              if (seq === chestViewSeq && root.isConnected && store.state.user.address === u.address) {
-                processOrdersUpdate(u.address, state.orders);
+              if (seq === chestViewSeq && root.isConnected && store.state.user.address === walletAddress) {
+                processOrdersUpdate(walletAddress, state.orders);
               }
               showToast(L('发币确认耗时较长，请稍后在下方订单记录查看最终状态', 'Payout confirmation taking longer; check your order list below'), 'amber');
             },
@@ -982,7 +985,7 @@ export function renderChestView(root, _navigate, _param = null, _query = {}) {
         <section class="q-mall-hero">
           <div class="q-art">${chestArtSvg('gold', 92)}</div>
           <h2>${L('宝箱商城', 'Chest Mall')}</h2>
-          <p>${L('保底与加赠合并直发 · 配送费 0.06 GRAM', 'Base and bonus paid together · 0.06 GRAM delivery')}</p>
+          <p>${L('保底与加赠合并直发 · 下单时另付 0.06 GRAM 配送费', 'Base and bonus paid together · 0.06 GRAM delivery fee added at checkout')}</p>
           ${freeBannerHtml}
         </section>
 

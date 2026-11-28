@@ -1622,6 +1622,41 @@ test('audit fix #6: Leaving page via hashchange dismisses chest theater overlay 
 // 第二批体验优化回归测试（锁仓快捷金额 / 12 面旗时段明细 / 金库账目拆行与筛选）
 // =========================================================================
 
+test('stage history collapses completed rounds only and explains missing detail', async () => {
+  setupBrowserStubs('live', false);
+  const { store } = await import('./store.js');
+  const { renderStageView } = await import('./quest/stage-view.js');
+  store.update((s) => {
+    s.settings.language = 'zh-CN';
+    s.user.connected = false;
+    s.round.currentRound = 5;
+    s.round.successCount = 2;
+    s.round.rounds = [
+      { roundId: 1, state: 'SUCCEEDED', qualifiedCandles: 9 },
+      { roundId: 5, state: 'OBSERVING' },
+      { roundId: 3, state: 'FAILED_PERMANENT', qualifiedCandles: 7 },
+      { roundId: 4, state: 'TECHNICAL_ABORTED', qualifiedCandles: 4 },
+      { roundId: 2, state: 'SUCCEEDED' },
+    ];
+  });
+  const root = makeRoot();
+  renderStageView(root, () => {});
+  const history = root.innerHTML.match(/<details class="q-card q-history".*?<\/details>/s)?.[0];
+  assert.ok(history);
+  assert.doesNotMatch(history, /id="q-stage-history-card" open/);
+  assert.match(history, /累计通关 2 次/);
+  assert.match(history, /第 4 关.*已中止.*第 3 关.*未达标 · 7 \/ 12.*第 2 关.*已通关.*第 1 关.*已通关 · 9 \/ 12/s);
+  assert.doesNotMatch(history, /第 5 关|进行中|—\/12/);
+  root.isConnected = false;
+
+  store.update((s) => { s.round.rounds = [{ roundId: 5, state: 'OBSERVING' }]; });
+  const partial = makeRoot();
+  renderStageView(partial, () => {});
+  assert.match(partial.innerHTML, /历史结算明细暂未同步/);
+  partial.isConnected = false;
+  store.update((s) => { s.round.successCount = null; s.round.rounds = []; });
+});
+
 test('ux batch 2 #1: Stake quick chips disable tiers above balance, highlight active tier, and Max fills exact fractional BigInt precision', async () => {
   const { makeEl } = setupInteractiveDomStubs('live', true);
   const { store } = await import('./store.js');
@@ -2795,6 +2830,33 @@ test('rc1-07: Vault promo card renders readable error + retry button and blocks 
     assert.match(rootErr.innerHTML, /id="q-promo-error-banner"/);
     assert.match(rootErr.innerHTML, /id="q-promo-retry"/);
     rootErr.isConnected = false;
+
+    // Verification leads to the wallet panel; a failed ticket fetch isn't an empty vault.
+    const { tonConnect } = await import('./tonconnect.js');
+    const originalOpenConnectModal = tonConnect.openConnectModal;
+    let openedWallet = 0;
+    tonConnect.openConnectModal = () => { openedWallet += 1; };
+    globalThis.fetch = async (url) => ({
+      status: String(url).includes('/api/promo/balance/') ? 403 : 503,
+      async json() {
+        return { ok: false, error: { code: String(url).includes('/api/promo/balance/') ? 'WALLET_NOT_VERIFIED' : 'UPSTREAM_TIMEOUT' } };
+      },
+    });
+    const verifyBtn = makeEl('q-promo-verify');
+    const rootVerify = makeRoot();
+    rootVerify.querySelector = (sel) => sel === '#q-promo-verify' ? verifyBtn : null;
+    try {
+      renderVaultView(rootVerify, () => {});
+      await new Promise((r) => setTimeout(r, 25));
+      assert.match(rootVerify.innerHTML, /id="q-promo-verify"/);
+      assert.doesNotMatch(rootVerify.innerHTML, /id="q-promo-retry"|暂无票据|0 张/);
+      assert.match(rootVerify.innerHTML, /票据状态暂不可用/);
+      verifyBtn.onclick();
+      assert.equal(openedWallet, 1);
+    } finally {
+      rootVerify.isConnected = false;
+      tonConnect.openConnectModal = originalOpenConnectModal;
+    }
 
     // Case B: In-flight lock active -> clicking claim promo makes 0 calls to /api/promo/claim-intent
     let intentCalls = 0;

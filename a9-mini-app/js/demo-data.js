@@ -109,7 +109,11 @@ export function demoFixture(scene) {
     label: '测试数据',
     fetchedAt: now,
     config: protocolConfig,
-    rounds: [detail],
+    rounds: [
+      { roundId: 1, state: 'SUCCEEDED', qualifiedCandles: 8 },
+      { roundId: 2, state: 'SUCCEEDED', qualifiedCandles: 9 },
+      detail,
+    ],
     detail,
     stale: false
   };

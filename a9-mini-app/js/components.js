@@ -204,7 +204,7 @@ function isModalOpen(root) {
   return Boolean(root && typeof root.classList?.contains === 'function' && !root.classList.contains('hidden'));
 }
 
-export function openModal(html) {
+export function openModal(html, { quest = false } = {}) {
   const root = document.getElementById('modal-root');
   if (!root) return;
   const wasOpen = isModalOpen(root);
@@ -218,7 +218,7 @@ export function openModal(html) {
     modalPrevFocus = active && active !== document.body && active !== document.documentElement ? active : null;
     setModalScrollLock(true);
   }
-  root.innerHTML = `<div class="modal-sheet" tabindex="-1">${html}</div>`;
+  root.innerHTML = `<div class="modal-sheet${quest ? ' modal-sheet--quest' : ''}" tabindex="-1">${html}</div>`;
   const sheet = typeof root.querySelector === 'function' ? root.querySelector('.modal-sheet') : null;
   const titleEl = typeof sheet?.querySelector === 'function' ? sheet.querySelector('.card-title, h1, h2, h3') : null;
   if (titleEl) {

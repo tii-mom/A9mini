@@ -1074,29 +1074,36 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
         ${voteShareHtml}
       </div>` : '';
 
-    // 历史轮次
-    const roundsList = Array.isArray(r.rounds) ? r.rounds : [];
-    const historyHtml = roundsList.length > 0 ? `
-      <section class="q-card" id="q-stage-history-card">
-        <div class="q-card-h">
-          <h3>${qIcon('clock', 18)} ${L('关卡记录', 'Stage History')}</h3>
-          <span class="q-chip q-chip-green">${r.successCount !== null ? L(`通关 ${r.successCount} 次`, `${r.successCount} Passed`) : `${roundsList.length} ${L('关', 'Stages')}`}</span>
-        </div>
-        <div class="q-hist">
-          ${roundsList.slice(-8).reverse().map((item) => {
-            const st = String(item.state || '').toUpperCase();
-            const cls = st === 'SUCCEEDED' ? 'success' : (item.roundId === roundId ? 'live' : '');
-            const lbl = st === 'SUCCEEDED'
-              ? L(`通关 ${item.qualifiedCandles ?? '—'}/12`, `Passed ${item.qualifiedCandles ?? '—'}/12`)
-              : st === 'FAILED_PERMANENT'
-                ? L(`未达标 ${item.qualifiedCandles ?? '—'}/12`, `Missed ${item.qualifiedCandles ?? '—'}/12`)
-                : st === 'TECHNICAL_ABORTED'
-                  ? L('已中止', 'Aborted')
-                  : L('进行中', 'Live');
-            return `<div class="q-hist-i ${cls}"><small>${L(`第 ${item.roundId} 关`, `Stage ${item.roundId}`)}</small><b>${lbl}</b></div>`;
-          }).join('')}
-        </div>
-      </section>
+    // 当前关卡已有主卡。历史只展示有结算结果的轮次。
+    const settledRounds = (Array.isArray(r.rounds) ? r.rounds : [])
+      .filter((item) => Number.isSafeInteger(item?.roundId) && item.roundId > 0 &&
+        ['SUCCEEDED', 'FAILED_PERMANENT', 'TECHNICAL_ABORTED'].includes(item.state))
+      .sort((a, b) => b.roundId - a.roundId)
+      .slice(0, 8);
+    const successCount = Number.isSafeInteger(r.successCount) && r.successCount >= 0 ? r.successCount : null;
+    const historyOpen = root.querySelector('#q-stage-history-card')?.open === true;
+    const historyHtml = settledRounds.length || successCount > 0 ? `
+      <details class="q-card q-history" id="q-stage-history-card" ${historyOpen ? 'open' : ''}>
+        <summary class="q-history-summary">
+          <span class="q-history-title">${qIcon('clock', 18)} ${L('关卡记录', 'Stage History')}</span>
+          ${successCount === null ? '' : `<span class="q-chip ${successCount > 0 ? 'q-chip-green' : ''}">${L(`累计通关 ${formatNum(successCount)} 次`, `${formatNum(successCount)} passes total`)}</span>`}
+          <span class="q-history-chevron" aria-hidden="true">${qIcon('chevR', 15)}</span>
+        </summary>
+        ${settledRounds.length ? `
+          <ul class="q-history-list">
+            ${settledRounds.map((item) => {
+              const passed = item.state === 'SUCCEEDED';
+              const aborted = item.state === 'TECHNICAL_ABORTED';
+              const label = aborted ? L('已中止', 'Aborted') : passed ? L('已通关', 'Passed') : L('未达标', 'Missed');
+              const seen = item.qualifiedCandles;
+              const hasScore = !aborted && Number.isInteger(seen) && seen >= 0 && seen <= slotCount;
+              const id = formatNum(item.roundId);
+              return `<li><span>${L(`第 ${id} 关`, `Stage ${id}`)}</span>
+                <b class="${passed ? 'is-passed' : ''}">${label}${hasScore ? ` · ${seen} / ${slotCount}` : ''}</b></li>`;
+            }).join('')}
+          </ul>
+        ` : `<p class="q-small q-muted">${L('历史结算明细暂未同步。', 'Past settlement details have not synced yet.')}</p>`}
+      </details>
     ` : '';
 
     const stepClass = (key) => {

@@ -422,7 +422,7 @@ export function deriveRoundUiState({ detail = null, user = null, rewards = null,
       chipTone = 'chip-green';
       badgeLabel = L('本轮通关', 'Passed');
       title = L('本轮通关 · 查看派奖与解锁', 'Round passed · view payout & unlock');
-      subtitle = L('退 100% 本金 + 20% 秒提，余下 80% 14 天逐秒解锁', '100% principal + 20% instant payout, 80% unlocks over 14 days');
+      subtitle = L('退回全部本金；奖金 20% 可立即领，剩余 80% 在 14 天内逐秒解锁', 'All principal returned. Claim 20% of rewards now; the remaining 80% vests over 14 days.');
       break;
     case 'failed':
       chipTone = 'chip-red';
@@ -434,7 +434,7 @@ export function deriveRoundUiState({ detail = null, user = null, rewards = null,
       chipTone = 'chip-amber';
       badgeLabel = L('异常中止', 'Aborted');
       title = L('本轮异常中止 · 可无损取回本金', 'Round aborted · 100% principal refundable');
-      subtitle = L('已触发无损退本保护，请前往我的奖励领回 100% 本金', 'Full principal protection active; claim 100% in My Rewards');
+      subtitle = L('本轮已中止，可前往金库领回 100% 本金', 'Round aborted. Reclaim 100% of your principal in Vault.');
       break;
     default:
       chipTone = 'chip-muted';
