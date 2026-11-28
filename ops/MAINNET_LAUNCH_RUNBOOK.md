@@ -33,14 +33,25 @@
 > **生产写操作红线**：本步中的**远程生产 D1 迁移（`--remote`）**与**生产 Worker Secrets 注入（`wrangler secret put`）**均直接写入生产 Cloudflare 环境，**必须由业主单独书面授权后方可执行**；未获单独授权前仅可进行本地只读预演与静态资产核对。
 
 1. **发布静态前端与元数据（含官网分域对齐）**：若独立官网（`a9-official-web/`）占根域 `https://a9.lat`，推荐 Mini App 部署至 `https://app.a9.lat` 并同步更新 `tonconnect-manifest.json` 的 `url`、`A9_PUBLIC_ORIGIN` 与 `A9_TON_PROOF_DOMAINS`，同时确保根域或静态域上的 `a9.json`、`tonconnect-manifest.json` 与 `assets/token/a9-token-2048.png` 返回 `HTTP 200` 且带 `Access-Control-Allow-Origin: *`（`a9-mini-app/_headers` 已内置）；确认 `window.__A9_CONFIG__.liveFundsEnabled = false`；
-2. **生产 D1 迁移（0001..0015，写生产库 · 须单独授权）**：
+2. **生产 D1 迁移（波次 1A 基础库 `0001..0015` + 仓库完整迁移 `0001..0018`，写生产库 · 须单独授权）**：
+   - **分波次迁移口径**：
+     - **波次 1A 基础库（`0001..0015`）**：覆盖主网只读基础设施、宝箱商城与 v17.0/v17.1 核心账本；
+     - **后续增量迁移（`0016..0018`）**：`0016_v17_finality_snapshots.sql`（终局证据快照）、`0017_actuarial_reservations_and_vouchers.sql`（精算订单预留、48H 待激活凭证账本与存量对账表）、`0018_hot_wallet_payout_debits.sql`（热钱包出账扣账缓存）；**按环境 `d1_migrations` 已应用记录顺序补齐**，任何依赖 `0016–0018` 表的 Worker 或 Daemon 必须在对应迁移通过验收后方可启用（缺失 `0017` 时商城下单/开箱/结算返回 `503 MIGRATION_0017_REQUIRED`，缺失 `0018` 时热钱包扣账核验 Fail-Closed 拒绝放行新单）。
+   - **备份、迁移与恢复步骤（先备份、再演练、获授权后执行）**：
 ```bash
-# 在从已验收提交导出的波次 1A 专用目录执行，只含 wrangler.toml 和 migrations/0001..0015。
-# 只读复核。实际待执行清单须与业主授权逐文件一致。
+# 1) 生产备份（导出完整 SQL 快照并校验非空与完整性）
+wrangler d1 export a9mini-v15-prod --remote --env production --output /tmp/a9mini-v15-prod-backup-$(date +%Y%m%d-%H%M%S).sql
+
+# 2) 在从已验收提交导出的专用目录只读核对清单（波次 1A 仅含 0001..0015；完整升级含 0001..0018）
 wrangler d1 migrations list a9mini-v15-prod --remote --env production
-# 生产备份已验证且取得该清单的独立书面授权后，才在同一专用目录执行 apply。
+
+# 3) 生产备份已验证且取得逐文件书面授权后，在同一专用目录按序执行 apply：
+wrangler d1 migrations apply a9mini-v15-prod --remote --env production
+
+# 4) 回滚/恢复预案（仅在异常且经授权时使用，先导入隔离库验证再切换）：
+# wrangler d1 execute a9mini-v15-prod --remote --env production --file /tmp/a9mini-v15-prod-backup-<ts>.sql
 ```
-   验收项：先备份存量库再按序执行 15 份迁移（含 `0011_warmup_reservations_v2.sql`、`0012_actuarial_hardening.sql`、`0013_user_notification_prefs.sql`、`0014_v17_price_unlock.sql` 与 `0015_v17_1_chest_direct_payout.sql`），确认 `promo_budget_ledger`（550,000,000 A9 6 槽位）、`stake_referral_credits`、`round_jackpot_draws`、`captain_founding_bonuses` 唯一索引、`user_notification_prefs` 及所有表索引就绪、`PRAGMA integrity_check = ok`。
+   验收项：先备份存量库再按序执行对应波次迁移，确认 `promo_budget_ledger`（550,000,000 A9 6 槽位）、`stake_referral_credits`、`round_jackpot_draws`、`captain_founding_bonuses` 唯一索引、`user_notification_prefs` 及（完成 `0016–0018` 后）`v17_round_finality_snapshots`、`presale_order_reservations`、`pending_reward_vouchers`、`actuarial_reconciliation_items`、`hot_wallet_payout_debits` 所有表索引就绪、`PRAGMA integrity_check = ok`。
 3. **注入生产 Worker Secrets（写生产环境 · 须单独授权，严禁写入 wrangler.toml）**：
 ```bash
 cd /Users/yu1/Desktop/A9mini/worker

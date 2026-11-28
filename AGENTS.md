@@ -28,7 +28,7 @@
 ## 数据契约与后端存储
 - `js/data.js` 是唯一前端读取层，复用统一 `ENDPOINTS` 与 `ApiResponse<T>` 信封（`{ok, data, ts}` / `{ok:false,error}`），并以 `PROTOCOL_SPECS` 作为前端参数单源真值。
 - 服务端状态与时间驱动轮次阶段、倒计时、目标价、判定均价与达标时段；缺值用 `null` 并在 UI 显示明确状态（严防 `Number(null) === 0`），**绝不把 0 当成真实价格，也不把演示数字当真实余额**。
-- Worker D1 迁移清单当前为 `worker/migrations/0001..0015`（含 `0014_v17_price_unlock.sql` 与 `0015_v17_1_chest_direct_payout.sql`，已落盘迁移脚本禁止原地改写；新变更只能追加新编号迁移）。
+- Worker D1 迁移清单：**仓库完整迁移为 `worker/migrations/0001..0018`**（其中 **波次 1A 基础库为 `0001..0015`**，含 `0014_v17_price_unlock.sql` 与 `0015_v17_1_chest_direct_payout.sql`；`0016_v17_finality_snapshots.sql`、`0017_actuarial_reservations_and_vouchers.sql`、`0018_hot_wallet_payout_debits.sql` 按环境已应用记录顺序补齐，依赖对应表的 Worker 或 Daemon 须在迁移通过验收后启用，缺失 `0017`/`0018` 时相关资金路径自动 Fail-Closed 并返回明确错误；已落盘迁移脚本禁止原地改写，新变更只能追加新编号迁移）。
 
 ## v17.0 涨价解锁（Price-Unlock）+ v17.1 宝箱直发唯一主网架构
 - **4 合约极简架构**（`A9mini/v17/` 为全项目唯一维护与生产合约套件，`ci/artifacts.sha256` 4/4 已锁定，`v16/` 只读存档未改；严格 O(1) 零待决字典、32 位无限轮次、仅 6 个源码文件）：标准零魔改 TEP-74 `JettonMaster` + `JettonWallet`（`10,000,000,000 A9` 一次铸完验明即永久弃权）、极简 `RoundController`（4 态状态机，单笔 `SettleRound`，附带 >= 0.06 GRAM 的无效入金即时原路退回）、极简 `StakeTicket`（单用户单轮，头矿/普通分账记账）。
