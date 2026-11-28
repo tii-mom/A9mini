@@ -4,7 +4,7 @@ const storage=()=>({getItem:()=>null,setItem(){},removeItem(){}});
 globalThis.localStorage=storage();globalThis.sessionStorage=storage();
 globalThis.window={location:new URL('http://localhost/?mode=live&timeout=200'),__A9_CONFIG__:{network:'testnet'},Telegram:{WebApp:{initData:'x'.repeat(40)+'A'}},matchMedia:()=>({matches:false})};
 globalThis.document={documentElement:{dataset:{}},querySelector:()=>null,getElementById:()=>null,addEventListener(){}};
-const {fetchMe,requestTonProofPayload,formatEstimatedA9,formatRoundA9}=await import('./data.js');
+const {fetchMe,requestTonProofPayload,formatEstimatedA9,formatRoundA9,mapRoundView}=await import('./data.js');
 const {fmtRawGramOrDash,fmtUsdOrDash}=await import('./quest/quest-ui.js');
 const reply=()=>({status:200,json:async()=>({ok:true,data:{valid:true}})});
 
@@ -16,6 +16,22 @@ test('small prices and raw GRAM keep their full precision while absent values st
   assert.equal(fmtRawGramOrDash(null), '—');
   assert.equal(fmtRawGramOrDash('0'), '0 GRAM');
   assert.equal(fmtRawGramOrDash('1000000000000000001'), '1,000,000,000.000000001 GRAM');
+});
+
+test('round baseline uses the opening TWAP separately from the current observed price', () => {
+  const detail = {
+    roundId: 3, state: 'OBSERVING', targetPriceUsdE8: '597400', priceUsdE8: '412000',
+    live: { candleIndex: 0, twapPriceUsdE8: '485900' },
+  };
+  const snapshot = { detail, config: { protocolVersion: 'v17' } };
+  assert.equal(mapRoundView(snapshot).roundBasePrice, 0.00412);
+  assert.equal(mapRoundView(snapshot).livePrice, 0.004859);
+  assert.equal(mapRoundView({ ...snapshot, config: {} }).roundBasePrice, null);
+  assert.equal(mapRoundView({ ...snapshot, detail: { ...detail, targetLocked: false } }).roundBasePrice, null);
+  assert.equal(mapRoundView({
+    detail: { ...detail, roundId: 1, priceUsdE8: null },
+    config: { protocolVersion: 'v17', p0UsdE8: '412000' },
+  }).roundBasePrice, 0.00412);
 });
 
 test('A9 previews round to two decimals without losing raw precision or hiding small positive amounts', () => {

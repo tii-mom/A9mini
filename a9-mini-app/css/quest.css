@@ -1291,69 +1291,75 @@ body.quest-shell-active {
   color: var(--q-yellow-ink);
 }
 
-/* 冲价走势图与时段选择 */
+/* 冲价赛程原型：整轮时间轴、价位线与 12 面旗 */
+#q-race-card { border-radius: 20px; }
+#q-race-card .q-card-h { flex-wrap: wrap; margin-bottom: 12px; }
+#q-race-card .q-card-h h3 { font-size: 16px; }
 #q-race-plot .q-price-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
-.q-race-quote {
-  min-width: 0;
-  padding: 9px 10px;
-  border: 1px solid var(--q-line);
-  border-radius: var(--q-r-md);
-  background: var(--q-surface-2);
-}
-.q-race-quote-target { text-align: end; }
-.q-race-quote .q-target-price { color: var(--q-red-ink); }
-#q-race-plot .q-race-quote b {
+#q-race-plot .q-price-row b {
   display: block;
-  font-size: clamp(15px, 4.5vw, 22px);
+  font-size: clamp(17px, 5.6vw, 23px);
   overflow-wrap: anywhere;
 }
-.q-race-chart-frame {
-  margin-top: 10px;
-  border: 1px solid var(--q-line);
-  border-radius: var(--q-r-md);
-  background: var(--q-surface-2);
-}
+.q-race-quote-target { text-align: end; }
+.q-race-quote-target .q-target-price { color: var(--q-red-ink); }
+.q-race-quote-target .q-price-gap:not(.q-up) { color: var(--q-ink-3); }
 .q-race-chart-canvas {
   position: relative;
-  height: clamp(152px, 44vw, 182px);
+  aspect-ratio: 2.55 / 1;
+  min-height: 108px;
+  margin: 10px 0;
   isolation: isolate;
 }
-.q-race-price-axis {
+.q-race-band {
   position: absolute;
-  inset: 5px 9px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: space-between;
+  inset-block: 0;
+  border-radius: 6px;
+  color: var(--q-ink-3);
+  padding: 3px 5px;
   font-size: 11px;
-  color: var(--q-ink-2);
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
   pointer-events: none;
 }
-.q-race-chart-plot { display: block; width: 100%; height: 100%; }
-.q-race-chart-grid { fill: none; stroke: var(--q-line); }
-.q-race-chart-area { fill: var(--q-blue-soft); opacity: 0.8; }
+.q-race-band-early { left: 0; width: var(--early-end); background: var(--q-red-soft); }
+.q-race-band-push { left: var(--push-start); right: 0; background: var(--q-surface-2); }
+.q-race-chart-plot { position: relative; display: block; width: 100%; height: 100%; overflow: visible; }
+.q-race-chart-area { fill: url(#q-race-area); }
 .q-race-chart-plot path,
 .q-race-chart-plot line { vector-effect: non-scaling-stroke; }
-.q-race-chart-plot .q-ch-line { stroke: var(--q-blue-ink); stroke-width: 2.25; }
 .q-race-chart-plot [data-provisional] { stroke-dasharray: 4 3; }
-.q-race-selected-guide { stroke: var(--q-blue-ink); stroke-dasharray: 2 3; }
-.q-race-target-pin {
+.q-race-selected-guide { stroke: var(--q-ink-3); stroke-dasharray: 2 3; }
+.q-race-line-label {
   position: absolute;
-  top: var(--target-y);
-  left: 5%;
-  transform: translateY(calc(-100% - 3px));
-  padding: 2px 5px;
-  border-radius: 5px;
-  background: var(--q-red-soft);
-  color: var(--q-red-ink);
+  top: var(--line-y);
+  right: 4px;
   font-size: 11px;
-  line-height: 1.15;
+  line-height: 1.2;
   font-weight: 800;
+  color: var(--q-ink-3);
+  text-shadow: 0 1px var(--q-surface), 1px 0 var(--q-surface), 0 -1px var(--q-surface), -1px 0 var(--q-surface);
   pointer-events: none;
+}
+.q-race-chart-canvas.has-hourly-data .q-race-line-label { right: auto; left: 4px; }
+.q-race-line-label.is-target { transform: translateY(calc(-100% - 2px)); color: var(--q-red-ink); }
+.q-race-line-label.is-base { transform: translateY(2px); }
+.q-race-chart-canvas .q-chart-status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max-content;
+  max-width: 85%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  padding: 2px 5px;
+  background: var(--q-surface);
+  text-align: center;
 }
 .q-race-point {
   position: absolute;
@@ -1362,63 +1368,42 @@ body.quest-shell-active {
   transform: translate(-50%, -50%);
   display: grid;
   place-items: center;
-  width: clamp(12px, 7%, 26px);
-  height: 30px;
+  width: 18px;
+  height: 20px;
   padding: 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: 8px;
   background: transparent;
-  color: var(--q-blue-ink);
+  color: var(--q-ink);
 }
 button.q-race-point { cursor: pointer; }
 .q-race-point::before {
   content: '';
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border: 1px solid var(--q-surface);
   border-radius: 50%;
   background: currentColor;
 }
 .q-race-point.passed { color: var(--q-green-ink); }
-.q-race-point.missed { color: var(--q-red-ink); }
-.q-race-point.provisional::before { background: var(--q-surface); border: 2px solid currentColor; }
-.q-race-point.is-latest::before,
-.q-race-point.is-picked::before { box-shadow: 0 0 0 3px var(--q-blue-soft); width: 10px; height: 10px; }
+.q-race-point.missed, .q-race-point.provisional, .q-race-point.is-latest { color: var(--q-red); }
+.q-race-point.provisional::before, .q-race-point.is-latest::before {
+  width: 9px;
+  height: 9px;
+  box-shadow: 0 0 0 2px var(--q-red-soft);
+}
 .q-race-point.is-picked { z-index: 1; }
-.q-race-point.is-picked::before { outline: 1px solid currentColor; }
+.q-race-point.is-picked::before { outline: 1.5px solid currentColor; }
 .q-race-point:focus-visible { outline: 2px solid var(--q-blue-ink); z-index: 2; }
-.q-race-time-axis {
-  display: flex;
-  justify-content: space-between;
-  gap: 4px;
-  margin: 0 9px;
-  padding: 5px 0 7px;
-  border-top: 1px solid var(--q-line);
-  font-size: 11px;
-  color: var(--q-ink-2);
-}
-.q-race-chart-key {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 12px;
-  margin: 7px 0 5px;
-  font-size: 11px;
-  color: var(--q-ink-2);
-}
-.q-race-chart-key span { display: inline-flex; align-items: center; gap: 5px; }
-.q-race-chart-key span::before { content: ''; width: 12px; border-top: 2px solid var(--q-blue-ink); }
-.q-race-chart-key .q-race-key-provisional::before { border-top-style: dashed; }
-.q-race-slots-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; margin: 12px 0 6px; font-size: 13px; }
-.q-race-slots-heading small { color: var(--q-ink-3); font-size: 11px; }
-#q-race-card .q-flags { grid-template-columns: repeat(6, minmax(0, 1fr)); margin-top: 0; gap: 5px; }
-#q-race-card .q-flag { min-height: 44px; aspect-ratio: auto; display: flex; justify-content: center; align-items: center; gap: 3px; }
-#q-race-card .q-flag.idle { opacity: 1; }
+
+#q-race-card .q-flags { grid-template-columns: repeat(12, minmax(0, 1fr)); margin-top: 0; gap: 4px; }
+#q-race-card .q-flag { min-height: 34px; aspect-ratio: auto; }
+#q-race-card .q-flag:disabled { cursor: default; }
 [data-theme="dark"] #q-race-card .q-flag.pass {
   background: var(--q-green-soft);
   color: var(--q-green-ink);
   box-shadow: inset 0 0 0 1px var(--q-green-d);
 }
-#q-race-card .q-flag.now i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 #q-race-card .q-flag.missing { border: 1px dashed var(--q-ink-3); background: transparent; }
 #q-race-card .q-fd-badge.missing { background: var(--q-yellow-soft); color: var(--q-yellow-ink); }
 
@@ -1430,10 +1415,6 @@ button.q-race-point { cursor: pointer; }
 .q-pred-votes-bar i + i { background: var(--q-red); }
 
 .q-race-pool-balances .q-kv b { min-width: 0; overflow-wrap: anywhere; }
-
-@media (max-width: 344px) {
-  #q-race-card .q-flags { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-}
 
 .q-tk-meta {
   margin-top: 8px;

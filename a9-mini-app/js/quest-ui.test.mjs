@@ -257,8 +257,21 @@ test('live race chart preserves missing hourly samples and excludes paused provi
   assert.match(active, /采样周期: 1 小时 \/ 格 · 共 12 格/);
   assert.match(active, /最后有效行情:/);
   const demo = racePriceChart({ ...round, rawState: 'STAKING_OPEN', candles: [], priceHistory: [0.001, 0.0012], syncedAt: Date.now() }, true, 2);
-  assert.match(demo, /模拟走势仅供参考，不计入冲价达标/);
+  assert.match(demo, /现价 · 模拟/);
   assert.doesNotMatch(demo, /data-race-point|q-race-selected-guide|接口同步:/);
+  const beforePush = racePriceChart({
+    rawState: 'STAKING_OPEN',
+    targetPrice: 0.005974,
+    roundBasePrice: 0.00412,
+    twap24h: 0.00412,
+    candles: [],
+    protocolConfig: { stakeDurationSeconds: 86400, earlyWindowSeconds: 21600, observationSeconds: 43200 },
+  }, false);
+  assert.match(beforePush, /--early-end:16\.67%;--push-start:66\.67%/);
+  assert.match(beforePush, /目标价 · 基准 1\.45×/);
+  assert.match(beforePush, /class="q-ch-base"/);
+  assert.match(beforePush, /冲价均价待同步/);
+  assert.doesNotMatch(beforePush, /class="q-ch-line"|较基准|距目标还差/);
 });
 
 test('race chart and pool preserve USD_E8 and A9 precision and mark missing hours', async () => {
@@ -277,7 +290,8 @@ test('race chart and pool preserve USD_E8 and A9 precision and mark missing hour
     ],
   };
   const chart = racePriceChart(round, false);
-  assert.match(chart, /q-race-price-axis/);
+  assert.match(chart, /q-race-band-early/);
+  assert.match(chart, /q-race-band-push/);
   assert.match(chart, /\$0\.00000002/);
   assert.match(chart, /\$0\.00000003/);
   assert.equal(chart.match(/class="q-ch-line"/g)?.length, 1);
@@ -427,7 +441,7 @@ test('quest-ui: prototype parity checks (target gap, chest EV, team volume/TG th
     targetPrice: 0.002,
     candles: [{ index: 1, status: 'closed', p: 0.0018, bull: false }],
   }, false);
-  assert.match(chartBelow, /距目标还差 10\.0%/);
+  assert.match(chartBelow, /距目标还差 \+11\.1%/);
   const chartAbove = racePriceChart({
     rawState: 'OBSERVING',
     targetPrice: 0.002,

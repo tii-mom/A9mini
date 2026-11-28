@@ -91,7 +91,7 @@ export function buildChargeFlagStatusText(uiStage, r) {
   if (uiStage === 'warmup' || uiStage === 'stake' || uiStage === 'sealed') {
     return {
       tone: '',
-      text: L(`每小时确认一次均价，${minQ} / ${total} 段达标即可分奖`, `One average per hour. Meet ${minQ} of ${total} to share the pool.`),
+      text: L(`封盘后进入 12H 冲价：每个 1 小时时段均价 ≥ 目标价记 1 面旗，拿下 ${minQ} 面即通关`, `After lock closes, each hourly average at or above target earns one flag. Win ${minQ} of ${total} flags to pass.`),
     };
   }
   if (uiStage === 'passed') {
@@ -946,8 +946,8 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
       const { tone, statusText } = describeCandleSlotDetail(c);
       const aria = escapeHtml(L(`第 ${c.index} 小时 · ${statusText}`, `Hour ${c.index} · ${statusText}`));
       const stateClass = { win: 'pass', lose: 'fail', active: 'now', missing: 'missing', idle: 'idle' }[tone];
-      const marker = tone === 'win' ? qIcon('check', 12, 3) : tone === 'lose' ? qIcon('x', 11, 3) : tone === 'active' ? '<i></i>' : '';
-      return `<button type="button" class="q-flag ${stateClass}${isPicked ? ' is-picked' : ''}" data-q-flag-idx="${c.index}" aria-pressed="${isPicked}" aria-label="${aria}"><span>${c.index}</span>${marker}</button>`;
+      const marker = tone === 'win' ? qIcon('check', 12, 3) : tone === 'lose' ? qIcon('x', 11, 3) : `<span>${c.index}</span>`;
+      return `<button type="button" class="q-flag ${stateClass}${isPicked ? ' is-picked' : ''}" data-q-flag-idx="${c.index}" aria-pressed="${isPicked}" aria-label="${aria}" ${showSlots ? '' : 'disabled'}>${marker}</button>`;
     }).join('');
     const flagDetailHtml = pickedCandle ? (() => {
       const d = describeCandleSlotDetail(pickedCandle, r.targetPrice);
@@ -1119,26 +1119,20 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
     const raceCardHtml = `
         <section class="q-card" id="q-race-card">
           <div class="q-card-h">
-            <h3>${qIcon('flag', 18)} ${L('12 小时冲价', '12H Price Push')}</h3>
+            <h3>${qIcon('flag', 18)} ${L('冲价赛程', 'Push Schedule')}</h3>
             <span class="q-chip q-num ${qualified !== null && qualified >= threshold ? 'q-chip-green' : ''}">
-              ${qualified !== null ? L(`${qualified} / ${slotCount} 段达标`, `${qualified} / ${slotCount} met`) : L(`≥ ${threshold} / ${slotCount} 段达标`, `≥ ${threshold} / ${slotCount} required`)}
+              ${showSlots && qualified !== null ? L(`${qualified} / ${slotCount} 达标`, `${qualified} / ${slotCount} met`) : L(`≥ ${threshold} / ${slotCount} 通关`, `≥ ${threshold} / ${slotCount} to pass`)}
             </span>
           </div>
           <div id="q-race-plot">${racePriceChart(r, config.isDemo, pickedCandle ? Number(pickedCandle.index) : null)}</div>
-          ${showSlots ? `
-            <div class="q-race-slots-heading">
-              <strong>${L('时段判定', 'Hourly results')}</strong>
-              <small>${L('点选查看均价', 'Tap to inspect')}</small>
-            </div>
-            <div class="q-flags" role="group" aria-label="${L('选择冲价时段', 'Select an hourly period')}">${flagsHtml}</div>
-            ${flagDetailHtml}
-          ` : ''}
+          <div class="q-flags" role="group" aria-label="${L('冲价时段', 'Hourly periods')}">${flagsHtml}</div>
+          ${flagDetailHtml}
           <div class="q-flag-status ${flagStatus.tone}" id="q-flag-status">
             ${qIcon(flagStatus.tone === 'win' ? 'trophy' : flagStatus.tone === 'lose' ? 'shield' : 'info', 17)}
             <span>${escapeHtml(flagStatus.text)}</span>
           </div>
-          ${predictionHtml}
         </section>
+        ${predictionHtml ? `<section class="q-card">${predictionHtml}</section>` : ''}
     `;
 
     const estimateText = estPer1A9 === null ? '—'

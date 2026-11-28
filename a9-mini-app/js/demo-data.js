@@ -23,6 +23,7 @@ export function demoFixture(scene) {
     state: 'OBSERVING',
     priceMultiplier: 2,
     targetPriceUsdE8: '464000',
+    roundBasePriceUsdE8: '371200',
     targetLocked: true,
     rewardBudgetRaw: '700000000000000000',
     stakeOpenAt: observationStart - 24 * candleMs,
@@ -75,7 +76,8 @@ export function demoFixture(scene) {
 
   if (scene === 'early') {
     const open = now - 2 * candleMs;
-    Object.assign(detail, { state: 'STAKING_OPEN', stakeOpenAt: open, earlyCloseAt: open + 6 * candleMs,
+    Object.assign(detail, { state: 'STAKING_OPEN', targetPriceUsdE8: '597400', roundBasePriceUsdE8: '412000',
+      priceUsdE8: '485900', priceMultiplier: 1.45, stakeOpenAt: open, earlyCloseAt: open + 6 * candleMs,
       stakeCloseAt: open + 24 * candleMs, observationStart: open + 24 * candleMs, observationEnd: open + 36 * candleMs,
       inFirst6h: true, secondsRemaining: 22 * 3600, candlesSeen: 0, qualifiedCandles: 0, candles: [], live: null });
   }
@@ -1444,7 +1446,7 @@ export function demoRoundAirdropDraws(limit = 10) {
 /** Keep the demo stage, its clocks and confirmed slots in sync. */
 export function setDemoRoundStage(round, stage) {
   const now = Date.now();
-  const { detail } = demoFixture();
+  const { detail } = demoFixture(stage === 'participation' ? 'early' : undefined);
   const inPush = stage === 'observation';
   const locking = stage === 'participation';
   const settled = stage === 'settlement_success' || stage === 'settlement_burn';
@@ -1458,7 +1460,7 @@ export function setDemoRoundStage(round, stage) {
       confirmed: closed,
       status: closed ? 'closed' : active ? 'active' : 'pending',
       bull: closed ? (candle ? candle.qualified : stage === 'settlement_success') : null,
-      p: candle && closed ? Number(candle.twapPriceUsdE8) / 1e8 : active || closed ? round.livePrice : null,
+      p: candle && closed ? Number(candle.twapPriceUsdE8) / 1e8 : active || closed ? Number(detail.priceUsdE8) / 1e8 : null,
     };
   });
   const qualified = candles.filter(candle => candle.confirmed && candle.bull).length;
@@ -1468,6 +1470,10 @@ export function setDemoRoundStage(round, stage) {
   }[stage];
   Object.assign(round, {
     stage, rawState, candles, candlesSeen: confirmed, candlesConfirmed: confirmed,
+    targetPrice: Number(detail.targetPriceUsdE8) / 1e8,
+    roundBasePrice: Number(detail.roundBasePriceUsdE8) / 1e8,
+    twap24h: Number(detail.priceUsdE8) / 1e8,
+    livePrice: Number(detail.priceUsdE8) / 1e8,
     qualifiedCandles: qualified, needMore: Math.max(0, 8 - qualified),
     nextState: null, inFirst6h: locking, earlyBirdSec: locking ? 4 * 3600 : 0,
     activeCandleEndAt: inPush ? now + 3600 * 1000 : null,
@@ -1475,6 +1481,12 @@ export function setDemoRoundStage(round, stage) {
     countdownSec: locking ? 22 * 3600 : inPush ? detail.secondsRemaining : stage === 'warmup' ? 4 * 3600 : null,
   });
   if (locking) {
+    // The visual reference series belongs exclusively to the demo and spans elapsed lock time.
+    round.demoRacePrices = Array.from({ length: 57 }, (_, index) => {
+      const fraction = index / 56;
+      const noise = (Math.sin(index * 0.69) * 0.000044 + Math.sin(index * 2.29) * 0.000035) * Math.sin(Math.PI * fraction);
+      return round.roundBasePrice + (round.livePrice - round.roundBasePrice) * fraction + noise;
+    });
     round.stakeOpenAt = Math.floor(now / 1000) - 7200;
     round.stakeCloseAt = round.stakeOpenAt + 24 * 3600;
     round.earlyCloseAt = round.stakeOpenAt + 6 * 3600;

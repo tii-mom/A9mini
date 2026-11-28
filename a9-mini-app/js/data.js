@@ -409,6 +409,10 @@ export function mapRoundView(snapshot) {
     openEnded: c.openEnded !== false,
     totalRounds: c.openEnded !== false ? null : (Number(c.roundCount) || null),
     targetPrice: target,
+    // The v17 Worker maps priceUsdE8 to the immutable opening TWAP. Prefer explicit basis fields.
+    roundBasePrice: target === null ? null
+      : e8ToUsd(d.roundBasePriceUsdE8 ?? d.twap24hUsdE8 ?? (c.protocolVersion === 'v17' ? d.priceUsdE8 : null))
+        ?? (Number(d.roundId) === 1 ? e8ToUsd(c.p0UsdE8) : null),
     twap24h: judgePrice,
     livePrice: livePrice ?? judgePrice,
     priceValid: d.priceValid !== false,
