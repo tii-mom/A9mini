@@ -36,20 +36,30 @@
 2. **生产 D1 迁移（波次 1A 基础库 `0001..0015` + 仓库完整迁移 `0001..0018`，写生产库 · 须单独授权）**：
    - **分波次迁移口径**：
      - **波次 1A 基础库（`0001..0015`）**：覆盖主网只读基础设施、宝箱商城与 v17.0/v17.1 核心账本；
-     - **后续增量迁移（`0016..0018`）**：`0016_v17_finality_snapshots.sql`（终局证据快照）、`0017_actuarial_reservations_and_vouchers.sql`（精算订单预留、48H 待激活凭证账本与存量对账表）、`0018_hot_wallet_payout_debits.sql`（热钱包出账扣账缓存）；**按环境 `d1_migrations` 已应用记录顺序补齐**，任何依赖 `0016–0018` 表的 Worker 或 Daemon 必须在对应迁移通过验收后方可启用（缺失 `0017` 时商城下单/开箱/结算返回 `503 MIGRATION_0017_REQUIRED`，缺失 `0018` 时热钱包扣账核验 Fail-Closed 拒绝放行新单）。
-   - **备份、迁移与恢复步骤（先备份、再演练、获授权后执行）**：
+     - **后续增量迁移（`0016..0018`）**：`0016_v17_finality_snapshots.sql`（终局证据快照）、`0017_actuarial_reservations_and_vouchers.sql`（精算订单预留、48H 待激活凭证账本与存量对账表）、`0018_hot_wallet_payout_debits.sql`（热钱包出账扣账缓存）；**按环境 `d1_migrations` 已应用记录顺序补齐**，任何依赖 `0016–0018` 表的 Worker 或 Daemon 必须在对应迁移通过验收后方可启用（缺失 `0017` 时商城下单/开箱/结算返回 `503 MIGRATION_0017_REQUIRED`，缺失 `0018` 时商城新单返回 `503 MIGRATION_0018_REQUIRED`，热钱包扣账核验停止放行）。
+   - **迁移准备与备份**：记录当前 Worker 版本、D1 绑定与待迁移清单。暂停数据库写入并记下未完成的支付、退款和发奖。检查 D1 存储版本。支持 Time Travel 的库要在迁移前取书签，与 SQL 导出一起登记。
 ```bash
-# 1) 生产备份（导出完整 SQL 快照并校验非空与完整性）
-wrangler d1 export a9mini-v15-prod --remote --env production --output /tmp/a9mini-v15-prod-backup-$(date +%Y%m%d-%H%M%S).sql
-
-# 2) 在从已验收提交导出的专用目录只读核对清单（波次 1A 仅含 0001..0015；完整升级含 0001..0018）
+wrangler d1 info a9mini-v15-prod --env production
+# 支持 Time Travel 时记录此命令返回的迁移前书签
+wrangler d1 time-travel info a9mini-v15-prod --env production
+# 将文件放在具有访问控制的备份目录
+wrangler d1 export a9mini-v15-prod --remote --env production --output "${A9_D1_BACKUP_FILE:?set the secured SQL backup path}"
+```
+   - **恢复演练**：使用只包含 `a9-restore-check` 绑定的隔离 Wrangler 配置和全新本地数据目录，把 SQL 导入空库。对比迁移记录、关键表行数、未完成订单、退款和发奖记录、预算及待领余额。保存校验结果。需要启用替代库时，先在获授权的空隔离数据库完成同样的恢复和对账，再审批切换绑定。
+```bash
+A9_D1_RESTORE_DIR="$(mktemp -d)"
+wrangler d1 execute a9-restore-check --local --config "${A9_D1_ISOLATED_CONFIG:?set the isolated config path}" \
+  --persist-to "$A9_D1_RESTORE_DIR" --file "${A9_D1_BACKUP_FILE:?set the secured SQL backup path}"
+```
+   - **应用迁移**：在从已验收提交导出的专用目录核对清单。波次 1A 只含 `0001..0015`，完整升级含 `0001..0018`。备份恢复演练通过并取得逐文件书面授权后，才应用迁移。
+```bash
 wrangler d1 migrations list a9mini-v15-prod --remote --env production
-
-# 3) 生产备份已验证且取得逐文件书面授权后，在同一专用目录按序执行 apply：
 wrangler d1 migrations apply a9mini-v15-prod --remote --env production
-
-# 4) 回滚/恢复预案（仅在异常且经授权时使用，先导入隔离库验证再切换）：
-# wrangler d1 execute a9mini-v15-prod --remote --env production --file /tmp/a9mini-v15-prod-backup-<ts>.sql
+```
+   - **生产原地回滚**：保持资金开关关闭并暂停写入，对齐数据库时间点与链上出入账。对于已确认支持 Time Travel 的 D1 生产库，经事故恢复单独书面授权后，使用迁移前书签恢复数据库。保留恢复命令返回的撤销书签。恢复后复核迁移记录、数据库与链上金额，使用与恢复后结构兼容的 Worker 和 Daemon，验收通过后再恢复服务。对于旧版 D1 库，事先确定可用的备份恢复流程或经授权的替代库切换流程。 [Cloudflare D1 Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/) · [D1 数据导入与导出](https://developers.cloudflare.com/d1/best-practices/import-export-data/)
+```bash
+wrangler d1 time-travel restore a9mini-v15-prod --env production \
+  --bookmark "${A9_D1_PRE_MIGRATION_BOOKMARK:?set the approved pre-migration bookmark}"
 ```
    验收项：先备份存量库再按序执行对应波次迁移，确认 `promo_budget_ledger`（550,000,000 A9 6 槽位）、`stake_referral_credits`、`round_jackpot_draws`、`captain_founding_bonuses` 唯一索引、`user_notification_prefs` 及（完成 `0016–0018` 后）`v17_round_finality_snapshots`、`presale_order_reservations`、`pending_reward_vouchers`、`actuarial_reconciliation_items`、`hot_wallet_payout_debits` 所有表索引就绪、`PRAGMA integrity_check = ok`。
 3. **注入生产 Worker Secrets（写生产环境 · 须单独授权，严禁写入 wrangler.toml）**：
