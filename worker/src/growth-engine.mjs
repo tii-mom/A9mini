@@ -67,6 +67,8 @@ export class PredictionEngine {
     this.settledRounds = new Map();
     // activationId -> { activationId, userId, walletAddress, activatedRaw }
     this.activations = new Map();
+    // voucherId -> { voucherId, userId, sourceBucket, sourceKind, sourceRef, amountRaw, expiresAtMs, status, activationId, resolvedAt, createdAt, updatedAt }
+    this.vouchers = new Map();
   }
 
   _getOrCreateStats(uid) {
@@ -83,6 +85,40 @@ export class PredictionEngine {
       this.userStats.set(uid, st);
     }
     return st;
+  }
+
+  _reclaimExpiredForUser(uid, nowMs, budgetLedger = this.budgetLedger) {
+    const nowSec = Math.floor(nowMs / 1000);
+    const expired = [];
+    for (const v of this.vouchers.values()) {
+      if (v.userId === uid && v.status === 'PENDING' && Number(v.expiresAtMs) < nowMs) {
+        expired.push(v);
+      }
+    }
+    const st = this.userStats.get(uid);
+    const bucketSums = new Map();
+    let reclaimedRaw = 0n;
+    for (const v of expired) {
+      v.status = 'EXPIRED_RELEASED';
+      v.resolvedAt = nowSec;
+      v.updatedAt = nowSec;
+      const amt = BigInt(v.amountRaw || '0');
+      reclaimedRaw += amt;
+      bucketSums.set(v.sourceBucket, (bucketSums.get(v.sourceBucket) || 0n) + amt);
+    }
+    if (st && st.pendingExpiresAt !== null && nowMs > st.pendingExpiresAt) {
+      st.pendingActivationRaw = 0n;
+      st.pendingExpiresAt = null;
+    } else if (st && reclaimedRaw > 0n) {
+      st.pendingActivationRaw = st.pendingActivationRaw >= reclaimedRaw ? st.pendingActivationRaw - reclaimedRaw : 0n;
+      if (st.pendingActivationRaw === 0n) st.pendingExpiresAt = null;
+    }
+    for (const [bucket, sum] of bucketSums.entries()) {
+      if (sum > 0n && budgetLedger && typeof budgetLedger.release === 'function') {
+        budgetLedger.release(bucket, sum, nowSec);
+      }
+    }
+    return { reclaimedVouchers: expired.length, reclaimedRaw, bucketSums };
   }
 
   placeBet({ roundId, userId, side, guessSlots = null, referrerId = null }, nowSec = Math.floor(Date.now() / 1000)) {
@@ -161,13 +197,14 @@ export class PredictionEngine {
    *   +5n (+0.5x) for exact qualified slot guess
    *   +min(5, inviteBoostCount) (+0.1x per friend invited in roundId, max +0.5x)
    *   Capped at 20n (2.0x).
-   * Updates streak, winRate, and pendingExpiresAt (nowMs + 48h).
+   * Updates streak, winRate, pendingExpiresAt (nowMs + 48h), and per-voucher records.
    */
   async settleRoundBets(roundId, passed, actualQualified, poolA9Raw = this.defaultPoolA9Raw, nowMs = Date.now(), { budgetLedger = this.budgetLedger } = {}) {
     const rId = Number(roundId);
     if (this.settledRounds.has(rId)) throw new GrowthError('ROUND_SETTLED', `round ${rId} already settled`);
     const winSide = passed ? 'PASS' : 'BURN';
     const rawPool = BigInt(poolA9Raw);
+    const nowSec = Math.floor(nowMs / 1000);
 
     const roundBets = [];
     for (const b of this.bets.values()) {
@@ -218,10 +255,11 @@ export class PredictionEngine {
 
     const totalBudgetNeed = distributed + firstLossBonusDistributed;
     if (totalBudgetNeed > 0n && budgetLedger && typeof budgetLedger.reserve === 'function') {
-      await budgetLedger.reserve('prediction', totalBudgetNeed, Math.floor(nowMs / 1000));
+      await budgetLedger.reserve('prediction', totalBudgetNeed, nowSec);
     }
 
     for (const { bet, bonusRaw } of losers) {
+      await this._reclaimExpiredForUser(bet.userId, nowMs, budgetLedger);
       const st = this._getOrCreateStats(bet.userId);
       st.totalSettled += 1;
       st.streak = 0;
@@ -231,6 +269,23 @@ export class PredictionEngine {
         st.pendingExpiresAt = next.nextExpiresAt;
         bet.status = 'LOST_FIRST_BONUS';
         bet.rewardRaw = bonusRaw.toString();
+        const vId = `pred_fl:${rId}:${bet.userId}`;
+        if (!this.vouchers.has(vId)) {
+          this.vouchers.set(vId, {
+            voucherId: vId,
+            userId: bet.userId,
+            sourceBucket: 'prediction',
+            sourceKind: 'PREDICTION_FIRST_LOSS',
+            sourceRef: `round:${rId}`,
+            amountRaw: bonusRaw.toString(),
+            expiresAtMs: next.nextExpiresAt,
+            status: 'PENDING',
+            activationId: null,
+            resolvedAt: null,
+            createdAt: nowSec,
+            updatedAt: nowSec,
+          });
+        }
       } else {
         bet.status = 'LOST';
         bet.rewardRaw = '0';
@@ -238,6 +293,7 @@ export class PredictionEngine {
     }
 
     for (const { bet, amt } of winnerPayouts) {
+      await this._reclaimExpiredForUser(bet.userId, nowMs, budgetLedger);
       const st = this._getOrCreateStats(bet.userId);
       st.totalSettled += 1;
       st.totalWon += 1;
@@ -247,6 +303,25 @@ export class PredictionEngine {
       st.pendingExpiresAt = next.nextExpiresAt;
       bet.status = 'WON_PENDING_ACTIVATION';
       bet.rewardRaw = amt.toString();
+      if (amt > 0n) {
+        const vId = `pred_win:${rId}:${bet.userId}`;
+        if (!this.vouchers.has(vId)) {
+          this.vouchers.set(vId, {
+            voucherId: vId,
+            userId: bet.userId,
+            sourceBucket: 'prediction',
+            sourceKind: 'PREDICTION_WIN',
+            sourceRef: `round:${rId}`,
+            amountRaw: amt.toString(),
+            expiresAtMs: next.nextExpiresAt,
+            status: 'PENDING',
+            activationId: null,
+            resolvedAt: null,
+            createdAt: nowSec,
+            updatedAt: nowSec,
+          });
+        }
+      }
     }
 
     this.settledRounds.set(rId, winSide);
@@ -262,26 +337,52 @@ export class PredictionEngine {
   }
 
   /**
-   * Credit pending activation bonus into the user's 48h vault (used by free bronze chests
-   * and captain >=50 TG member founding bonus). Enforces the exact same anti-sybil activation
+   * Credit pending activation bonus into the user's 48h vault (used by free bronze/silver chests,
+   * warmup chests, and captain founding bonus). Reclaims any expired vouchers before opening a new window,
    * and NEVER extends an active earlier pendingExpiresAt.
    */
-  creditPendingBonus(userId, amountRaw, nowMs = Date.now()) {
+  async creditPendingBonus(
+    userId,
+    amountRaw,
+    nowMs = Date.now(),
+    { sourceBucket = null, sourceKind = null, sourceRef = null, voucherId = null, budgetLedger = this.budgetLedger } = {},
+  ) {
     const uid = String(userId || '').trim();
     const amt = BigInt(amountRaw || 0n);
     if (!uid || amt <= 0n) return { userId: uid, pendingActivationRaw: '0' };
+    await this._reclaimExpiredForUser(uid, nowMs, budgetLedger);
     const st = this._getOrCreateStats(uid);
     const next = computeNextPendingState(st.pendingActivationRaw, st.pendingExpiresAt, amt, nowMs);
     st.pendingActivationRaw = next.nextPendingRaw;
     st.pendingExpiresAt = next.nextExpiresAt;
+    if (sourceBucket) {
+      const nowSec = Math.floor(nowMs / 1000);
+      const vId = voucherId ? String(voucherId) : `v_${sourceKind || 'BONUS'}_${uid}_${nowMs}_${this.vouchers.size}`;
+      if (!this.vouchers.has(vId)) {
+        this.vouchers.set(vId, {
+          voucherId: vId,
+          userId: uid,
+          sourceBucket: String(sourceBucket),
+          sourceKind: String(sourceKind || 'PENDING_BONUS'),
+          sourceRef: String(sourceRef || vId),
+          amountRaw: amt.toString(),
+          expiresAtMs: next.nextExpiresAt,
+          status: 'PENDING',
+          activationId: null,
+          resolvedAt: null,
+          createdAt: nowSec,
+          updatedAt: nowSec,
+        });
+      }
+    }
     return { userId: uid, pendingActivationRaw: st.pendingActivationRaw.toString(), pendingExpiresAt: st.pendingExpiresAt };
   }
 
   /**
-   * Anti-sybil activation: requires qualified === true (at least 1 PAID_A9 presale order OR
-   * 1 real on-chain StakeTicket) and non-expired voucher. Moves pending rewards into promoEngine.
+   * Anti-sybil activation: requires qualified === true and non-expired voucher (nowMs <= pendingExpiresAt).
+   * Atomically marks PENDING vouchers ACTIVATED and moves pending rewards into promoEngine.
    */
-  activateToPromo(userId, walletAddress, promoEngine, { qualified = false, nowMs = Date.now(), activationId = null } = {}) {
+  activateToPromo(userId, walletAddress, promoEngine, { qualified = false, nowMs = Date.now(), activationId = null, budgetLedger = this.budgetLedger } = {}) {
     const uid = String(userId || '').trim();
     if (qualified !== true) {
       throw new GrowthError(
@@ -302,25 +403,77 @@ export class PredictionEngine {
     }
 
     if (st.pendingExpiresAt !== null && nowMs > st.pendingExpiresAt) {
-      st.pendingActivationRaw = 0n;
-      st.pendingExpiresAt = null;
+      this._reclaimExpiredForUser(uid, nowMs, budgetLedger);
       throw new GrowthError('VOUCHER_EXPIRED', '待激活预言奖励已过期');
     }
 
     const amt = st.pendingActivationRaw;
+    const nowSec = Math.floor(nowMs / 1000);
+    const actId = activationId ? String(activationId) : `act:${uid}:${nowMs}`;
     st.pendingActivationRaw = 0n;
     st.pendingExpiresAt = null;
     st.activatedRaw += amt;
-    const actId = activationId ? String(activationId) : `act:${uid}:${nowMs}`;
+    for (const v of this.vouchers.values()) {
+      if (v.userId === uid && v.status === 'PENDING' && Number(v.expiresAtMs) >= nowMs) {
+        v.status = 'ACTIVATED';
+        v.activationId = actId;
+        v.resolvedAt = nowSec;
+        v.updatedAt = nowSec;
+      }
+    }
     const result = { userId: uid, walletAddress, activatedRaw: amt.toString(), activationId: actId, idempotent: false };
     this.activations.set(actId, result);
     if (promoEngine && typeof promoEngine.creditReward === 'function') {
-      const maybePromise = promoEngine.creditReward(walletAddress, amt);
-      if (maybePromise && typeof maybePromise.then === 'function') {
-        return maybePromise.then(() => result);
-      }
+      promoEngine.creditReward(walletAddress, amt);
     }
     return result;
+  }
+
+  async reclaimExpiredVouchers(nowMs = Date.now(), { budgetLedger = this.budgetLedger, userId = null, limit = 50 } = {}) {
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(Number(limit || 50))));
+    const targetUsers = new Set();
+    if (userId) {
+      targetUsers.add(String(userId).trim());
+    } else {
+      for (const v of this.vouchers.values()) {
+        if (v.status === 'PENDING' && Number(v.expiresAtMs) < nowMs) {
+          targetUsers.add(v.userId);
+          if (targetUsers.size >= safeLimit) break;
+        }
+      }
+      if (targetUsers.size < safeLimit) {
+        for (const [uid, st] of this.userStats.entries()) {
+          if (st.pendingActivationRaw > 0n && st.pendingExpiresAt !== null && nowMs > st.pendingExpiresAt) {
+            targetUsers.add(uid);
+            if (targetUsers.size >= safeLimit) break;
+          }
+        }
+      }
+    }
+    let processedUsers = 0;
+    let reclaimedVouchers = 0;
+    let reclaimedRaw = 0n;
+    const byBucket = {};
+    for (const uid of targetUsers) {
+      const r = await this._reclaimExpiredForUser(uid, nowMs, budgetLedger);
+      if (r.reclaimedVouchers > 0 || r.reclaimedRaw > 0n) processedUsers += 1;
+      reclaimedVouchers += r.reclaimedVouchers;
+      reclaimedRaw += r.reclaimedRaw;
+      for (const [b, amt] of r.bucketSums.entries()) {
+        byBucket[b] = (BigInt(byBucket[b] || '0') + amt).toString();
+      }
+    }
+    return { processedUsers, reclaimedVouchers, reclaimedRaw: reclaimedRaw.toString(), byBucket };
+  }
+
+  listPendingVouchers(userId = null, { status = null } = {}) {
+    const out = [];
+    for (const v of this.vouchers.values()) {
+      if (userId && v.userId !== String(userId).trim()) continue;
+      if (status && v.status !== status) continue;
+      out.push({ ...v });
+    }
+    return out;
   }
 
   getUserSummary(userId, roundId = null) {

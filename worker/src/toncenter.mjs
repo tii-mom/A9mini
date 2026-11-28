@@ -846,6 +846,52 @@ export class TonCenterClient {
     return { state: 'PENDING' };
   }
 
+  /** Read the balance and transaction position from the same indexed JettonWallet state. */
+  async fetchHotWalletInventoryState(jettonMasterAddress, ownerAddress) {
+    const params = new URLSearchParams({ owner_address: ownerAddress, jetton_address: jettonMasterAddress, limit: '2' });
+    const body = await this._requestV3(`/jetton/wallets?${params}`);
+    const rows = body?.jetton_wallets;
+    const wallet = Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
+    const jettonWallet = addressKey(wallet?.address);
+    const walletLt = wallet?.last_transaction_lt;
+    if (body?.error || !/^0:[0-9a-f]{64}$/.test(jettonWallet || '')
+        || addressKey(wallet?.owner) !== addressKey(ownerAddress)
+        || addressKey(wallet?.jetton) !== addressKey(jettonMasterAddress)
+        || !/^(?:0|[1-9]\d*)$/.test(typeof wallet?.balance === 'string' ? wallet.balance : '')
+        || !/^[1-9]\d{0,19}$/.test(typeof walletLt === 'string' ? walletLt : '')) {
+      throw new Error('Invalid indexed JettonWallet inventory state');
+    }
+
+    // A lagging index must not resurrect inventory already debited on the account chain.
+    const direct = await this._request(`/getAddressInformation?${new URLSearchParams({ address: jettonWallet })}`);
+    if (!direct?.ok || direct.result?.state !== 'active'
+        || direct.result?.last_transaction_id?.lt !== walletLt) {
+      throw new Error('Indexed JettonWallet inventory is not at the current account head');
+    }
+    return { jettonWallet, walletLt, a9BalanceRaw: wallet.balance, balanceAvailable: true };
+  }
+
+  /** Resolve a payout's exact, successful sender-side debit on this JettonWallet. */
+  async fetchHotWalletPayoutDebitLt(jettonWallet, ownerAddress, txHash) {
+    const hash = TonCenterClient.normalizeTxHashHex(txHash);
+    if (!/^[a-f0-9]{64}$/.test(hash || '')) return null;
+    const params = new URLSearchParams({ account: jettonWallet, hash, limit: '2' });
+    const body = await this._requestV3(`/transactions?${params}`);
+    const rows = body?.transactions;
+    const tx = Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
+    if (body?.error || TonCenterClient.normalizeTxHashHex(tx?.hash) !== hash
+        || addressKey(tx?.account) !== addressKey(jettonWallet)
+        || addressKey(tx?.in_msg?.source) !== addressKey(ownerAddress)
+        || ![0x0f8a7ea5, '0x0f8a7ea5', '0xf8a7ea5'].includes(tx?.in_msg?.opcode)
+        || tx?.in_msg?.bounced !== false || tx?.description?.aborted !== false
+        || tx?.description?.action?.success !== true
+        || !Array.isArray(tx.out_msgs)
+        || !tx.out_msgs.some((msg) => [0x178d4519, '0x178d4519'].includes(msg?.opcode))
+        || !Number.isSafeInteger(tx.mc_block_seqno) || tx.mc_block_seqno <= 0
+        || !/^[1-9]\d{0,19}$/.test(typeof tx.lt === 'string' ? tx.lt : '')) return null;
+    return tx.lt;
+  }
+
   /**
    * 解析用户 JettonWallet 地址与 A9 链上余额（P0-G）。
    * 仅在 get_wallet_data 成功，或通过 /getAddressInformation 明确核实合约处于 uninitialized（未部署）时

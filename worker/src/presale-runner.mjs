@@ -95,11 +95,17 @@ export class PresalePayoutRunner {
         }
       }
       if (!this.execute) return summary;
-      // 仅在扫描未截断、无未终局交易且全部入账均已无错持久化分类后才推进扫描游标，严防漏单
-      if (!inboundFailed && !hasUnfinalized && cursorComplete && nextCursor && typeof this.engine.repo?.saveScanCursor === 'function') {
-        await this.engine.repo.saveScanCursor(this.engine.hotWalletAddress, nextCursor, nowSec);
+      // 仅在扫描未截断、无未终局交易且全部入账均已无错持久化分类后才推进扫描游标并释放过期预留，严防漏单与提前释放
+      if (!inboundFailed && !hasUnfinalized && cursorComplete) {
+        if (nextCursor && typeof this.engine.repo?.saveScanCursor === 'function') {
+          await this.engine.repo.saveScanCursor(this.engine.hotWalletAddress, nextCursor, nowSec);
+        }
+        if (typeof this.engine.releaseExpiredOrRefundedReservations === 'function') {
+          summary.reservationsReleased = await this.engine.releaseExpiredOrRefundedReservations(nowSec, {
+            budgetLedger: this.engine.budgetLedger || null,
+          });
+        }
       }
-
       summary.queued = await this.engine.queueConfirmedPayouts(nowSec);
       const before = await this._countCompleted();
       const beforeRefunded = await this._countRefunded();

@@ -93,6 +93,100 @@ export class PresaleError extends Error {
   }
 }
 
+export const DEFAULT_INVENTORY_MAX_STALE_SEC = 120;
+
+/**
+ * Validate fresh on-chain hot-wallet inventory snapshots before accepting new mall orders.
+ * Enforces network, jettonMaster, walletAddress, freshness, and non-negative integer balance.
+ */
+export function validateInventorySnapshot(
+  snapshot,
+  {
+    nowSec = Math.floor(Date.now() / 1000),
+    maxStaleSec = DEFAULT_INVENTORY_MAX_STALE_SEC,
+    expectedNetwork = null,
+    expectedJettonMaster = null,
+    expectedPresaleWallet = null,
+    expectedPromoWallet = null,
+    needPromo = false,
+  } = {},
+) {
+  if (!snapshot || typeof snapshot !== 'object') {
+    throw new PresaleError('INVENTORY_SNAPSHOT_UNAVAILABLE', 'fresh hot-wallet inventory snapshot is required to accept new orders');
+  }
+  const checkOne = (label, item, expectedWallet) => {
+    if (!item || typeof item !== 'object') {
+      throw new PresaleError('INVENTORY_SNAPSHOT_UNAVAILABLE', `${label} hot-wallet inventory snapshot missing`);
+    }
+    if (item.ok === false) {
+      throw new PresaleError(
+        label === 'promo' ? 'PROMO_WALLET_LOW_INVENTORY' : 'HOT_WALLET_LOW_INVENTORY',
+        `${label} hot-wallet inventory unhealthy: ${item.reason || 'LOW_INVENTORY'}`,
+      );
+    }
+    const fetchedAt = Number(item.fetchedAt ?? item.fetched_at ?? 0);
+    if (!Number.isFinite(fetchedAt) || fetchedAt <= 0 || nowSec - fetchedAt > maxStaleSec || fetchedAt > nowSec + 60) {
+      throw new PresaleError(
+        'INVENTORY_SNAPSHOT_STALE',
+        `${label} hot-wallet inventory snapshot is stale or missing timestamp`,
+      );
+    }
+    if (expectedNetwork) {
+      const snapNet = String(item.network || '').trim().toLowerCase();
+      if (!snapNet || snapNet !== String(expectedNetwork).trim().toLowerCase()) {
+        throw new PresaleError(
+          'INVENTORY_SNAPSHOT_MISMATCH',
+          `${label} hot-wallet snapshot network (${snapNet || 'missing'}) does not match ${expectedNetwork}`,
+        );
+      }
+    }
+    if (expectedJettonMaster) {
+      const snapMaster = String(item.jettonMaster || '').trim();
+      if (!snapMaster || addressKey(snapMaster) !== addressKey(expectedJettonMaster)) {
+        throw new PresaleError(
+          'INVENTORY_SNAPSHOT_MISMATCH',
+          `${label} hot-wallet snapshot jettonMaster does not match expected master`,
+        );
+      }
+    }
+    if (expectedWallet) {
+      const snapWallet = String(item.walletAddress || '').trim();
+      if (!snapWallet || addressKey(snapWallet) !== addressKey(expectedWallet)) {
+        throw new PresaleError(
+          'INVENTORY_SNAPSHOT_MISMATCH',
+          `${label} hot-wallet snapshot walletAddress does not match expected hot wallet`,
+        );
+      }
+    }
+    const rawStr = String(item.a9Raw ?? item.a9BalanceRaw ?? '').trim();
+    if (!/^\d+$/.test(rawStr)) {
+      throw new PresaleError('INVENTORY_SNAPSHOT_UNAVAILABLE', `${label} hot-wallet snapshot missing valid a9Raw balance`);
+    }
+    const jettonWallet = addressKey(item.jettonWallet);
+    const walletLt = /^0:[0-9a-f]{64}$/.test(jettonWallet || '')
+      && /^[1-9]\d{0,19}$/.test(typeof item.walletLt === 'string' ? item.walletLt : '')
+      ? item.walletLt
+      : null;
+    return {
+      network: item.network ? String(item.network).trim().toLowerCase() : null,
+      jettonMaster: item.jettonMaster ? String(item.jettonMaster).trim() : null,
+      walletAddress: item.walletAddress ? String(item.walletAddress).trim() : null,
+      fetchedAt,
+      jettonWallet,
+      walletLt,
+      a9Raw: BigInt(rawStr),
+    };
+  };
+
+  const presale = checkOne('presale', snapshot.presale, expectedPresaleWallet);
+  const promo = needPromo
+    ? checkOne('promo', snapshot.promo, expectedPromoWallet)
+    : (snapshot.promo && snapshot.promo.ok !== false && /^\d+$/.test(String(snapshot.promo.a9Raw ?? ''))
+        ? checkOne('promo', snapshot.promo, expectedPromoWallet)
+        : null);
+  return { presale, promo };
+}
+
 /** Map legacy row statuses to the new state machine for display / logic. */
 export function normalizeOrderStatus(status, payoutTxHash = null) {
   switch (status) {
@@ -123,6 +217,11 @@ export class PresaleEngine {
   constructor({
     repo,
     hotWalletAddress,
+    promoHotWalletAddress = null,
+    network = null,
+    jettonMasterAddress = null,
+    inventoryMaxStaleSec = DEFAULT_INVENTORY_MAX_STALE_SEC,
+    requireInventorySnapshot = false,
     rateA9PerTon = 2002n,
     minOrderTon = 5n,
     maxOrderTon = 500n,
@@ -146,6 +245,11 @@ export class PresaleEngine {
     if (!hotWalletAddress) throw new PresaleError('CONFIG_MISSING', 'presale hotWalletAddress required');
     this.repo = repo;
     this.hotWalletAddress = hotWalletAddress;
+    this.promoHotWalletAddress = promoHotWalletAddress || promoEngine?.hotWalletAddress || null;
+    this.network = network ? String(network).trim().toLowerCase() : null;
+    this.jettonMasterAddress = jettonMasterAddress ? String(jettonMasterAddress).trim() : null;
+    this.inventoryMaxStaleSec = Math.max(30, Number(inventoryMaxStaleSec || DEFAULT_INVENTORY_MAX_STALE_SEC));
+    this.requireInventorySnapshot = Boolean(requireInventorySnapshot);
     this.rateA9PerTon = BigInt(rateA9PerTon);
     this.minOrderNano = toUnits(minOrderTon, 'minOrderTon');
     this.maxOrderNano = toUnits(maxOrderTon, 'maxOrderTon');
@@ -196,7 +300,7 @@ export class PresaleEngine {
     const remPool = this.totalCapA9Raw > reservedA9Raw ? this.totalCapA9Raw - reservedA9Raw : 0n;
     return {
       walletAddress,
-      rateA9PerTon: Number(this.rateA9PerTon),
+      pricingModel: 'CHEST_MALL_SKUS',
       open: this.open,
       soldOut: remPool === 0n,
       unlimitedQuota,
@@ -218,8 +322,13 @@ export class PresaleEngine {
     };
   }
 
-  /** Create an order and atomically reserve pool (+ optional wallet quota). Supports 6 Chest Mall SKUs & INSTANT/BOOST openMode. */
-  async createOrderIntent(walletAddress, tonAmount, nowSec = Math.floor(Date.now() / 1000), { referrerId = null, tgUserId = null, skuId = null, openMode = 'INSTANT' } = {}) {
+  /** Create an order and atomically reserve pool, wallet quota, max bonus + 6% referral budget, and hot-wallet inventory. */
+  async createOrderIntent(
+    walletAddress,
+    tonAmount,
+    nowSec = Math.floor(Date.now() / 1000),
+    { referrerId = null, tgUserId = null, skuId = null, openMode = 'INSTANT', inventorySnapshot = null } = {},
+  ) {
     if (!walletAddress) throw new PresaleError('BAD_WALLET', 'walletAddress required');
     if (!this.open) throw new PresaleError('PRESALE_CLOSED', 'presale is closed');
 
@@ -268,6 +377,24 @@ export class PresaleEngine {
     const cleanRef = referrerId && addressKey(referrerId) !== walletKey && String(referrerId).trim() !== String(tgUserId || '')
       ? String(referrerId).trim()
       : null;
+    const reservedBonusRaw = BigInt(resolvedPack.maxBoostA9Raw || '0');
+    const reservedReferralRaw = cleanRef ? (a9AmountRaw * REFERRAL_BPS) / 100n : 0n;
+
+    let validatedSnap = null;
+    if (inventorySnapshot !== null && inventorySnapshot !== undefined) {
+      validatedSnap = validateInventorySnapshot(inventorySnapshot, {
+        nowSec,
+        maxStaleSec: this.inventoryMaxStaleSec,
+        expectedNetwork: this.network,
+        expectedJettonMaster: this.jettonMasterAddress,
+        expectedPresaleWallet: this.hotWalletAddress,
+        expectedPromoWallet: this.promoHotWalletAddress,
+        needPromo: reservedReferralRaw > 0n,
+      });
+    } else if (this.requireInventorySnapshot) {
+      throw new PresaleError('INVENTORY_SNAPSHOT_UNAVAILABLE', 'fresh hot-wallet inventory snapshot is required to accept new orders');
+    }
+
     const orderId = randomHex(6);
     const order = {
       orderId,
@@ -292,7 +419,65 @@ export class PresaleEngine {
       createdAt: nowSec,
       updatedAt: nowSec,
     };
+    const reservation = {
+      orderId,
+      skuId: resolvedSkuId,
+      baseA9Raw: a9AmountRaw,
+      reservedBonusRaw,
+      settledBonusRaw: 0n,
+      releasedBonusRaw: 0n,
+      reservedReferralRaw,
+      referralBps: cleanRef ? Number(REFERRAL_BPS) : 0,
+      maxBoostBps: Number(resolvedPack.maxBoostBps || 0),
+      bonusStatus: reservedBonusRaw > 0n ? 'RESERVED' : 'SETTLED',
+      referralStatus: reservedReferralRaw > 0n ? 'RESERVED' : 'NONE',
+      status: 'ACTIVE',
+      legacyBackfilled: false,
+      snapshotNetwork: validatedSnap?.presale?.network || null,
+      snapshotJettonMaster: validatedSnap?.presale?.jettonMaster || null,
+      snapshotPresaleWallet: validatedSnap?.presale?.walletAddress || null,
+      snapshotPromoWallet: validatedSnap?.promo?.walletAddress || null,
+      snapshotAt: validatedSnap?.presale?.fetchedAt || null,
+      createdAt: nowSec,
+      updatedAt: nowSec,
+    };
+
     const walletQuota = this._quotaFor(walletKey);
+    if (typeof this.repo.createOrderAtomic === 'function') {
+      const outcome = await this.repo.createOrderAtomic(order, reservation, {
+        capA9Raw: this.totalCapA9Raw,
+        userQuotaNano: walletQuota,
+        nowSec,
+        budgetLedger: this.budgetLedger,
+        inventorySnapshot: validatedSnap,
+        promoEngine: this.promoEngine,
+      });
+      if (!outcome?.ok) {
+        if (outcome?.code === 'HOT_WALLET_LOW_INVENTORY') {
+          throw new PresaleError('HOT_WALLET_LOW_INVENTORY', outcome.message || 'presale hot-wallet A9 inventory insufficient for concurrent orders');
+        }
+        if (outcome?.code === 'PROMO_WALLET_LOW_INVENTORY') {
+          throw new PresaleError('PROMO_WALLET_LOW_INVENTORY', outcome.message || 'promo hot-wallet A9 inventory insufficient for referral obligation');
+        }
+        if (outcome?.code === 'OVER_QUOTA') {
+          throw new PresaleError('OVER_QUOTA', 'exceeds personal unlocked quota');
+        }
+        if (outcome?.code === 'SOLD_OUT') {
+          throw new PresaleError('SOLD_OUT', 'presale sold out');
+        }
+        if (outcome?.code === 'EXCEEDS_POOL') {
+          throw new PresaleError('EXCEEDS_POOL', 'exceeds remaining presale supply');
+        }
+        const { reservedA9Raw, userReservedNano } = await this.repo.sumReserved(nowSec, walletKey);
+        if (walletQuota !== null && walletQuota !== undefined && userReservedNano + tonNano > walletQuota) {
+          throw new PresaleError('OVER_QUOTA', 'exceeds personal unlocked quota');
+        }
+        if (reservedA9Raw >= this.totalCapA9Raw) throw new PresaleError('SOLD_OUT', 'presale sold out');
+        throw new PresaleError('EXCEEDS_POOL', 'exceeds remaining presale supply');
+      }
+      return this.formatOrder(order, reservation);
+    }
+
     const inserted = await this.repo.insertOrderIfCapacity(order, {
       capA9Raw: this.totalCapA9Raw,
       userQuotaNano: walletQuota,
@@ -489,7 +674,12 @@ export class PresaleEngine {
     if (!order) return anomaly('no_matching_order', false);
     // 备注不能单独作为归属凭证：付款人必须匹配订单钱包且金额精确一致。
     if (addressKey(tx.from) !== order.walletKey) return anomaly('sender_mismatch', false);
-    if (normalizeOrderStatus(order.status, order.payoutTxHash) !== PRESALE_STATUS.PENDING_PAYMENT) {
+    const normStatus = normalizeOrderStatus(order.status, order.payoutTxHash);
+    if (normStatus === PRESALE_STATUS.EXPIRED && !order.inboundTxHash) {
+      if (receivedNano !== this.expectedPayNano(order)) return anomaly('amount_mismatch', false);
+      return refund('expired', true, true);
+    }
+    if (normStatus !== PRESALE_STATUS.PENDING_PAYMENT) {
       return anomaly('order_not_payable', false);
     }
     if (receivedNano !== this.expectedPayNano(order)) return anomaly('amount_mismatch', true);
@@ -536,7 +726,9 @@ export class PresaleEngine {
       if (d.touchesOrder && d.orderId) {
         orderUpdate = {
           orderId: d.orderId,
-          from: [PRESALE_STATUS.PENDING_PAYMENT, PRESALE_STATUS.PENDING_TON],
+          from: d.reason === 'expired'
+            ? [PRESALE_STATUS.PENDING_PAYMENT, PRESALE_STATUS.PENDING_TON, PRESALE_STATUS.EXPIRED]
+            : [PRESALE_STATUS.PENDING_PAYMENT, PRESALE_STATUS.PENDING_TON],
           patch: {
             status: d.refundNano > 0n ? PRESALE_STATUS.REFUND_PENDING : PRESALE_STATUS.REFUNDED,
             inboundTxHash: tx.txHash,
@@ -659,22 +851,39 @@ export class PresaleEngine {
       const baseA9Raw = BigInt(o.a9AmountRaw);
       const matchedSku = o.skuId || CHEST_MALL_NANO_TO_SKU[String(o.tonNano ?? '')] || null;
       const pack = matchedSku ? CHEST_MALL_CATALOG[matchedSku] : null;
+      const existingRes = typeof this.repo.getReservation === 'function'
+        ? await this.repo.getReservation(o.orderId)
+        : null;
       let bonusA9Raw = BigInt(o.bonusA9Raw || 0n);
       let bonusRolled = Boolean(o.bonusRolled);
       let reservedBudgetRaw = 0n;
+      let useAtomicReservationSettle = false;
+      let unusedBonusRaw = 0n;
+
       if (!bonusRolled && pack && BigInt(pack.maxBoostA9Raw || '0') > 0n) {
         const rolled = rollPaidChestBonusRaw(pack.maxBoostA9Raw, this.randomFn);
         bonusA9Raw = rolled.bonusRaw;
-        if (bonusA9Raw > 0n && this.budgetLedger && typeof this.budgetLedger.reserve === 'function') {
+        if (existingRes && existingRes.bonusStatus === 'RESERVED' && !existingRes.legacyBackfilled) {
+          // 接单时已将最高加赠预留计入 presale_promo.spent_raw：严禁付款后把加赠静默改为 0，出奖后原子释放未用差额。
+          const reservedBonus = BigInt(existingRes.reservedBonusRaw || 0n);
+          if (bonusA9Raw > reservedBonus) bonusA9Raw = reservedBonus;
+          unusedBonusRaw = reservedBonus - bonusA9Raw;
+          useAtomicReservationSettle = true;
+        } else if (bonusA9Raw > 0n && this.budgetLedger && typeof this.budgetLedger.reserve === 'function') {
+          // 迁移前存量订单（无接单预留或仅回填标记）：预算不足时禁止静默把加赠改 0，转人工复核保留用户权益。
           try {
             const rsv = await this.budgetLedger.reserve('presale_promo', bonusA9Raw, nowSec);
             if (!rsv?.legacySkipped) reservedBudgetRaw = bonusA9Raw;
           } catch (e) {
             if (e?.code === 'PROMO_BUDGET_EXHAUSTED') {
-              bonusA9Raw = 0n;
-            } else {
-              throw e;
+              await this.repo.patchOrder(
+                o.orderId,
+                { status: PRESALE_STATUS.NEEDS_REVIEW, lastError: 'LEGACY_ORDER_BONUS_BUDGET_EXHAUSTED', updatedAt: nowSec },
+                [PRESALE_STATUS.PAYMENT_CONFIRMED],
+              );
+              continue;
             }
+            throw e;
           }
         }
         bonusRolled = true;
@@ -704,7 +913,25 @@ export class PresaleEngine {
       };
       let queuedOk = false;
       try {
-        queuedOk = await this.repo.queuePayout(o.orderId, PRESALE_STATUS.PAYMENT_CONFIRMED, orderPatch, payout);
+        if (useAtomicReservationSettle && typeof this.repo.queuePayoutAtomic === 'function') {
+          queuedOk = await this.repo.queuePayoutAtomic(
+            o.orderId,
+            PRESALE_STATUS.PAYMENT_CONFIRMED,
+            orderPatch,
+            payout,
+            {
+              settledBonusRaw: bonusA9Raw,
+              unusedBonusRaw,
+              budgetLedger: this.budgetLedger,
+              nowSec,
+            },
+          );
+        } else {
+          queuedOk = await this.repo.queuePayout(o.orderId, PRESALE_STATUS.PAYMENT_CONFIRMED, orderPatch, payout);
+          if (queuedOk && existingRes && existingRes.bonusStatus === 'RESERVED' && typeof this.repo.markReservationBonusSettled === 'function') {
+            await this.repo.markReservationBonusSettled(o.orderId, bonusA9Raw, 0n, nowSec);
+          }
+        }
       } catch (e) {
         if (reservedBudgetRaw > 0n && this.budgetLedger && typeof this.budgetLedger.release === 'function') {
           await this.budgetLedger.release('presale_promo', reservedBudgetRaw, nowSec).catch(() => {});
@@ -1017,8 +1244,12 @@ export class PresaleEngine {
         }
       }
       if (!(await this.repo.claimCredit(c.orderId, 'PENDING', 'CREDITING', nowSec))) continue;
+      const resRow = typeof this.repo.getReservation === 'function' ? await this.repo.getReservation(c.orderId) : null;
+      const preReserved = Boolean(
+        resRow && resRow.referralStatus === 'RESERVED' && !resRow.legacyBackfilled && BigInt(resRow.reservedReferralRaw || 0n) >= BigInt(c.amountRaw || 0n),
+      );
       let reservedBudget = false;
-      if (budgetLedger && typeof budgetLedger.reserve === 'function') {
+      if (!preReserved && budgetLedger && typeof budgetLedger.reserve === 'function') {
         try {
           const rsv = await budgetLedger.reserve('presale_promo', BigInt(c.amountRaw), nowSec);
           reservedBudget = !rsv?.legacySkipped;
@@ -1046,6 +1277,9 @@ export class PresaleEngine {
         continue;
       }
       await this.repo.patchCredit(c.orderId, { status: 'CREDITED', updatedAt: nowSec });
+      if (resRow && resRow.referralStatus === 'RESERVED' && typeof this.repo.markReservationReferralCredited === 'function') {
+        await this.repo.markReservationReferralCredited(c.orderId, nowSec);
+      }
       s.credited += 1;
       if (this.broadcaster && typeof this.broadcaster.notifyReferralCommission === 'function') {
         try {
@@ -1059,11 +1293,27 @@ export class PresaleEngine {
     return s;
   }
 
+  /**
+   * Release presale_promo reservations for expired unpaid orders (mutually exclusive with payment confirmation)
+   * and refunded/cancelled orders that have NO active/in-flight/ambiguous A9 payout.
+   */
+  async releaseExpiredOrRefundedReservations(nowSec = Math.floor(Date.now() / 1000), { budgetLedger = this.budgetLedger, limit = 50 } = {}) {
+    if (typeof this.repo.releaseExpiredOrRefundedReservations !== 'function') {
+      return { expiredReleased: 0, refundedReleased: 0, releasedRaw: '0' };
+    }
+    return this.repo.releaseExpiredOrRefundedReservations(nowSec, { budgetLedger, limit });
+  }
+
+  async getOrderReservation(orderId) {
+    if (typeof this.repo.getReservation !== 'function') return null;
+    return this.repo.getReservation(orderId);
+  }
+
   async getReferralCredit(orderId) {
     return this.repo.getCredit(orderId);
   }
 
-  formatOrder(o) {
+  formatOrder(o, reservation = null) {
     const status = normalizeOrderStatus(o.status, o.payoutTxHash);
     const tonNanoBig = BigInt(o.tonNano);
     const tonNanoStr = tonNanoBig.toString();
@@ -1096,6 +1346,10 @@ export class PresaleEngine {
       createdAt: Number(o.createdAt),
       updatedAt: Number(o.updatedAt),
     };
+    if (reservation) {
+      out.reservedBonusRaw = BigInt(reservation.reservedBonusRaw || 0n).toString();
+      out.reservedReferralRaw = BigInt(reservation.reservedReferralRaw || 0n).toString();
+    }
     if (skuId) {
       out.skuId = skuId;
       out.openMode = o.openMode || 'INSTANT';
@@ -1115,6 +1369,7 @@ const clone = (o) => (o ? { ...o } : null);
 export class MemoryPresaleRepo {
   constructor() {
     this.orders = new Map();
+    this.reservations = new Map();
     this.memoIndex = new Map();
     this.inbound = new Map();
     this.payouts = new Map();
@@ -1123,7 +1378,7 @@ export class MemoryPresaleRepo {
   }
 
   _reserves(o, nowSec) {
-    return RESERVING_STATUSES.includes(o.status) || (o.status === 'PENDING_PAYMENT' && Number(o.expiresAt) > nowSec);
+    return RESERVING_STATUSES.includes(o.status) || (o.status === 'PENDING_PAYMENT' && Number(o.expiresAt) >= nowSec);
   }
 
   _sumReservedSync(nowSec, walletKey) {
@@ -1139,6 +1394,211 @@ export class MemoryPresaleRepo {
 
   async sumReserved(nowSec, walletKey) {
     return this._sumReservedSync(nowSec, walletKey);
+  }
+
+  _presaleOutstandingA9Sync(nowSec) {
+    let sum = 0n;
+    const payoutOrderIds = new Set();
+    for (const p of this.payouts.values()) {
+      if (p.kind !== 'A9') continue;
+      if (['PENDING', 'BROADCASTING', 'RETRY', 'SENT', 'NEEDS_REVIEW', 'CONFIRMED'].includes(p.status)) {
+        sum += BigInt(p.amount || '0');
+        if (p.orderId) payoutOrderIds.add(p.orderId);
+      }
+    }
+    for (const o of this.orders.values()) {
+      if (payoutOrderIds.has(o.orderId)) continue;
+      if (o.status === 'PENDING_PAYMENT' && (Number(o.expiresAt || 0) === 0 || Number(o.expiresAt) >= nowSec)) {
+        const r = this.reservations.get(o.orderId);
+        sum += BigInt(o.a9AmountRaw) + BigInt(r?.reservedBonusRaw || 0n);
+      } else if (o.status === 'PAYMENT_CONFIRMED' || o.status === 'NEEDS_REVIEW' || o.status === 'PAID_A9') {
+        const r = this.reservations.get(o.orderId);
+        const bonus = r?.bonusStatus === 'SETTLED' ? BigInt(r.settledBonusRaw || 0n) : BigInt(r?.reservedBonusRaw || o.bonusA9Raw || 0n);
+        sum += BigInt(o.a9AmountRaw) + bonus;
+      }
+    }
+    return sum;
+  }
+
+  _promoOutstandingA9Sync(promoEngine) {
+    let sum = 0n;
+    if (promoEngine?.balances instanceof Map) {
+      for (const b of promoEngine.balances.values()) sum += BigInt(b.claimableRaw || 0n);
+    }
+    if (promoEngine?.payouts instanceof Map) {
+      for (const p of promoEngine.payouts.values()) {
+        if (['PENDING', 'BROADCASTING', 'RETRY', 'SENT', 'NEEDS_REVIEW', 'CONFIRMED'].includes(p.status)) {
+          sum += BigInt(p.amountRaw || 0n);
+        }
+      }
+    }
+    if (promoEngine?.claims instanceof Map) {
+      for (const c of promoEngine.claims.values()) {
+        if (['FEE_CONFIRMED', 'PAYOUT_SENT'].includes(c.status)) {
+          const hasPayout = promoEngine.payouts instanceof Map && [...promoEngine.payouts.values()].some((p) => p.claimId === c.claimId);
+          if (!hasPayout) sum += BigInt(c.amountRaw || 0n);
+        }
+      }
+    }
+    const reservedOrderIds = new Set();
+    for (const r of this.reservations.values()) {
+      if (r.referralStatus === 'RESERVED') {
+        sum += BigInt(r.reservedReferralRaw || 0n);
+        reservedOrderIds.add(r.orderId);
+      }
+    }
+    for (const c of this.credits.values()) {
+      if (['PENDING', 'CREDITING', 'NEEDS_REVIEW'].includes(c.status) && !reservedOrderIds.has(c.orderId)) {
+        sum += BigInt(c.amountRaw || 0n);
+      }
+    }
+    return sum;
+  }
+
+  async createOrderAtomic(order, reservation, { capA9Raw, userQuotaNano, nowSec, budgetLedger = null, inventorySnapshot = null, promoEngine = null }) {
+    const { reservedA9Raw, userReservedNano } = this._sumReservedSync(nowSec, order.walletKey);
+    if (userQuotaNano !== null && userQuotaNano !== undefined && userReservedNano + BigInt(order.tonNano) > userQuotaNano) {
+      return { ok: false, code: 'OVER_QUOTA' };
+    }
+    if (reservedA9Raw >= capA9Raw) return { ok: false, code: 'SOLD_OUT' };
+    if (reservedA9Raw + BigInt(order.a9AmountRaw) > capA9Raw) return { ok: false, code: 'EXCEEDS_POOL' };
+
+    const newPresaleNeed = BigInt(order.a9AmountRaw) + BigInt(reservation.reservedBonusRaw || 0n);
+    if (inventorySnapshot?.presale) {
+      const used = this._presaleOutstandingA9Sync(nowSec);
+      if (used + newPresaleNeed > inventorySnapshot.presale.a9Raw) {
+        return { ok: false, code: 'HOT_WALLET_LOW_INVENTORY' };
+      }
+    }
+    const newRefNeed = BigInt(reservation.reservedReferralRaw || 0n);
+    if (newRefNeed > 0n && inventorySnapshot?.promo) {
+      const usedPromo = this._promoOutstandingA9Sync(promoEngine);
+      if (usedPromo + newRefNeed > inventorySnapshot.promo.a9Raw) {
+        return { ok: false, code: 'PROMO_WALLET_LOW_INVENTORY' };
+      }
+    }
+
+    const budgetNeed = BigInt(reservation.reservedBonusRaw || 0n) + newRefNeed;
+    // Mutate synchronously BEFORE any await so concurrent callers cannot double-use inventory/capacity.
+    this.orders.set(order.orderId, { ...order });
+    this.reservations.set(order.orderId, { ...reservation });
+    this.memoIndex.set(order.memo, order.orderId);
+    if (budgetNeed > 0n && budgetLedger && typeof budgetLedger.reserve === 'function') {
+      try {
+        await budgetLedger.reserve('presale_promo', budgetNeed, nowSec);
+      } catch (e) {
+        this.orders.delete(order.orderId);
+        this.reservations.delete(order.orderId);
+        this.memoIndex.delete(order.memo);
+        throw e;
+      }
+    }
+    return { ok: true };
+  }
+
+  async getReservation(orderId) { return clone(this.reservations.get(orderId)); }
+
+  async queuePayoutAtomic(orderId, fromStatus, patch, payout, { settledBonusRaw = 0n, unusedBonusRaw = 0n, budgetLedger = null, nowSec = Math.floor(Date.now() / 1000) } = {}) {
+    const o = this.orders.get(orderId);
+    const r = this.reservations.get(orderId);
+    if (!o || o.status !== fromStatus || !r || r.bonusStatus !== 'RESERVED' || this._hasConflictingPayout(payout)) return false;
+    const prevOrder = { ...o };
+    const prevRes = { ...r };
+    // Mutate synchronously BEFORE any await so concurrent callers cannot both settle the same order.
+    Object.assign(o, patch);
+    this.payouts.set(payout.payoutId, { ...payout });
+    Object.assign(r, {
+      settledBonusRaw: BigInt(settledBonusRaw),
+      releasedBonusRaw: BigInt(unusedBonusRaw),
+      bonusStatus: 'SETTLED',
+      status: ['NONE', 'CREDITED', 'RELEASED'].includes(r.referralStatus) ? 'COMPLETED' : 'ACTIVE',
+      updatedAt: nowSec,
+    });
+    if (unusedBonusRaw > 0n && budgetLedger && typeof budgetLedger.release === 'function') {
+      try {
+        await budgetLedger.release('presale_promo', unusedBonusRaw, nowSec);
+      } catch (e) {
+        Object.assign(o, prevOrder);
+        this.payouts.delete(payout.payoutId);
+        Object.assign(r, prevRes);
+        throw e;
+      }
+    }
+    return true;
+  }
+
+  async markReservationBonusSettled(orderId, settledBonusRaw, releasedBonusRaw, nowSec) {
+    const r = this.reservations.get(orderId);
+    if (!r || r.bonusStatus !== 'RESERVED') return false;
+    Object.assign(r, {
+      settledBonusRaw: BigInt(settledBonusRaw),
+      releasedBonusRaw: BigInt(releasedBonusRaw),
+      bonusStatus: 'SETTLED',
+      status: ['NONE', 'CREDITED', 'RELEASED'].includes(r.referralStatus) ? 'COMPLETED' : 'ACTIVE',
+      updatedAt: nowSec,
+    });
+    return true;
+  }
+
+  async markReservationReferralCredited(orderId, nowSec) {
+    const r = this.reservations.get(orderId);
+    if (!r || r.referralStatus !== 'RESERVED') return false;
+    Object.assign(r, {
+      referralStatus: 'CREDITED',
+      status: ['SETTLED', 'RELEASED'].includes(r.bonusStatus) ? 'COMPLETED' : 'ACTIVE',
+      updatedAt: nowSec,
+    });
+    return true;
+  }
+
+  async releaseExpiredOrRefundedReservations(nowSec, { budgetLedger = null, limit = 50 } = {}) {
+    let expiredReleased = 0;
+    let refundedReleased = 0;
+    let releasedTotal = 0n;
+    const maxCount = Math.max(1, Number(limit || 50));
+    for (const r of this.reservations.values()) {
+      if (expiredReleased + refundedReleased >= maxCount) break;
+      if (r.status !== 'ACTIVE') continue;
+      const o = this.orders.get(r.orderId);
+      if (!o) continue;
+      const hasAnyA9Payout = [...this.payouts.values()].some(
+        (p) => p.orderId === o.orderId && p.kind === 'A9' && ['PENDING', 'BROADCASTING', 'SENT', 'RETRY', 'CONFIRMED', 'NEEDS_REVIEW'].includes(p.status),
+      );
+      const hasAnyCredit = this.credits.has(o.orderId);
+      if (hasAnyA9Payout || hasAnyCredit) continue;
+
+      const isExpiredUnpaid = ['PENDING_PAYMENT', 'PENDING_TON'].includes(o.status)
+        && !o.inboundTxHash
+        && Number(o.expiresAt || 0) > 0
+        && Number(o.expiresAt) < nowSec;
+      const isRefundedOrCancelled = ['REFUNDED', 'REFUNDED_FREE', 'REFUNDED_MINUS_FEE', 'CANCELLED'].includes(o.status);
+      if (!isExpiredUnpaid && !isRefundedOrCancelled) continue;
+
+      let delta = 0n;
+      if (!r.legacyBackfilled) {
+        if (r.bonusStatus === 'RESERVED') delta += BigInt(r.reservedBonusRaw || 0n);
+        if (r.referralStatus === 'RESERVED') delta += BigInt(r.reservedReferralRaw || 0n);
+      }
+      if (isExpiredUnpaid) {
+        o.status = PRESALE_STATUS.EXPIRED;
+        o.updatedAt = nowSec;
+        expiredReleased += 1;
+      } else {
+        refundedReleased += 1;
+      }
+      if (r.bonusStatus === 'RESERVED') {
+        r.bonusStatus = 'RELEASED';
+        r.releasedBonusRaw = BigInt(r.reservedBonusRaw || 0n);
+      }
+      if (r.referralStatus === 'RESERVED') r.referralStatus = 'RELEASED';
+      r.status = 'RELEASED';
+      r.updatedAt = nowSec;
+      if (delta > 0n && budgetLedger && typeof budgetLedger.release === 'function') {
+        await budgetLedger.release('presale_promo', delta, nowSec);
+        releasedTotal += delta;
+      }
+    }
+    return { expiredReleased, refundedReleased, releasedRaw: releasedTotal.toString() };
   }
 
   async insertOrderIfCapacity(order, { capA9Raw, userQuotaNano, nowSec }) {

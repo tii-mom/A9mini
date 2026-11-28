@@ -68,9 +68,9 @@ export async function startLocalCandidate({ port = 8097, dataDir = resolve(homed
     mf = new Miniflare(mfRuntime.convertV4MiniflareOptions ? mfRuntime.convertV4MiniflareOptions(mfOptions) : mfOptions);
     const db = await mf.getD1Database('DB');
     await db.prepare('CREATE TABLE IF NOT EXISTS a9_local_migrations (name TEXT PRIMARY KEY, sha256 TEXT NOT NULL)').run();
-    // This candidate mirrors the wave 1A schema. Finality uses a separate local test database.
+    // This candidate mirrors the wave 1A schema (0001..0015). Later migrations (0016+) use dedicated local test databases.
     const files = (await readdir(migrationRoot))
-      .filter(name => /^\d{4}_.+\.sql$/.test(name) && name !== '0016_v17_finality_snapshots.sql')
+      .filter(name => /^\d{4}_.+\.sql$/.test(name) && Number(name.slice(0, 4)) <= 15)
       .sort();
     if (files.length !== 15 || files.some((n,i)=>!n.startsWith(String(i+1).padStart(4,'0')+'_'))) throw new Error('Expected locked migration sequence 0001..0015');
     for(const name of files){

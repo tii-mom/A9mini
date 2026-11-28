@@ -46,6 +46,15 @@ export function mapV15RoundDetail(roundId, round, candles = [], nowSec = Math.fl
   const twapRaw = BigInt(round.twap24hUsdE8 || 0);
   const totalStakeRaw = String(round.totalStakeRaw ?? '0');
   const earlyStakeRaw = String(round.earlyStakeRaw ?? '0');
+  const toMsOrNull = (ts) => {
+    const n = Number(ts);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n < 1e12 ? n * 1000 : n;
+  };
+  const rawPriceSampledAt = toMsOrNull(round.priceSampledAt ?? round.twapUpdatedAt ?? round.oracleUpdatedAt);
+  const candleEnds = (candles || []).map((c) => toMsOrNull(c?.periodEnd)).filter((v) => v !== null);
+  const lastConfirmedCandleAt = candleEnds.length ? Math.max(...candleEnds) : null;
+  const priceSampledAt = rawPriceSampledAt ?? lastConfirmedCandleAt;
 
   return {
     roundId: Number(roundId),
@@ -56,6 +65,8 @@ export function mapV15RoundDetail(roundId, round, candles = [], nowSec = Math.fl
     targetPriceUsdE8: String(round.targetPriceUsdE8 ?? '0'),
     priceUsdE8: twapRaw > 0n ? twapRaw.toString() : null,
     priceValid: twapRaw > 0n,
+    priceSampledAt,
+    lastConfirmedCandleAt,
     stakeOpenAt,
     stakeCloseAt: Number(round.stakeCloseAt || 0),
     earlyCloseAt,
@@ -124,6 +135,16 @@ export function computeTicketClaimPreview(
     burnedPrincipalRaw: '0',
     claimableRewardRaw: '0',
     claimableTotalRaw: '0',
+    totalRewardRaw: '0',
+    immediateRewardRaw: '0',
+    immediateClaimedRaw: '0',
+    lockedClaimedRaw: '0',
+    settledLockedQuotaRaw: '0',
+    settledQuotaTotalRaw: '0',
+    actualLockedReceivedRaw: '0',
+    actualRewardReceivedRaw: '0',
+    totalRewardClaimedRaw: '0',
+    historicalCashoutUnknown: false,
     lockedRemainingRaw: '0',
     canInstantCashout: false,
     instantCashoutTotalRaw: '0',
@@ -185,6 +206,10 @@ export function computeTicketClaimPreview(
   // 3) ABORTED 阶段：7 天超时逃生门，100% 无损退本
   const payPrincipal = (!ticket.principalDone && !ticket.exited) ? totalAmt : 0n;
   let payReward = 0n;
+  let totalReward = 0n;
+  let immReward = 0n;
+  let immClaimedRaw = 0n;
+  let lockedClaimed = 0n;
   let lockedRemaining = 0n;
   let unlockedPctBps = 0;
   let vestingPrincipalRaw = null;
@@ -198,13 +223,16 @@ export function computeTicketClaimPreview(
     const totalStakeRaw = BigInt(round.totalStakeRaw || round.totalWeightRaw || '0');
     const rewardBudgetRaw = BigInt(round.rewardBudgetRaw || '0');
     if (totalStakeRaw > 0n) {
-      const totalReward = (rewardBudgetRaw * totalAmt) / totalStakeRaw;
+      totalReward = (rewardBudgetRaw * totalAmt) / totalStakeRaw;
       const immBps = BigInt(Number(round.immediateBps || 2000));
       const imm = (totalReward * immBps) / 10000n;
+      immReward = imm;
       const locked = totalReward - imm;
 
       if (!ticket.immediateClaimed) {
         payReward += imm;
+      } else {
+        immClaimedRaw = imm;
       }
 
       const settledAt = Number(round.settledAt || 0);
@@ -219,7 +247,7 @@ export function computeTicketClaimPreview(
         unlockedNow = (dur === 0n || elapsed >= dur) ? locked : (locked * elapsed) / dur;
       }
 
-      const lockedClaimed = BigInt(ticket.lockedClaimedRaw ?? ticket.rewardClaimedRaw ?? '0');
+      lockedClaimed = BigInt(ticket.lockedClaimedRaw ?? ticket.rewardClaimedRaw ?? '0');
       const newLockedClaimed = unlockedNow > lockedClaimed ? unlockedNow : lockedClaimed;
       if (unlockedNow > lockedClaimed) {
         payReward += unlockedNow - lockedClaimed;
@@ -242,6 +270,49 @@ export function computeTicketClaimPreview(
 
   const claimableTotal = payPrincipal + payReward;
   const instantCashoutTotal = claimableTotal + instantCashoutBonus;
+  const settledQuotaTotal = immClaimedRaw + lockedClaimed;
+
+  // 急提后链上 lockedClaimed 存储的是已结清线性额度（含销毁部分），绝不能直接等同于实际到账奖金。
+  const isDigitRaw = (v) => typeof v === 'string' && /^\d+$/.test(v);
+  let historicalCashoutUnknown = false;
+  let actualLockedReceivedRaw = lockedClaimed.toString();
+  let actualRewardReceivedRaw = settledQuotaTotal.toString();
+  let totalRewardClaimedRaw = settledQuotaTotal.toString();
+  let burnedLockedRaw = '0';
+  if (ticket.forfeited) {
+    const trustedBurnRaw = isDigitRaw(ticket.cashoutBurnedRaw)
+      ? ticket.cashoutBurnedRaw
+      : (isDigitRaw(ticket.actualBurnedLockedRaw)
+          ? ticket.actualBurnedLockedRaw
+          : (isDigitRaw(ticket.burnedLockedRaw) && BigInt(ticket.burnedLockedRaw) > 0n ? ticket.burnedLockedRaw : null));
+    const trustedPaidRaw = isDigitRaw(ticket.actualRewardReceivedRaw)
+      ? ticket.actualRewardReceivedRaw
+      : (isDigitRaw(ticket.cashoutPaidRaw) ? ticket.cashoutPaidRaw : null);
+    if (trustedBurnRaw !== null) {
+      const burnedBi = BigInt(trustedBurnRaw);
+      const lockedRecvBi = lockedClaimed > burnedBi ? (lockedClaimed - burnedBi) : 0n;
+      const totalRecvBi = trustedPaidRaw !== null ? BigInt(trustedPaidRaw) : (immClaimedRaw + lockedRecvBi);
+      actualLockedReceivedRaw = lockedRecvBi.toString();
+      actualRewardReceivedRaw = totalRecvBi.toString();
+      totalRewardClaimedRaw = totalRecvBi.toString();
+      burnedLockedRaw = burnedBi.toString();
+    } else if (trustedPaidRaw !== null) {
+      const totalRecvBi = BigInt(trustedPaidRaw);
+      const lockedRecvBi = totalRecvBi > immClaimedRaw ? (totalRecvBi - immClaimedRaw) : 0n;
+      const burnedBi = lockedClaimed > lockedRecvBi ? (lockedClaimed - lockedRecvBi) : 0n;
+      actualLockedReceivedRaw = lockedRecvBi.toString();
+      actualRewardReceivedRaw = totalRecvBi.toString();
+      totalRewardClaimedRaw = totalRecvBi.toString();
+      burnedLockedRaw = burnedBi.toString();
+    } else {
+      historicalCashoutUnknown = true;
+      actualLockedReceivedRaw = null;
+      actualRewardReceivedRaw = null;
+      totalRewardClaimedRaw = null;
+      burnedLockedRaw = null;
+    }
+  }
+
   return {
     roundState: derived.state,
     canClaim: !ticket.pending && claimableTotal > 0n,
@@ -252,12 +323,22 @@ export function computeTicketClaimPreview(
     burnedPrincipalRaw: '0',
     claimableRewardRaw: payReward.toString(),
     claimableTotalRaw: claimableTotal.toString(),
+    totalRewardRaw: totalReward.toString(),
+    immediateRewardRaw: immReward.toString(),
+    immediateClaimedRaw: immClaimedRaw.toString(),
+    lockedClaimedRaw: lockedClaimed.toString(),
+    settledLockedQuotaRaw: lockedClaimed.toString(),
+    settledQuotaTotalRaw: settledQuotaTotal.toString(),
+    actualLockedReceivedRaw,
+    actualRewardReceivedRaw,
+    totalRewardClaimedRaw,
+    historicalCashoutUnknown,
     lockedRemainingRaw: lockedRemaining.toString(),
     canInstantCashout,
     instantCashoutTotalRaw: instantCashoutTotal.toString(),
     instantCashoutBonusRaw: instantCashoutBonus.toString(),
     instantCashoutBurnRaw: instantCashoutBurn.toString(),
-    burnedLockedRaw: '0',
+    burnedLockedRaw,
     vestingSeconds: defaultVestSec,
     unlockedPctBps,
     vestingStartAt,

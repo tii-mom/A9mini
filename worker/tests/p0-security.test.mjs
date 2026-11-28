@@ -1053,6 +1053,12 @@ await test('[d1-sqlite] migration 0001->0004 (D5 & P0-C): real friendly-address 
 
   const e = new D1PresaleStore({ db, hotWalletAddress: HOT, defaultQuotaTon: 200n, open: true });
   assert.equal((await e.repo.getPayout('a9:legacy-paid')).txHash, 'out-leg-1');
+  // 缺 0017 迁移时拒绝新建可付款订单（fail-closed），同时保留历史读路径
+  assert.equal((await e.getQuota(uqFriendly, 200)).usedQuotaTon, 195);
+  await assert.rejects(e.createOrderIntent(uqFriendly, '9.99', 200), { code: 'MIGRATION_0017_REQUIRED' });
+
+  // 装齐 0005..0017 迁移后，历史额度与退款路径完全正常
+  for (const m of MIGRATIONS.slice(4)) db.exec(readFileSync(new URL(m, new URL('./helpers/test-env.mjs', import.meta.url)), 'utf8'));
 
   for (const form of [eqFriendly, uqFriendly, rawAddr]) {
     const orders = await e.listOrders(form);
@@ -1203,6 +1209,11 @@ if (BACKENDS.some(([n]) => n === 'd1-miniflare')) {
     assert.equal((await e.repo.getPayout('a9:mf-leg-1')).txHash, 'out-mf-1');
     assert.equal((await e.listOrders(uqFriendly)).length, 1);
     assert.equal((await e.getQuota(uqFriendly, 200)).usedQuotaTon, 195);
+    // 缺 0017 迁移时拒绝新建可付款订单（fail-closed）
+    await assert.rejects(e.createOrderIntent(uqFriendly, '9.99', 200), { code: 'MIGRATION_0017_REQUIRED' });
+
+    // 装齐 0005..0017 迁移后，历史额度与退款路径完全正常
+    for (const m of MIGRATIONS.slice(4)) await applyMigration(m);
     await assert.rejects(e.createOrderIntent(uqFriendly, '9.99', 200), { code: 'OVER_QUOTA' });
     assert.equal(await e.backfillLegacyWalletKeys(), 1);
 
@@ -2141,6 +2152,16 @@ await test('Knife 3: TG squad broadcaster (disabled by default, bound-only targe
     targetId: 'TM-0001',
     referrerId: '880123456',
   });
+  const longTeamId = 'TEAM-' + 'X'.repeat(32);
+  const longCaptainId = '12345678901234567890';
+  const longLink = buildTeamDeepLink({ botHandle: 'A9Bot', teamId: longTeamId, captainTgUserId: longCaptainId });
+  const compactParam = new URL(longLink).searchParams.get('startapp');
+  assert.ok(compactParam.length <= 64);
+  assert.equal(parseStartAppParam(compactParam).teamId, longTeamId);
+  assert.equal(parseStartAppParam(compactParam).referrerId, longCaptainId);
+  assert.deepEqual(parseStartAppParam('invite_TM-LEGACY'), {
+    raw: 'invite_TM-LEGACY', kind: 'invite', teamId: 'TM-LEGACY', targetId: 'TM-LEGACY', referrerId: null,
+  });
 
   const runSuite = async (label, makeDeps) => {
     const sentCalls = [];
@@ -2354,9 +2375,9 @@ await test('Batch 1 (SQLite + workerd D1): activateToPromo rejects missing/cross
     const flakyDb = {
       prepare: (sql) => rawDb.prepare(sql),
       async batch(stmts) {
-        if (sabotageOnce && stmts.length === 3) {
+        if (sabotageOnce && stmts.length >= 3) {
           sabotageOnce = false;
-          return rawDb.batch([stmts[0], stmts[1], rawDb.prepare('UPDATE __nonexistent_b1_crash SET x = 1')]);
+          return rawDb.batch([stmts[0], stmts[1], rawDb.prepare('UPDATE __nonexistent_b1_crash SET x = 1'), ...stmts.slice(3)]);
         }
         return rawDb.batch(stmts);
       },

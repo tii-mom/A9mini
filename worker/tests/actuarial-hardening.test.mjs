@@ -398,15 +398,13 @@ for (const backend of ['memory', 'd1']) {
     assert.equal((await predictionEngine.getRoundStats(1)).settled, false);
     assert.equal((await predictionEngine.getUserSummary('501')).pendingActivationRaw, '0');
 
-    // 3) Presale 6% referral credit hits PROMO_BUDGET_EXHAUSTED -> credit rolls back to PENDING, referrer gets 0
-    const ord = await presaleEngine.createOrderIntent(W_U, null, 1030, { skuId: 'chest_silver', referrerId: W_REF });
-    await presaleEngine.ingestInbound({ txHash: `bud-in-${backend}`, finality: 'finalized', to: HOT, from: W_U, valueNano: ord.payTonNano, memo: ord.memo }, 1031);
-    await presaleEngine.queueConfirmedPayouts(1032);
-    await presaleEngine.processPayouts(1033, { a9Broadcaster: async () => ({ txHash: `bud-out-${backend}` }), verifier: async () => ({ state: 'CONFIRMED' }) });
-    const refOut = await presaleEngine.processReferralCredits(1035);
-    assert.equal(refOut.budgetExhausted, 1);
+    // 3) Presale budget exhausted before payment -> createOrderIntent rejects cleanly with PROMO_BUDGET_EXHAUSTED (no payable order left behind)
+    await assert.rejects(
+      () => presaleEngine.createOrderIntent(W_U, null, 1030, { skuId: 'chest_silver', referrerId: W_REF }),
+      { code: 'PROMO_BUDGET_EXHAUSTED' },
+    );
+    assert.equal((await presaleEngine.listOrders(W_U)).length, 0);
     assert.equal((await promoEngine.getBalance(W_REF)).claimableRaw, '0');
-    assert.equal((await presaleEngine.getReferralCredit(ord.orderId)).status, 'PENDING');
   });
 
   await test(`[${backend}] M-5: wallet unbind blocked with unclaimed balance; rebind promotion atomically merges old wallet balance into new wallet`, async () => {
@@ -486,31 +484,40 @@ for (const backend of ['memory', 'd1']) {
     );
     const spentBeforeFail = (await budgetLedger.getBucket('presale_promo')).spentRaw;
     const origQueuePayout = presaleEngine.repo.queuePayout.bind(presaleEngine.repo);
+    const origQueuePayoutAtomic = presaleEngine.repo.queuePayoutAtomic.bind(presaleEngine.repo);
     presaleEngine.repo.queuePayout = async () => false;
+    presaleEngine.repo.queuePayoutAtomic = async () => false;
     try {
       const qFail = await presaleEngine.queueConfirmedPayouts(60_030);
       assert.equal(qFail, 0);
     } finally {
       presaleEngine.repo.queuePayout = origQueuePayout;
+      presaleEngine.repo.queuePayoutAtomic = origQueuePayoutAtomic;
     }
-    assert.equal((await budgetLedger.getBucket('presale_promo')).spentRaw, spentBeforeFail, 'failed queuePayout must refund presale_promo budget');
+    assert.equal((await budgetLedger.getBucket('presale_promo')).spentRaw, spentBeforeFail, 'failed queuePayout must leave presale_promo budget unchanged');
 
-    // 3) D1 legacy pre-0015 DB (missing bonus_a9_raw/bonus_rolled) MUST reject with MIGRATION_0015_REQUIRED & release budget
+    // 3) D1 legacy pre-0015 DB: new orders fail-closed with MIGRATION_0017_REQUIRED, and existing pre-0015 paid orders fail-closed with MIGRATION_0015_REQUIRED
     if (backend === 'd1') {
       const pre0015Db = createSqliteD1(MIGRATIONS.slice(0, 14));
       const legacyLedger = new D1PromoBudgetLedger({ db: pre0015Db });
       const legacyPresale = new D1PresaleStore({ db: pre0015Db, hotWalletAddress: HOT, open: true, budgetLedger: legacyLedger });
-      const legOrd = await legacyPresale.createOrderIntent(W_BUY, null, 61_000, { skuId: 'chest_gold', openMode: 'INSTANT', tgUserId: '702' });
-      await legacyPresale.ingestInbound(
-        { txHash: 'v171-pre0015', finality: 'finalized', to: HOT, from: W_BUY, valueNano: legOrd.payTonNano, memo: legOrd.memo },
-        61_005,
+      await assert.rejects(
+        () => legacyPresale.createOrderIntent(W_BUY, null, 61_000, { skuId: 'chest_gold', openMode: 'INSTANT', tgUserId: '702' }),
+        { code: 'MIGRATION_0017_REQUIRED' },
       );
+      await pre0015Db
+        .prepare(
+          `INSERT INTO presale_orders (order_id, wallet_address, wallet_key, tg_user_id, referrer_id, sku_id, open_mode, ton_nano, a9_amount_raw, memo, status, inbound_tx_hash, refund_ton_nano, expires_at, created_at, updated_at)
+           VALUES ('leg_pre0015', ?, ?, '702', NULL, 'chest_gold', 'INSTANT', '9990000000', '17500000000000', 'A9P-LEG0015', 'PAYMENT_CONFIRMED', 'v171-pre0015', '0', 62000, 61000, 61005)`,
+        )
+        .bind(W_BUY, W_BUY)
+        .run();
       await assert.rejects(
         () => legacyPresale.queueConfirmedPayouts(61_010),
         { code: 'MIGRATION_0015_REQUIRED' },
       );
       assert.equal((await legacyLedger.getBucket('presale_promo')).spentRaw, '0', 'pre-0015 error must refund reserved presale_promo budget');
-      assert.equal(await legacyPresale.repo.getPayout(`a9:${legOrd.orderId}`), null);
+      assert.equal(await legacyPresale.repo.getPayout('a9:leg_pre0015'), null);
     }
   });
 }

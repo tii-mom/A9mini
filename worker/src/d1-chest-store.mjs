@@ -590,12 +590,24 @@ export class D1ChestEngine {
           }
         }
       } else if (rewardRaw > 0n && destination === 'PENDING_VAULT') {
+        try {
+          await this.db.prepare('SELECT 1 FROM pending_reward_vouchers LIMIT 1').first();
+        } catch (vErr) {
+          if (/no such table/i.test(String(vErr?.message || vErr))) {
+            throw new ChestError('MIGRATION_0017_REQUIRED', 'pending_reward_vouchers 表缺失，请先执行 0017_actuarial_reservations_and_vouchers.sql 迁移');
+          }
+          throw vErr;
+        }
+        const nowMs = nowSec * 1000;
+        if (predictionEngine && typeof predictionEngine.reclaimExpiredVouchers === 'function') {
+          await predictionEngine.reclaimExpiredVouchers(nowMs, { budgetLedger, userId: recipientKey, limit: 1 });
+        }
         const curRow = await this.db
           .prepare('SELECT pending_activation_raw, pending_expires_at FROM prediction_rewards WHERE user_id = ? LIMIT 1')
           .bind(recipientKey)
           .first();
-        const nowMs = nowSec * 1000;
         const freshExpMs = nowMs + VOUCHER_TTL_MS;
+        let resolvedVoucherExpMs = freshExpMs;
         if (curRow) {
           const curStr = String(curRow.pending_activation_raw || '0');
           const curPending = BigInt(curStr);
@@ -604,27 +616,56 @@ export class D1ChestEngine {
           const basePending = isExpired ? 0n : curPending;
           const nextStr = (basePending + rewardRaw).toString();
           const nextExpMs = (basePending > 0n && curExp !== null) ? curExp : freshExpMs;
+          resolvedVoucherExpMs = nextExpMs;
           balGuardSql = ' AND EXISTS (SELECT 1 FROM prediction_rewards WHERE user_id = ? AND pending_activation_raw = ?)';
           balGuardArgs = [recipientKey, curStr];
-          creditStmt = this.db
-            .prepare(
-              `UPDATE prediction_rewards
-               SET pending_activation_raw = ?, pending_expires_at = ?, updated_at = ?
-               WHERE user_id = ? AND pending_activation_raw = ?
-                 AND EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)`,
-            )
-            .bind(nextStr, nextExpMs, nowSec, recipientKey, curStr, cId, openToken);
+          creditStmt = [
+            this.db
+              .prepare(
+                `UPDATE prediction_rewards
+                 SET pending_activation_raw = ?, pending_expires_at = ?, updated_at = ?
+                 WHERE user_id = ? AND pending_activation_raw = ?
+                   AND EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)`,
+              )
+              .bind(nextStr, nextExpMs, nowSec, recipientKey, curStr, cId, openToken),
+            this.db
+              .prepare(
+                `INSERT OR IGNORE INTO pending_reward_vouchers
+                   (voucher_id, user_id, source_bucket, source_kind, source_ref, amount_raw, expires_at_ms, status, activation_id, legacy_backfilled, resolved_at, created_at, updated_at)
+                 SELECT ?, ?, ?, ?, ?, ?, ?, 'PENDING', NULL, 0, NULL, ?, ?
+                 WHERE EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)`,
+              )
+              .bind(
+                `chest:${cId}`, recipientKey, budgetBucket,
+                chest.source === 'WARMUP_ROUND' ? 'WARMUP_CHEST' : 'FREE_CHEST',
+                cId, rewardStr, resolvedVoucherExpMs, nowSec, nowSec, cId, openToken,
+              ),
+          ];
         } else {
           balGuardSql = ' AND NOT EXISTS (SELECT 1 FROM prediction_rewards WHERE user_id = ?)';
           balGuardArgs = [recipientKey];
-          creditStmt = this.db
-            .prepare(
-              `INSERT INTO prediction_rewards (user_id, pending_activation_raw, activated_raw, pending_expires_at, total_settled, total_won, streak, updated_at)
-               SELECT ?, ?, '0', ?, 0, 0, 0, ?
-               WHERE EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)
-                 AND NOT EXISTS (SELECT 1 FROM prediction_rewards WHERE user_id = ?)`,
-            )
-            .bind(recipientKey, rewardStr, freshExpMs, nowSec, cId, openToken, recipientKey);
+          creditStmt = [
+            this.db
+              .prepare(
+                `INSERT INTO prediction_rewards (user_id, pending_activation_raw, activated_raw, pending_expires_at, total_settled, total_won, streak, updated_at)
+                 SELECT ?, ?, '0', ?, 0, 0, 0, ?
+                 WHERE EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)
+                   AND NOT EXISTS (SELECT 1 FROM prediction_rewards WHERE user_id = ?)`,
+              )
+              .bind(recipientKey, rewardStr, freshExpMs, nowSec, cId, openToken, recipientKey),
+            this.db
+              .prepare(
+                `INSERT OR IGNORE INTO pending_reward_vouchers
+                   (voucher_id, user_id, source_bucket, source_kind, source_ref, amount_raw, expires_at_ms, status, activation_id, legacy_backfilled, resolved_at, created_at, updated_at)
+                 SELECT ?, ?, ?, ?, ?, ?, ?, 'PENDING', NULL, 0, NULL, ?, ?
+                 WHERE EXISTS (SELECT 1 FROM chest_open_credits WHERE chest_id = ? AND open_token = ?)`,
+              )
+              .bind(
+                `chest:${cId}`, recipientKey, budgetBucket,
+                chest.source === 'WARMUP_ROUND' ? 'WARMUP_CHEST' : 'FREE_CHEST',
+                cId, rewardStr, resolvedVoucherExpMs, nowSec, nowSec, cId, openToken,
+              ),
+          ];
         }
       }
 
@@ -715,7 +756,8 @@ export class D1ChestEngine {
           ),
         );
       }
-      if (finalCreditStmt) stmts.push(finalCreditStmt);
+      if (Array.isArray(finalCreditStmt)) stmts.push(...finalCreditStmt);
+      else if (finalCreditStmt) stmts.push(finalCreditStmt);
 
       const out = await this.db.batch(stmts);
       if (changes(out?.[0]) === 1) {
@@ -910,8 +952,19 @@ export class D1ChestEngine {
       const budgetGuardSql = budgetPrep ? budgetPrep.guardSql : '';
       const budgetGuardArgs = budgetPrep ? budgetPrep.guardArgs : [];
 
+      try {
+        await this.db.prepare('SELECT 1 FROM pending_reward_vouchers LIMIT 1').first();
+      } catch (vErr) {
+        if (/no such table/i.test(String(vErr?.message || vErr))) {
+          throw new ChestError('MIGRATION_0017_REQUIRED', 'pending_reward_vouchers 表缺失，请先执行 0017_actuarial_reservations_and_vouchers.sql 迁移');
+        }
+        throw vErr;
+      }
       const grantToken = `cg_${randomHex(8)}`;
       const nowMs = nowSec * 1000;
+      if (predictionEngine && typeof predictionEngine.reclaimExpiredVouchers === 'function') {
+        await predictionEngine.reclaimExpiredVouchers(nowMs, { budgetLedger, userId: cUid, limit: 1 });
+      }
       const freshExpMs = nowMs + VOUCHER_TTL_MS;
       const curRow = await this.db
         .prepare('SELECT pending_activation_raw, pending_expires_at FROM prediction_rewards WHERE user_id = ? LIMIT 1')
@@ -921,6 +974,7 @@ export class D1ChestEngine {
       let balGuardSql = '';
       let balGuardArgs = [];
       let creditStmt = null;
+      let resolvedVoucherExpMs = freshExpMs;
 
       if (curRow) {
         const curStr = String(curRow.pending_activation_raw || '0');
@@ -930,6 +984,7 @@ export class D1ChestEngine {
         const basePending = isExpired ? 0n : curPending;
         const nextStr = (basePending + CAPTAIN_FOUNDING_BONUS_RAW).toString();
         const nextExpMs = (basePending > 0n && curExp !== null) ? curExp : freshExpMs;
+        resolvedVoucherExpMs = nextExpMs;
         balGuardSql = ' AND EXISTS (SELECT 1 FROM prediction_rewards WHERE user_id = ? AND pending_activation_raw = ?)';
         balGuardArgs = [cUid, curStr];
         creditStmt = this.db
@@ -968,6 +1023,14 @@ export class D1ChestEngine {
           )
           .bind(tId, cUid, walletKey, chatId, count, amountStr, grantToken, nowSec, ...dedupArgs, ...balGuardArgs, ...budgetGuardArgs),
         creditStmt,
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO pending_reward_vouchers
+               (voucher_id, user_id, source_bucket, source_kind, source_ref, amount_raw, expires_at_ms, status, activation_id, legacy_backfilled, resolved_at, created_at, updated_at)
+             SELECT ?, ?, 'free_chest_captain', 'CAPTAIN_FOUNDING', ?, ?, ?, 'PENDING', NULL, 0, NULL, ?, ?
+             WHERE EXISTS (SELECT 1 FROM captain_founding_bonuses WHERE team_id = ? AND grant_token = ?)`,
+          )
+          .bind(`captain:${tId}`, cUid, tId, amountStr, resolvedVoucherExpMs, nowSec, nowSec, tId, grantToken),
       ];
       if (budgetPrep) {
         batchStmts.push(

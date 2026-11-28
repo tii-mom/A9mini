@@ -176,15 +176,16 @@ export class D1PromoBudgetLedger {
    * Returns null only when delta <= 0 or legacy DB lacks promo_budget_ledger table.
    * Throws BudgetError('PROMO_BUDGET_EXHAUSTED') immediately if current spent + delta > cap.
    */
-  async prepareAtomicReserve(bucketKey, deltaRaw, nowSec = Math.floor(Date.now() / 1000)) {
+  async prepareAtomicReserve(bucketKey, deltaRaw, nowSec = Math.floor(Date.now() / 1000), { extraReservedRaw = 0n } = {}) {
     const delta = BigInt(String(deltaRaw || '0'));
     if (delta <= 0n) return null;
     const row = await this._ensureRow(bucketKey, nowSec);
     if (!row) return null; // legacy DB without migration 0012
     const cap = BigInt(String(row.cap_raw || '0'));
     const curSpent = BigInt(String(row.spent_raw || '0'));
+    const extraReserved = BigInt(String(extraReservedRaw || '0'));
     const nextSpent = curSpent + delta;
-    if (nextSpent > cap) {
+    if (nextSpent + extraReserved > cap) {
       throw new BudgetError(
         'PROMO_BUDGET_EXHAUSTED',
         `推广子池 ${bucketKey} 预算已耗尽，已触发熔断保护`,
@@ -207,6 +208,56 @@ export class D1PromoBudgetLedger {
              WHERE bucket_key = ? AND spent_raw = ?${extraCondSql}`,
           )
           .bind(nextSpentStr, nowSec, key, curSpentStr, ...extraArgs),
+      /** Strict NOT NULL CAS update that forces a full db.batch() rollback on 0-row/concurrent mismatch. */
+      buildStrictUpdateStmt: (extraCondSql = '', extraArgs = []) =>
+        this.db
+          .prepare(
+            `UPDATE promo_budget_ledger
+             SET spent_raw = CASE
+                   WHEN spent_raw = ?${extraCondSql} THEN ?
+                   ELSE NULL
+                 END,
+                 updated_at = ?
+             WHERE bucket_key = ?`,
+          )
+          .bind(curSpentStr, ...extraArgs, nextSpentStr, nowSec, key),
+    };
+  }
+
+  /**
+   * Prepare atomic CAS release statement to embed inside a caller's db.batch().
+   * Forces a full batch rollback via NOT NULL constraint if spent_raw changed concurrently.
+   */
+  async prepareAtomicRelease(bucketKey, deltaRaw, nowSec = Math.floor(Date.now() / 1000)) {
+    const delta = BigInt(String(deltaRaw || '0'));
+    if (delta <= 0n) return null;
+    const row = await this._ensureRow(bucketKey, nowSec);
+    if (!row) return null;
+    const curSpent = BigInt(String(row.spent_raw || '0'));
+    const released = curSpent >= delta ? delta : curSpent;
+    const nextSpent = curSpent - released;
+    const curSpentStr = curSpent.toString();
+    const nextSpentStr = nextSpent.toString();
+    const key = String(bucketKey);
+    return {
+      bucketKey: key,
+      curSpentStr,
+      nextSpentStr,
+      releasedRaw: released.toString(),
+      guardSql: ' AND EXISTS (SELECT 1 FROM promo_budget_ledger WHERE bucket_key = ? AND spent_raw = ?)',
+      guardArgs: [key, curSpentStr],
+      buildStrictUpdateStmt: (extraCondSql = '', extraArgs = []) =>
+        this.db
+          .prepare(
+            `UPDATE promo_budget_ledger
+             SET spent_raw = CASE
+                   WHEN spent_raw = ?${extraCondSql} THEN ?
+                   ELSE NULL
+                 END,
+                 updated_at = ?
+             WHERE bucket_key = ?`,
+          )
+          .bind(curSpentStr, ...extraArgs, nextSpentStr, nowSec, key),
     };
   }
 

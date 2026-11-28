@@ -54,13 +54,15 @@ function formatUsdFromE8(e8) {
 /** 构造严格符合 Telegram startapp 64 字节上限的归因深链。 */
 export function buildTeamDeepLink({ botHandle = 'A9_TonBot', teamId = null, captainTgUserId = null, fallbackParam = 'market' }) {
   const handle = String(botHandle || 'A9_TonBot').replace(/^@/, '').trim() || 'A9_TonBot';
-  const cleanTeam = teamId ? String(teamId).replace(/[^A-Za-z0-9-]/g, '').slice(0, 24) : '';
-  const cleanCaptain = captainTgUserId ? String(captainTgUserId).replace(/[^A-Za-z0-9-]/g, '').slice(0, 24) : '';
+  const cleanTeam = /^(?:G|T|TM|TEAM)-[A-Za-z0-9-]{1,32}$/i.test(teamId || '') ? String(teamId) : '';
+  const cleanCaptain = /^[A-Za-z0-9_-]{1,57}$/.test(captainTgUserId || '') ? String(captainTgUserId) : '';
 
   let param = String(fallbackParam || 'market').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
   if (cleanTeam && cleanCaptain) {
     const candidate = `invite_${cleanTeam}_${cleanCaptain}`;
+    const compact = `i_${cleanTeam}_${cleanCaptain}`;
     if (candidate.length <= 64) param = candidate;
+    else if (compact.length <= 64) param = compact;
   } else if (cleanCaptain) {
     const candidate = `invite_${cleanCaptain}`;
     if (candidate.length <= 64) param = candidate;
@@ -331,7 +333,8 @@ export class TelegramBroadcaster {
   async broadcastRoundOpen({ roundId, round, nowSec = Math.floor(Date.now() / 1000) }) {
     const targets = await this._collectGlobalTargets();
     const targetUsd = formatUsdFromE8(round?.targetPriceUsdE8);
-    const poolStr = formatWholeNumber(round?.rewardBudgetRaw || '700000000000000000');
+    const hasBudget = Boolean(round?.rewardBudgetRaw && /^\d+$/.test(String(round.rewardBudgetRaw)) && BigInt(String(round.rewardBudgetRaw)) > 0n);
+    const poolStr = hasBudget ? `${formatWholeNumber(round.rewardBudgetRaw)} A9` : '待链上同步';
     const photoUrl = this.apiOrigin ? `${this.apiOrigin}/c/img/round/${roundId}.png` : null;
 
     return this._broadcastToTargets({
@@ -352,7 +355,7 @@ export class TelegramBroadcaster {
           text: [
             `第 #${roundId} 轮开启：头矿 6H · 5% 轻止损窗口已开放`,
             `目标底价：${targetUsd}`,
-            `本轮奖励池：${poolStr} A9（全员 1:1 平分，封顶 5x，100 A9 起投，永不爆仓）`,
+            `本轮奖励池：${poolStr}（全员 1:1 平分，封顶 5x，100 A9 起投，永不爆仓）`,
             team ? `所属战队：${team.name}（点击下方入口自动绑定本队 8% 返佣归因）` : '前 6H 锁仓未达标仅止损 5%（退 95%），6H 后止损 10%（退 90%）。',
           ].join('\n'),
           buttonText: '抢头矿 6H · 5% 轻止损上车',

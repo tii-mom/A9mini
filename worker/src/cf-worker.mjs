@@ -11,6 +11,7 @@ import { D1ChestEngine } from './d1-chest-store.mjs';
 import { D1PromoStore } from './d1-promo-store.mjs';
 import { D1SocialStore, D1PredictionEngine, D1ProgressionEngine, D1PresaleStore } from './d1-growth-store.mjs';
 import { D1PromoBudgetLedger, MemoryPromoBudgetLedger } from './promo-budget.mjs';
+import { resolvePredictionConfig, PredictionConfigError } from './prediction-config.mjs';
 import { D1V17RewardEngine, V17RewardEngine } from './v17-rewards.mjs';
 import { D1IdentityStore, MemoryIdentityStore } from './auth.mjs';
 import { TelegramBroadcaster, D1BroadcastLog, MemoryBroadcastLog } from './tg-broadcaster.mjs';
@@ -314,6 +315,15 @@ const CANDIDATE_REQUIRED_TIMING_VARS = [
 ];
 
 export function validateCandidateEnv(env = {}) {
+  // 预言奖池与首败配置合法性校验：明确区分缺省与非法值，非法配置 fail-closed
+  try {
+    resolvePredictionConfig(env);
+  } catch (e) {
+    if (e instanceof PredictionConfigError) {
+      return { ok: false, missing: [e.message], code: e.code || 'BAD_PREDICTION_CONFIG' };
+    }
+    throw e;
+  }
   // P1-3 双热钱包强制隔离校验：只要两项同时配置，严禁归一化后指向同一钱包地址
   const promoHot = String(env.A9_PROMO_HOT_WALLET_ADDRESS || '').trim();
   const presaleHot = String(env.A9_PRESALE_HOT_WALLET_ADDRESS || '').trim();
@@ -651,9 +661,11 @@ export default {
       if (canPromoteRebind) identityStore.canPromoteRebind = canPromoteRebind;
     }
     const socialStore = hasD1 ? new D1SocialStore({ db: env.DB }) : memSocialStore;
+    const predCfg = resolvePredictionConfig(env);
     const predOpts = {
-      firstLossBonusRaw: env.A9_PRED_FIRST_LOSS_BONUS_RAW,
-      firstLossCapRaw: env.A9_PRED_FIRST_LOSS_CAP_RAW,
+      defaultPoolA9Raw: predCfg.defaultPoolA9RawStr,
+      firstLossBonusRaw: predCfg.firstLossBonusRaw,
+      firstLossCapRaw: predCfg.firstLossCapRaw,
       budgetLedger,
     };
     const predictionEngine = hasD1 ? new D1PredictionEngine({ db: env.DB, ...predOpts }) : memPredictionEngine;
@@ -666,6 +678,11 @@ export default {
     const presaleHotAddr = env.A9_PRESALE_HOT_WALLET_ADDRESS || null;
     const presaleOpts = {
       hotWalletAddress: presaleHotAddr,
+      promoHotWalletAddress: env.A9_PROMO_HOT_WALLET_ADDRESS || null,
+      network: env.A9_NETWORK || null,
+      jettonMasterAddress: env.A9_JETTON_MASTER_ADDRESS || null,
+      inventoryMaxStaleSec: Number(env.A9_RUNNER_HEARTBEAT_MAX_STALE_SEC || 120),
+      requireInventorySnapshot: env.A9_REQUIRE_RUNNER_HEARTBEAT === '1',
       rateA9PerTon: BigInt(env.A9_PRESALE_RATE_A9_PER_TON || '2002'),
       minOrderTon: BigInt(env.A9_PRESALE_MIN_ORDER_TON || '5'),
       maxOrderTon: BigInt(env.A9_PRESALE_MAX_ORDER_TON || '500'),
@@ -828,11 +845,13 @@ export default {
     const budgetLedger = hasD1 ? new D1PromoBudgetLedger({ db: env.DB }) : memBudgetLedger;
     const identityStore = hasD1 ? new D1IdentityStore({ db: env.DB }) : memIdentityStore;
     const socialStore = hasD1 ? new D1SocialStore({ db: env.DB }) : memSocialStore;
+    const predCfg = resolvePredictionConfig(env);
     const predictionEngine = hasD1
       ? new D1PredictionEngine({
           db: env.DB,
-          firstLossBonusRaw: env.A9_PRED_FIRST_LOSS_BONUS_RAW,
-          firstLossCapRaw: env.A9_PRED_FIRST_LOSS_CAP_RAW,
+          defaultPoolA9Raw: predCfg.defaultPoolA9RawStr,
+          firstLossBonusRaw: predCfg.firstLossBonusRaw,
+          firstLossCapRaw: predCfg.firstLossCapRaw,
           budgetLedger,
         })
       : memPredictionEngine;
@@ -881,6 +900,13 @@ export default {
     } catch (e) {
       console.error('[a9mini-v15-worker] scheduled sync error:', e?.message || e);
     } finally {
+      try {
+        if (typeof predictionEngine.reclaimExpiredVouchers === 'function') {
+          await predictionEngine.reclaimExpiredVouchers(nowSec * 1000, { budgetLedger, limit: 50 });
+        }
+      } catch (reclaimErr) {
+        console.error('[a9mini-v15-worker] expired voucher reclaim error:', reclaimErr?.message || reclaimErr);
+      }
       try {
         await broadcaster.sendPendingVaultExpiryReminders({ predictionEngine, limit: 10, nowSec });
       } catch (remErr) {

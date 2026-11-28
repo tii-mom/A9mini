@@ -22,6 +22,7 @@ import { GrowthError, renderOgCardPng, renderOgCardSvg, renderOgLandingHtml } fr
 import { SocialError, parseStartAppParam, createTelegramBotGroupVerifier } from './social-store.mjs';
 import { AuthError, MemoryIdentityStore, allowedProofDomains, createRequestAuth, expectedChainId, verifyTonProof } from './auth.mjs';
 import { V17RewardError } from './v17-rewards.mjs';
+import { PredictionConfigError, validateAdminPredictionPoolOverride } from './prediction-config.mjs';
 import { TelegramBroadcaster } from './tg-broadcaster.mjs';
 import { addressKey, normalizeTonAddress } from './ton-address.mjs';
 
@@ -194,6 +195,7 @@ async function checkRunnerHeartbeatGate(roles, env, runnerHeartbeatReader, nowSe
   let newestOkAt = 0;
   let newestMeta = null;
   let recentInventoryLowReason = null;
+  let recentInventoryLowAt = 0;
   for (const r of matched) {
     const rowNet = String(r.network || '').trim().toLowerCase();
     if (expectedNetwork && rowNet !== expectedNetwork) continue;
@@ -204,7 +206,8 @@ async function checkRunnerHeartbeatGate(roles, env, runnerHeartbeatReader, nowSe
     const ts = Number(r.lastSeenAt ?? r.last_seen_at ?? r.lastOkAt ?? r.last_ok_at ?? r.lastTickAt ?? 0);
     const isFresh = Number.isFinite(ts) && ts > 0 && (nowSec - ts) <= maxStaleSec;
     if (meta && meta.executeLive === false) continue;
-    if (isFresh && flow && meta?.inventory?.[flow]?.ok === false) {
+    if (isFresh && ts >= recentInventoryLowAt && flow && meta?.inventory?.[flow]?.ok === false) {
+      recentInventoryLowAt = ts;
       recentInventoryLowReason = meta.inventory[flow].reason || 'LOW_INVENTORY';
     }
     const status = String(r.status ?? meta?.status ?? 'ok').toLowerCase();
@@ -215,14 +218,14 @@ async function checkRunnerHeartbeatGate(roles, env, runnerHeartbeatReader, nowSe
       newestMeta = meta;
     }
   }
+  if (recentInventoryLowReason && recentInventoryLowAt >= newestOkAt) {
+    return {
+      ok: false,
+      code: 'HOT_WALLET_LOW_INVENTORY',
+      reason: `hot wallet (${flow}) low inventory/gas circuit breaker active: ${recentInventoryLowReason}`,
+    };
+  }
   if (!newestOkAt || nowSec - newestOkAt > maxStaleSec) {
-    if (recentInventoryLowReason) {
-      return {
-        ok: false,
-        code: 'HOT_WALLET_LOW_INVENTORY',
-        reason: `hot wallet (${flow}) low inventory/gas circuit breaker active: ${recentInventoryLowReason}`,
-      };
-    }
     return {
       ok: false,
       code: 'PAYOUT_RUNNER_OFFLINE',
@@ -257,7 +260,7 @@ async function checkRunnerHeartbeatGate(roles, env, runnerHeartbeatReader, nowSe
       };
     }
   }
-  return { ok: true, lastSeenAt: newestOkAt };
+  return { ok: true, lastSeenAt: newestOkAt, inventory: newestMeta?.inventory || null };
 }
 
 function resolveRequestedChestSku(skuId, amount) {
@@ -359,16 +362,14 @@ export function createApiRouter({
           ? {
               enabled: true,
               address: presaleEngine.hotWalletAddress,
-              rateA9PerTon: Number(presaleEngine.rateA9PerTon),
-              rateA9PerGram: presaleEngine.rateA9PerTon.toString(),
-              rateKind: 'PROTOCOL_FIXED_QUOTE',
+              pricingModel: 'CHEST_MALL_SKUS',
               minOrderNano: presaleEngine.minOrderNano.toString(),
               maxOrderNano: presaleEngine.maxOrderNano.toString(),
               deliveryFeeNano: presaleEngine.deliveryFeeNano.toString(),
               refundFeeNano: presaleEngine.refundFeeNano.toString(),
               open: presaleEngine.open,
             }
-          : { enabled: false, address: null, rateA9PerTon: null, rateA9PerGram: null, open: false };
+          : { enabled: false, address: null, pricingModel: 'CHEST_MALL_SKUS', open: false };
         base.chestMall = {
           enabled: Boolean(chestEngine),
           openEnabled: env.A9_CHEST_OPEN_ENABLED === '1',
@@ -885,6 +886,7 @@ export function createApiRouter({
         if (!skuId && (amount === undefined || amount === null || amount === '')) {
           return err('SKU_REQUIRED', 'skuId is required; only the 6 valid Chest Mall SKUs are accepted', 400);
         }
+        let inventorySnapshot = null;
         if (presaleEngine.open) {
           const matchedSku = resolveRequestedChestSku(skuId, amount);
           const reqA9Raw = matchedSku
@@ -897,11 +899,14 @@ export function createApiRouter({
             minGramNano,
           });
           if (!hb.ok) return err(hb.code || 'PAYOUT_RUNNER_OFFLINE', `出账签名进程离线或热钱包库存不足：${hb.reason}`, 503);
+          if (hb.inventory && hb.inventory.presale && Number(hb.inventory.presale.fetchedAt || 0) > 0) {
+            inventorySnapshot = hb.inventory;
+          }
         }
         const rawRef = String(body?.referrerId || '').trim() || null;
         if (socialStore && rawRef) await socialStore.bindReferral(walletAddress, rawRef, nowSec, { aliases: [identity.telegramUserId] });
         const effectiveRef = socialStore ? ((await socialStore.getReferrer(walletAddress)) || (await socialStore.getReferrer(identity.telegramUserId))) : null;
-        return ok(await presaleEngine.createOrderIntent(walletAddress, amount ?? null, nowSec, { referrerId: effectiveRef, tgUserId: identity.telegramUserId, skuId, openMode }));
+        return ok(await presaleEngine.createOrderIntent(walletAddress, amount ?? null, nowSec, { referrerId: effectiveRef, tgUserId: identity.telegramUserId, skuId, openMode, inventorySnapshot }));
       }
 
       const poMatch = method === 'GET' && pathname.match(/^\/api\/presale\/orders\/(.+)$/);
@@ -1743,9 +1748,7 @@ export function createApiRouter({
         } else if (ps?.dataAvailable === true) {
           return err('ROUND_NOT_FINALIZED', `round #${roundId} is not available as a finalized on-chain round`, 409);
         }
-        const poolArg = body?.poolA9Raw !== undefined && body?.poolA9Raw !== null
-          ? body.poolA9Raw
-          : predictionEngine.defaultPoolA9Raw;
+        const poolArg = validateAdminPredictionPoolOverride(body?.poolA9Raw, predictionEngine.defaultPoolA9Raw);
         return ok(
           await predictionEngine.settleRoundBets(roundId, body.passed, actualQualified, poolArg, nowSec * 1000, { budgetLedger }),
         );
@@ -1979,7 +1982,16 @@ export function createApiRouter({
       if (e instanceof AuthError) return err(e.code, e.message, e.status || 401);
       if (e instanceof BudgetError) return err(e.code, e.message, e.code === 'PROMO_BUDGET_EXHAUSTED' ? 503 : 400);
       if (e instanceof SocialError) return err(e.code, e.message, e.code === 'NOT_CAPTAIN' ? 403 : 400);
-      if (e instanceof ChestError) return err(e.code, e.message, e.code === 'FORBIDDEN' ? 403 : 400);
+      if (e instanceof ChestError) return err(e.code, e.message, e.code === 'FORBIDDEN' ? 403 : (e.code === 'MIGRATION_0017_REQUIRED' ? 503 : 400));
+      if (e instanceof PredictionConfigError) {
+        return err(e.code, e.message, 400);
+      }
+      if (e instanceof GrowthError && e.code === 'MIGRATION_0017_REQUIRED') {
+        return err(e.code, e.message, 503);
+      }
+      if (e instanceof PresaleError && ['HOT_WALLET_LOW_INVENTORY', 'PROMO_WALLET_LOW_INVENTORY', 'INVENTORY_SNAPSHOT_UNAVAILABLE', 'INVENTORY_SNAPSHOT_STALE', 'INVENTORY_SNAPSHOT_MISMATCH', 'MIGRATION_0017_REQUIRED'].includes(e.code)) {
+        return err(e.code, e.message, 503);
+      }
       if (e instanceof PromoError || e instanceof PresaleError || e instanceof GrowthError || e instanceof V17RewardError) {
         return err(e.code, e.message, 400);
       }

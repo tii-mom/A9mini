@@ -946,9 +946,9 @@ await test('Batch 1: D1PredictionEngine.activateToPromo is atomic, idempotent on
   const origBatch = db.batch.bind(db);
   let failOnce = true;
   db.batch = async (stmts) => {
-    if (failOnce && stmts.length === 3) {
+    if (failOnce && stmts.length >= 3) {
       failOnce = false;
-      return origBatch([stmts[0], stmts[1], db.prepare('UPDATE __nonexistent_b1_crash SET x = 1')]);
+      return origBatch([stmts[0], stmts[1], db.prepare('UPDATE __nonexistent_b1_crash SET x = 1'), ...stmts.slice(3)]);
     }
     return origBatch(stmts);
   };
@@ -1772,7 +1772,7 @@ await test('W2-5: D1PredictionEngine.settleRoundBets is batched & CAS-safe again
   const origBatch = db.batch.bind(db);
   let racedOnce = false;
   db.batch = async (stmts) => {
-    if (!racedOnce && stmts.length === 50) {
+    if (!racedOnce && stmts.length >= 50) {
       racedOnce = true;
       db.batch = origBatch; // allow activateToPromo's own batch to commit cleanly first
       const act = await pred.activateToPromo('u_race', WALLET_RACE, promo, {
@@ -2361,7 +2361,7 @@ await test('W2-8: Security audit regressions (queryId rotation, cursor freeze, v
   const origPrep = dbExp.prepare.bind(dbExp);
   let injectedNew = false;
   dbExp.prepare = (sql) => {
-    if (!injectedNew && sql.includes("SET pending_activation_raw = '0', pending_expires_at = NULL") && sql.includes('AND pending_activation_raw = ?')) {
+    if (!injectedNew && sql.includes('UPDATE prediction_rewards') && (sql.includes("SET pending_activation_raw = '0', pending_expires_at = NULL") || sql.includes('SET pending_activation_raw = CASE'))) {
       injectedNew = true;
       // Synchronously bump row before this CAS statement runs
       origPrep('UPDATE prediction_rewards SET pending_activation_raw = ?, pending_expires_at = ? WHERE user_id = ?')

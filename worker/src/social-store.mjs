@@ -64,8 +64,8 @@ export function parseStartAppParam(rawParam) {
 
   // 1) invite_<teamId>_<referrerId> or invite_<referrerId>
   // 注意：TON base64url 友好地址或钱包标识本身可能含 '_'，因此仅当首段是明确商会 ID（G-* / T-* / TM-* / TEAM-*）时才拆出 teamId，其余完整保留为 referrerId。
-  if (raw.startsWith('invite_')) {
-    const rest = raw.slice('invite_'.length);
+  if (/^(?:invite|i)_/i.test(raw)) {
+    const rest = raw.slice(raw.indexOf('_') + 1);
     if (!rest) return null;
     const teamMatch = rest.match(/^((?:G|T|TM|TEAM)-[A-Za-z0-9-]+)_(.+)$/i);
     if (teamMatch) {
@@ -76,6 +76,10 @@ export function parseStartAppParam(rawParam) {
         targetId: teamMatch[1],
         referrerId: teamMatch[2],
       };
+    }
+    if (/^i_/i.test(raw)) return null;
+    if (/^(?:G|T|TM|TEAM)-[A-Za-z0-9-]+$/i.test(rest)) {
+      return { raw, kind: 'invite', teamId: rest, targetId: rest, referrerId: null };
     }
     return { raw, kind: 'invite', teamId: null, targetId: null, referrerId: rest };
   }

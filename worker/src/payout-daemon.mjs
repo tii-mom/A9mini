@@ -19,6 +19,7 @@ import { createD1HttpClient, createSqliteFileD1 } from './d1-http-client.mjs';
 import { TonCenterClient } from './toncenter.mjs';
 import { D1PromoStore } from './d1-promo-store.mjs';
 import { D1PromoBudgetLedger } from './promo-budget.mjs';
+import { resolvePredictionConfig } from './prediction-config.mjs';
 import { D1IdentityStore } from './auth.mjs';
 import { D1SocialStore, D1PredictionEngine, D1PresaleStore } from './d1-growth-store.mjs';
 import { D1ChestEngine } from './d1-chest-store.mjs';
@@ -194,9 +195,12 @@ export function createPayoutDaemon({
     dedupLog: new D1BroadcastLog({ db: ledger }),
   });
 
+  const predCfg = resolvePredictionConfig(env);
   const predictionEngine = new D1PredictionEngine({
     db: ledger,
-    defaultPoolA9Raw: env.A9_PREDICTION_POOL_A9_RAW || '25000000000000',
+    defaultPoolA9Raw: predCfg.defaultPoolA9RawStr,
+    firstLossBonusRaw: predCfg.firstLossBonusRaw,
+    firstLossCapRaw: predCfg.firstLossCapRaw,
     budgetLedger,
   });
 
@@ -292,7 +296,7 @@ export function createPayoutDaemon({
     const shouldProbe = (cfg.executeLive || env.A9_CHECK_HOT_WALLET_INVENTORY === '1')
       && Boolean(cfg.jettonMasterAddress)
       && typeof tc?.fetchAccountBalanceNano === 'function'
-      && typeof tc?.fetchUserJettonWallet === 'function';
+      && (typeof tc?.fetchHotWalletInventoryState === 'function' || typeof tc?.fetchUserJettonWallet === 'function');
     if (!shouldProbe) return null;
 
     const minGramNano = BigInt(env.A9_HOT_WALLET_MIN_GRAM_NANO || '100000000'); // 0.10 GRAM gas floor
@@ -308,39 +312,114 @@ export function createPayoutDaemon({
       return acc;
     };
 
+    const readInventoryState = async (owner, previous, confirmedRows) => {
+      if (typeof tc.fetchHotWalletInventoryState !== 'function') {
+        // Legacy adapters can report a balance but cannot prove which debits it includes.
+        const jw = await tc.fetchUserJettonWallet(cfg.jettonMasterAddress, owner);
+        if (!jw?.balanceAvailable || jw.a9BalanceRaw === null) throw new Error('Hot wallet A9 balance unavailable');
+        return { a9Raw: BigInt(jw.a9BalanceRaw), uncovered: sumBigInt(confirmedRows, 'amount') };
+      }
+
+      const jw = await tc.fetchHotWalletInventoryState(cfg.jettonMasterAddress, owner);
+      const { jettonWallet, walletLt } = jw;
+      if (previous?.network === cfg.network && addressKey(previous.jettonMaster) === addressKey(cfg.jettonMasterAddress)
+          && addressKey(previous.walletAddress) === addressKey(owner)
+          && addressKey(previous.jettonWallet) === addressKey(jettonWallet) && previous.walletLt
+          && (BigInt(walletLt) < BigInt(previous.walletLt)
+              || (walletLt === previous.walletLt && previous.a9Raw !== jw.a9BalanceRaw))) {
+        throw new Error('JettonWallet inventory state regressed or changed at the same logical time');
+      }
+
+      const scope = [cfg.network, addressKey(cfg.jettonMasterAddress), addressKey(jettonWallet)];
+      const cached = (await ledger.prepare(
+        'SELECT tx_hash, debit_lt FROM hot_wallet_payout_debits WHERE network = ? AND jetton_master = ? AND jetton_wallet = ?',
+      ).bind(...scope).all())?.results || [];
+      const debits = new Map(cached.map((row) => [row.tx_hash, BigInt(row.debit_lt)]));
+      const missing = confirmedRows.filter((row) => row.tx_hash && !debits.has(row.tx_hash));
+      // Bound RPC work per tick. Rotate through unresolved entries so one missing receipt cannot starve later ones.
+      const batchSize = 8;
+      const offset = (state.ticks * batchSize) % (missing.length || 1);
+      const toCheck = missing.slice(offset, offset + batchSize);
+      for (const { tx_hash: hash } of toCheck) {
+        let debitLt;
+        try {
+          debitLt = await tc.fetchHotWalletPayoutDebitLt(jettonWallet, owner, hash);
+        } catch (e) {
+          logger.error('[payout-daemon] debit receipt unavailable:', e?.message || String(e));
+          break;
+        }
+        if (!/^[1-9]\d{0,19}$/.test(typeof debitLt === 'string' ? debitLt : '')) continue;
+        await ledger.prepare(
+          `INSERT OR IGNORE INTO hot_wallet_payout_debits
+           (network, jetton_master, jetton_wallet, tx_hash, debit_lt) VALUES (?, ?, ?, ?, ?)`,
+        ).bind(...scope, hash, debitLt).run();
+        debits.set(hash, BigInt(debitLt));
+      }
+      const head = BigInt(walletLt);
+      const uncovered = sumBigInt(confirmedRows.filter(({ tx_hash: hash }) => !debits.has(hash) || debits.get(hash) > head), 'amount');
+      return { a9Raw: BigInt(jw.a9BalanceRaw), jettonWallet, walletLt, uncovered };
+    };
+
+    const prevRow = await ledger.prepare('SELECT meta_json FROM runner_heartbeats WHERE runner_id = ? LIMIT 1')
+      .bind(cfg.runnerId).first();
+    const prevInv = prevRow?.meta_json ? JSON.parse(prevRow.meta_json)?.inventory : null;
+    const stableState = (previous) => previous?.walletLt ? {
+      network: previous.network,
+      jettonMaster: previous.jettonMaster,
+      walletAddress: previous.walletAddress,
+      jettonWallet: previous.jettonWallet,
+      walletLt: previous.walletLt,
+      a9Raw: previous.a9Raw,
+    } : {};
+
     const inventory = {};
 
     if (cfg.presaleAddr) {
       try {
         let reservedA9 = 0n;
         let reservedGram = 0n;
+        let confirmedA9Rows = [];
         try {
-          const pRows = (await ledger.prepare("SELECT kind, amount FROM presale_payouts WHERE status IN ('PENDING', 'RETRY')").all())?.results || [];
+          const pRows = (await ledger.prepare("SELECT payout_id, kind, amount, status, tx_hash, updated_at FROM presale_payouts WHERE status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT', 'NEEDS_REVIEW', 'CONFIRMED')").all())?.results || [];
           for (const r of pRows) {
             const amt = /^\d+$/.test(String(r.amount || '')) ? BigInt(r.amount) : 0n;
+            if (r.status === 'CONFIRMED') {
+              if (r.kind === 'A9') confirmedA9Rows.push(r);
+              continue;
+            }
             if (r.kind === 'A9') reservedA9 += amt;
             else if (r.kind === 'REFUND') reservedGram += amt;
           }
-          const oRows = (await ledger.prepare("SELECT a9_amount_raw, status, expires_at FROM presale_orders WHERE status IN ('PENDING_PAYMENT', 'PAYMENT_CONFIRMED')").all())?.results || [];
+          const oRows = (await ledger.prepare("SELECT o.order_id, o.a9_amount_raw, o.bonus_a9_raw, o.bonus_rolled, o.status, o.expires_at, r.reserved_bonus_raw, r.settled_bonus_raw, r.bonus_status FROM presale_orders o LEFT JOIN presale_order_reservations r ON r.order_id = o.order_id WHERE o.status IN ('PENDING_PAYMENT', 'PAYMENT_CONFIRMED')").all())?.results || [];
           for (const o of oRows) {
             if (o.status === 'PENDING_PAYMENT' && Number(o.expires_at || 0) > 0 && Number(o.expires_at) < nowSec) continue;
             const base = /^\d+$/.test(String(o.a9_amount_raw || '')) ? BigInt(o.a9_amount_raw) : 0n;
-            reservedA9 += (base * 16667n + 9999n) / 10000n;
+            if (o.bonus_status === 'SETTLED') {
+              reservedA9 += base + BigInt(String(o.settled_bonus_raw || '0'));
+            } else if (o.bonus_status === 'RESERVED') {
+              reservedA9 += base + BigInt(String(o.reserved_bonus_raw || '0'));
+            } else if (Number(o.bonus_rolled || 0) === 1) {
+              reservedA9 += base + BigInt(String(o.bonus_a9_raw || '0'));
+            } else {
+              reservedA9 += (base * 16667n + 9999n) / 10000n;
+            }
           }
         } catch (dbErr) {
           if (!/no such table/i.test(String(dbErr?.message || dbErr))) throw dbErr;
         }
         const gramNano = await tc.fetchAccountBalanceNano(cfg.presaleAddr);
-        const jw = await tc.fetchUserJettonWallet(cfg.jettonMasterAddress, cfg.presaleAddr);
-        if (!jw?.balanceAvailable || jw.a9BalanceRaw === null) {
-          throw new Error('presale hot wallet A9 balance unavailable');
-        }
-        const a9Raw = BigInt(jw.a9BalanceRaw);
+        const { a9Raw, jettonWallet, walletLt, uncovered } = await readInventoryState(cfg.presaleAddr, prevInv?.presale, confirmedA9Rows);
+        reservedA9 += uncovered;
         const gramAvailableNano = gramNano > reservedGram ? gramNano - reservedGram : 0n;
         const a9AvailableRaw = a9Raw > reservedA9 ? a9Raw - reservedA9 : 0n;
         const ok = gramAvailableNano >= minGramNano && a9AvailableRaw >= minPresaleA9Raw;
         inventory.presale = {
           ok,
+          network: cfg.network,
+          jettonMaster: cfg.jettonMasterAddress,
+          walletAddress: cfg.presaleAddr,
+          fetchedAt: nowSec,
+          ...(walletLt ? { jettonWallet, walletLt } : {}),
           gramNano: gramNano.toString(),
           gramAvailableNano: gramAvailableNano.toString(),
           a9Raw: a9Raw.toString(),
@@ -350,31 +429,53 @@ export function createPayoutDaemon({
           reason: ok ? null : (gramAvailableNano < minGramNano ? 'LOW_GRAM_GAS' : 'LOW_A9_INVENTORY'),
         };
       } catch (e) {
-        inventory.presale = { ok: false, gramNano: null, gramAvailableNano: null, a9Raw: null, a9AvailableRaw: null, reason: e?.message || 'INVENTORY_PROBE_FAILED' };
+        inventory.presale = { ...stableState(prevInv?.presale), ok: false, fetchedAt: nowSec, reason: e?.message || 'INVENTORY_PROBE_FAILED' };
       }
     }
 
     if (cfg.promoAddr) {
       try {
         let reservedA9 = 0n;
+        let confirmedPromoRows = [];
         try {
-          const pRows = (await ledger.prepare("SELECT amount_raw FROM promo_payouts WHERE status IN ('PENDING', 'RETRY')").all())?.results || [];
-          reservedA9 += sumBigInt(pRows, 'amount_raw');
-          const cRows = (await ledger.prepare("SELECT amount_raw FROM promo_claims WHERE status = 'PENDING_FEE' AND expires_at >= ?").bind(nowSec).all())?.results || [];
+          // 一笔责任只算一次：claimable_raw 已包含 PENDING_FEE 待付费领取，不重复叠加 PENDING_FEE；
+          // 叠加未终局 promo_payouts、已扣余额但尚未生成 payout 的 FEE_CONFIRMED/PAYOUT_SENT 领取，以及商城订单已预留未入账的 6% 返佣。
+          const bRows = (await ledger.prepare("SELECT claimable_raw FROM promo_balances WHERE claimable_raw != '0'").all())?.results || [];
+          reservedA9 += sumBigInt(bRows, 'claimable_raw');
+          const pRows = (await ledger.prepare("SELECT payout_id, amount_raw AS amount, status, tx_hash, updated_at FROM promo_payouts WHERE status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT', 'NEEDS_REVIEW', 'CONFIRMED')").all())?.results || [];
+          for (const r of pRows) {
+            if (r.status === 'CONFIRMED') {
+              confirmedPromoRows.push(r);
+              continue;
+            }
+            const amt = /^\d+$/.test(String(r.amount || '')) ? BigInt(r.amount) : 0n;
+            reservedA9 += amt;
+          }
+          const cRows = (await ledger.prepare("SELECT c.amount_raw FROM promo_claims c LEFT JOIN promo_payouts p ON p.claim_id = c.claim_id WHERE c.status IN ('FEE_CONFIRMED', 'PAYOUT_SENT') AND p.claim_id IS NULL").all())?.results || [];
           reservedA9 += sumBigInt(cRows, 'amount_raw');
+          try {
+            const rRows = (await ledger.prepare("SELECT reserved_referral_raw FROM presale_order_reservations WHERE referral_status = 'RESERVED'").all())?.results || [];
+            reservedA9 += sumBigInt(rRows, 'reserved_referral_raw');
+            const rcRows = (await ledger.prepare("SELECT rc.amount_raw FROM presale_referral_credits rc WHERE rc.status IN ('PENDING', 'CREDITING', 'NEEDS_REVIEW') AND NOT EXISTS (SELECT 1 FROM presale_order_reservations r WHERE r.order_id = rc.order_id AND r.referral_status = 'RESERVED')").all())?.results || [];
+            reservedA9 += sumBigInt(rcRows, 'amount_raw');
+          } catch (resErr) {
+            if (!/no such table/i.test(String(resErr?.message || resErr))) throw resErr;
+          }
         } catch (dbErr) {
           if (!/no such table/i.test(String(dbErr?.message || dbErr))) throw dbErr;
         }
         const gramNano = await tc.fetchAccountBalanceNano(cfg.promoAddr);
-        const jw = await tc.fetchUserJettonWallet(cfg.jettonMasterAddress, cfg.promoAddr);
-        if (!jw?.balanceAvailable || jw.a9BalanceRaw === null) {
-          throw new Error('promo hot wallet A9 balance unavailable');
-        }
-        const a9Raw = BigInt(jw.a9BalanceRaw);
+        const { a9Raw, jettonWallet, walletLt, uncovered } = await readInventoryState(cfg.promoAddr, prevInv?.promo, confirmedPromoRows);
+        reservedA9 += uncovered;
         const a9AvailableRaw = a9Raw > reservedA9 ? a9Raw - reservedA9 : 0n;
         const ok = gramNano >= minGramNano && a9AvailableRaw >= minPromoA9Raw;
         inventory.promo = {
           ok,
+          network: cfg.network,
+          jettonMaster: cfg.jettonMasterAddress,
+          walletAddress: cfg.promoAddr,
+          fetchedAt: nowSec,
+          ...(walletLt ? { jettonWallet, walletLt } : {}),
           gramNano: gramNano.toString(),
           gramAvailableNano: gramNano.toString(),
           a9Raw: a9Raw.toString(),
@@ -383,7 +484,7 @@ export function createPayoutDaemon({
           reason: ok ? null : (gramNano < minGramNano ? 'LOW_GRAM_GAS' : 'LOW_A9_INVENTORY'),
         };
       } catch (e) {
-        inventory.promo = { ok: false, gramNano: null, gramAvailableNano: null, a9Raw: null, a9AvailableRaw: null, reason: e?.message || 'INVENTORY_PROBE_FAILED' };
+        inventory.promo = { ...stableState(prevInv?.promo), ok: false, fetchedAt: nowSec, reason: e?.message || 'INVENTORY_PROBE_FAILED' };
       }
     }
 

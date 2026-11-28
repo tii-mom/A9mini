@@ -9,6 +9,7 @@ import { SocialStore } from './social-store.mjs';
 import { PredictionEngine, ProgressionEngine } from './growth-engine.mjs';
 import { ChestEngine } from './chest-engine.mjs';
 import { MemoryPromoBudgetLedger } from './promo-budget.mjs';
+import { resolvePredictionConfig } from './prediction-config.mjs';
 import { V17RewardEngine } from './v17-rewards.mjs';
 import { TonCenterClient } from './toncenter.mjs';
 import { PromoPayoutRunner } from './promo-runner.mjs';
@@ -61,9 +62,11 @@ const identityStore = new MemoryIdentityStore({
     ? ({ fromWalletAddress, toWalletAddress, nowSec }) => promoEngine.mergeBalance(fromWalletAddress, toWalletAddress, nowSec)
     : null,
 });
+const predCfg = resolvePredictionConfig(process.env);
 const predictionEngine = new PredictionEngine({
-  firstLossBonusRaw: process.env.A9_PRED_FIRST_LOSS_BONUS_RAW,
-  firstLossCapRaw: process.env.A9_PRED_FIRST_LOSS_CAP_RAW,
+  defaultPoolA9Raw: predCfg.defaultPoolA9RawStr,
+  firstLossBonusRaw: predCfg.firstLossBonusRaw,
+  firstLossCapRaw: predCfg.firstLossCapRaw,
   budgetLedger,
 });
 const progressionEngine = new ProgressionEngine();

@@ -514,3 +514,106 @@ CREATE TABLE IF NOT EXISTS round_jackpot_draws (
   status TEXT NOT NULL DEFAULT 'PENDING', -- PENDING | CREDITED
   created_at INTEGER NOT NULL
 );
+
+-- ---------------------------------------------------------------------------
+-- v17.0: 返佣与空投链上终局证据快照 (migration 0016)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS v17_round_finality_snapshots (
+  round_id INTEGER PRIMARY KEY,
+  network TEXT NOT NULL,
+  round_controller TEXT NOT NULL,
+  status_code INTEGER NOT NULL,
+  settled_at INTEGER NOT NULL,
+  settlement_tx_hash TEXT NOT NULL,
+  candle_hash TEXT NOT NULL,
+  total_stake_raw TEXT NOT NULL,
+  reward_budget_raw TEXT NOT NULL,
+  participant_count INTEGER NOT NULL,
+  airdrop_seed_hash TEXT NOT NULL,
+  evidence_hash TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_v17_finality_snapshots_net_rc
+  ON v17_round_finality_snapshots(network, round_controller, round_id DESC);
+
+-- ---------------------------------------------------------------------------
+-- v17 Actuarial Hardening: Order-level reservations, 48H pending reward vouchers & reconciliation (migration 0017)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS presale_order_reservations (
+  order_id TEXT PRIMARY KEY,
+  sku_id TEXT,
+  base_a9_raw TEXT NOT NULL,
+  reserved_bonus_raw TEXT NOT NULL DEFAULT '0',
+  settled_bonus_raw TEXT NOT NULL DEFAULT '0',
+  released_bonus_raw TEXT NOT NULL DEFAULT '0',
+  reserved_referral_raw TEXT NOT NULL DEFAULT '0',
+  referral_bps INTEGER NOT NULL DEFAULT 6,
+  max_boost_bps INTEGER NOT NULL DEFAULT 0,
+  bonus_status TEXT NOT NULL DEFAULT 'RESERVED',
+  referral_status TEXT NOT NULL DEFAULT 'NONE',
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  legacy_backfilled INTEGER NOT NULL DEFAULT 0,
+  snapshot_network TEXT,
+  snapshot_jetton_master TEXT,
+  snapshot_presale_wallet TEXT,
+  snapshot_promo_wallet TEXT,
+  snapshot_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_presale_res_status
+  ON presale_order_reservations(status, updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_presale_res_referral_status
+  ON presale_order_reservations(referral_status, updated_at);
+
+CREATE TABLE IF NOT EXISTS pending_reward_vouchers (
+  voucher_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  source_bucket TEXT NOT NULL,
+  source_kind TEXT NOT NULL,
+  source_ref TEXT NOT NULL,
+  amount_raw TEXT NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  activation_id TEXT,
+  legacy_backfilled INTEGER NOT NULL DEFAULT 0,
+  resolved_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_vouchers_user_status
+  ON pending_reward_vouchers(user_id, status, expires_at_ms);
+
+CREATE INDEX IF NOT EXISTS idx_pending_vouchers_expire
+  ON pending_reward_vouchers(status, expires_at_ms);
+
+CREATE TABLE IF NOT EXISTS actuarial_reconciliation_items (
+  item_id TEXT PRIMARY KEY,
+  category TEXT NOT NULL,
+  entity_key TEXT NOT NULL,
+  recorded_raw TEXT NOT NULL,
+  evidenced_raw TEXT NOT NULL DEFAULT '0',
+  unexplained_raw TEXT NOT NULL DEFAULT '0',
+  detail_json TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'OPEN',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_actuarial_recon_cat_status
+  ON actuarial_reconciliation_items(category, status, created_at);
+
+-- Cache confirmed sender-side debit evidence by chain and JettonWallet.
+CREATE TABLE IF NOT EXISTS hot_wallet_payout_debits (
+  network TEXT NOT NULL,
+  jetton_master TEXT NOT NULL,
+  jetton_wallet TEXT NOT NULL,
+  tx_hash TEXT NOT NULL,
+  debit_lt TEXT NOT NULL,
+  PRIMARY KEY (network, jetton_master, jetton_wallet, tx_hash)
+);

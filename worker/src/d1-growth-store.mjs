@@ -25,7 +25,9 @@ import {
   computeEffectiveStreak,
   buildProgressionSummary,
 } from './growth-engine.mjs';
-import { PresaleEngine, PresaleError, RESERVING_STATUSES } from './presale-hotwallet.mjs';
+import { PresaleEngine, PresaleError, PRESALE_STATUS, REFERRAL_BPS, RESERVING_STATUSES } from './presale-hotwallet.mjs';
+import { CHEST_MALL_CATALOG, CHEST_MALL_NANO_TO_SKU } from './chest-engine.mjs';
+import { D1PromoBudgetLedger } from './promo-budget.mjs';
 import { addressKey, addressAliases } from './ton-address.mjs';
 import { randomHex } from './auth.mjs';
 
@@ -1157,6 +1159,20 @@ export class D1PredictionEngine {
    * 且 prediction_rewards 的 pending_activation_raw/total_settled 快照未发生并发变更；
    * 全程绝不触碰 activated_raw，彻底杜绝并发 activateToPromo 导致的已激活奖励复活双花。
    */
+  async _assertVoucherTable0017() {
+    try {
+      await this.db.prepare('SELECT 1 FROM pending_reward_vouchers LIMIT 1').first();
+    } catch (e) {
+      if (isMissingTableErr(e)) {
+        throw new GrowthError(
+          'MIGRATION_0017_REQUIRED',
+          'pending_reward_vouchers 表缺失，请先执行 0017_actuarial_reservations_and_vouchers.sql 迁移',
+        );
+      }
+      throw e;
+    }
+  }
+
   _buildAtomicSettlePair(rId, item, curStats, nowMs, nowSec) {
     const nextState = computeNextPendingState(curStats.pendingActivationRaw, curStats.pendingExpiresAt, item.deltaPending, nowMs);
     const nextPending = nextState.nextPendingRaw.toString();
@@ -1164,7 +1180,7 @@ export class D1PredictionEngine {
     const nextSettled = curStats.totalSettled + 1;
     const nextWon = curStats.totalWon + (item.isWin ? 1 : 0);
     const nextStreak = item.isWin ? curStats.streak + 1 : 0;
-    return [
+    const stmts = [
       this.db
         .prepare(
           `UPDATE prediction_rewards
@@ -1202,9 +1218,28 @@ export class D1PredictionEngine {
         .prepare("UPDATE prediction_bets SET status = ?, reward_raw = ? WHERE round_id = ? AND user_id = ? AND status = 'OPEN'")
         .bind(item.targetStatus, item.rewardRaw.toString(), rId, item.userId),
     ];
+    if (item.deltaPending > 0n) {
+      const voucherId = item.isWin ? `pred_win:${rId}:${item.userId}` : `pred_fl:${rId}:${item.userId}`;
+      const sourceKind = item.isWin ? 'PREDICTION_WIN' : 'PREDICTION_FIRST_LOSS';
+      stmts.push(
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO pending_reward_vouchers
+               (voucher_id, user_id, source_bucket, source_kind, source_ref, amount_raw, expires_at_ms, status, activation_id, legacy_backfilled, resolved_at, created_at, updated_at)
+             SELECT ?, ?, 'prediction', ?, ?, ?, ?, 'PENDING', NULL, 0, NULL, ?, ?
+             WHERE EXISTS (SELECT 1 FROM prediction_bets WHERE round_id = ? AND user_id = ? AND status = ?)`,
+          )
+          .bind(
+            voucherId, item.userId, sourceKind, `round:${rId}`, item.deltaPending.toString(), nextExpiresAt, nowSec, nowSec,
+            rId, item.userId, item.targetStatus,
+          ),
+      );
+    }
+    return stmts;
   }
 
-  async _settleSingleUserWithCas(rId, item, nowMs, nowSec) {
+  async _settleSingleUserWithCas(rId, item, nowMs, nowSec, { budgetLedger = null } = {}) {
+    const useAtomicBudget = Boolean(item.deltaPending > 0n && budgetLedger && typeof budgetLedger.prepareAtomicReserve === 'function');
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const betRow = await this.db
         .prepare('SELECT status FROM prediction_bets WHERE round_id = ? AND user_id = ?')
@@ -1213,8 +1248,23 @@ export class D1PredictionEngine {
       if (!betRow || String(betRow.status) !== 'OPEN') return false;
 
       await this._ensureUserStatsRow(item.userId, nowSec);
-      const st = await this._getUserStatsRow(item.userId);
+      let st = await this._getUserStatsRow(item.userId);
+      if (st.pendingActivationRaw > 0n && st.pendingExpiresAt !== null && nowMs > st.pendingExpiresAt) {
+        await this.reclaimExpiredVouchers(nowMs, { budgetLedger, userId: item.userId, limit: 1 });
+        st = await this._getUserStatsRow(item.userId);
+      }
       const pair = this._buildAtomicSettlePair(rId, item, st, nowMs, nowSec);
+      if (useAtomicBudget) {
+        const budgetPrep = await budgetLedger.prepareAtomicReserve('prediction', item.deltaPending, nowSec);
+        if (budgetPrep) {
+          pair.push(
+            budgetPrep.buildStrictUpdateStmt(
+              ' AND EXISTS (SELECT 1 FROM prediction_bets WHERE round_id = ? AND user_id = ? AND status = ?)',
+              [rId, item.userId, item.targetStatus],
+            ),
+          );
+        }
+      }
       try {
         await this.db.batch(pair);
         return true;
@@ -1335,14 +1385,25 @@ export class D1PredictionEngine {
       }
     }
 
-    // 预算熔断检查在任何用户账本落库前原子扣减，预算不足直接抛 PROMO_BUDGET_EXHAUSTED（零写入）
+    if (openBudgetNeed > 0n) {
+      await this._assertVoucherTable0017();
+    }
+
+    const hasAtomicBudget = Boolean(budgetLedger && typeof budgetLedger.prepareAtomicReserve === 'function');
+    // 全轮预算熔断预检（只读校验，不提前落库）：预算不足直接抛 PROMO_BUDGET_EXHAUSTED（零写入），
+    // 彻底消除“先扣预算后中断留空占”与“提交后超时误释放预算”两类预算/凭证失衡。
+    if (openBudgetNeed > 0n && hasAtomicBudget) {
+      await budgetLedger.prepareAtomicReserve('prediction', openBudgetNeed, nowSec);
+    }
+
     let reservedBudget = 0n;
-    if (openBudgetNeed > 0n && budgetLedger && typeof budgetLedger.reserve === 'function') {
+    if (openBudgetNeed > 0n && !hasAtomicBudget && budgetLedger && typeof budgetLedger.reserve === 'function') {
       await budgetLedger.reserve('prediction', openBudgetNeed, nowSec);
       reservedBudget = openBudgetNeed;
     }
 
-    // 第二阶段：分批（每批 <= 25 人 / <= 50 条语句）原子 CAS 落库；支持部分失败退还剩余预算并可续跑，不在结算完成前写 prediction_rounds
+    // 第二阶段：分批（每批 <= 25 人）在同一 db.batch() 内原子提交预算扣减 + 凭证写入 + 账本结算；
+    // 任何单条 CAS 冲突整批回滚并回退到单用户同事务 CAS，不在结算完成前写 prediction_rounds。
     let settledBudget = 0n;
     try {
       for (let i = 0; i < pendingItems.length; i += chunkSize) {
@@ -1359,36 +1420,52 @@ export class D1PredictionEngine {
         if (ensureStmts.length) await this.db.batch(ensureStmts);
 
         const batchStmts = [];
+        let sliceBudgetNeed = 0n;
         for (const item of slice) {
-          const st = await this._getUserStatsRow(item.userId);
+          let st = await this._getUserStatsRow(item.userId);
+          if (st.pendingActivationRaw > 0n && st.pendingExpiresAt !== null && nowMs > st.pendingExpiresAt) {
+            await this.reclaimExpiredVouchers(nowMs, { budgetLedger, userId: item.userId, limit: 1 });
+            st = await this._getUserStatsRow(item.userId);
+          }
           const pair = this._buildAtomicSettlePair(rId, item, st, nowMs, nowSec);
           batchStmts.push(...pair);
+          sliceBudgetNeed += item.deltaPending;
+        }
+        if (sliceBudgetNeed > 0n && hasAtomicBudget) {
+          const budgetPrep = await budgetLedger.prepareAtomicReserve('prediction', sliceBudgetNeed, nowSec);
+          if (budgetPrep) {
+            batchStmts.push(budgetPrep.buildStrictUpdateStmt());
+          }
         }
 
         try {
           await this.db.batch(batchStmts);
-          for (const item of slice) settledBudget += item.deltaPending;
+          settledBudget += sliceBudgetNeed;
         } catch (e) {
           const msg = String(e?.message || e);
           if (!/NOT NULL|UNIQUE|constraint/i.test(msg)) throw e;
           for (const item of slice) {
-            const changed = await this._settleSingleUserWithCas(rId, item, nowMs, nowSec);
+            const changed = await this._settleSingleUserWithCas(rId, item, nowMs, nowSec, { budgetLedger: hasAtomicBudget ? budgetLedger : null });
             if (changed) settledBudget += item.deltaPending;
           }
         }
       }
     } catch (e) {
-      const unspent = reservedBudget > settledBudget ? reservedBudget - settledBudget : 0n;
-      if (unspent > 0n && budgetLedger && typeof budgetLedger.release === 'function') {
-        await budgetLedger.release('prediction', unspent, nowSec).catch(() => {});
+      if (!hasAtomicBudget) {
+        const unspent = reservedBudget > settledBudget ? reservedBudget - settledBudget : 0n;
+        if (unspent > 0n && budgetLedger && typeof budgetLedger.release === 'function') {
+          await budgetLedger.release('prediction', unspent, nowSec).catch(() => {});
+        }
       }
       throw e;
     }
 
-    // 若并发执行使部分注单已由其他协程结清，退还多预留的预算差额
-    const excessBudget = reservedBudget > settledBudget ? reservedBudget - settledBudget : 0n;
-    if (excessBudget > 0n && budgetLedger && typeof budgetLedger.release === 'function') {
-      await budgetLedger.release('prediction', excessBudget, nowSec).catch(() => {});
+    // 仅非原子回退路径才需退还多预留差额；原子路径已与凭证同事务精确扣减
+    if (!hasAtomicBudget) {
+      const excessBudget = reservedBudget > settledBudget ? reservedBudget - settledBudget : 0n;
+      if (excessBudget > 0n && budgetLedger && typeof budgetLedger.release === 'function') {
+        await budgetLedger.release('prediction', excessBudget, nowSec).catch(() => {});
+      }
     }
 
     // 全部注单结清后才落库 prediction_rounds 终态标记，确保半途失败可安全续跑
@@ -1448,42 +1525,67 @@ export class D1PredictionEngine {
       .first();
   }
 
-  async creditPendingBonus(userId, amountRaw, nowMs = Date.now()) {
+  async creditPendingBonus(
+    userId,
+    amountRaw,
+    nowMs = Date.now(),
+    { sourceBucket = null, sourceKind = null, sourceRef = null, voucherId = null, budgetLedger = this.budgetLedger } = {},
+  ) {
     const uid = String(userId || '').trim();
     const amt = BigInt(amountRaw || 0n);
     if (!uid || amt <= 0n) return { userId: uid, pendingActivationRaw: '0' };
+    if (sourceBucket) await this._assertVoucherTable0017();
     const nowSec = Math.floor(nowMs / 1000);
     await this._ensureUserStatsRow(uid, nowSec);
     for (let attempt = 0; attempt < 8; attempt += 1) {
-      const st = await this._getUserStatsRow(uid);
+      let st = await this._getUserStatsRow(uid);
+      if (st.pendingActivationRaw > 0n && st.pendingExpiresAt !== null && nowMs > st.pendingExpiresAt) {
+        await this.reclaimExpiredVouchers(nowMs, { budgetLedger, userId: uid, limit: 1 });
+        st = await this._getUserStatsRow(uid);
+      }
       const curStr = st.pendingActivationRaw.toString();
       const next = computeNextPendingState(st.pendingActivationRaw, st.pendingExpiresAt, amt, nowMs);
       const nextPending = next.nextPendingRaw.toString();
-      const res = await this.db
-        .prepare(
-          `UPDATE prediction_rewards
-           SET pending_activation_raw = ?, pending_expires_at = ?, updated_at = ?
-           WHERE user_id = ? AND pending_activation_raw = ?`,
-        )
-        .bind(nextPending, next.nextExpiresAt, nowSec, uid, curStr)
-        .run();
-      if (Number(res?.meta?.changes || 0) === 1) {
+      const stmts = [
+        this.db
+          .prepare(
+            `UPDATE prediction_rewards
+             SET pending_activation_raw = CASE WHEN pending_activation_raw = ? THEN ? ELSE NULL END,
+                 pending_expires_at = ?, updated_at = ?
+             WHERE user_id = ?`,
+          )
+          .bind(curStr, nextPending, next.nextExpiresAt, nowSec, uid),
+      ];
+      if (sourceBucket) {
+        const vId = voucherId ? String(voucherId) : `v_${sourceKind || 'BONUS'}_${uid}_${nowMs}_${randomHex(4)}`;
+        stmts.push(
+          this.db
+            .prepare(
+              `INSERT OR IGNORE INTO pending_reward_vouchers
+                 (voucher_id, user_id, source_bucket, source_kind, source_ref, amount_raw, expires_at_ms, status, activation_id, legacy_backfilled, resolved_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', NULL, 0, NULL, ?, ?)`,
+            )
+            .bind(vId, uid, String(sourceBucket), String(sourceKind || 'PENDING_BONUS'), String(sourceRef || vId), amt.toString(), next.nextExpiresAt, nowSec, nowSec),
+        );
+      }
+      try {
+        await this.db.batch(stmts);
         return { userId: uid, pendingActivationRaw: nextPending, pendingExpiresAt: next.nextExpiresAt };
+      } catch (e) {
+        if (/NOT NULL|UNIQUE|constraint/i.test(String(e?.message || e))) continue;
+        throw e;
       }
     }
     throw new GrowthError('CREDIT_CONFLICT', 'concurrent pending bonus update conflict, please retry');
   }
 
   /**
-   * Atomically deduct prediction_rewards.pending_activation_raw, credit promo_balances.claimable_raw,
-   * and record a unique prediction_activations ledger row in a SINGLE D1 batch transaction.
-   * - Requires promoEngine bound to the SAME D1 database; fails closed BEFORE any write if missing
-   *   or pointing to a different ledger so pending_activation_raw can NEVER be deducted without credit.
-   * - If either snapshot is stale (0-row conditional match) or any statement fails mid-batch, the
-   *   entire D1 batch rolls back so pending_activation_raw is NEVER lost.
-   * - Retrying with the same activationId after a lost response returns the original ledger record.
+   * Atomically deduct prediction_rewards.pending_activation_raw, mark PENDING vouchers ACTIVATED,
+   * credit promo_balances.claimable_raw, and record a unique prediction_activations ledger row in ONE D1 batch.
+   * - Exact expiry boundary (nowMs === pendingExpiresAt) remains activatable; only nowMs > pendingExpiresAt expires.
+   * - On expiry, reclaims expired vouchers back to their original source buckets before throwing VOUCHER_EXPIRED.
    */
-  async activateToPromo(userId, walletAddress, promoEngine, { qualified = false, nowMs = Date.now(), activationId = null } = {}) {
+  async activateToPromo(userId, walletAddress, promoEngine, { qualified = false, nowMs = Date.now(), activationId = null, budgetLedger = this.budgetLedger } = {}) {
     const uid = String(userId || '').trim();
     const wallet = String(walletAddress || '').trim();
     if (!uid || !wallet) throw new GrowthError('BAD_REQUEST', 'userId and walletAddress required');
@@ -1503,9 +1605,15 @@ export class D1PredictionEngine {
     const actId = activationId ? String(activationId).trim().slice(0, 80) : `act:${uid}:${randomHex(8)}`;
     const nowSec = Math.floor(nowMs / 1000);
     const walletKey = addressKey(wallet);
+    let hasVoucherTable = true;
+    try {
+      await this.db.prepare('SELECT 1 FROM pending_reward_vouchers LIMIT 1').first();
+    } catch (e) {
+      if (isMissingTableErr(e)) hasVoucherTable = false;
+      else throw e;
+    }
 
     for (let attempt = 0; attempt < 8; attempt += 1) {
-      // 1) Idempotent retry check: if this activationId already committed, return the original ledger row.
       const existing = await this._getActivationById(actId);
       if (existing) {
         if (existing.userId !== uid) {
@@ -1520,15 +1628,18 @@ export class D1PredictionEngine {
       }
 
       if (st.pendingExpiresAt !== null && nowMs > st.pendingExpiresAt) {
-        // P1-4 CAS 过期清零：仅在 pending 值与过期时间仍匹配旧快照时置 0，绝不覆盖并发刚结算的新奖金
-        await this.db
-          .prepare(
-            `UPDATE prediction_rewards
-             SET pending_activation_raw = '0', pending_expires_at = NULL, updated_at = ?
-             WHERE user_id = ? AND pending_activation_raw = ? AND pending_expires_at = ?`,
-          )
-          .bind(nowSec, uid, st.pendingActivationRaw.toString(), st.pendingExpiresAt)
-          .run();
+        if (hasVoucherTable) {
+          await this.reclaimExpiredVouchers(nowMs, { budgetLedger, userId: uid, limit: 1 });
+        } else {
+          await this.db
+            .prepare(
+              `UPDATE prediction_rewards
+               SET pending_activation_raw = '0', pending_expires_at = NULL, updated_at = ?
+               WHERE user_id = ? AND pending_activation_raw = ? AND pending_expires_at = ?`,
+            )
+            .bind(nowSec, uid, st.pendingActivationRaw.toString(), st.pendingExpiresAt)
+            .run();
+        }
         throw new GrowthError('VOUCHER_EXPIRED', '待激活预言奖励已过期');
       }
 
@@ -1559,11 +1670,12 @@ export class D1PredictionEngine {
                ?, ?, ?, ?,
                (SELECT pending_activation_raw FROM prediction_rewards
                  WHERE user_id = ? AND pending_activation_raw = ?
+                   AND (pending_expires_at IS NULL OR pending_expires_at >= ?)
                    AND EXISTS (SELECT 1 FROM promo_balances WHERE wallet_address = ? AND claimable_raw = ?)),
                ?
              )`,
           )
-          .bind(actId, uid, walletKey, wallet, uid, amt.toString(), targetBalKey, curClaimable, nowSec),
+          .bind(actId, uid, walletKey, wallet, uid, amt.toString(), nowMs, targetBalKey, curClaimable, nowSec),
         this.db
           .prepare(
             `UPDATE prediction_rewards
@@ -1579,6 +1691,17 @@ export class D1PredictionEngine {
           )
           .bind(nextClaimable, nowSec, targetBalKey, curClaimable),
       ];
+      if (hasVoucherTable) {
+        stmts.push(
+          this.db
+            .prepare(
+              `UPDATE pending_reward_vouchers
+               SET status = 'ACTIVATED', activation_id = ?, resolved_at = ?, updated_at = ?
+               WHERE user_id = ? AND status = 'PENDING' AND expires_at_ms >= ?`,
+            )
+            .bind(actId, nowSec, nowSec, uid, nowMs),
+        );
+      }
 
       try {
         await this.db.batch(stmts);
@@ -1586,13 +1709,192 @@ export class D1PredictionEngine {
       } catch (e) {
         const msg = String(e?.message || e);
         if (/NOT NULL|UNIQUE|constraint/i.test(msg)) {
-          // Snapshot conflict or duplicate activationId: loop will return existing ledger or re-read fresh balance.
           continue;
         }
         throw e;
       }
     }
     throw new GrowthError('ACTIVATION_CONFLICT', 'concurrent activation conflict, please retry');
+  }
+
+  /**
+   * Batched, resumable reclamation of expired 48H pending reward vouchers (expires_at_ms < nowMs).
+   * Atomically updates pending_reward_vouchers, prediction_rewards, and promo_budget_ledger in ONE db.batch()
+   * per user so concurrent activateToPromo or new grants NEVER double-credit or double-release.
+   */
+  async reclaimExpiredVouchers(nowMs = Date.now(), { budgetLedger = this.budgetLedger, userId = null, limit = 50 } = {}) {
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(Number(limit || 50))));
+    const nowSec = Math.floor(nowMs / 1000);
+    let candidateUsers = [];
+    try {
+      if (userId) {
+        candidateUsers = [String(userId).trim()];
+      } else {
+        const vRes = await this.db
+          .prepare(
+            `SELECT DISTINCT user_id FROM pending_reward_vouchers
+             WHERE status = 'PENDING' AND expires_at_ms < ?
+             ORDER BY expires_at_ms ASC LIMIT ?`,
+          )
+          .bind(nowMs, safeLimit)
+          .all();
+        const set = new Set((vRes?.results || []).map((r) => String(r.user_id)));
+        if (set.size < safeLimit) {
+          const pRes = await this.db
+            .prepare(
+              `SELECT user_id FROM prediction_rewards
+               WHERE pending_activation_raw != '0' AND pending_expires_at IS NOT NULL AND pending_expires_at < ?
+               ORDER BY pending_expires_at ASC LIMIT ?`,
+            )
+            .bind(nowMs, safeLimit - set.size)
+            .all();
+          for (const r of pRes?.results || []) set.add(String(r.user_id));
+        }
+        candidateUsers = [...set];
+      }
+    } catch (e) {
+      if (isMissingTableErr(e)) {
+        return { processedUsers: 0, reclaimedVouchers: 0, reclaimedRaw: '0', byBucket: {} };
+      }
+      throw e;
+    }
+
+    let processedUsers = 0;
+    let reclaimedVouchers = 0;
+    let reclaimedRaw = 0n;
+    const byBucket = {};
+
+    for (const uid of candidateUsers) {
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const st = await this._getUserStatsRow(uid);
+        const vRowsRes = await this.db
+          .prepare(
+            `SELECT voucher_id, source_bucket, amount_raw, expires_at_ms
+             FROM pending_reward_vouchers
+             WHERE user_id = ? AND status = 'PENDING' AND expires_at_ms < ?
+             ORDER BY created_at ASC`,
+          )
+          .bind(uid, nowMs)
+          .all();
+        const expiredVouchers = vRowsRes?.results || [];
+        const vaultExpired = st.pendingActivationRaw > 0n && st.pendingExpiresAt !== null && nowMs > st.pendingExpiresAt;
+        if (expiredVouchers.length === 0 && !vaultExpired) break;
+
+        const bucketSums = new Map();
+        let voucherSum = 0n;
+        for (const v of expiredVouchers) {
+          const amt = BigInt(String(v.amount_raw || '0'));
+          voucherSum += amt;
+          const b = String(v.source_bucket);
+          bucketSums.set(b, (bucketSums.get(b) || 0n) + amt);
+        }
+
+        const nextPending = vaultExpired
+          ? 0n
+          : (st.pendingActivationRaw >= voucherSum ? st.pendingActivationRaw - voucherSum : 0n);
+        const nextExpiresAt = (vaultExpired || nextPending === 0n) ? null : st.pendingExpiresAt;
+
+        const stmts = [];
+        if (st.pendingActivationRaw > 0n || vaultExpired) {
+          stmts.push(
+            this.db
+              .prepare(
+                `UPDATE prediction_rewards
+                 SET pending_activation_raw = CASE
+                       WHEN pending_activation_raw = ?
+                        AND (pending_expires_at IS NULL OR pending_expires_at < ? OR ? = 0)
+                       THEN ? ELSE NULL END,
+                     pending_expires_at = ?,
+                     updated_at = ?
+                 WHERE user_id = ?`,
+              )
+              .bind(
+                st.pendingActivationRaw.toString(),
+                nowMs,
+                vaultExpired ? 1 : 0,
+                nextPending.toString(),
+                nextExpiresAt,
+                nowSec,
+                uid,
+              ),
+          );
+        }
+
+        for (const v of expiredVouchers) {
+          stmts.push(
+            this.db
+              .prepare(
+                `UPDATE pending_reward_vouchers
+                 SET status = CASE WHEN status = 'PENDING' AND expires_at_ms < ? THEN 'EXPIRED_RELEASED' ELSE NULL END,
+                     resolved_at = ?,
+                     updated_at = ?
+                 WHERE voucher_id = ?`,
+              )
+              .bind(nowMs, nowSec, nowSec, String(v.voucher_id)),
+          );
+        }
+
+        const sortedBuckets = [...bucketSums.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        for (const [bucket, sum] of sortedBuckets) {
+          if (sum > 0n && budgetLedger && typeof budgetLedger.prepareAtomicRelease === 'function') {
+            const relPrep = await budgetLedger.prepareAtomicRelease(bucket, sum, nowSec);
+            if (relPrep) stmts.push(relPrep.buildStrictUpdateStmt());
+          }
+        }
+
+        if (stmts.length === 0) break;
+        try {
+          await this.db.batch(stmts);
+          processedUsers += 1;
+          reclaimedVouchers += expiredVouchers.length;
+          reclaimedRaw += voucherSum;
+          for (const [bucket, sum] of sortedBuckets) {
+            byBucket[bucket] = (BigInt(byBucket[bucket] || '0') + sum).toString();
+          }
+          break;
+        } catch (e) {
+          if (/NOT NULL|UNIQUE|constraint/i.test(String(e?.message || e))) continue;
+          throw e;
+        }
+      }
+    }
+
+    return { processedUsers, reclaimedVouchers, reclaimedRaw: reclaimedRaw.toString(), byBucket };
+  }
+
+  async listPendingVouchers(userId = null, { status = null } = {}) {
+    try {
+      let sql = 'SELECT * FROM pending_reward_vouchers WHERE 1=1';
+      const args = [];
+      if (userId) {
+        sql += ' AND user_id = ?';
+        args.push(String(userId).trim());
+      }
+      if (status) {
+        sql += ' AND status = ?';
+        args.push(String(status).trim());
+      }
+      sql += ' ORDER BY created_at ASC';
+      const res = await this.db.prepare(sql).bind(...args).all();
+      return (res?.results || []).map((r) => ({
+        voucherId: String(r.voucher_id),
+        userId: String(r.user_id),
+        sourceBucket: String(r.source_bucket),
+        sourceKind: String(r.source_kind),
+        sourceRef: String(r.source_ref),
+        amountRaw: String(r.amount_raw),
+        expiresAtMs: Number(r.expires_at_ms),
+        status: String(r.status),
+        activationId: r.activation_id || null,
+        legacyBackfilled: Number(r.legacy_backfilled || 0) === 1,
+        resolvedAt: r.resolved_at === null || r.resolved_at === undefined ? null : Number(r.resolved_at),
+        createdAt: Number(r.created_at || 0),
+        updatedAt: Number(r.updated_at || 0),
+      }));
+    } catch (e) {
+      if (isMissingTableErr(e)) return [];
+      throw e;
+    }
   }
 
   async getUserSummary(userId, roundId = null) {
@@ -1919,7 +2221,7 @@ export class D1ProgressionEngine {
 //    Atomicity: capacity check + insert is ONE statement; multi-row transitions use db.batch()
 //    (D1 runs a batch as a single transaction and rolls back on any failure).
 // ---------------------------------------------------------------------------
-const RESERVING_SQL = `(status IN (${RESERVING_STATUSES.map((s) => `'${s}'`).join(', ')}) OR (status = 'PENDING_PAYMENT' AND expires_at > ?))`;
+const RESERVING_SQL = `(status IN (${RESERVING_STATUSES.map((s) => `'${s}'`).join(', ')}) OR (status = 'PENDING_PAYMENT' AND expires_at >= ?))`;
 
 const ORDER_COLS = {
   status: 'status',
@@ -2039,9 +2341,44 @@ function rowToCredit(r) {
   };
 }
 
+function rowToReservation(r) {
+  if (!r) return null;
+  return {
+    orderId: String(r.order_id),
+    skuId: r.sku_id || null,
+    baseA9Raw: BigInt(r.base_a9_raw || '0'),
+    reservedBonusRaw: BigInt(r.reserved_bonus_raw || '0'),
+    settledBonusRaw: BigInt(r.settled_bonus_raw || '0'),
+    releasedBonusRaw: BigInt(r.released_bonus_raw || '0'),
+    reservedReferralRaw: BigInt(r.reserved_referral_raw || '0'),
+    referralBps: Number(r.referral_bps || 0),
+    maxBoostBps: Number(r.max_boost_bps || 0),
+    bonusStatus: String(r.bonus_status || 'RESERVED'),
+    referralStatus: String(r.referral_status || 'NONE'),
+    status: String(r.status || 'ACTIVE'),
+    legacyBackfilled: Number(r.legacy_backfilled || 0) === 1,
+    snapshotNetwork: r.snapshot_network || null,
+    snapshotJettonMaster: r.snapshot_jetton_master || null,
+    snapshotPresaleWallet: r.snapshot_presale_wallet || null,
+    snapshotPromoWallet: r.snapshot_promo_wallet || null,
+    snapshotAt: r.snapshot_at === null || r.snapshot_at === undefined ? null : Number(r.snapshot_at),
+    createdAt: Number(r.created_at || 0),
+    updatedAt: Number(r.updated_at || 0),
+  };
+}
+
 const isUnique = (e) => /UNIQUE constraint failed|SQLITE_CONSTRAINT_UNIQUE|SQLITE_CONSTRAINT_PRIMARYKEY/i.test(String(e?.message || e));
+const isNotNullOrConstraint = (e) => /NOT NULL|SQLITE_CONSTRAINT/i.test(String(e?.message || e));
 const isMissingTableErr = (e) => /no such table/i.test(String(e?.message || e));
 const changes = (r) => Number(r?.meta?.changes ?? r?.changes ?? 0);
+
+const DEC9 = 1_000_000_000n;
+const split9 = (val) => {
+  const n = BigInt(val);
+  return { hi: (n / DEC9).toString(), lo: (n % DEC9).toString() };
+};
+const hiExpr = (col) => `CASE WHEN length(${col}) > 9 THEN CAST(substr(${col}, 1, length(${col}) - 9) AS INTEGER) ELSE 0 END`;
+const loExpr = (col) => `CAST(CASE WHEN length(${col}) > 9 THEN substr(${col}, length(${col}) - 8) ELSE ${col} END AS INTEGER)`;
 
 export class D1PresaleRepo {
   constructor({ db }) {
@@ -2634,6 +2971,884 @@ export class D1PresaleRepo {
       .bind(patch.status, patch.updatedAt, orderId)
       .run();
   }
+
+  async _assertMigration0017() {
+    try {
+      await this.db.prepare('SELECT 1 FROM presale_order_reservations LIMIT 1').first();
+    } catch (e) {
+      if (isMissingTableErr(e)) {
+        throw new PresaleError(
+          'MIGRATION_0017_REQUIRED',
+          'presale_order_reservations 表缺失，请先执行 0017_actuarial_reservations_and_vouchers.sql 迁移',
+        );
+      }
+      throw e;
+    }
+  }
+
+  async getReservation(orderId) {
+    try {
+      const row = await this.db
+        .prepare('SELECT * FROM presale_order_reservations WHERE order_id = ? LIMIT 1')
+        .bind(orderId)
+        .first();
+      return rowToReservation(row);
+    } catch (e) {
+      if (isMissingTableErr(e)) return null;
+      throw e;
+    }
+  }
+
+  // Only exact sender-wallet debits at or before this balance's chain position are covered.
+  _confirmedPayoutGuard(snap, payoutTable) {
+    if (!snap?.walletLt) return { sql: "OR status = 'CONFIRMED'", args: [] };
+    return {
+      sql: `OR (status = 'CONFIRMED' AND NOT EXISTS (
+        SELECT 1 FROM hot_wallet_payout_debits d
+        WHERE d.network = ? AND d.jetton_master = ? AND d.jetton_wallet = ?
+          AND d.tx_hash = ${payoutTable}.tx_hash
+          AND (length(d.debit_lt) < length(?) OR (length(d.debit_lt) = length(?) AND d.debit_lt <= ?))
+      ))`,
+      args: [snap.network, addressKey(snap.jettonMaster), snap.jettonWallet, snap.walletLt, snap.walletLt, snap.walletLt],
+    };
+  }
+
+  _legacyBudgetHoldSql() {
+    return `SELECT COALESCE(SUM(${hiExpr('recorded_raw')}), 0) AS sum_hi,
+                   COALESCE(SUM(${loExpr('recorded_raw')}), 0) AS sum_lo
+            FROM actuarial_reconciliation_items
+            WHERE category IN ('LEGACY_PRESALE_UNRESERVED', 'LEGACY_REFERRAL_CREDITING_REVIEW') AND status = 'OPEN'`;
+  }
+
+  async _sumOpenLegacyUnreservedPresaleBudget() {
+    const row = await this.db.prepare(this._legacyBudgetHoldSql()).first();
+    return BigInt(row.sum_hi) * DEC9 + BigInt(row.sum_lo);
+  }
+
+  async _presaleOutstandingA9(nowSec, presaleSnap) {
+    const confirmedGuard = this._confirmedPayoutGuard(presaleSnap, 'presale_payouts');
+    const row = await this.db
+      .prepare(
+        `SELECT
+           COALESCE(SUM(hi_v), 0) AS sum_hi,
+           COALESCE(SUM(lo_v), 0) AS sum_lo
+         FROM (
+           SELECT ${hiExpr('amount')} AS hi_v, ${loExpr('amount')} AS lo_v
+           FROM presale_payouts
+           WHERE kind = 'A9' AND (
+             status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT', 'NEEDS_REVIEW')
+             ${confirmedGuard.sql}
+           )
+           UNION ALL
+           SELECT
+             ${hiExpr('o.a9_amount_raw')} + ${hiExpr(`COALESCE(
+               CASE WHEN r.bonus_status = 'SETTLED' THEN r.settled_bonus_raw
+                    WHEN r.bonus_status = 'RESERVED' THEN r.reserved_bonus_raw
+                    WHEN o.bonus_rolled = 1 THEN o.bonus_a9_raw
+                    ELSE '0' END, '0')`)} AS hi_v,
+             ${loExpr('o.a9_amount_raw')} + ${loExpr(`COALESCE(
+               CASE WHEN r.bonus_status = 'SETTLED' THEN r.settled_bonus_raw
+                    WHEN r.bonus_status = 'RESERVED' THEN r.reserved_bonus_raw
+                    WHEN o.bonus_rolled = 1 THEN o.bonus_a9_raw
+                    ELSE '0' END, '0')`)} AS lo_v
+           FROM presale_orders o
+           LEFT JOIN presale_order_reservations r ON r.order_id = o.order_id
+           WHERE (
+             (o.status IN ('PENDING_PAYMENT', 'PENDING_TON') AND (o.expires_at = 0 OR o.expires_at >= ?))
+             OR o.status IN ('PAYMENT_CONFIRMED', 'NEEDS_REVIEW', 'PAID_A9')
+           )
+           AND NOT EXISTS (SELECT 1 FROM presale_payouts p WHERE p.order_id = o.order_id AND p.kind = 'A9')
+         )`,
+      )
+      .bind(...confirmedGuard.args, nowSec)
+      .first();
+    return BigInt(row?.sum_hi || 0) * DEC9 + BigInt(row?.sum_lo || 0);
+  }
+
+  async _promoOutstandingA9(promoSnap) {
+    const confirmedGuard = this._confirmedPayoutGuard(promoSnap, 'promo_payouts');
+    const row = await this.db
+      .prepare(
+        `SELECT
+           COALESCE(SUM(hi_v), 0) AS sum_hi,
+           COALESCE(SUM(lo_v), 0) AS sum_lo
+         FROM (
+           SELECT ${hiExpr('claimable_raw')} AS hi_v, ${loExpr('claimable_raw')} AS lo_v
+           FROM promo_balances WHERE claimable_raw != '0'
+           UNION ALL
+           SELECT ${hiExpr('amount_raw')} AS hi_v, ${loExpr('amount_raw')} AS lo_v
+           FROM promo_payouts
+           WHERE status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT', 'NEEDS_REVIEW')
+              ${confirmedGuard.sql}
+           UNION ALL
+           SELECT ${hiExpr('c.amount_raw')} AS hi_v, ${loExpr('c.amount_raw')} AS lo_v
+           FROM promo_claims c
+           LEFT JOIN promo_payouts p ON p.claim_id = c.claim_id
+           WHERE c.status IN ('FEE_CONFIRMED', 'PAYOUT_SENT') AND p.claim_id IS NULL
+           UNION ALL
+           SELECT ${hiExpr('reserved_referral_raw')} AS hi_v, ${loExpr('reserved_referral_raw')} AS lo_v
+           FROM presale_order_reservations
+           WHERE referral_status = 'RESERVED'
+           UNION ALL
+           SELECT ${hiExpr('rc.amount_raw')} AS hi_v, ${loExpr('rc.amount_raw')} AS lo_v
+           FROM presale_referral_credits rc
+           WHERE rc.status IN ('PENDING', 'CREDITING', 'NEEDS_REVIEW')
+             AND NOT EXISTS (
+               SELECT 1 FROM presale_order_reservations r
+               WHERE r.order_id = rc.order_id AND r.referral_status = 'RESERVED'
+             )
+         )`,
+      )
+      .bind(...confirmedGuard.args)
+      .first();
+    return BigInt(row?.sum_hi || 0) * DEC9 + BigInt(row?.sum_lo || 0);
+  }
+
+  /**
+   * Single D1 transaction (db.batch) for creating a payable mall order:
+   * - Enforces pool cap, optional personal quota, presale hot-wallet inventory, promo hot-wallet inventory,
+   *   and presale_promo (48,000,000 A9) budget reservation atomically (protecting open legacy obligations).
+   * - Any 0-row SQL update or concurrent conflict triggers a NOT NULL rollback of the ENTIRE batch.
+   * - Fails closed with MIGRATION_0017_REQUIRED if migration 0017 has not been applied.
+   */
+  async createOrderAtomic(o, resv, { capA9Raw, userQuotaNano, nowSec, budgetLedger = null, inventorySnapshot = null } = {}) {
+    await this._assertMigration0017();
+
+    const addA9 = split9(o.a9AmountRaw);
+    const capA9 = split9(capA9Raw);
+    const hasUserQuota = userQuotaNano !== null && userQuotaNano !== undefined;
+    const newPresaleNeed = BigInt(o.a9AmountRaw) + BigInt(resv.reservedBonusRaw || 0n);
+    const newRefNeed = BigInt(resv.reservedReferralRaw || 0n);
+    const budgetNeed = BigInt(resv.reservedBonusRaw || 0n) + newRefNeed;
+
+    const bonusColExpr = `COALESCE(
+      CASE WHEN r.bonus_status = 'SETTLED' THEN r.settled_bonus_raw
+           WHEN r.bonus_status = 'RESERVED' THEN r.reserved_bonus_raw
+           WHEN o.bonus_rolled = 1 THEN o.bonus_a9_raw
+           ELSE '0' END, '0')`;
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const legacyProtectedRaw = budgetNeed > 0n ? await this._sumOpenLegacyUnreservedPresaleBudget() : 0n;
+      const budgetPrep = budgetNeed > 0n && budgetLedger && typeof budgetLedger.prepareAtomicReserve === 'function'
+        ? await budgetLedger.prepareAtomicReserve('presale_promo', budgetNeed, nowSec, { extraReservedRaw: legacyProtectedRaw })
+        : null;
+
+      let whereClause = `WHERE EXISTS (
+             SELECT 1 FROM (
+               SELECT
+                 (COALESCE(SUM(${hiExpr('a9_amount_raw')}), 0) + CAST(? AS INTEGER)
+                   + (COALESCE(SUM(${loExpr('a9_amount_raw')}), 0) + CAST(? AS INTEGER)) / 1000000000) AS tot_hi,
+                 ((COALESCE(SUM(${loExpr('a9_amount_raw')}), 0) + CAST(? AS INTEGER)) % 1000000000) AS tot_lo
+               FROM presale_orders WHERE ${RESERVING_SQL}
+             ) WHERE tot_hi < CAST(? AS INTEGER) OR (tot_hi = CAST(? AS INTEGER) AND tot_lo <= CAST(? AS INTEGER))
+           )`;
+      const tailArgs = [addA9.hi, addA9.lo, addA9.lo, nowSec, capA9.hi, capA9.hi, capA9.lo];
+
+      if (hasUserQuota) {
+        const addTon = split9(o.tonNano);
+        const capTon = split9(userQuotaNano);
+        const aliases = addressAliases(o.walletAddress);
+        const aliasPlaceholders = aliases.map(() => '?').join(', ');
+        whereClause += `
+           AND EXISTS (
+             SELECT 1 FROM (
+               SELECT
+                 (COALESCE(SUM(${hiExpr('ton_nano')}), 0) + CAST(? AS INTEGER)
+                   + (COALESCE(SUM(${loExpr('ton_nano')}), 0) + CAST(? AS INTEGER)) / 1000000000) AS tot_hi,
+                 ((COALESCE(SUM(${loExpr('ton_nano')}), 0) + CAST(? AS INTEGER)) % 1000000000) AS tot_lo
+               FROM presale_orders
+               WHERE (wallet_key = ? OR (wallet_key IS NULL AND wallet_address IN (${aliasPlaceholders}))) AND ${RESERVING_SQL}
+             ) WHERE tot_hi < CAST(? AS INTEGER) OR (tot_hi = CAST(? AS INTEGER) AND tot_lo <= CAST(? AS INTEGER))
+           )`;
+        tailArgs.push(
+          addTon.hi, addTon.lo, addTon.lo, o.walletKey, ...aliases, nowSec, capTon.hi, capTon.hi, capTon.lo,
+        );
+      }
+
+      if (inventorySnapshot?.presale) {
+        const addPresale = split9(newPresaleNeed);
+        const capPresale = split9(inventorySnapshot.presale.a9Raw);
+        const presaleConfirmedGuard = this._confirmedPayoutGuard(inventorySnapshot.presale, 'presale_payouts');
+        whereClause += `
+           AND EXISTS (
+             SELECT 1 FROM (
+               SELECT
+                 (COALESCE(SUM(hi_v), 0) + CAST(? AS INTEGER)
+                   + (COALESCE(SUM(lo_v), 0) + CAST(? AS INTEGER)) / 1000000000) AS tot_hi,
+                 ((COALESCE(SUM(lo_v), 0) + CAST(? AS INTEGER)) % 1000000000) AS tot_lo
+               FROM (
+                 SELECT ${hiExpr('amount')} AS hi_v, ${loExpr('amount')} AS lo_v
+                 FROM presale_payouts
+                 WHERE kind = 'A9' AND (
+                   status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT', 'NEEDS_REVIEW')
+                   ${presaleConfirmedGuard.sql}
+                 )
+                 UNION ALL
+                 SELECT
+                   ${hiExpr('o.a9_amount_raw')} + ${hiExpr(bonusColExpr)} AS hi_v,
+                   ${loExpr('o.a9_amount_raw')} + ${loExpr(bonusColExpr)} AS lo_v
+                 FROM presale_orders o
+                 LEFT JOIN presale_order_reservations r ON r.order_id = o.order_id
+                 WHERE (
+                   (o.status IN ('PENDING_PAYMENT', 'PENDING_TON') AND (o.expires_at = 0 OR o.expires_at >= ?))
+                   OR o.status IN ('PAYMENT_CONFIRMED', 'NEEDS_REVIEW', 'PAID_A9')
+                 )
+                 AND NOT EXISTS (SELECT 1 FROM presale_payouts p WHERE p.order_id = o.order_id AND p.kind = 'A9')
+               )
+             ) WHERE tot_hi < CAST(? AS INTEGER) OR (tot_hi = CAST(? AS INTEGER) AND tot_lo <= CAST(? AS INTEGER))
+           )`;
+        tailArgs.push(
+          addPresale.hi, addPresale.lo, addPresale.lo,
+          ...presaleConfirmedGuard.args,
+          nowSec,
+          capPresale.hi, capPresale.hi, capPresale.lo,
+        );
+      }
+
+      if (newRefNeed > 0n && inventorySnapshot?.promo) {
+        const addRef = split9(newRefNeed);
+        const capPromo = split9(inventorySnapshot.promo.a9Raw);
+        const promoConfirmedGuard = this._confirmedPayoutGuard(inventorySnapshot.promo, 'promo_payouts');
+        whereClause += `
+           AND EXISTS (
+             SELECT 1 FROM (
+               SELECT
+                 (COALESCE(SUM(hi_v), 0) + CAST(? AS INTEGER)
+                   + (COALESCE(SUM(lo_v), 0) + CAST(? AS INTEGER)) / 1000000000) AS tot_hi,
+                 ((COALESCE(SUM(lo_v), 0) + CAST(? AS INTEGER)) % 1000000000) AS tot_lo
+               FROM (
+                 SELECT ${hiExpr('claimable_raw')} AS hi_v, ${loExpr('claimable_raw')} AS lo_v
+                 FROM promo_balances WHERE claimable_raw != '0'
+                 UNION ALL
+                 SELECT ${hiExpr('amount_raw')} AS hi_v, ${loExpr('amount_raw')} AS lo_v
+                 FROM promo_payouts
+                 WHERE status IN ('PENDING', 'BROADCASTING', 'RETRY', 'SENT', 'NEEDS_REVIEW')
+                    ${promoConfirmedGuard.sql}
+                 UNION ALL
+                 SELECT ${hiExpr('c.amount_raw')} AS hi_v, ${loExpr('c.amount_raw')} AS lo_v
+                 FROM promo_claims c
+                 LEFT JOIN promo_payouts p ON p.claim_id = c.claim_id
+                 WHERE c.status IN ('FEE_CONFIRMED', 'PAYOUT_SENT') AND p.claim_id IS NULL
+                 UNION ALL
+                 SELECT ${hiExpr('reserved_referral_raw')} AS hi_v, ${loExpr('reserved_referral_raw')} AS lo_v
+                 FROM presale_order_reservations
+                 WHERE referral_status = 'RESERVED'
+                 UNION ALL
+                 SELECT ${hiExpr('rc.amount_raw')} AS hi_v, ${loExpr('rc.amount_raw')} AS lo_v
+                 FROM presale_referral_credits rc
+                 WHERE rc.status IN ('PENDING', 'CREDITING', 'NEEDS_REVIEW')
+                   AND NOT EXISTS (
+                     SELECT 1 FROM presale_order_reservations r
+                     WHERE r.order_id = rc.order_id AND r.referral_status = 'RESERVED'
+                   )
+               )
+             ) WHERE tot_hi < CAST(? AS INTEGER) OR (tot_hi = CAST(? AS INTEGER) AND tot_lo <= CAST(? AS INTEGER))
+           )`;
+        tailArgs.push(
+          addRef.hi, addRef.lo, addRef.lo,
+          ...promoConfirmedGuard.args,
+          capPromo.hi, capPromo.hi, capPromo.lo,
+        );
+      }
+
+      const stmts = [
+        this.db
+          .prepare(
+            `INSERT INTO presale_orders
+               (order_id, wallet_address, wallet_key, tg_user_id, referrer_id, sku_id, open_mode, ton_nano, a9_amount_raw, memo, status,
+                refund_ton_nano, expires_at, created_at, updated_at)
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', '0', ?, ?, ?
+             ${whereClause}`,
+          )
+          .bind(
+            o.orderId, o.walletAddress, o.walletKey, o.tgUserId, o.referrerId, o.skuId || null, o.openMode || 'INSTANT',
+            o.tonNano.toString(), o.a9AmountRaw.toString(), o.memo,
+            o.expiresAt, o.createdAt, o.updatedAt,
+            ...tailArgs,
+          ),
+        // Statement 2: base_a9_raw is NOT NULL; if Statement 1 inserted 0 rows, subquery returns NULL -> full batch rollback!
+        this.db
+          .prepare(
+            `INSERT INTO presale_order_reservations
+               (order_id, sku_id, base_a9_raw, reserved_bonus_raw, settled_bonus_raw, released_bonus_raw,
+                reserved_referral_raw, referral_bps, max_boost_bps, bonus_status, referral_status, status,
+                legacy_backfilled, snapshot_network, snapshot_jetton_master, snapshot_presale_wallet,
+                snapshot_promo_wallet, snapshot_at, created_at, updated_at)
+             VALUES (
+               ?, ?,
+               (SELECT a9_amount_raw FROM presale_orders WHERE order_id = ?),
+               ?, '0', '0',
+               ?, ?, ?, ?, ?, 'ACTIVE',
+               0, ?, ?, ?, ?, ?, ?, ?
+             )`,
+          )
+          .bind(
+            o.orderId,
+            resv.skuId || null,
+            o.orderId,
+            BigInt(resv.reservedBonusRaw || 0n).toString(),
+            BigInt(resv.reservedReferralRaw || 0n).toString(),
+            Number(resv.referralBps || 0),
+            Number(resv.maxBoostBps || 0),
+            resv.bonusStatus,
+            resv.referralStatus,
+            resv.snapshotNetwork || null,
+            resv.snapshotJettonMaster || null,
+            resv.snapshotPresaleWallet || null,
+            resv.snapshotPromoWallet || null,
+            resv.snapshotAt ?? null,
+            nowSec,
+            nowSec,
+          ),
+      ];
+
+      if (budgetPrep) {
+        stmts.push(
+          budgetPrep.buildStrictUpdateStmt(
+            ` AND EXISTS (SELECT 1 FROM presale_orders WHERE order_id = ?)
+              AND EXISTS (SELECT 1 FROM (${this._legacyBudgetHoldSql()})
+                          WHERE sum_hi + sum_lo / 1000000000 = CAST(? AS INTEGER)
+                            AND sum_lo % 1000000000 = CAST(? AS INTEGER))`,
+            [o.orderId, (legacyProtectedRaw / DEC9).toString(), (legacyProtectedRaw % DEC9).toString()],
+          ),
+        );
+      }
+
+      try {
+        await this.db.batch(stmts);
+        return { ok: true };
+      } catch (e) {
+        if (!isNotNullOrConstraint(e)) throw e;
+        // Check whether promo_budget_ledger CAS conflicted concurrently -> retry with fresh snapshot
+        if (budgetPrep && budgetLedger && typeof budgetLedger.getBucket === 'function') {
+          const curBucket = await budgetLedger.getBucket('presale_promo');
+          if ((curBucket && curBucket.spentRaw !== budgetPrep.curSpentStr)
+              || await this._sumOpenLegacyUnreservedPresaleBudget() !== legacyProtectedRaw) {
+            continue;
+          }
+        }
+        // Diagnose exact deterministic rejection reason
+        const { reservedA9Raw, userReservedNano } = await this.sumReserved(nowSec, o.walletKey);
+        if (hasUserQuota && userReservedNano + BigInt(o.tonNano) > BigInt(userQuotaNano)) {
+          return { ok: false, code: 'OVER_QUOTA' };
+        }
+        if (reservedA9Raw >= BigInt(capA9Raw)) return { ok: false, code: 'SOLD_OUT' };
+        if (reservedA9Raw + BigInt(o.a9AmountRaw) > BigInt(capA9Raw)) return { ok: false, code: 'EXCEEDS_POOL' };
+        if (inventorySnapshot?.presale) {
+          const usedPresale = await this._presaleOutstandingA9(nowSec, inventorySnapshot.presale);
+          if (usedPresale + newPresaleNeed > inventorySnapshot.presale.a9Raw) {
+            return { ok: false, code: 'HOT_WALLET_LOW_INVENTORY' };
+          }
+        }
+        if (newRefNeed > 0n && inventorySnapshot?.promo) {
+          const usedPromo = await this._promoOutstandingA9(inventorySnapshot.promo);
+          if (usedPromo + newRefNeed > inventorySnapshot.promo.a9Raw) {
+            return { ok: false, code: 'PROMO_WALLET_LOW_INVENTORY' };
+          }
+        }
+        return { ok: false, code: 'EXCEEDS_POOL' };
+      }
+    }
+    throw new PresaleError('ORDER_CONFLICT', 'concurrent order reservation conflict, please retry');
+  }
+
+  /**
+   * Single D1 transaction (db.batch) for confirmed order bonus roll + payout queue + unused bonus release.
+   */
+  async queuePayoutAtomic(orderId, fromStatus, patch, p, { settledBonusRaw = 0n, unusedBonusRaw = 0n, budgetLedger = null, nowSec = Math.floor(Date.now() / 1000) } = {}) {
+    const set = buildSet(patch, ORDER_COLS);
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const releasePrep = BigInt(unusedBonusRaw) > 0n && budgetLedger && typeof budgetLedger.prepareAtomicRelease === 'function'
+        ? await budgetLedger.prepareAtomicRelease('presale_promo', unusedBonusRaw, nowSec)
+        : null;
+
+      const stmts = [
+        this.db
+          .prepare(
+            `INSERT INTO presale_payouts
+               (payout_id, order_id, inbound_tx_hash, kind, recipient, amount, query_id, status, attempts, ambiguous, tx_hash, last_error, created_at, updated_at)
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?
+             WHERE EXISTS (SELECT 1 FROM presale_orders WHERE order_id = ? AND status = ?)
+               AND EXISTS (SELECT 1 FROM presale_order_reservations WHERE order_id = ? AND bonus_status = 'RESERVED')
+             ON CONFLICT DO NOTHING`,
+          )
+          .bind(
+            p.payoutId, p.orderId, p.inboundTxHash, p.kind, p.recipient, p.amount, p.queryId, p.status, p.attempts, 0, p.createdAt, p.updatedAt,
+            orderId, fromStatus, orderId,
+          ),
+        this.db
+          .prepare(`UPDATE presale_orders SET ${set.sql} WHERE order_id = ? AND status = ?`)
+          .bind(...set.vals, orderId, fromStatus),
+        this.db
+          .prepare(
+            `UPDATE presale_order_reservations
+             SET settled_bonus_raw = CASE
+                   WHEN bonus_status = 'RESERVED'
+                    AND EXISTS (SELECT 1 FROM presale_orders WHERE order_id = ? AND status = 'PAYOUT_PENDING' AND bonus_rolled = 1)
+                    AND EXISTS (SELECT 1 FROM presale_payouts WHERE payout_id = ?)
+                   THEN ? ELSE NULL END,
+                 released_bonus_raw = ?,
+                 bonus_status = 'SETTLED',
+                 status = CASE WHEN referral_status IN ('NONE', 'CREDITED', 'RELEASED') THEN 'COMPLETED' ELSE status END,
+                 updated_at = ?
+             WHERE order_id = ?`,
+          )
+          .bind(orderId, p.payoutId, BigInt(settledBonusRaw).toString(), BigInt(unusedBonusRaw).toString(), nowSec, orderId),
+      ];
+
+      if (releasePrep) {
+        stmts.push(
+          releasePrep.buildStrictUpdateStmt(
+            " AND EXISTS (SELECT 1 FROM presale_order_reservations WHERE order_id = ? AND bonus_status = 'SETTLED')",
+            [orderId],
+          ),
+        );
+      }
+
+      try {
+        const out = await this.db.batch(stmts);
+        return changes(out?.[1]) === 1;
+      } catch (e) {
+        if (!isNotNullOrConstraint(e)) throw e;
+        const curOrd = await this.getOrder(orderId);
+        if (!curOrd || curOrd.status !== fromStatus) return false;
+        const curRes = await this.getReservation(orderId);
+        if (!curRes || curRes.bonusStatus !== 'RESERVED') return false;
+        continue;
+      }
+    }
+    throw new PresaleError('QUEUE_PAYOUT_CONFLICT', 'concurrent payout queue conflict, please retry');
+  }
+
+  async markReservationBonusSettled(orderId, settledBonusRaw, releasedBonusRaw, nowSec) {
+    try {
+      const res = await this.db
+        .prepare(
+          `UPDATE presale_order_reservations
+           SET settled_bonus_raw = ?,
+               released_bonus_raw = ?,
+               bonus_status = 'SETTLED',
+               status = CASE WHEN referral_status IN ('NONE', 'CREDITED', 'RELEASED') THEN 'COMPLETED' ELSE status END,
+               updated_at = ?
+           WHERE order_id = ? AND bonus_status = 'RESERVED'`,
+        )
+        .bind(BigInt(settledBonusRaw).toString(), BigInt(releasedBonusRaw).toString(), nowSec, orderId)
+        .run();
+      return changes(res) === 1;
+    } catch (e) {
+      if (isMissingTableErr(e)) return false;
+      throw e;
+    }
+  }
+
+  async markReservationReferralCredited(orderId, nowSec) {
+    try {
+      const res = await this.db
+        .prepare(
+          `UPDATE presale_order_reservations
+           SET referral_status = 'CREDITED',
+               status = CASE WHEN bonus_status IN ('SETTLED', 'RELEASED') THEN 'COMPLETED' ELSE status END,
+               updated_at = ?
+           WHERE order_id = ? AND referral_status = 'RESERVED'`,
+        )
+        .bind(nowSec, orderId)
+        .run();
+      return changes(res) === 1;
+    } catch (e) {
+      if (isMissingTableErr(e)) return false;
+      throw e;
+    }
+  }
+
+  /**
+   * Release presale_promo reservations for expired unpaid orders (mutually exclusive with commitInbound)
+   * and refunded/cancelled orders that have NO active/in-flight/ambiguous A9 payout or referral credit.
+   */
+  async releaseExpiredOrRefundedReservations(nowSec, { budgetLedger = null, limit = 50 } = {}) {
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(Number(limit || 50))));
+    let rows = [];
+    try {
+      const res = await this.db
+        .prepare(
+          `SELECT r.*, o.status AS order_status, o.expires_at AS order_expires_at, o.inbound_tx_hash AS order_inbound_tx_hash
+           FROM presale_order_reservations r
+           JOIN presale_orders o ON o.order_id = r.order_id
+           WHERE r.status = 'ACTIVE'
+             AND (
+               (o.status IN ('PENDING_PAYMENT', 'PENDING_TON') AND o.inbound_tx_hash IS NULL AND o.expires_at > 0 AND o.expires_at < ?)
+               OR o.status IN ('REFUNDED', 'REFUNDED_FREE', 'REFUNDED_MINUS_FEE', 'CANCELLED')
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM presale_payouts p
+               WHERE p.order_id = r.order_id AND p.kind = 'A9'
+                 AND p.status IN ('PENDING', 'BROADCASTING', 'SENT', 'RETRY', 'CONFIRMED', 'NEEDS_REVIEW')
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM presale_referral_credits c
+               WHERE c.order_id = r.order_id
+                 AND c.status IN ('PENDING', 'CREDITING', 'CREDITED', 'NEEDS_REVIEW')
+             )
+           ORDER BY r.created_at ASC
+           LIMIT ?`,
+        )
+        .bind(nowSec, safeLimit)
+        .all();
+      rows = res?.results || [];
+    } catch (e) {
+      if (isMissingTableErr(e)) return { expiredReleased: 0, refundedReleased: 0, releasedRaw: '0' };
+      throw e;
+    }
+
+    let expiredReleased = 0;
+    let refundedReleased = 0;
+    let releasedTotal = 0n;
+
+    for (const row of rows) {
+      const r = rowToReservation(row);
+      const isExpiredUnpaid = ['PENDING_PAYMENT', 'PENDING_TON'].includes(row.order_status);
+      const delta = r.legacyBackfilled
+        ? 0n
+        : (r.bonusStatus === 'RESERVED' ? r.reservedBonusRaw : 0n) + (r.referralStatus === 'RESERVED' ? r.reservedReferralRaw : 0n);
+
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const releasePrep = delta > 0n && budgetLedger && typeof budgetLedger.prepareAtomicRelease === 'function'
+          ? await budgetLedger.prepareAtomicRelease('presale_promo', delta, nowSec)
+          : null;
+
+        const stmts = [];
+        if (isExpiredUnpaid) {
+          stmts.push(
+            this.db
+              .prepare(
+                `UPDATE presale_orders
+                 SET status = 'EXPIRED', updated_at = ?
+                 WHERE order_id = ?
+                   AND status IN ('PENDING_PAYMENT', 'PENDING_TON')
+                   AND inbound_tx_hash IS NULL
+                   AND expires_at > 0 AND expires_at < ?`,
+              )
+              .bind(nowSec, r.orderId, nowSec),
+          );
+          stmts.push(
+            this.db
+              .prepare(
+                `UPDATE presale_order_reservations
+                 SET bonus_status = CASE WHEN bonus_status = 'RESERVED' THEN 'RELEASED' ELSE bonus_status END,
+                     released_bonus_raw = CASE WHEN bonus_status = 'RESERVED' THEN reserved_bonus_raw ELSE released_bonus_raw END,
+                     referral_status = CASE WHEN referral_status = 'RESERVED' THEN 'RELEASED' ELSE referral_status END,
+                     status = CASE
+                       WHEN status = 'ACTIVE'
+                        AND EXISTS (SELECT 1 FROM presale_orders WHERE order_id = ? AND status = 'EXPIRED')
+                        AND NOT EXISTS (SELECT 1 FROM presale_payouts WHERE order_id = ? AND kind = 'A9')
+                       THEN 'RELEASED' ELSE NULL END,
+                     updated_at = ?
+                 WHERE order_id = ?`,
+              )
+              .bind(r.orderId, r.orderId, nowSec, r.orderId),
+          );
+        } else {
+          stmts.push(
+            this.db
+              .prepare(
+                `UPDATE presale_order_reservations
+                 SET bonus_status = CASE WHEN bonus_status = 'RESERVED' THEN 'RELEASED' ELSE bonus_status END,
+                     released_bonus_raw = CASE WHEN bonus_status = 'RESERVED' THEN reserved_bonus_raw ELSE released_bonus_raw END,
+                     referral_status = CASE WHEN referral_status = 'RESERVED' THEN 'RELEASED' ELSE referral_status END,
+                     status = CASE
+                       WHEN status = 'ACTIVE'
+                        AND EXISTS (SELECT 1 FROM presale_orders WHERE order_id = ? AND status IN ('REFUNDED', 'REFUNDED_FREE', 'REFUNDED_MINUS_FEE', 'CANCELLED'))
+                        AND NOT EXISTS (
+                          SELECT 1 FROM presale_payouts
+                          WHERE order_id = ? AND kind = 'A9'
+                            AND status IN ('PENDING', 'BROADCASTING', 'SENT', 'RETRY', 'CONFIRMED', 'NEEDS_REVIEW')
+                        )
+                       THEN 'RELEASED' ELSE NULL END,
+                     updated_at = ?
+                 WHERE order_id = ?`,
+              )
+              .bind(r.orderId, r.orderId, nowSec, r.orderId),
+          );
+        }
+
+        if (releasePrep) {
+          stmts.push(
+            releasePrep.buildStrictUpdateStmt(
+              " AND EXISTS (SELECT 1 FROM presale_order_reservations WHERE order_id = ? AND status = 'RELEASED')",
+              [r.orderId],
+            ),
+          );
+        }
+
+        try {
+          await this.db.batch(stmts);
+          if (isExpiredUnpaid) expiredReleased += 1;
+          else refundedReleased += 1;
+          releasedTotal += delta;
+          break;
+        } catch (e) {
+          if (!isNotNullOrConstraint(e)) throw e;
+          const freshRes = await this.getReservation(r.orderId);
+          if (!freshRes || freshRes.status !== 'ACTIVE') break;
+          const freshOrd = await this.getOrder(r.orderId);
+          if (isExpiredUnpaid && (!freshOrd || !['PENDING_PAYMENT', 'PENDING_TON'].includes(freshOrd.status) || freshOrd.inboundTxHash)) {
+            break; // Concurrent payment confirmation won -> do NOT release!
+          }
+          continue;
+        }
+      }
+    }
+
+    return { expiredReleased, refundedReleased, releasedRaw: releasedTotal.toString() };
+  }
+}
+
+/**
+ * Idempotent reconciliation & backfill for pre-0017 legacy presale orders.
+ * - For determinable active/paid/pending-referral legacy orders, atomically reserves their
+ *   unreserved bonus + 6% referral exposure into presale_promo (legacy_backfilled = 0) so
+ *   new orders CANNOT crowd out pre-0017 paid orders and payouts settle cleanly without NEEDS_REVIEW.
+ * - If budget headroom is exhausted or SKU/obligation is ambiguous, records OPEN
+ *   LEGACY_PRESALE_UNRESERVED items in actuarial_reconciliation_items which ALSO protect
+ *   new-order budget headroom during createOrderAtomic.
+ */
+export async function reconcileLegacyPresaleOrders(db, nowSec = Math.floor(Date.now() / 1000), { budgetLedger = null } = {}) {
+  const ledger = budgetLedger || new D1PromoBudgetLedger({ db });
+  await db.prepare(`UPDATE actuarial_reconciliation_items
+    SET evidenced_raw = '0', unexplained_raw = recorded_raw,
+        detail_json = json_remove(detail_json, '$.hasCreditAndBudgetEvidence'), updated_at = ?
+    WHERE category = 'LEGACY_REFERRAL_CREDITING_REVIEW' AND status = 'OPEN' AND evidenced_raw != '0'`)
+    .bind(nowSec).run();
+  const res = await db
+    .prepare(
+      `SELECT o.*, c.status AS credit_status, c.amount_raw AS credit_amount_raw
+       FROM presale_orders o
+       LEFT JOIN presale_order_reservations r ON r.order_id = o.order_id
+       LEFT JOIN presale_referral_credits c ON c.order_id = o.order_id
+       WHERE r.order_id IS NULL
+       ORDER BY o.created_at ASC`,
+    )
+    .all();
+  const rows = res?.results || [];
+  let backfilled = 0;
+  let reservedBudgetCount = 0;
+  let reconciliationLogged = 0;
+  let skippedTerminal = 0;
+
+  for (const row of rows) {
+    const status = String(row.status || '');
+    const isExpiredUnpaid = ['PENDING_PAYMENT', 'PENDING_TON'].includes(status)
+      && Number(row.expires_at || 0) > 0 && Number(row.expires_at) < nowSec;
+    const isClosedRefund = ['REFUNDED', 'REFUNDED_FREE', 'REFUNDED_MINUS_FEE', 'EXPIRED', 'CANCELLED', 'DUST_IGNORED'].includes(status);
+    const hasPendingReferral = ['PENDING', 'CREDITING', 'NEEDS_REVIEW'].includes(String(row.credit_status || ''));
+    const isCompletedNoPendingRef = status === 'COMPLETED' && !hasPendingReferral;
+
+    if (isExpiredUnpaid || isClosedRefund || isCompletedNoPendingRef) {
+      skippedTerminal += 1;
+      continue;
+    }
+
+    const skuId = row.sku_id || CHEST_MALL_NANO_TO_SKU[String(row.ton_nano || '')] || null;
+    const pack = skuId ? CHEST_MALL_CATALOG[skuId] : null;
+    const baseA9Raw = BigInt(row.a9_amount_raw || '0');
+    const bonusRolled = Number(row.bonus_rolled || 0) === 1;
+    const bonusA9Raw = BigInt(row.bonus_a9_raw || '0');
+    const hasRef = Boolean(row.referrer_id && addressKey(row.referrer_id) !== (row.wallet_key || addressKey(row.wallet_address)));
+    const expectedRefRaw = hasRef ? (baseA9Raw * REFERRAL_BPS) / 100n : 0n;
+
+    if (!pack) {
+      const itemId = `legacy_presale_ambiguous:${row.order_id}`;
+      const ins = await db
+        .prepare(
+          `INSERT OR IGNORE INTO actuarial_reconciliation_items
+             (item_id, category, entity_key, recorded_raw, evidenced_raw, unexplained_raw, detail_json, status, created_at, updated_at)
+           VALUES (?, 'LEGACY_PRESALE_UNRESERVED', ?, ?, '0', ?, ?, 'OPEN', ?, ?)`,
+        )
+        .bind(
+          itemId,
+          String(row.order_id),
+          baseA9Raw.toString(),
+          baseA9Raw.toString(),
+          JSON.stringify({ orderId: row.order_id, status, tonNano: String(row.ton_nano || '0'), reason: 'unknown_legacy_sku' }),
+          nowSec,
+          nowSec,
+        )
+        .run();
+      if (changes(ins) === 1) reconciliationLogged += 1;
+      continue;
+    }
+
+    const reservedBonusRaw = bonusRolled ? bonusA9Raw : BigInt(pack.maxBoostA9Raw || '0');
+    const settledBonusRaw = bonusRolled ? bonusA9Raw : 0n;
+    const bonusStatus = bonusRolled ? 'SETTLED' : (reservedBonusRaw > 0n ? 'RESERVED' : 'SETTLED');
+    const creditStatus = String(row.credit_status || '');
+    const referralAmbiguous = hasRef && (creditStatus === 'CREDITING' || creditStatus === 'NEEDS_REVIEW');
+    const referralStatus = !hasRef
+      ? 'NONE'
+      : (creditStatus === 'CREDITED' ? 'CREDITED' : 'RESERVED');
+    const resStatus = bonusStatus === 'SETTLED' && (referralStatus === 'NONE' || referralStatus === 'CREDITED')
+      ? 'COMPLETED'
+      : ((status === 'NEEDS_REVIEW' || referralAmbiguous) ? 'NEEDS_REVIEW' : 'ACTIVE');
+
+    // 对处于 CREDITING / NEEDS_REVIEW 的存量返佣，旧版可能已完成预算扣减及/或推广余额入账：
+    // 严禁自动重复扣减 presale_promo 预算！先核查既有入账与扣账证据，并转入对账清单保留责任。
+    const bonusAutoReserve = bonusStatus === 'RESERVED' ? reservedBonusRaw : 0n;
+    const referralAutoReserve = (referralStatus === 'RESERVED' && !referralAmbiguous) ? expectedRefRaw : 0n;
+    const autoReserveNeed = bonusAutoReserve + referralAutoReserve;
+
+    if (referralAmbiguous && expectedRefRaw > 0n) {
+      // The old ledger has no per-order budget or balance entry for an interrupted credit.
+      const disputedRaw = BigInt(row.credit_amount_raw || '0');
+      const holdRaw = disputedRaw > 0n ? disputedRaw : expectedRefRaw;
+      const itemId = `legacy_referral_review:${row.order_id}`;
+      const insAmb = await db
+        .prepare(
+          `INSERT OR IGNORE INTO actuarial_reconciliation_items
+             (item_id, category, entity_key, recorded_raw, evidenced_raw, unexplained_raw, detail_json, status, created_at, updated_at)
+           VALUES (?, 'LEGACY_REFERRAL_CREDITING_REVIEW', ?, ?, ?, ?, ?, 'OPEN', ?, ?)`,
+        )
+        .bind(
+          itemId,
+          String(row.order_id),
+          holdRaw.toString(),
+          '0',
+          holdRaw.toString(),
+          JSON.stringify({
+            orderId: row.order_id,
+            orderStatus: status,
+            creditStatus,
+            referrer: String(row.referrer_id || ''),
+            expectedRefRaw: expectedRefRaw.toString(),
+            holdRaw: holdRaw.toString(),
+            reason: 'legacy_referral_crediting_or_needs_review_no_auto_deduct',
+          }),
+          nowSec,
+          nowSec,
+        )
+        .run();
+      if (changes(insAmb) === 1) reconciliationLogged += 1;
+    }
+
+    let reservedInBudget = false;
+    if (autoReserveNeed > 0n && typeof ledger?.prepareAtomicReserve === 'function') {
+      const legacyFlag = referralAmbiguous ? 1 : 0;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        let budgetPrep = null;
+        try {
+          budgetPrep = await ledger.prepareAtomicReserve('presale_promo', autoReserveNeed, nowSec);
+        } catch (e) {
+          if (e?.code === 'PROMO_BUDGET_EXHAUSTED') break;
+          throw e;
+        }
+        if (!budgetPrep) break;
+        try {
+          const out = await db.batch([
+            db
+              .prepare(
+                `INSERT INTO presale_order_reservations
+                   (order_id, sku_id, base_a9_raw, reserved_bonus_raw, settled_bonus_raw, released_bonus_raw,
+                    reserved_referral_raw, referral_bps, max_boost_bps, bonus_status, referral_status, status,
+                    legacy_backfilled, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, '0', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              )
+              .bind(
+                String(row.order_id),
+                skuId,
+                baseA9Raw.toString(),
+                reservedBonusRaw.toString(),
+                settledBonusRaw.toString(),
+                expectedRefRaw.toString(),
+                hasRef ? Number(REFERRAL_BPS) : 0,
+                Number(pack.maxBoostBps || 0),
+                bonusStatus,
+                referralStatus,
+                resStatus,
+                legacyFlag,
+                nowSec,
+                nowSec,
+              ),
+            budgetPrep.buildStrictUpdateStmt(
+              ' AND EXISTS (SELECT 1 FROM presale_order_reservations WHERE order_id = ?)',
+              [String(row.order_id)],
+            ),
+          ]);
+          if (changes(out?.[0]) === 1) {
+            backfilled += 1;
+            reservedBudgetCount += 1;
+            reservedInBudget = true;
+          }
+          break;
+        } catch (e) {
+          if (isUnique(e)) {
+            reservedInBudget = true; // already backfilled concurrently
+            break;
+          }
+          if (isNotNullOrConstraint(e)) continue;
+          throw e;
+        }
+      }
+    }
+
+    if (!reservedInBudget) {
+      const insRes = await db
+        .prepare(
+          `INSERT OR IGNORE INTO presale_order_reservations
+             (order_id, sku_id, base_a9_raw, reserved_bonus_raw, settled_bonus_raw, released_bonus_raw,
+              reserved_referral_raw, referral_bps, max_boost_bps, bonus_status, referral_status, status,
+              legacy_backfilled, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, '0', ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+        )
+        .bind(
+          String(row.order_id),
+          skuId,
+          baseA9Raw.toString(),
+          reservedBonusRaw.toString(),
+          settledBonusRaw.toString(),
+          expectedRefRaw.toString(),
+          hasRef ? Number(REFERRAL_BPS) : 0,
+          Number(pack.maxBoostBps || 0),
+          bonusStatus,
+          referralStatus,
+          resStatus,
+          nowSec,
+          nowSec,
+        )
+        .run();
+      if (changes(insRes) === 1) backfilled += 1;
+
+      if (autoReserveNeed > 0n) {
+        const itemId = `legacy_presale_unreserved:${row.order_id}`;
+        const insRec = await db
+          .prepare(
+            `INSERT OR IGNORE INTO actuarial_reconciliation_items
+               (item_id, category, entity_key, recorded_raw, evidenced_raw, unexplained_raw, detail_json, status, created_at, updated_at)
+             VALUES (?, 'LEGACY_PRESALE_UNRESERVED', ?, ?, ?, ?, ?, 'OPEN', ?, ?)`,
+          )
+          .bind(
+            itemId,
+            String(row.order_id),
+            autoReserveNeed.toString(),
+            autoReserveNeed.toString(),
+            '0',
+            JSON.stringify({
+              orderId: row.order_id,
+              status,
+              skuId,
+              bonusStatus,
+              referralStatus,
+              reservedBonusRaw: reservedBonusRaw.toString(),
+              reservedReferralRaw: expectedRefRaw.toString(),
+              reason: 'budget_exhausted_during_reconcile',
+            }),
+            nowSec,
+            nowSec,
+          )
+          .run();
+        if (changes(insRec) === 1) reconciliationLogged += 1;
+      }
+    }
+  }
+
+  return { scanned: rows.length, backfilled, reservedBudgetCount, reconciliationLogged, skippedTerminal };
 }
 
 /** D1-backed presale engine (production). Constructor options match PresaleHotWalletEngine + `db`. */
@@ -2793,4 +4008,230 @@ export async function reconcilePredictionLedger(db) {
     okUsers,
     findings,
   };
+}
+
+/**
+ * Idempotent reconciliation & backfill for pre-0017 legacy 48H pending vault balances.
+ * - ONLY backfills pending_reward_vouchers (with legacy_backfilled = 1, never re-deducting promo_budget_ledger)
+ *   when source, amount, expiry window, and unactivated status reconcile 1:1 with prediction_rewards.pending_activation_raw.
+ * - Unattributable or mismatched legacy balances are NEVER guessed or auto-reclaimed; they remain claimable under
+ *   existing rules and are logged to actuarial_reconciliation_items for manual audit.
+ */
+export async function backfillLegacyPendingVouchers(db, nowSec = Math.floor(Date.now() / 1000)) {
+  const rowsRes = await db
+    .prepare(
+      `SELECT user_id, pending_activation_raw, pending_expires_at
+       FROM prediction_rewards
+       WHERE pending_activation_raw != '0'
+       ORDER BY user_id ASC`,
+    )
+    .all();
+  const rows = rowsRes?.results || [];
+  let scanned = 0;
+  let alreadyCovered = 0;
+  let backfilledUsers = 0;
+  let backfilledVouchers = 0;
+  let reconciliationLogged = 0;
+
+  for (const r of rows) {
+    const uid = String(r.user_id);
+    const pendingRaw = BigInt(String(r.pending_activation_raw || '0'));
+    if (pendingRaw <= 0n) continue;
+    scanned += 1;
+
+    const existingRes = await db
+      .prepare("SELECT voucher_id, amount_raw FROM pending_reward_vouchers WHERE user_id = ? AND status = 'PENDING'")
+      .bind(uid)
+      .all();
+    const existingRows = existingRes?.results || [];
+    const existingIds = new Set(existingRows.map((x) => String(x.voucher_id)));
+    let existingSum = 0n;
+    for (const x of existingRows) existingSum += BigInt(String(x.amount_raw || '0'));
+
+    if (existingSum === pendingRaw) {
+      alreadyCovered += 1;
+      continue;
+    }
+
+    const expiresAtMs = r.pending_expires_at === null || r.pending_expires_at === undefined ? null : Number(r.pending_expires_at);
+    const remainingNeed = pendingRaw > existingSum ? pendingRaw - existingSum : 0n;
+
+    if (expiresAtMs === null || remainingNeed === 0n) {
+      const itemId = `legacy_pending_unattributable:${uid}`;
+      const ins = await db
+        .prepare(
+          `INSERT OR IGNORE INTO actuarial_reconciliation_items
+             (item_id, category, entity_key, recorded_raw, evidenced_raw, unexplained_raw, detail_json, status, created_at, updated_at)
+           VALUES (?, 'LEGACY_PENDING_UNATTRIBUTABLE', ?, ?, ?, ?, ?, 'OPEN', ?, ?)`,
+        )
+        .bind(
+          itemId,
+          uid,
+          pendingRaw.toString(),
+          existingSum.toString(),
+          (pendingRaw > existingSum ? pendingRaw - existingSum : existingSum - pendingRaw).toString(),
+          JSON.stringify({ userId: uid, pendingExpiresAt: expiresAtMs, reason: expiresAtMs === null ? 'missing_expiry_timestamp' : 'existing_vouchers_exceed_pending' }),
+          nowSec,
+          nowSec,
+        )
+        .run();
+      if (changes(ins) === 1) reconciliationLogged += 1;
+      continue;
+    }
+
+    const windowStartSec = Math.floor((expiresAtMs - VOUCHER_TTL_MS) / 1000) - 1;
+    const windowEndSec = Math.ceil(expiresAtMs / 1000);
+
+    const lastActRow = await db
+      .prepare('SELECT MAX(created_at) AS last_act FROM prediction_activations WHERE user_id = ?')
+      .bind(uid)
+      .first();
+    const lastActSec = Number(lastActRow?.last_act || 0);
+    const minGrantSec = Math.max(windowStartSec, lastActSec);
+
+    const candidates = [];
+
+    // 1) Free Bronze / Silver & Warmup chests opened inside window after last activation
+    const chestRes = await db
+      .prepare(
+        `SELECT chest_id, source, tier, base_a9_raw, boost_a9_raw, opened_at
+         FROM user_chests
+         WHERE owner_user_id = ? AND status = 'OPENED'
+           AND (source = 'WARMUP_ROUND' OR (source = 'FREE_TIER' AND tier IN ('bronze', 'silver')))
+           AND opened_at IS NOT NULL AND opened_at >= ? AND opened_at <= ?
+         ORDER BY opened_at ASC`,
+      )
+      .bind(uid, minGrantSec, windowEndSec)
+      .all();
+    for (const c of chestRes?.results || []) {
+      const vId = `chest:${c.chest_id}`;
+      if (existingIds.has(vId)) continue;
+      const amt = BigInt(String(c.base_a9_raw || '0')) + BigInt(String(c.boost_a9_raw || '0'));
+      if (amt <= 0n) continue;
+      const isWarmup = String(c.source) === 'WARMUP_ROUND';
+      candidates.push({
+        voucherId: vId,
+        sourceBucket: isWarmup ? 'warmup' : 'free_chest_captain',
+        sourceKind: isWarmup ? 'WARMUP_CHEST' : 'FREE_CHEST',
+        sourceRef: String(c.chest_id),
+        amountRaw: amt,
+        grantAtSec: Number(c.opened_at),
+      });
+    }
+
+    // 2) Captain founding bonus granted inside window after last activation
+    const capRes = await db
+      .prepare(
+        `SELECT team_id, amount_raw, created_at
+         FROM captain_founding_bonuses
+         WHERE captain_user_id = ? AND created_at >= ? AND created_at <= ?
+         ORDER BY created_at ASC`,
+      )
+      .bind(uid, minGrantSec, windowEndSec)
+      .all();
+    for (const cb of capRes?.results || []) {
+      const vId = `captain:${cb.team_id}`;
+      if (existingIds.has(vId)) continue;
+      const amt = BigInt(String(cb.amount_raw || '0'));
+      if (amt <= 0n) continue;
+      candidates.push({
+        voucherId: vId,
+        sourceBucket: 'free_chest_captain',
+        sourceKind: 'CAPTAIN_FOUNDING',
+        sourceRef: String(cb.team_id),
+        amountRaw: amt,
+        grantAtSec: Number(cb.created_at),
+      });
+    }
+
+    // 3) Settled prediction win / first-loss bonuses settled inside window after last activation
+    const predRes = await db
+      .prepare(
+        `SELECT b.round_id, b.status, b.reward_raw, pr.settled_at
+         FROM prediction_bets b
+         JOIN prediction_rounds pr ON pr.round_id = b.round_id
+         WHERE b.user_id = ?
+           AND b.status IN ('WON_PENDING_ACTIVATION', 'LOST_FIRST_BONUS')
+           AND b.reward_raw != '0'
+           AND pr.settled_at >= ? AND pr.settled_at <= ?
+         ORDER BY pr.settled_at ASC`,
+      )
+      .bind(uid, minGrantSec, windowEndSec)
+      .all();
+    for (const pb of predRes?.results || []) {
+      const isWin = String(pb.status) === 'WON_PENDING_ACTIVATION';
+      const vId = `${isWin ? 'pred_win' : 'pred_fl'}:${pb.round_id}:${uid}`;
+      if (existingIds.has(vId)) continue;
+      const amt = BigInt(String(pb.reward_raw || '0'));
+      if (amt <= 0n) continue;
+      candidates.push({
+        voucherId: vId,
+        sourceBucket: 'prediction',
+        sourceKind: isWin ? 'PREDICTION_WIN' : 'PREDICTION_FIRST_LOSS',
+        sourceRef: `round:${pb.round_id}`,
+        amountRaw: amt,
+        grantAtSec: Number(pb.settled_at),
+      });
+    }
+
+    let evidencedSum = 0n;
+    for (const c of candidates) evidencedSum += c.amountRaw;
+
+    if (candidates.length > 0 && evidencedSum === remainingNeed) {
+      const stmts = candidates.map((c) =>
+        db
+          .prepare(
+            `INSERT OR IGNORE INTO pending_reward_vouchers
+               (voucher_id, user_id, source_bucket, source_kind, source_ref, amount_raw, expires_at_ms, status, activation_id, legacy_backfilled, resolved_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', NULL, 1, NULL, ?, ?)`,
+          )
+          .bind(
+            c.voucherId,
+            uid,
+            c.sourceBucket,
+            c.sourceKind,
+            c.sourceRef,
+            c.amountRaw.toString(),
+            expiresAtMs,
+            c.grantAtSec,
+            nowSec,
+          ),
+      );
+      const out = await db.batch(stmts);
+      const inserted = out.reduce((n, resItem) => n + changes(resItem), 0);
+      if (inserted > 0) {
+        backfilledUsers += 1;
+        backfilledVouchers += inserted;
+      }
+    } else {
+      const totalEvidenced = existingSum + evidencedSum;
+      const diff = pendingRaw > totalEvidenced ? pendingRaw - totalEvidenced : totalEvidenced - pendingRaw;
+      const itemId = `legacy_pending_unattributable:${uid}`;
+      const ins = await db
+        .prepare(
+          `INSERT OR IGNORE INTO actuarial_reconciliation_items
+             (item_id, category, entity_key, recorded_raw, evidenced_raw, unexplained_raw, detail_json, status, created_at, updated_at)
+           VALUES (?, 'LEGACY_PENDING_UNATTRIBUTABLE', ?, ?, ?, ?, ?, 'OPEN', ?, ?)`,
+        )
+        .bind(
+          itemId,
+          uid,
+          pendingRaw.toString(),
+          totalEvidenced.toString(),
+          diff.toString(),
+          JSON.stringify({
+            userId: uid,
+            pendingExpiresAt: expiresAtMs,
+            candidateCount: candidates.length,
+            reason: 'source_amount_mismatch',
+          }),
+          nowSec,
+          nowSec,
+        )
+        .run();
+      if (changes(ins) === 1) reconciliationLogged += 1;
+    }
+  }
+
+  return { scanned, alreadyCovered, backfilledUsers, backfilledVouchers, reconciliationLogged };
 }

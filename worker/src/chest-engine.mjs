@@ -809,7 +809,13 @@ export class ChestEngine {
 
     if (destination === 'PENDING_VAULT') {
       if (rewardRaw > 0n && predictionEngine && typeof predictionEngine.creditPendingBonus === 'function') {
-        await predictionEngine.creditPendingBonus(uid, rewardRaw, nowSec * 1000);
+        await predictionEngine.creditPendingBonus(uid, rewardRaw, nowSec * 1000, {
+          sourceBucket: budgetBucket,
+          sourceKind: chest.source === 'WARMUP_ROUND' ? 'WARMUP_CHEST' : 'FREE_CHEST',
+          sourceRef: chest.chestId,
+          voucherId: `chest:${chest.chestId}`,
+          budgetLedger,
+        });
       }
     } else if (rewardRaw > 0n && promoEngine && walletAddress && typeof promoEngine.creditReward === 'function') {
       await promoEngine.creditReward(walletAddress, rewardRaw, nowSec);
@@ -980,7 +986,13 @@ export class ChestEngine {
     this.captainBonusWallets.add(walletKey);
     if (chatId) this.captainBonusChatIds.add(chatId);
     if (predictionEngine && typeof predictionEngine.creditPendingBonus === 'function') {
-      await predictionEngine.creditPendingBonus(cUid, CAPTAIN_FOUNDING_BONUS_RAW, nowSec * 1000);
+      await predictionEngine.creditPendingBonus(cUid, CAPTAIN_FOUNDING_BONUS_RAW, nowSec * 1000, {
+        sourceBucket: 'free_chest_captain',
+        sourceKind: 'CAPTAIN_FOUNDING',
+        sourceRef: tId,
+        voucherId: `captain:${tId}`,
+        budgetLedger,
+      });
     }
     return { granted: true, amountRaw: rec.amountRaw, bonus: rec };
   }

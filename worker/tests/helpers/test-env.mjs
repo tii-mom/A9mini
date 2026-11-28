@@ -73,7 +73,12 @@ export const MIGRATIONS = [
   '../../migrations/0013_user_notification_prefs.sql',
   '../../migrations/0014_v17_price_unlock.sql',
   '../../migrations/0015_v17_1_chest_direct_payout.sql',
+  '../../migrations/0016_v17_finality_snapshots.sql',
+  '../../migrations/0017_actuarial_reservations_and_vouchers.sql',
+  '../../migrations/0018_hot_wallet_payout_debits.sql',
 ];
+export const WAVE1A_MIGRATIONS = MIGRATIONS.slice(0, 15);
+export const PRE_0017_MIGRATIONS = MIGRATIONS.slice(0, 16);
 
 /** Async dump of every user table; works for the SQLite adapter and for real (Miniflare) D1. */
 export async function dumpDb(db) {
