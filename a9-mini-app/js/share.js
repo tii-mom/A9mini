@@ -6,22 +6,72 @@
 
 import { config } from './config.js';
 import { store } from './store.js';
-import { getEffectiveUserId } from './data.js';
+import { getEffectiveUserId, serverNowMs, formatRoundA9 } from './data.js';
+import { deriveRoundUiState } from './round-state.js';
 import { A9TMA, A9Haptic } from './tma.js';
 import { escapeHtml, formatNum, showToast, copyText, openModal, closeModal } from './components.js';
 import { icon } from './icons.js';
 import { L } from './i18n.js';
+import { fmtUsdOrDash } from './quest/quest-ui.js';
+
+export const TEAM_ID_PATTERN = /^(?:G|T|TM|TEAM)-[A-Za-z0-9-]{1,32}$/i;
+export const LEGACY_TEAM_ID_PATTERN = /^[A-Za-z0-9-]{1,48}$/;
+
+export function normalizeTeamId(raw) {
+  return String(raw || '').trim().replace(/^#+/, '').replace(/[^a-zA-Z0-9-]/g, '').slice(0, 48);
+}
+
+export function isValidTeamId(raw) {
+  return TEAM_ID_PATTERN.test(normalizeTeamId(raw));
+}
+
+export function isTestnetEnv() {
+  const net = String(config.network || store.state.round?.protocolConfig?.network || '').trim().toLowerCase();
+  return net === 'testnet';
+}
 
 export function getBotHandle() {
   const fromServer = store.state.round?.protocolConfig?.botHandle || store.state.round?.protocolConfig?.tgBotHandle;
   const fromGlobal = typeof window !== 'undefined' ? (window.__A9_CONFIG__?.botHandle || window.__A9_CONFIG__?.tgBotHandle) : '';
-  return String(fromServer || fromGlobal || 'A9_TonBot').replace(/^@+/, '');
+  const cleaned = String(fromServer || fromGlobal || '').trim().replace(/^@+/, '');
+  if (isTestnetEnv()) {
+    if (!cleaned || cleaned.toLowerCase() === 'a9_tonbot') return '';
+    return cleaned;
+  }
+  return cleaned || 'A9_TonBot';
+}
+
+export function isBotHandleConfigured() {
+  return Boolean(getBotHandle());
+}
+
+export function buildBotAddGroupUrl() {
+  const bot = getBotHandle();
+  if (!bot) return '';
+  return `https://t.me/${bot}?startgroup=true`;
+}
+
+export function buildTeamInviteStartParam(teamId, userRef = getShareRef()) {
+  const ref = String(userRef || '');
+  if (ref && !/^[A-Za-z0-9_-]+$/.test(ref)) return '';
+  const tid = normalizeTeamId(teamId);
+  if (tid) {
+    if (!TEAM_ID_PATTERN.test(tid)) return '';
+    if (!ref) return `invite_${tid}`;
+    const combined = `invite_${tid}_${ref}`;
+    if (combined.length <= 64) return combined;
+    const compact = `i_${tid}_${ref}`;
+    return compact.length <= 64 ? compact : '';
+  }
+  if (!ref) return 'invite';
+  return ref.length <= 57 ? `invite_${ref}` : '';
 }
 
 /** 生成标准 Telegram Mini App 深链：https://t.me/<bot>?startapp=<param> */
 export function buildTmaDeepLink(startParam) {
   const safeParam = String(startParam || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
   const bot = getBotHandle();
+  if (!bot) return '';
   return safeParam ? `https://t.me/${bot}?startapp=${encodeURIComponent(safeParam)}` : `https://t.me/${bot}`;
 }
 
@@ -39,59 +89,98 @@ export function buildOgShareUrl(type, id, userRef = getShareRef()) {
   return userRef ? `${base}?ref=${encodeURIComponent(userRef)}` : base;
 }
 
-/** Telegram startapp 归因深链 */
+/** Telegram startapp 归因深链（统一走 TMA 深链，不带 mode 参数） */
 export function buildStartAppLink(type, id, userRef = getShareRef()) {
-  const safeId = String(id ?? '1').replace(/^A9-STAKE-/, '');
-  const param = `${type}_${safeId}${userRef ? `_${userRef}` : ''}`;
-  return `${window.location.origin}${window.location.pathname}?mode=${config.mode}&startapp=${encodeURIComponent(param)}`;
+  if (type === 'invite') {
+    const param = buildTeamInviteStartParam(id, userRef);
+    return param ? buildTmaDeepLink(param) : '';
+  }
+  const safeType = String(type || 'round').replace(/[^a-zA-Z0-9_-]/g, '');
+  const safeId = String(id ?? '1').replace(/^A9-STAKE-/, '').replace(/[^a-zA-Z0-9_-]/g, '');
+  const safeRef = String(userRef || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  const candidate = safeRef ? `${safeType}_${safeId}_${safeRef}` : `${safeType}_${safeId}`;
+  const param = candidate.length <= 64 ? candidate : `${safeType}_${safeId}`.slice(0, 64);
+  return buildTmaDeepLink(param);
 }
 
-function buildAngles(type, id, ctx = {}) {
+export function buildShareAngles(type, id, ctx = {}) {
   const r = store.state.round;
   const pred = store.state.prediction || {};
+  const ui = deriveRoundUiState({ detail: r, user: store.state.user, serverNowMs: serverNowMs() });
+  const demoPrefix = config.isDemo ? L('[演示模式] ', '[Demo] ') : '';
   const rawRound = ctx.roundId ?? r.currentRound;
   const roundNum = rawRound ? rawRound : L('待核验', 'TBD');
   const rawPassed = ctx.qualified ?? r.qualifiedCandles;
-  const passed = rawPassed !== null && rawPassed !== undefined ? rawPassed : '—';
+  const hasPassed = rawPassed !== null && rawPassed !== undefined && Number.isFinite(Number(rawPassed));
+  const passed = hasPassed ? Number(rawPassed) : '—';
   const required = ctx.required ?? r.minQualifiedCandles ?? 8;
-  const target = r.targetPrice ? `$${Number(r.targetPrice).toFixed(4)}` : L('待定', 'TBD');
-  const pool = r.rewardBudgetA9 === null || r.rewardBudgetA9 === undefined ? L('待核验', 'pending') : `${formatNum(r.rewardBudgetA9)} A9`;
+  const targetPrice = fmtUsdOrDash(r.targetPrice);
+  const target = targetPrice === '—' ? L('待定', 'TBD') : targetPrice;
+  const hasPool = r.rewardBudgetA9 !== null && r.rewardBudgetA9 !== undefined && Number.isFinite(Number(r.rewardBudgetA9)) && Number(r.rewardBudgetA9) > 0;
+  const pool = hasPool ? `${Number(r.rewardBudgetA9).toLocaleString('en-US', { maximumFractionDigits: 9 })} A9` : null;
+  const poolClause = pool ? L(`，本轮奖池 ${pool}`, `, pool ${pool}`) : '';
+  const phaseZh = ui.stage === 'stake'
+    ? (ui.inFirst6h ? '头矿 6 小时 5% 止损锁仓开放中' : '24 小时普通锁仓期开放中（10% 止损）')
+    : ui.stage === 'charge'
+      ? `12 小时冲价推进中（12 段中已确认 ${passed} 段，门槛 ${required} 段）`
+      : ui.stage === 'settling'
+        ? '12 小时冲价已结束，等待链上结算'
+        : ui.stage === 'passed'
+          ? `已结算通关（${passed}/12 段）`
+          : ui.stage === 'failed'
+            ? `已按止损退本结算（${passed}/12 段）`
+            : ui.stage === 'aborted'
+              ? '本轮已异常中止，开放 100% 无损退本'
+              : '轮次状态同步中';
+  const phaseEn = ui.stage === 'stake'
+    ? (ui.inFirst6h ? 'First 6H 5% stop-loss lock open' : '24H standard lock open (10% stop-loss)')
+    : ui.stage === 'charge'
+      ? `12H push live (${passed}/12 confirmed, threshold ${required})`
+      : ui.stage === 'settling'
+        ? '12H push ended, awaiting settlement'
+        : ui.stage === 'passed'
+          ? `Settled Passed (${passed}/12)`
+          : ui.stage === 'failed'
+            ? `Settled Stop-Loss (${passed}/12)`
+            : ui.stage === 'aborted'
+              ? 'Aborted, 100% principal refund open'
+              : 'Syncing';
   const streak = Number(ctx.streak ?? pred.streak) || 0;
   const rawWr = ctx.winRate ?? pred.winRate;
   const winRate = rawWr !== null && rawWr !== undefined && Number.isFinite(Number(rawWr)) ? Number(rawWr) : null;
   const rankTag = streak >= 2
     ? L(`（当前 ${streak} 连胜${winRate !== null ? ` · ${winRate}% 胜率` : ''}）`, ` (${streak}-win streak${winRate !== null ? ` · ${winRate}% win rate` : ''})`)
     : (winRate !== null ? L(`（预言胜率 ${winRate}%）`, ` (${winRate}% win rate)`) : '');
+  const tagDemo = (arr) => demoPrefix ? arr.map((a) => ({ ...a, text: `${demoPrefix}${a.text}` })) : arr;
 
   if (type === 'proof') {
     const stakeTon = formatNum(ctx.stakeTon || 0);
-    const mult = (Number(ctx.multiplier) || 1).toFixed(1);
-    return [
+    return tagDemo([
       {
         key: 'data',
         label: L('数据派', 'Data'),
         text: L(
-          `A9 第 ${roundNum} 轮涨价解锁凭证 #${id} 已生成：锁仓 ${stakeTon} A9（全员 1:1 分奖 · 永不爆仓），当前 12H 冲价达标 ${passed}/${required}，目标底价 ${target}。`,
-          `A9 Round #${roundNum} Price-Unlock Pass #${id}: ${stakeTon} A9 locked (1:1 fair split · no liquidation). 12H Push ${passed}/${required}, target ${target}.`
+          `A9 第 ${roundNum} 轮涨价解锁凭证 #${id} 已生成：锁仓 ${stakeTon} A9（全员 1:1 分奖 · 封顶 5x），当前${phaseZh}，目标底价 ${target}。`,
+          `A9 Round #${roundNum} Price-Unlock Pass #${id}: ${stakeTon} A9 locked (1:1 split · 5x cap). Status: ${phaseEn}, target ${target}.`
         )
       },
       {
         key: 'bull',
         label: L('看多派', 'Bullish'),
         text: L(
-          `已上车 A9 第 ${roundNum} 轮涨价解锁池，本轮奖池 ${pool}（封顶 5x · 永不爆仓，头矿 6H 仅 5% 止损），12H 冲价正在推进中！`,
-          `Locked into A9 Round #${roundNum} Price-Unlock (${pool} pool, 5x cap, no liquidation, First 6H 5% Stop-Loss). Watching the 12H Push live!`
+          `已参与 A9 第 ${roundNum} 轮涨价解锁池${poolClause}（封顶 5x · 永不爆仓，头矿 6H 仅 5% 止损），当前${phaseZh}！`,
+          `Joined A9 Round #${roundNum} Price-Unlock${poolClause} (5x cap, no liquidation, First 6H 5% Stop-Loss). Status: ${phaseEn}!`
         )
       },
       {
         key: 'casual',
         label: L('吃瓜自嘲派', 'Banter'),
         text: L(
-          `把 ${stakeTon} A9 锁进了 A9 第 ${roundNum} 轮涨价解锁池，目前 12H 冲价 ${passed}/${required} 段达标，赢了最高 5 倍币，没过也退 95%/90% 本金，稳！`,
-          `Locked ${stakeTon} A9 into A9 Round #${roundNum}. 12H Push is ${passed}/${required}—up to 5x if we pass, 95%/90% refunded if not!`
+          `把 ${stakeTon} A9 锁进了 A9 第 ${roundNum} 轮涨价解锁池，当前${phaseZh}，赢了按份额分奖，没过也退 95%/90% 本金。`,
+          `Locked ${stakeTon} A9 into A9 Round #${roundNum}. ${phaseEn}—share the pool if passed, 95%/90% refunded if missed.`
         )
       }
-    ];
+    ]);
   }
 
   if (type === 'burn') {
@@ -99,7 +188,9 @@ function buildAngles(type, id, ctx = {}) {
     const gapText = missGap !== null
       ? L(`就差 ${missGap} 根小时线通关`, `missed by just ${missGap} hourly slot(s)`)
       : L('未满 8/12 达标线', 'missed the 8/12 line');
-    return [
+    const nextPoolZh = pool ? `下轮 ${pool} 奖池即将重开，` : '下轮即将重开，';
+    const nextPoolEn = pool ? `Next ${pool} pool opens soon.` : 'Next round opens soon.';
+    return tagDemo([
       {
         key: 'data',
         label: L('数据派', 'Data'),
@@ -112,8 +203,8 @@ function buildAngles(type, id, ctx = {}) {
         key: 'bull',
         label: L('看多派', 'Bullish'),
         text: L(
-          `真通缩不嘴炮：A9 第 ${roundNum} 轮未通关触发自动止损，头矿 6H 退 95% / 普通退 90%，半数奖池链上永久通缩！下轮 ${pool} 奖池即将重开，链上规则铁面无私。`,
-          `Real on-chain deflation: A9 Round #${roundNum} triggered Auto Stop-Loss (95% First 6H / 90% refund) + half-pool permanent burn. Next ${pool} pool opens soon.`
+          `真通缩不嘴炮：A9 第 ${roundNum} 轮未通关触发自动止损，头矿 6H 退 95% / 普通退 90%，半数奖池链上永久通缩！${nextPoolZh}链上规则铁面无私。`,
+          `Real on-chain deflation: A9 Round #${roundNum} triggered Auto Stop-Loss (95% First 6H / 90% refund) + half-pool permanent burn. ${nextPoolEn}`
         )
       },
       {
@@ -124,55 +215,53 @@ function buildAngles(type, id, ctx = {}) {
           `Witnessed A9 Round #${roundNum} settlement: 12H Push ended at ${passed}/${required} slots (${gapText})—No Liquidation · Auto Stop-Loss refund (95%/90%) & half-pool burn. Ready for next round!`
         )
       }
-    ];
+    ]);
   }
 
   if (type === 'chest') {
-    const label = ctx.label || L('白银助力箱', 'Silver Co-Op Chest');
+    const label = ctx.label || L('宝箱', 'Chest');
     const isBoost = ctx.source === 'SHOP_BOOST';
-    const need = Math.max(0, Number(ctx.requiredAssists || 2) - Number(ctx.currentAssists || 0));
-    const rewardText = ctx.rewardText || '1,000 A9';
-    return [
+    const receipt = ctx.receipt;
+    const order = ctx.order;
+    const paidOrder = ctx.orderId && order?.orderId === ctx.orderId && order.status === 'COMPLETED';
+    const openReceipt = receipt?.chest?.chestId === id && receipt?.chest?.status === 'OPENED';
+    const walletPayout = paidOrder || (openReceipt && ['WALLET', 'DIRECT_WALLET'].includes(receipt.destination));
+    const raw = paidOrder ? order.totalA9Raw : openReceipt ? receipt.rewardA9Raw : null;
+    const hasAmount = typeof raw === 'string' && /^\d+$/.test(raw);
+    let message = L(`来看看 A9 的【${label}】。`, `Explore [${label}] in A9.`);
+    if (hasAmount && walletPayout) {
+      message = L(`【${label}】已到账 ${formatRoundA9(raw)}。`, `[${label}] paid ${formatRoundA9(raw)} to my wallet.`);
+    } else if (hasAmount && openReceipt && receipt.destination === 'PROMO_BALANCE') {
+      message = L(`【${label}】奖励 ${formatRoundA9(raw)} 已记入待领取余额。`, `[${label}] added ${formatRoundA9(raw)} to my claimable balance.`);
+    }
+    if (hasAmount && openReceipt && !paidOrder && receipt.destination === 'PENDING_VAULT') {
+      message = L(`【${label}】奖励 ${formatRoundA9(raw)} 已记入金库，待解锁。`, `[${label}] added ${formatRoundA9(raw)} to my vault, pending unlock.`);
+    }
+    return tagDemo([
       {
         key: 'gift',
-        label: isBoost ? L('手气爆棚战报', 'Top Roll Report') : L('双向开箱礼', 'Co-Op Gift'),
-        text: isBoost
-          ? L(
-              `手气爆棚！刚在 A9 宝箱商城开【${label}】拿到 ${rewardText}（保底 + 随机加赠合并直发钱包），0.99 GRAM 起试试手气或免费领 200 A9 新手箱！`,
-              `Lucky roll! Opened [${label}] in A9 Chest Mall for ${rewardText} (base + random bonus paid directly to wallet). Try from 0.99 GRAM or claim free 200 A9 Starter Chest!`
-            )
-          : L(
-              `A9 双向开箱礼：帮我助力开启【${label}】（${rewardText}，还差 ${need} 位同路人），确认同行立刻领可秒开的 200 A9 青铜新手箱！`,
-              `A9 Co-Op Gift: assist [${label}] (${rewardText}, ${need} partner(s) left) with an active TON wallet and instantly open your own 200 A9 Bronze Starter Chest!`
-            )
+        label: L('分享宝箱', 'Share Chest'),
+        text: message,
       },
       {
         key: 'banter',
-        label: L('站队对赌战报', 'Battle Call'),
-        text: isBoost
-          ? L(
-              `A9 第 ${roundNum} 轮 12H 冲价正热（${passed}/${required} 段）！刚开【${label}】合并直发 ${rewardText}，顺便来 12H 预言擂台 0 GRAM 站队 PASS / BURN！`,
-              `A9 Round #${roundNum} 12H Push is heating up (${passed}/${required} slots)! Unboxed [${label}] for ${rewardText} direct payout—pick PASS or BURN for 0 GRAM.`
-            )
-          : L(
-              `A9 第 ${roundNum} 轮 12H 冲价线（${passed}/${required} 段）！差 ${need} 位活跃钱包同路人一起开【${label}】，同行秒领 200 A9 青铜新手箱！`,
-              `A9 Round #${roundNum} (${passed}/${required} slots)! Need ${need} active-wallet partner(s) for [${label}]—get an instant 200 A9 Bronze Starter Chest.`
-            )
+        label: L('本轮动态', 'Stage Update'),
+        text: L(`第 ${roundNum} 轮 · ${phaseZh}。${message}`, `Round ${roundNum} · ${phaseEn}. ${message}`),
       },
       {
         key: 'data',
         label: L('链上规则透明', 'Transparent'),
         text: isBoost
           ? L(
-              `A9 宝箱商城透明规则：6 档纯区间随机开箱，保底 + 随机加赠（最高 +275,000 A9）合并一笔直发钱包，只收一次 0.06 GRAM Gas，全网 200,000,000 A9 阶段硬顶公开可查。`,
-              `A9 Chest Mall rules: 6 random-range tiers sending base + random bonus (up to +275,000 A9) directly to your wallet in one tx (0.06 GRAM gas once), 200,000,000 A9 Phase 1 cap.`
+              `A9 宝箱商城透明规则：6 档纯区间随机开箱，保底 + 随机加赠（最高 +275,000 A9）合并一笔直发钱包，只收一次 0.06 GRAM Gas，规则公开可查。`,
+              `A9 Chest Mall rules: 6 random-range tiers sending base + random bonus (up to +275,000 A9) directly to your wallet in one tx (0.06 GRAM gas once), transparent on-chain.`
             )
           : L(
               `A9 协议双向开箱礼：仅需连接链上活跃 TON 钱包校验（0 扣款、防女巫公开可查），同行推进【${label}】并立得可秒开的 200 A9 青铜新手箱。`,
               `A9 Protocol Co-Op Gift: active TON wallet check (0 transfer, transparent anti-sybil) advances [${label}] and unlocks an instant 200 A9 Bronze Starter Chest.`
             )
       }
-    ];
+    ]);
   }
 
   if (type === 'bet') {
@@ -180,13 +269,13 @@ function buildAngles(type, id, ctx = {}) {
     const slotNote = (ctx.guessSlots !== null && ctx.guessSlots !== undefined)
       ? L(`，精准卡位 ${ctx.guessSlots}/12 段`, `, exact call ${ctx.guessSlots}/12`)
       : '';
-    return [
+    return tagDemo([
       {
         key: 'data',
         label: L('数据派', 'Data'),
         text: L(
-          `12H 冲价，达标 ≥ 8/12 派奖还是自动止损？我在 A9 第 ${roundNum} 轮 12H 预言擂台押了【${sideLabel}】${slotNote}${rankTag}。当前 ${passed}/${required} 段，目标底价 ${target}。`,
-          `12H price sprint—pass ≥ 8/12 or auto stop-loss? I locked [${sideLabel}]${slotNote}${rankTag} in A9 Round #${roundNum} 12H Prediction Arena (${passed}/${required} slots, target ${target}).`
+          `达标 ≥ 8/12 派奖还是自动止损？我在 A9 第 ${roundNum} 轮 12H 预言擂台押了【${sideLabel}】${slotNote}${rankTag}。当前${phaseZh}，目标底价 ${target}。`,
+          `Pass ≥ 8/12 or auto stop-loss? I locked [${sideLabel}]${slotNote}${rankTag} in A9 Round #${roundNum} 12H Prediction Arena (${phaseEn}, target ${target}).`
         )
       },
       {
@@ -201,40 +290,40 @@ function buildAngles(type, id, ctx = {}) {
         key: 'casual',
         label: L('吃瓜自嘲派', 'Banter'),
         text: L(
-          `0 成本先站个队：A9 第 ${roundNum} 轮我选【${sideLabel}】${slotNote}。现在 ${passed}/${required} 段，猜对瓜分奖池、首轮猜错也保底 500 A9 赠金，看戏站队不亏。`,
-          `Zero-cost stand on A9 Round #${roundNum}: [${sideLabel}]${slotNote}. Currently ${passed}/${required} slots—500 A9 rookie floor even on a first miss.`
+          `0 成本先站个队：A9 第 ${roundNum} 轮我选【${sideLabel}】${slotNote}。当前${phaseZh}，猜对瓜分奖池、首轮猜错也保底 500 A9 赠金，看戏站队不亏。`,
+          `Zero-cost stand on A9 Round #${roundNum}: [${sideLabel}]${slotNote}. ${phaseEn}—500 A9 rookie floor even on a first miss.`
         )
       }
-    ];
+    ]);
   }
 
-  // Default: 'round' 24H 赛点
-  return [
+  // Default: 'round' / 'invite'
+  return tagDemo([
     {
       key: 'data',
       label: L('数据派', 'Data'),
       text: L(
-        `12H 冲价赛点：A9 第 ${roundNum} 轮当前 ${passed}/${required} 段达标${rankTag}，目标底价 ${target}，奖池 ${pool}（全员 1:1 封顶 5x · 永不爆仓，未达标退 95%/90% 本金）。`,
-        `12H Push Live: A9 Round #${roundNum} at ${passed}/${required} slots${rankTag}, target ${target}, pool ${pool} (1:1 up to 5x · no liquidation, 95%/90% refund on fail).`
+        `A9 第 ${roundNum} 轮实时进度：${phaseZh}${rankTag}，目标底价 ${target}${poolClause}（全员 1:1 封顶 5x · 永不爆仓，未达标退 95%/90% 本金）。`,
+        `A9 Round #${roundNum} status: ${phaseEn}${rankTag}, target ${target}${poolClause} (1:1 up to 5x · no liquidation, 95%/90% refund on miss).`
       )
     },
     {
       key: 'bull',
       label: L('看多派', 'Bullish'),
       text: L(
-        `12H 冲刺 8/12 通关线！A9 第 ${roundNum} 轮已拿下 ${passed}/${required} 段，头矿 6H 享 5% 轻止损，奖池 ${pool} 链上透明结算，实时盯盘！`,
-        `Pushing for 8/12 slots! A9 Round #${roundNum} holds ${passed}/${required} slots with First 6H 5% Stop-Loss and ${pool} pool.`
+        `A9 第 ${roundNum} 轮（${phaseZh}）${poolClause}，头矿 6H 享 5% 轻止损，链上透明结算！`,
+        `A9 Round #${roundNum} (${phaseEn})${poolClause}, First 6H 5% stop-loss, transparent on-chain settlement!`
       )
     },
     {
       key: 'casual',
       label: L('吃瓜自嘲派', 'Banter'),
       text: L(
-        `12H 冲价，是冲关 8/12 分 700,000,000 A9 还是自动止损烧半池？A9 第 ${roundNum} 轮目前 ${passed}/${required} 段拉满悬念，0 GRAM 免费进 12H 预言擂台先站队！`,
-        `12H Push: pass 8/12 to split 700,000,000 A9 or trigger auto stop-loss? A9 Round #${roundNum} sits at ${passed}/${required} slots—pick a side for 0 GRAM in the 12H Prediction Arena.`
+        `A9 第 ${roundNum} 轮（${phaseZh}）${poolClause}：达标 ≥ 8/12 分奖，未达标自动止损退本，0 GRAM 免费进 12H 预言擂台先站队！`,
+        `A9 Round #${roundNum} (${phaseEn})${poolClause}: pass ≥ 8/12 to split the pool or auto stop-loss refund—pick a side for 0 GRAM in the 12H Prediction Arena.`
       )
     }
-  ];
+  ]);
 }
 
 /**
@@ -243,7 +332,7 @@ function buildAngles(type, id, ctx = {}) {
 export function openXShareSheet({ type = 'round', id = '1', context = {} } = {}) {
   A9Haptic.light();
   const ogUrl = buildOgShareUrl(type, id);
-  const angles = buildAngles(type, id, context);
+  const angles = buildShareAngles(type, id, context);
   let activeKey = angles[0].key;
 
   openModal(`
@@ -274,7 +363,8 @@ export function openXShareSheet({ type = 'round', id = '1', context = {} } = {})
   const textarea = document.getElementById('x-share-textarea');
   if (textarea) textarea.value = angles[0].text;
 
-  document.getElementById('x-share-close').onclick = closeModal;
+  const closeBtn = document.getElementById('x-share-close');
+  if (closeBtn) closeBtn.onclick = closeModal;
 
   document.querySelectorAll('[data-x-angle]').forEach(btn => {
     btn.onclick = () => {
@@ -286,17 +376,23 @@ export function openXShareSheet({ type = 'round', id = '1', context = {} } = {})
     };
   });
 
-  document.getElementById('x-share-post').onclick = () => {
-    A9Haptic.success();
-    const text = (textarea?.value || angles[0].text).trim();
-    const intentUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(ogUrl)}`;
-    A9TMA.openExternalLink(intentUrl);
-    closeModal();
-  };
+  const postBtn = document.getElementById('x-share-post');
+  if (postBtn) {
+    postBtn.onclick = () => {
+      A9Haptic.success();
+      const text = (textarea?.value || angles[0].text).trim();
+      const intentUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(ogUrl)}`;
+      A9TMA.openExternalLink(intentUrl);
+      closeModal();
+    };
+  }
 
-  document.getElementById('x-share-copy').onclick = () => {
-    copyText(ogUrl, L('已复制 OG 卡片链接', 'Copied OG card link'));
-  };
+  const copyBtn = document.getElementById('x-share-copy');
+  if (copyBtn) {
+    copyBtn.onclick = () => {
+      copyText(ogUrl, L('已复制 OG 卡片链接', 'Copied OG card link'));
+    };
+  }
 }
 
 /**
@@ -307,6 +403,10 @@ export function openXShareSheet({ type = 'round', id = '1', context = {} } = {})
 export function triggerStoryShare({ canvas, type = 'round', id = '1', text = '', mediaUrl = null, filename = 'A9-Story-9x16.png' } = {}) {
   A9Haptic.light();
   const widgetLink = buildStartAppLink(type, id);
+  if (!widgetLink) {
+    showToast(L('当前环境未配置官方 Bot 句柄，暂无法生成 Telegram Story 深链', 'Bot handle is not configured for this environment; Story link unavailable'), 'amber');
+    return;
+  }
   const apiOrigin = config.apiBase || window.location.origin;
   const resolvedMediaUrl = mediaUrl || (apiOrigin.startsWith('https://')
     ? `${apiOrigin}/c/img/${encodeURIComponent(type)}/${encodeURIComponent(String(id ?? '1'))}.png?ratio=9x16`

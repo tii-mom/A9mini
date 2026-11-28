@@ -125,6 +125,22 @@ export function renderCity(root, navigate) {
     : escapeHtml(uiState.title);
 
   root.innerHTML = `<div class="col-gap anim-page-enter" id="plaza-home-root">
+    <section class="card card-hero plaza-round-card" id="plaza-round-card">
+      <div class="row-between plaza-round-heading" style="gap:8px;">
+        <div class="row-start" style="gap:6px;min-width:0;">
+          <strong class="num-sm" style="white-space:nowrap;">${r.currentRound == null ? L('当前轮次', 'Current Round') : L(`第 ${r.currentRound} 轮`, `Round ${r.currentRound}`)}</strong>
+          <span class="chip ${uiState.chipTone}" style="min-height:20px;font-size:11px;padding:0 7px;white-space:nowrap;">${escapeHtml(uiState.badgeLabel)}</span>
+        </div>
+        <span id="round-cd" class="plaza-countdown mono num-sm ${isUrgent ? 'text-red' : 'text-sec'}" style="white-space:nowrap;flex-shrink:0;">${escapeHtml(countdownDisplayText)}</span>
+      </div>
+
+      ${renderMiniTimeline(uiState.stage)}
+
+      <p class="plaza-one-line-status" id="plaza-round-status">${oneLineStatusHtml}</p>
+
+      ${renderActionHtml(uiState.primaryAction)}
+    </section>
+
     <section class="plaza-status-strip" id="plaza-my-status" aria-label="${L('我的状态', 'My Status')}">
       <button type="button" class="plaza-status-cell plaza-status-trigger" id="plaza-status-wallet">
         <span class="plaza-status-lbl">${L('钱包', 'Wallet')}</span>
@@ -140,21 +156,6 @@ export function renderCity(root, navigate) {
       </a>
     </section>
 
-    <section class="card card-hero plaza-round-card" id="plaza-round-card">
-      <div class="row-between" style="gap:8px;">
-        <div class="row-start" style="gap:6px;min-width:0;">
-          <strong class="num-sm" style="white-space:nowrap;">${r.currentRound == null ? L('当前轮次', 'Current Round') : L(`第 ${r.currentRound} 轮`, `Round ${r.currentRound}`)}</strong>
-          <span class="chip ${uiState.chipTone}" style="min-height:20px;font-size:11px;padding:0 7px;white-space:nowrap;">${escapeHtml(uiState.badgeLabel)}</span>
-        </div>
-        <span id="round-cd" class="mono num-sm ${isUrgent ? 'text-red' : 'text-sec'}" style="white-space:nowrap;flex-shrink:0;">${escapeHtml(countdownDisplayText)}</span>
-      </div>
-
-      ${renderMiniTimeline(uiState.stage)}
-
-      <p class="plaza-one-line-status" id="plaza-round-status">${oneLineStatusHtml}</p>
-
-      ${renderActionHtml(uiState.primaryAction)}
-    </section>
 
     ${!hideHowTo ? `
       <section class="card plaza-howto-card" id="plaza-howto-card">

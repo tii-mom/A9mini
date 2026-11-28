@@ -129,11 +129,11 @@ function makeRequestKey(path, method, initData, extraHeaders, timeoutMs) {
 }
 
 /** BAM ApiResponse<T> 信封：{ ok, data, ts } | { ok:false, error:{code,message} } */
-async function request(path, { timeoutMs = config.timeoutMs, method = 'GET', body: payload, headers: extraHeaders = null } = {}) {
+async function request(path, { timeoutMs = config.timeoutMs, method = 'GET', body: payload, headers: extraHeaders = null, fresh = false } = {}) {
   // 只读请求去重：同一路径、方法、身份、头、超时在途时复用 Promise
   const initData = config.isDemo ? '' : A9TMA.getRawInitData();
   const isReadOnly = payload === undefined && (method === 'GET' || method === 'HEAD');
-  const requestKey = isReadOnly ? makeRequestKey(path, method, initData, extraHeaders, timeoutMs) : null;
+  const requestKey = isReadOnly && !fresh ? makeRequestKey(path, method, initData, extraHeaders, timeoutMs) : null;
 
   if (isReadOnly && requestKey && inflightRequests.has(requestKey)) {
     return inflightRequests.get(requestKey);
@@ -147,6 +147,7 @@ async function request(path, { timeoutMs = config.timeoutMs, method = 'GET', bod
   const executeRequest = async () => {
     try {
       const init = { method, signal: controller.signal, credentials: 'same-origin', headers: { ...(extraHeaders || {}) } };
+      if (fresh) init.cache = 'no-store';
       if (payload !== undefined) {
         init.headers['content-type'] = 'application/json';
         init.body = JSON.stringify(payload);
@@ -206,6 +207,7 @@ function pickFocusRound(rounds) {
 
 let lastGoodSnapshot = null;
 let currentView = null;
+let snapshotSeq = 0;
 
 /** 读取内存中的最近一次成功快照（绝不使用 sessionStorage/localStorage 持久化）。 */
 export function getLastGoodSnapshot() {
@@ -214,10 +216,11 @@ export function getLastGoodSnapshot() {
 
 /** 读取只读快照。先并发拉取 config + rounds 并可选通过 onPartial 先行渲染，再补齐当前轮详情 detail；失败时保留内存 lastGoodSnapshot 并标记 stale。 */
 export async function loadSnapshot({ onPartial } = {}) {
+  const reqSeq = ++snapshotSeq;
   if (config.isDemo) {
     const demo = await loadDemoModule();
-    const fixture = demo.demoFixture();
-    lastGoodSnapshot = fixture;
+    const fixture = demo.demoFixture('early');
+    if (reqSeq === snapshotSeq) lastGoodSnapshot = fixture;
     return fixture;
   }
 
@@ -298,7 +301,7 @@ export async function loadSnapshot({ onPartial } = {}) {
       stale: false,
       partial: false,
     };
-    lastGoodSnapshot = snapshot;
+    if (reqSeq === snapshotSeq) lastGoodSnapshot = snapshot;
     return snapshot;
   } catch (error) {
     if (lastGoodSnapshot) {
@@ -370,6 +373,8 @@ export function mapRoundView(snapshot) {
       confirmed: typeof x.qualified === 'boolean',
       bull: typeof x.qualified === 'boolean' ? x.qualified : null,
       p: e8ToUsd(x.twapPriceUsdE8),
+      periodStart: toMillis(x.periodStart),
+      periodEnd: toMillis(x.periodEnd),
       coverageBps: x.coverageBps,
       digest: x.dataDigest
     }])
@@ -423,8 +428,29 @@ export function mapRoundView(snapshot) {
     minQualifiedCandles: minQualified,
     needMore: qualified === null ? null : Math.max(0, minQualified - qualified),
     candles,
+    candleSeconds: Number(c.candleSeconds ?? 3600) || 3600,
     activeCandleEndAt,
     activeCandleSec: activeCandleEndAt ? Math.max(0, Math.ceil((activeCandleEndAt - serverNowMs()) / 1000)) : null,
+    priceSampledAt: toMillis(d.live?.sampledAt ?? d.live?.priceSampledAt ?? d.priceSampledAt ?? d.twapUpdatedAt),
+    lastConfirmedCandleAt: (() => {
+      const closedTimes = candles.filter(x => x.status === 'closed' && x.p !== null && x.periodEnd).map(x => x.periodEnd);
+      return closedTimes.length ? Math.max(...closedTimes) : toMillis(d.lastConfirmedCandleAt);
+    })(),
+    lastValidPriceAt: (() => {
+      const liveSampled = toMillis(d.live?.sampledAt ?? d.live?.priceSampledAt);
+      const detailSampled = toMillis(d.priceSampledAt ?? d.twapUpdatedAt);
+      const closedTimes = candles.filter(x => x.status === 'closed' && x.p !== null && x.periodEnd).map(x => x.periodEnd);
+      const lastClosed = closedTimes.length ? Math.max(...closedTimes) : toMillis(d.lastConfirmedCandleAt);
+      if (d.state === 'OBSERVING' && d.priceValid !== false && livePrice !== null && liveSampled) {
+        return liveSampled;
+      }
+      if (lastClosed) return lastClosed;
+      if (d.priceValid !== false && (livePrice !== null || judgePrice !== null) && detailSampled) {
+        return detailSampled;
+      }
+      return null;
+    })(),
+    syncedAt: toMillis(d.updatedAt ?? c.syncedAt ?? snapshot.fetchedAt),
     rewardBudgetRaw: d.rewardBudgetRaw ?? null,
     nextRoundCarryRaw: c.poolState?.dataAvailable === true && Number(c.poolState.currentRoundId) === Number(d.roundId)
       ? (c.poolState.carryRaw ?? null) : null,
@@ -492,9 +518,9 @@ export async function fetchPresaleQuota(walletAddress) {
 }
 
 /** 查询当前钱包的宝箱商城/固定兑换订单与退款明细（真实只读接口）。 */
-export async function fetchPresaleOrders(walletAddress) {
+export async function fetchPresaleOrders(walletAddress, { fresh = false } = {}) {
   if (!walletAddress) return [];
-  return request(ENDPOINTS.presaleOrders(walletAddress));
+  return request(ENDPOINTS.presaleOrders(walletAddress), { fresh });
 }
 
 /**
@@ -576,7 +602,8 @@ export async function activatePredictionReward(userId, walletAddress, activation
   if (config.isDemo) {
     const demo = await loadDemoModule();
     try {
-      return demo.demoPredictionActivate(userId, walletAddress);
+      const { store } = await import('./store.js');
+      return demo.demoPredictionActivate(userId, walletAddress, store.state);
     } catch (e) {
       throw new ApiError('DEMO_ACTIVATE_ERR', e.message);
     }
@@ -731,11 +758,24 @@ export async function fetchWalletTeam(wallet) {
   return request(ENDPOINTS.teamByWallet(wallet));
 }
 
-/** 加入团队（透传 referrerId） */
+/** 加入团队（Demo 模式纯本地返回、绝不发网络写请求；Live 模式透传 referrerId） */
 export async function joinTeam({ teamId, walletAddress, userId, referrerId }) {
+  const cleanId = String(teamId || '').trim();
+  if (!cleanId) throw new ApiError('BAD_REQUEST', L('请输入有效的战队编号', 'Enter a valid Squad ID'));
+  if (config.isDemo) {
+    return {
+      teamId: cleanId,
+      name: cleanId,
+      role: 'member',
+      bindStatus: 'unbound',
+      memberCount: 1,
+      tgMemberCount: 0,
+      simulated: true,
+    };
+  }
   return request(ENDPOINTS.teamJoin, {
     method: 'POST',
-    body: withReferrer({ teamId: String(teamId), walletAddress: walletAddress || null, userId: userId || null }, referrerId)
+    body: withReferrer({ teamId: cleanId, walletAddress: walletAddress || null, userId: userId || null }, referrerId)
   });
 }
 
@@ -780,8 +820,8 @@ export async function submitStartAppAttribution({ startParam, referrerId = null 
 }
 
 /** 读取用户统一持仓与额度（A9 JettonWallet / 质押凭证 / 推广 / 商城 / 战队），支持可选历史轮次分页。 */
-export async function fetchUserPortfolio(walletAddress, { fromRound = null, toRound = null } = {}) {
-  return request(ENDPOINTS.userProfile(walletAddress, { fromRound, toRound }));
+export async function fetchUserPortfolio(walletAddress, { fromRound = null, toRound = null, fresh = false } = {}) {
+  return request(ENDPOINTS.userProfile(walletAddress, { fromRound, toRound }), { fresh });
 }
 
 /**
@@ -800,30 +840,222 @@ export function stakeTicketAmount(portfolio, roundId) {
   return BigInt(ticket.amountRaw);
 }
 
-export function formatRoundA9(raw) {
+export function formatNanoTokenAmount(raw, unit) {
   const amount = nonNegativeRaw(raw);
   if (amount === null) return '—';
   const whole = (amount / 1_000_000_000n).toLocaleString('en-US');
   const fraction = String(amount % 1_000_000_000n).padStart(9, '0').replace(/0+$/, '');
-  return `${whole}${fraction ? '.' + fraction : ''} A9`;
+  return `${whole}${fraction ? '.' + fraction : ''} ${unit}`;
 }
 
-export function estimateRewardRaw(amountA9Input, view = currentView) {
-  if (!view || view.stale || view.detailStale || view.detailLoading) return null;
-  const parts = /^(\d+)(?:\.(\d{1,9}))?$/.exec(String(amountA9Input));
+export function formatRoundA9(raw) {
+  return formatNanoTokenAmount(raw, 'A9');
+}
+
+export function parseA9InputToRaw(input) {
+  if (typeof input === 'bigint') return input >= 0n ? input : null;
+  if (input === null || input === undefined) return null;
+  const s = String(input).trim();
+  if (!s) return null;
+  const parts = /^(\d+)(?:\.(\d{1,9}))?$/.exec(s);
   if (!parts) return null;
-  const amount = BigInt(parts[1]) * 1_000_000_000n + BigInt((parts[2] || '').padEnd(9, '0'));
+  return BigInt(parts[1]) * 1_000_000_000n + BigInt((parts[2] || '').padEnd(9, '0'));
+}
+
+function calcPoolShareRaw(budgetRaw, totalStakeRaw, userStakeRaw) {
+  if (budgetRaw === null || totalStakeRaw === null || userStakeRaw === null) return { rewardRaw: null, capHit: false };
+  if (totalStakeRaw <= 0n || userStakeRaw <= 0n) return { rewardRaw: null, capHit: false };
+  const cap = totalStakeRaw * BigInt(PROTOCOL_SPECS.maxRewardMultiplier);
+  const distributable = budgetRaw < cap ? budgetRaw : cap;
+  return { rewardRaw: (distributable * userStakeRaw) / totalStakeRaw, capHit: budgetRaw > cap };
+}
+
+function calcStopLossRaw(earlyRaw, lateRaw) {
+  const total = earlyRaw + lateRaw;
+  const earlyRef = (earlyRaw * 9500n) / 10000n;
+  const lateRef = (lateRaw * 9000n) / 10000n;
+  const refundRaw = earlyRef + lateRef;
+  return { refundRaw, burnRaw: total - refundRaw };
+}
+
+function calcEarlyExitRaw(totalRaw) {
+  const refundRaw = (totalRaw * 8500n) / 10000n;
+  return { refundRaw, burnRaw: totalRaw - refundRaw };
+}
+
+function splitRewardImmLinear(rewardRaw, immBps = 2000n) {
+  if (rewardRaw === null) return { immediateRaw: null, linearRaw: null };
+  const immediateRaw = (rewardRaw * immBps) / 10000n;
+  return { immediateRaw, linearRaw: rewardRaw - immediateRaw };
+}
+
+/**
+ * 统一 BigInt 资金试算（全路径整数运算，无 Number 精度截断）：
+ * - existing: 已有仓位，分母 S = totalStakedRaw，占比 H / S
+ * - addition: 本次新增单独份额，分母 S' = S + A，占比 A / (S + A)
+ * - combined: 追加后本人总仓，分母 S' = S + A，占比 (H + A) / (S + A)，并区分净增量 (combined - existing)
+ * 兼容旧票缺分仓字段（earlyAmountRaw 与 lateAmountRaw 均缺省时按 Worker 口径视为普通仓 10% 止损）。
+ */
+export function calculateStakePreview({ view = currentView, existingTicket = null, addAmountRaw = 0n, inFirst6h = false } = {}) {
+  const addRaw = typeof addAmountRaw === 'bigint' ? addAmountRaw : (nonNegativeRaw(addAmountRaw) ?? 0n);
+  const gas = {
+    stakeGasGram: PROTOCOL_SPECS.stakeGasGram,
+    claimGasGram: PROTOCOL_SPECS.claimGasGram,
+    dualClaimGasGram: PROTOCOL_SPECS.dualClaimGasGram,
+  };
+
+  // 解析已有票据分仓（严格对齐 Worker computeTicketClaimPreview）
+  let existingTotalRaw = 0n;
+  let existingEarlyRaw = 0n;
+  let existingLateRaw = 0n;
+  let splitSource = 'none';
+  let splitIncomplete = false;
+  if (existingTicket && !existingTicket.exited) {
+    const amt = nonNegativeRaw(existingTicket.amountRaw) ?? 0n;
+    const hasEarlyKey = existingTicket.earlyAmountRaw !== undefined && existingTicket.earlyAmountRaw !== null && existingTicket.earlyAmountRaw !== '';
+    const hasLateKey = existingTicket.lateAmountRaw !== undefined && existingTicket.lateAmountRaw !== null && existingTicket.lateAmountRaw !== '';
+    if (!hasEarlyKey && !hasLateKey) {
+      existingEarlyRaw = 0n;
+      existingLateRaw = amt;
+      existingTotalRaw = amt;
+      splitSource = amt > 0n ? 'legacy_standard' : 'none';
+    } else if (hasEarlyKey && hasLateKey) {
+      const eVal = nonNegativeRaw(existingTicket.earlyAmountRaw);
+      const lVal = nonNegativeRaw(existingTicket.lateAmountRaw);
+      if (eVal !== null && lVal !== null) {
+        existingEarlyRaw = eVal;
+        existingLateRaw = lVal;
+        existingTotalRaw = (eVal + lVal) > 0n ? (eVal + lVal) : amt;
+        splitSource = 'exact';
+      } else {
+        existingEarlyRaw = eVal ?? 0n;
+        existingLateRaw = lVal ?? (eVal === null ? amt : 0n);
+        existingTotalRaw = existingEarlyRaw + existingLateRaw > 0n ? existingEarlyRaw + existingLateRaw : amt;
+        splitSource = 'incomplete';
+        splitIncomplete = true;
+      }
+    } else {
+      const eVal = hasEarlyKey ? nonNegativeRaw(existingTicket.earlyAmountRaw) : 0n;
+      const lVal = hasLateKey ? nonNegativeRaw(existingTicket.lateAmountRaw) : 0n;
+      existingEarlyRaw = eVal ?? 0n;
+      existingLateRaw = lVal ?? 0n;
+      existingTotalRaw = existingEarlyRaw + existingLateRaw > 0n ? existingEarlyRaw + existingLateRaw : amt;
+      splitSource = 'incomplete';
+      splitIncomplete = true;
+    }
+  }
+
+  const budgetRaw = view ? nonNegativeRaw(view.rewardBudgetRaw) : null;
+  const currentTotalStakeRaw = view ? nonNegativeRaw(view.totalStakedRaw) : null;
+  const immBps = BigInt(Number(view?.unlock?.immediateBps || 2000));
+
+  let status = 'ok';
+  if (!view || view.detailLoading) status = 'unready';
+  else if (view.stale || view.detailStale) status = 'stale';
+  else if (budgetRaw === null || currentTotalStakeRaw === null) status = 'unready';
+  else if (addRaw <= 0n && currentTotalStakeRaw <= 0n) status = 'zero_denominator';
+
+  const rewardReady = status === 'ok';
+
+  // 1) 已有仓位（分母 S = currentTotalStakeRaw）
+  const existingShare = (rewardReady && existingTotalRaw > 0n && currentTotalStakeRaw > 0n)
+    ? calcPoolShareRaw(budgetRaw, currentTotalStakeRaw, existingTotalRaw)
+    : { rewardRaw: null, capHit: false };
+  const existingSplit = splitRewardImmLinear(existingShare.rewardRaw, immBps);
+  const existingFail = calcStopLossRaw(existingEarlyRaw, existingLateRaw);
+  const existingExit = calcEarlyExitRaw(existingTotalRaw);
+
+  // 2) 本次新增（分母 S' = S + A）
+  const nextTotalStakeRaw = currentTotalStakeRaw !== null ? (currentTotalStakeRaw + addRaw) : null;
+  const addEarlyRaw = inFirst6h ? addRaw : 0n;
+  const addLateRaw = inFirst6h ? 0n : addRaw;
+  const addShare = (rewardReady && addRaw > 0n && nextTotalStakeRaw !== null && nextTotalStakeRaw > 0n)
+    ? calcPoolShareRaw(budgetRaw, nextTotalStakeRaw, addRaw)
+    : { rewardRaw: null, capHit: false };
+  const addSplit = splitRewardImmLinear(addShare.rewardRaw, immBps);
+  const addFail = calcStopLossRaw(addEarlyRaw, addLateRaw);
+  const addExit = calcEarlyExitRaw(addRaw);
+
+  // 3) 追加后本人总仓（分母 S' = S + A，总仓 H' = H + A）
+  const combinedEarlyRaw = existingEarlyRaw + addEarlyRaw;
+  const combinedLateRaw = existingLateRaw + addLateRaw;
+  const combinedTotalRaw = existingTotalRaw + addRaw;
+  const combinedShare = (rewardReady && combinedTotalRaw > 0n && nextTotalStakeRaw !== null && nextTotalStakeRaw > 0n)
+    ? calcPoolShareRaw(budgetRaw, nextTotalStakeRaw, combinedTotalRaw)
+    : { rewardRaw: null, capHit: false };
+  const combinedSplit = splitRewardImmLinear(combinedShare.rewardRaw, immBps);
+  const combinedFail = calcStopLossRaw(combinedEarlyRaw, combinedLateRaw);
+  const combinedExit = calcEarlyExitRaw(combinedTotalRaw);
+  const netRewardDeltaRaw = (combinedShare.rewardRaw !== null && existingShare.rewardRaw !== null)
+    ? (combinedShare.rewardRaw - existingShare.rewardRaw)
+    : (existingTotalRaw === 0n ? combinedShare.rewardRaw : null);
+
+  return {
+    status,
+    gas,
+    denominators: {
+      currentTotalStakeRaw: currentTotalStakeRaw !== null ? currentTotalStakeRaw.toString() : null,
+      nextTotalStakeRaw: nextTotalStakeRaw !== null ? nextTotalStakeRaw.toString() : null,
+      budgetRaw: budgetRaw !== null ? budgetRaw.toString() : null,
+      capHitCurrent: existingShare.capHit,
+      capHitNext: combinedShare.capHit || addShare.capHit,
+    },
+    existing: {
+      principalRaw: existingTotalRaw.toString(),
+      earlyRaw: existingEarlyRaw.toString(),
+      lateRaw: existingLateRaw.toString(),
+      splitSource,
+      splitIncomplete,
+      winRewardRaw: existingShare.rewardRaw !== null ? existingShare.rewardRaw.toString() : null,
+      winImmediateRaw: existingSplit.immediateRaw !== null ? existingSplit.immediateRaw.toString() : null,
+      winLinearRaw: existingSplit.linearRaw !== null ? existingSplit.linearRaw.toString() : null,
+      failRefundRaw: existingFail.refundRaw.toString(),
+      failBurnRaw: existingFail.burnRaw.toString(),
+      earlyExitRefundRaw: existingExit.refundRaw.toString(),
+      earlyExitBurnRaw: existingExit.burnRaw.toString(),
+    },
+    addition: {
+      principalRaw: addRaw.toString(),
+      inFirst6h: Boolean(inFirst6h),
+      newShareRewardRaw: addShare.rewardRaw !== null ? addShare.rewardRaw.toString() : null,
+      winImmediateRaw: addSplit.immediateRaw !== null ? addSplit.immediateRaw.toString() : null,
+      winLinearRaw: addSplit.linearRaw !== null ? addSplit.linearRaw.toString() : null,
+      failRefundRaw: addFail.refundRaw.toString(),
+      failBurnRaw: addFail.burnRaw.toString(),
+      earlyExitRefundRaw: addExit.refundRaw.toString(),
+      earlyExitBurnRaw: addExit.burnRaw.toString(),
+    },
+    combined: {
+      principalRaw: combinedTotalRaw.toString(),
+      earlyRaw: combinedEarlyRaw.toString(),
+      lateRaw: combinedLateRaw.toString(),
+      winRewardRaw: combinedShare.rewardRaw !== null ? combinedShare.rewardRaw.toString() : null,
+      winImmediateRaw: combinedSplit.immediateRaw !== null ? combinedSplit.immediateRaw.toString() : null,
+      winLinearRaw: combinedSplit.linearRaw !== null ? combinedSplit.linearRaw.toString() : null,
+      netRewardDeltaRaw: netRewardDeltaRaw !== null ? netRewardDeltaRaw.toString() : null,
+      failRefundRaw: combinedFail.refundRaw.toString(),
+      failBurnRaw: combinedFail.burnRaw.toString(),
+      earlyExitRefundRaw: combinedExit.refundRaw.toString(),
+      earlyExitBurnRaw: combinedExit.burnRaw.toString(),
+    },
+  };
+}
+
+export function estimateRewardRaw(amountA9Input, view = currentView, { mode = 'new' } = {}) {
+  if (!view || view.stale || view.detailStale || view.detailLoading) return null;
+  const amount = parseA9InputToRaw(amountA9Input);
   const budget = nonNegativeRaw(view.rewardBudgetRaw);
   const currentStake = nonNegativeRaw(view.totalStakedRaw);
-  if (amount <= 0n || budget === null || currentStake === null) return null;
+  if (amount === null || amount <= 0n || budget === null || currentStake === null) return null;
 
-  const totalStake = currentStake + amount;
+  const totalStake = mode === 'existing' ? currentStake : (currentStake + amount);
+  if (totalStake <= 0n) return null;
   const cap = totalStake * BigInt(PROTOCOL_SPECS.maxRewardMultiplier);
   return ((budget < cap ? budget : cap) * amount / totalStake).toString();
 }
 
-export function estimateRewardA9(amountA9Input, view = currentView) {
-  return rawToA9(estimateRewardRaw(amountA9Input, view));
+export function estimateRewardA9(amountA9Input, view = currentView, opts = {}) {
+  return rawToA9(estimateRewardRaw(amountA9Input, view, opts));
 }
 
 export function fetchWarmupRank(roundId) {

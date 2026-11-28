@@ -81,19 +81,21 @@ export function openTxRiskConfirmModal({
   note = '',
   insufficientReason = '',
   confirmText,
+  onDismiss = null,
 } = {}) {
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (accepted, { close = true } = {}) => {
+    const finish = (accepted, { close = true, reason = accepted ? 'confirm' : 'dismissed' } = {}) => {
       if (settled) return;
       settled = true;
       if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
         window.removeEventListener(INTERACTION_IDLE_EVENT, onModalClosed);
       }
       if (close) closeModal();
+      try { if (typeof onDismiss === 'function') onDismiss(reason); } catch (_) {}
       resolve(Boolean(accepted));
     };
-    const onModalClosed = () => finish(false, { close: false });
+    const onModalClosed = () => finish(false, { close: false, reason: 'dismissed' });
 
     const addrStr = String(targetAddress || '').trim();
     const explorerUrl = buildTonviewerUrl(addrStr, network);
@@ -162,14 +164,14 @@ export function openTxRiskConfirmModal({
       copyBtn.onclick = () => copyText(addrStr, L('已复制合约/钱包地址', 'Address copied'));
     }
     const closeBtn = doc.getElementById('tx-confirm-close');
-    if (closeBtn) closeBtn.onclick = () => { A9Haptic.light(); finish(false); };
+    if (closeBtn) closeBtn.onclick = () => { A9Haptic.light(); finish(false, { reason: 'user_cancel' }); };
     const cancelBtn = doc.getElementById('tx-confirm-cancel');
-    if (cancelBtn) cancelBtn.onclick = () => { A9Haptic.light(); finish(false); };
+    if (cancelBtn) cancelBtn.onclick = () => { A9Haptic.light(); finish(false, { reason: 'user_cancel' }); };
     const okBtn = doc.getElementById('tx-confirm-ok');
     if (okBtn && !blockedReason) {
       okBtn.onclick = () => {
         A9Haptic.medium();
-        finish(true);
+        finish(true, { reason: 'confirm' });
       };
     }
   });

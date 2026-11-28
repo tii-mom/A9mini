@@ -3,9 +3,20 @@ import assert from 'node:assert/strict';
 const storage=()=>({getItem:()=>null,setItem(){},removeItem(){}});
 globalThis.localStorage=storage();globalThis.sessionStorage=storage();
 globalThis.window={location:new URL('http://localhost/?mode=live&timeout=200'),__A9_CONFIG__:{network:'testnet'},Telegram:{WebApp:{initData:'x'.repeat(40)+'A'}},matchMedia:()=>({matches:false})};
-globalThis.document={documentElement:{dataset:{}},querySelector:()=>null,getElementById:()=>null};
+globalThis.document={documentElement:{dataset:{}},querySelector:()=>null,getElementById:()=>null,addEventListener(){}};
 const {fetchMe,requestTonProofPayload}=await import('./data.js');
+const {fmtRawGramOrDash,fmtUsdOrDash}=await import('./quest/quest-ui.js');
 const reply=()=>({status:200,json:async()=>({ok:true,data:{valid:true}})});
+
+test('small prices and raw GRAM keep their full precision while absent values stay blank', () => {
+  assert.equal(fmtUsdOrDash(null), '—');
+  assert.equal(fmtUsdOrDash(0), '—');
+  assert.equal(fmtUsdOrDash(0.00000001), '$0.00000001');
+  assert.equal(fmtUsdOrDash(0.0042), '$0.004200');
+  assert.equal(fmtRawGramOrDash(null), '—');
+  assert.equal(fmtRawGramOrDash('0'), '0 GRAM');
+  assert.equal(fmtRawGramOrDash('1000000000000000001'), '1,000,000,000.000000001 GRAM');
+});
 
 test('real request layer deduplicates reads, isolates complete identity, retries failures, and never merges writes',async()=>{
  let calls=[];let release;const resolvers=[];

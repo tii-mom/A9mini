@@ -6,6 +6,7 @@
  */
 
 import { escapeHtml, formatNum, formatTimer, openModal, closeModal } from '../components.js';
+import { formatNanoTokenAmount } from '../data.js';
 import { L } from '../i18n.js';
 
 const QUEST_SVG_PATHS = {
@@ -104,7 +105,15 @@ export function fmtIntOrDash(value) {
 export function fmtUsdOrDash(value, digits = 6) {
   const n = finiteOrNull(value);
   if (n === null || n <= 0) return '—';
-  return `$${n.toFixed(digits)}`;
+  const text = n.toLocaleString('en-US', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: Math.max(digits, 8),
+  });
+  return /[1-9]/.test(text) ? `$${text}` : '—';
+}
+
+export function fmtRawGramOrDash(raw) {
+  return formatNanoTokenAmount(raw, 'GRAM');
 }
 
 /** 倒计时格式化：countdownMs <= 0 或缺失时绝不显示 00:00:00，必须返回明确状态文案。 */

@@ -341,11 +341,11 @@ class A9Store {
     return Boolean(config.isDemo || config.liveFundsEnabled);
   }
 
-  stakeTon(amount) {
+  stakeTon(amount, opts = {}) {
     if (!config.isDemo) return null;
     const demoMod = peekDemoModule();
     if (!demoMod || !this._demoHydrated) return null;
-    const cert = demoMod.demoFundsStake(this.state, amount);
+    const cert = demoMod.demoFundsStake(this.state, amount, opts);
     if (cert) this.notify();
     return cert;
   }

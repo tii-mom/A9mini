@@ -685,9 +685,10 @@ class A9TonConnect {
       };
     } catch (e) {
       const msg = String(e?.message || e || '');
-      const rejected = /reject|cancel|declin|user/i.test(msg);
+      const UserRejectsError = window.TON_CONNECT_UI?.UserRejectsError;
+      const rejected = typeof UserRejectsError === 'function' && e instanceof UserRejectsError;
       const err = new Error(rejected ? L('已在钱包中取消本次签名，未扣款', 'Signature cancelled in wallet; no funds spent') : (msg || L('钱包交易签名失败，请重试', 'Wallet signing failed; please retry')));
-      err.code = rejected ? 'USER_REJECTED' : (e?.code || 'WALLET_TX_FAILED');
+      err.code = rejected ? 'USER_REJECTED' : 'WALLET_TX_FAILED';
       throw err;
     }
   }

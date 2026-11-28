@@ -40,7 +40,7 @@ import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { renderChestSvg, resolveChestTier, CHEST_TIER_META } from '../chest-art.js';
 import { openChestUnboxingTheater } from '../chest-theater.js';
-import { openXShareSheet, buildOgShareUrl, buildTmaDeepLink, getShareRef } from '../share.js';
+import { buildShareAngles, openXShareSheet, buildOgShareUrl, buildTmaDeepLink, getShareRef } from '../share.js';
 
 const TIER_PRIORITY = ['legendary', 'diamond', 'platinum', 'gold', 'silver', 'bronze'];
 
@@ -718,10 +718,11 @@ export function renderWarmupRank(root) {
 
 export function renderInternalMarket(root, navigate, _param = null, query = {}) {
   const { market } = store.state;
-  // 5a/5f: ?tab=free 兼容回落至 6 档宝箱商城主视图（不报 404）
+  let showFreeChests = query.tab === 'free';
   let selectedSkuId = 'chest_bronze';
   const openMode = 'INSTANT';
-  let chestData = { freeChests: [], shopChests: [], loaded: false };
+  let chestData = { freeChests: [], shopChests: [], loaded: false, error: false };
+  const hasChestIdentity = config.isDemo || Boolean(A9TMA.getRawInitData());
   let liveQuota = null;
   let liveOrdersCount = null;
   let activationA9 = null;
@@ -729,7 +730,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
   let openAllBusy = false;
 
   const isPresaleServerOpen = () => Boolean(store.state.round?.protocolConfig?.presaleHotWallet?.open);
-  const isChestOpenServerEnabled = () => store.state.round?.chestMall?.openEnabled !== false;
+  const isChestOpenServerEnabled = () => store.state.round?.chestMall?.openEnabled === true;
   const canPurchaseNow = () => config.isDemo || (store.fundsEnabled && isPresaleServerOpen());
   const canOpenChestNow = () => config.isDemo || (store.fundsEnabled && isChestOpenServerEnabled());
 
@@ -743,37 +744,24 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
   };
 
 
+  const openReceipts = new Map();
+  const completedOrders = new Map();
+  const chestShareContext = (chest) => ({
+    label: L(chest.labelZh, chest.labelEn),
+    source: chest.source,
+    orderId: chest.orderId,
+    order: completedOrders.get(chest.orderId),
+    receipt: openReceipts.get(chest.chestId),
+  });
+
   const shareChestToTg = (chest) => {
-    const ogUrl = buildOgShareUrl('chest', chest.chestId);
-    const need = Math.max(0, Number(chest.requiredAssists || 2) - Number(chest.currentAssists || 0));
-    const isBoost = chest.source === 'SHOP_BOOST';
-    const label = L(chest.labelZh, chest.labelEn);
-    const text = isBoost
-      ? L(
-          `刚在 A9 宝箱商城开启【${label}】！6 档纯区间随机开箱，保底 + 随机加赠合并直发钱包，来试试手气或免费秒开新手青铜箱（200 A9）：`,
-          `Just opened [${label}] in A9 Chest Mall! 6-tier random unboxing with base + random bonus sent directly to wallet. Try your luck or open your free Starter Bronze Chest (200 A9):`
-        )
-      : L(
-          `A9 双向同行礼：帮我点一下一起解锁【${label}】（还差 ${need} 次助力），你绑定活跃钱包立刻获得新手青铜箱（200 A9 免助力秒开）！若你购箱还可 1 人抵 3 次助力：`,
-          `A9 Two-Way Gift: help unlock [${label}] (${need} assist(s) left) and instantly get your own 200 A9 Starter Bronze Chest (0 assists needed)! Paid friends count as 3 assists:`
-        );
-    A9TMA.shareInvite(ogUrl, text);
-    showToast(L('已调起 Telegram 双向同行礼分享', 'Opened Telegram two-way gift share'));
+    const text = buildShareAngles('chest', chest.chestId, chestShareContext(chest))[0].text;
+    A9TMA.shareInvite(buildOgShareUrl('chest', chest.chestId), text);
+    showToast(L('已调起宝箱分享', 'Opened chest share'));
   };
 
   const shareChestToX = (chest) => {
-    const rewardA9 = rawToA9(chest.baseA9Raw) || 0;
-    openXShareSheet({
-      type: 'chest',
-      id: chest.chestId,
-      context: {
-        label: L(chest.labelZh, chest.labelEn),
-        source: chest.source,
-        currentAssists: chest.currentAssists,
-        requiredAssists: chest.requiredAssists,
-        rewardText: `${formatNum(Math.round(rewardA9), 0)} A9`
-      }
-    });
+    openXShareSheet({ type: 'chest', id: chest.chestId, context: chestShareContext(chest) });
   };
 
   const loadChests = async () => {
@@ -784,10 +772,12 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
       chestData = {
         freeChests: Array.isArray(myRes.value.freeChests) ? myRes.value.freeChests : [],
         shopChests: Array.isArray(myRes.value.shopChests) ? myRes.value.shopChests : [],
-        loaded: true
+        loaded: true,
+        error: false,
       };
     } else {
       chestData.loaded = true;
+      chestData.error = myRes.status === 'rejected';
     }
     if (!config.isDemo && store.state.user.connected && store.state.user.address) {
       const addr = store.state.user.address;
@@ -841,8 +831,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     const displayTotalA9 = sel ? totalIfBoost : 0;
     const activeShopChests = (chestData.shopChests || []).filter((c) => c.status !== 'OPENED');
 
-    // 5f 宝箱商城降噪：仅展示 6 档购箱主视图（隐藏顶部免费膨胀箱 Tab，?tab=free 兼容回落不 404）；
-    // 删除顶部中奖跑马灯与底部重复战场导流卡；保底说明与小票合一行；首屏仅 1 个 btn-primary
+    // 付费与免费宝箱使用各自的服务端数据，开启动作遵循同一组闸门。
     root.innerHTML = `
       <div class="col-gap anim-page-enter" id="chest-mall-root">
           ${query.from === 'activation' && (config.isDemo ? rawToA9(store.state.prediction.pendingActivationRaw) : activationA9) > 0 ? `
@@ -861,6 +850,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
           <div class="mall-info-strip" id="mall-base-receipt-strip">
             <span class="mall-rate-tag is-green">${icon('shieldCheck', 12, 'text-green')} ${L('100% 保底 · 直发钱包', '100% Base Safe · Direct Payout')}</span>
             <div class="mall-quick-pills">
+              <button type="button" class="mall-quick-btn" id="btn-show-free-chests">${L('免费宝箱', 'Free Chests')}</button>
               ${activeShopChests.length > 0 ? `<button type="button" class="mall-quick-btn is-hot" id="btn-jump-active-chests">${L('持有', 'Held')} ${activeShopChests.length}</button>` : ''}
               <button type="button" class="mall-quick-btn" data-nav="/records?type=market">${icon('receipt', 12)} ${L('小票', 'Receipts')}${config.isDemo && market.records.length ? ` (${market.records.length})` : (liveOrdersCount ? ` (${liveOrdersCount})` : '')}</button>
             </div>
@@ -1010,8 +1000,42 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
             </section>
           `;
           })() : ''}
+          <details class="card rewards-secondary-fold" id="free-chests-section" ${showFreeChests ? 'open' : ''}>
+            <summary>${L('免费宝箱', 'Free Chests')}</summary>
+            <div class="col-gap">
+              ${!hasChestIdentity ? `<p class="num-xs text-sec">${L('请在 Telegram 小程序内查看免费宝箱。', 'Open the Telegram Mini App to view your free chests.')}</p>`
+                : !chestData.loaded ? `<p class="num-xs text-sec">${L('读取免费宝箱中…', 'Loading free chests…')}</p>`
+                : chestData.error ? `<button type="button" class="btn btn-secondary" id="btn-retry-free-chests">${L('读取失败 · 重试', 'Could not load · Retry')}</button>`
+                : chestData.freeChests.length === 0 ? `<button type="button" class="btn btn-secondary" id="btn-claim-starter" ${canOpenChestNow() ? '' : 'disabled'}>${canOpenChestNow() ? L('领取新手青铜箱', 'Get Starter Bronze Chest') : L('免费宝箱发放暂未开放', 'Free chest distribution is closed')}</button>`
+                : chestData.freeChests.map(chest => `
+                  <div class="sub-tile col-gap">
+                    <div class="row-between quest-wrap-row">
+                      <strong>${escapeHtml(L(chest.labelZh, chest.labelEn))}</strong>
+                      <span class="num-xs text-sec">${chest.status === 'OPENED' ? L('已开启', 'Opened') : chest.status === 'READY' ? L('可开启', 'Ready') : L('待解锁', 'Locked')}</span>
+                    </div>
+                    ${chest.status === 'READY' ? `<button type="button" class="btn btn-secondary btn-sm" data-open-chest="${escapeHtml(chest.chestId)}" ${canOpenChestNow() ? '' : 'disabled'}>${canOpenChestNow() ? L('开启宝箱', 'Open Chest') : L('开箱暂未开放', 'Opening is closed')}</button>` : ''}
+                    ${chest.status === 'LOCKED' && Number(chest.requiredAssists) > 0 ? `
+                      <div class="row-between quest-wrap-row">
+                        <span class="num-xs text-sec">${L('好友助力', 'Friend assists')} ${chest.currentAssists == null ? '—' : formatNum(chest.currentAssists)}/${formatNum(chest.requiredAssists)}</span>
+                        <button type="button" class="btn btn-secondary btn-sm" data-share-tg="${escapeHtml(chest.chestId)}">${L('邀请助力', 'Invite Friends')}</button>
+                      </div>` : ''}
+                  </div>
+                `).join('')}
+            </div>
+          </details>
       </div>
     `;
+
+    const freeSection = root.querySelector('#free-chests-section');
+    if (freeSection) freeSection.ontoggle = () => { showFreeChests = freeSection.open; };
+    const freeButton = root.querySelector('#btn-show-free-chests');
+    if (freeButton && freeSection) freeButton.onclick = () => {
+      showFreeChests = true;
+      freeSection.open = true;
+      freeSection.scrollIntoView({ block: 'start' });
+    };
+    const retryFree = root.querySelector('#btn-retry-free-chests');
+    if (retryFree) retryFree.onclick = () => loadChests();
 
     const jumpBtn = root.querySelector('#btn-jump-active-chests');
     if (jumpBtn) {
@@ -1175,6 +1199,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
             },
             onConfirmed: (pollRes) => {
               const finOrd = pollRes?.order || null;
+              if (finOrd?.status === 'COMPLETED') completedOrders.set(finOrd.orderId, finOrd);
               const finBase = rawToA9(finOrd?.baseA9Raw ?? finOrd?.a9AmountRaw) ?? orderA9;
               const finBonus = rawToA9(finOrd?.bonusA9Raw) ?? 0;
               const finTotal = rawToA9(finOrd?.totalA9Raw) ?? (finBase + finBonus);
@@ -1227,6 +1252,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
     const starterBtn = root.querySelector('#btn-claim-starter');
     if (starterBtn) {
       starterBtn.onclick = async () => {
+        if (!canOpenChestNow()) return;
         starterBtn.disabled = true;
         try {
           await claimStarterChests();
@@ -1255,7 +1281,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
       };
     });
     const openBatchChests = async (tierKey = null, fallbackTitle = '') => {
-      if (!store.fundsEnabled) {
+      if (!canOpenChestNow()) {
         A9Haptic.warning();
         showToast(L('当前真实模式处于只读验收阶段，宝箱开箱入账暂未开放', 'Live mode is read-only; chest opening is disabled'), 'amber');
         return;
@@ -1321,7 +1347,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
 
     root.querySelectorAll('[data-open-chest]').forEach((b) => {
       b.onclick = async () => {
-        if (!store.fundsEnabled) {
+        if (!canOpenChestNow()) {
           A9Haptic.warning();
           showToast(L('当前真实模式处于只读验收阶段，宝箱开箱入账暂未开放', 'Live mode is read-only; chest opening is disabled'), 'amber');
           return;
@@ -1331,6 +1357,7 @@ export function renderInternalMarket(root, navigate, _param = null, query = {}) 
         b.disabled = true;
         try {
           const res = await openChestById(cid, store.state, store.state.user.address);
+          if (res?.chest?.chestId === cid) openReceipts.set(cid, res);
           const gotA9 = rawToA9(res?.rewardA9Raw) || 0;
           openChestCelebrationModal({
             tier: resolveChestTier(target || 'gold'),

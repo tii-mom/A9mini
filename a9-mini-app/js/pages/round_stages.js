@@ -8,7 +8,7 @@ import { A9Haptic } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
-import { estimateRewardA9, rawToA9, getEffectiveUserId, serverNowMs } from '../data.js';
+import { estimateRewardRaw, formatRoundA9, PROTOCOL_SPECS, rawToA9, getEffectiveUserId, serverNowMs } from '../data.js';
 import { deriveRoundUiState } from '../round-state.js';
 
 function stagePillTrigger(roundOrStage, roundNum) {
@@ -83,9 +83,7 @@ export function renderPriceArenaBoard(round, { mode = 'observation' } = {}) {
   const isUrgent = cdSec !== null && cdSec > 0 && cdSec <= 3600;
   const dotCls = m.deltaPct === null ? '' : (m.isAbove ? 'is-up' : 'is-down');
   const chipCls = m.deltaPct === null ? 'chip-muted' : (m.isAbove ? 'chip-green' : 'chip-red');
-  const poolText = (round?.rewardBudgetA9 !== null && round?.rewardBudgetA9 !== undefined && Number.isFinite(Number(round.rewardBudgetA9)))
-    ? `${formatNum(round.rewardBudgetA9)} A9`
-    : '—';
+  const poolText = formatRoundA9(!round?.stale && !round?.detailStale ? round?.rewardBudgetRaw : null);
   const cdLabel = mode === 'participation'
     ? L('锁仓倒计时', 'Lock Closes')
     : L('本轮冲价剩余', 'Push Left');
@@ -114,7 +112,7 @@ export function renderPriceArenaBoard(round, { mode = 'observation' } = {}) {
 
       <div class="row-between" style="flex-wrap:wrap;gap:6px;">
         <span class="chip ${chipCls} mono" id="round-target-delta">${m.deltaText}</span>
-        <span class="num-xs text-sec mono" style="white-space:nowrap;">${L('通关解锁', 'Unlock')} <b style="color:var(--ink);white-space:nowrap;">${poolText}</b></span>
+        ${mode === 'observation' ? `<span class="num-xs text-sec mono">${L('本轮奖励预算', 'Round reward budget')} <b>${poolText}</b></span>` : ''}
       </div>
 
       <div class="sw-price-ruler-wrap">
@@ -142,9 +140,18 @@ export function buildBattleRallyCopy(round, inviteLink, tpl = 'push') {
   const qual = toFiniteNum(r.qualifiedCandles);
   const req = toFiniteNum(r.minQualifiedCandles) || 8;
   const need = qual !== null ? Math.max(0, req - qual) : null;
-  const poolStr = (r.rewardBudgetA9 !== null && r.rewardBudgetA9 !== undefined && Number.isFinite(Number(r.rewardBudgetA9)))
-    ? `${formatNum(r.rewardBudgetA9)} A9`
-    : L('700,000,000 A9 奖池', '700,000,000 A9 pool');
+  const poolStr = r.rewardBudgetRaw != null && !r.stale && !r.detailStale
+    ? formatRoundA9(r.rewardBudgetRaw) : L('本轮奖池', 'the round pool');
+  if (tpl === 'stake') {
+    return L(
+      `A9 ${roundNum}锁仓开放，未通关时普通时段本金退回 90%，通关按份分奖金（封顶 5×）。${inviteLink}`,
+      `A9 ${roundNum} is open for locking. Standard entries receive 90% of principal back if the round misses. Rewards on pass are capped at 5×. ${inviteLink}`
+    );
+  }
+  if (!['first6h', 'free', 'push', 'charge'].includes(tpl)) {
+    const { title } = deriveRoundUiState({ detail: r, serverNowMs: serverNowMs() });
+    return `A9 ${roundNum} · ${title} ${inviteLink}`;
+  }
 
   if (tpl === 'first6h') {
     return L(
@@ -167,8 +174,8 @@ export function buildBattleRallyCopy(round, inviteLink, tpl = 'push') {
   const slotLineZh = need !== null ? (need === 0 ? `已达 ${qual}/${req} 通关门槛，守住结算！` : `目前 ${qual}/${req} 格达标，还差 ${need} 个时段解锁 ${poolStr}！`) : `冲刺 8/12 达标时段解锁 ${poolStr}！`;
   const slotLineEn = need !== null ? (need === 0 ? `${qual}/${req} slots met — hold for settlement!` : `${qual}/${req} slots met, ${need} more to unlock ${poolStr}!`) : `Push 8/12 slots to unlock ${poolStr}!`;
   return L(
-    `【A9 ${roundNum} 冲线喊单】${priceLineZh}，${slotLineZh} 一起来推高通关，我还能赚好友通关 8% 返佣：${inviteLink}`,
-    `[A9 ${roundNum} Push Rally] ${priceLineEn} — ${slotLineEn} Join the push for 8% friend pass referral credits: ${inviteLink}`
+    `【A9 ${roundNum} 冲线喊单】${priceLineZh}，${slotLineZh} 查看本轮进展：${inviteLink}`,
+    `[A9 ${roundNum} Push Rally] ${priceLineEn} — ${slotLineEn} See round details: ${inviteLink}`
   );
 }
 
@@ -656,82 +663,68 @@ export function renderWarmupStage(round, user) {
   `;
 }
 
-function formatCloseTime(ts) {
-  const sec = toUnixSec(ts);
-  if (!sec) return '—';
-  const d = new Date(sec * 1000);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString(L('zh-CN', 'en-US'), { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }) + ' UTC';
-}
-
 /** 锁仓期 A9 余额不足 100 时的「去宝箱商城」次按钮片段（供首次渲染与 Live 异步组合余额回填共用）。 */
 export function renderLowBalanceChestCtaHtml() {
   return `<a class="btn btn-secondary btn-sm" id="hero-buy-chest-cta" href="#/market" style="width:100%;">${icon('swap', 14)} ${L('A9 不足 100 · 去宝箱商城', 'Under 100 A9 · Open Chest Mall')} ›</a>`;
 }
 
 export function renderParticipation(round) {
-  const qAmt = round.quickStakeA9 || 5000;
-  const est = config.isDemo ? estimateRewardA9(qAmt) : null;
-  const inFirst6h = Boolean(round.inFirst6h);
+  const minimum = PROTOCOL_SPECS.minStakeA9;
+  const qAmt = round.quickStakeA9 || minimum;
+  const uiState = deriveRoundUiState({ detail: round, user: store.state.user, serverNowMs: serverNowMs() });
   const canStake = config.isDemo || store.fundsEnabled;
-  const closeTimeStr = formatCloseTime(round.stakeCloseAt);
-  const openAt = toUnixSec(round.stakeOpenAt);
-  const closeAt = toUnixSec(round.stakeCloseAt);
-  const explicitEarlyEnd = toUnixSec(round.earlyCloseAt);
-  const nowSec = Math.floor(Date.now() / 1000);
-  const earlyEnd = explicitEarlyEnd > 0
-    ? explicitEarlyEnd
-    : (openAt > 0 && closeAt > openAt ? openAt + Number(round.earlyWindowSeconds || 21600) : 0);
-  let earlyRemSec = (earlyEnd > 0 && nowSec < earlyEnd) ? (earlyEnd - nowSec) : null;
-  if ((earlyRemSec === null || earlyRemSec <= 0) && config.isDemo && inFirst6h && Number(round.earlyBirdSec) > 0) {
-    earlyRemSec = Math.floor(Number(round.earlyBirdSec));
-  }
-  const slChipHtml = inFirst6h
-    ? (earlyRemSec !== null && earlyRemSec > 0
-      ? `<span class="chip chip-green mono">${L('头矿 6H · 5%', 'First 6H · 5%')} · <span id="early-window-cd">${formatTimer(earlyRemSec)}</span></span>`
-      : `<span class="chip chip-green">${L('头矿 6H · 5% 止损', 'First 6H · 5% Stop-Loss')}</span>`)
-    : `<span class="chip chip-gold">${L('普通 · 10% 止损', 'Std · 10% Stop-Loss')}</span>`;
-
+  const inFirst6h = uiState.inFirst6h;
+  const fresh = !round.stale && !round.detailStale && !round.detailLoading;
+  const earlyCountdown = uiState.earlyCountdownMs === null ? '—' : formatTimer(Math.ceil(uiState.earlyCountdownMs / 1000));
+  const estimate = estimateRewardRaw(qAmt, round);
+  const poolText = formatRoundA9(fresh ? round.rewardBudgetRaw : null);
+  const stakeText = formatRoundA9(fresh ? round.totalStakedRaw : null);
   const userBalRaw = store.state.user?.a9Available ?? store.state.user?.a9Balance;
-  const userBalNum = (store.state.user?.connected && userBalRaw !== null && userBalRaw !== undefined && userBalRaw !== '' && Number.isFinite(Number(userBalRaw)))
-    ? Number(userBalRaw)
-    : null;
-  const showBuyChestFallback = userBalNum !== null && userBalNum < 100;
+  const userBalNum = store.state.user?.connected ? toFiniteNum(userBalRaw) : null;
+  const showBuyChestFallback = userBalNum !== null && userBalNum < minimum;
 
   return `
-    <section class="card card-hero col-gap">
-      <div class="row-between" style="flex-wrap:wrap;gap:6px;">
+    <section class="card card-hero col-gap quest-lock-card" data-lock-phase="${inFirst6h ? 'first6h' : 'standard'}">
+      <div class="row-between quest-wrap-row">
         ${stagePillTrigger(round, round.currentRound ?? '—')}
-        ${slChipHtml}
+        <span class="chip ${inFirst6h ? 'chip-green' : 'chip-gold'}">${inFirst6h ? L('头矿 6H · 5% 止损', 'First 6H · 5% Stop-Loss') : L('普通时段 · 10% 止损', 'Standard · 10% Stop-Loss')}</span>
       </div>
-
-      ${renderPriceArenaBoard(round, { mode: 'participation' })}
-
-      <div class="row-between num-xs text-muted" style="flex-wrap:wrap;gap:4px 10px;">
-        <span style="white-space:nowrap;">${L('锁仓截止', 'Lock Closes')} <b class="mono">${closeTimeStr}</b></span>
-        <span style="white-space:nowrap;">${L('8/12 通关 · 5× 封顶', '8/12 pass · 5× cap')}</span>
+      <div class="quest-lock-window">
+        ${inFirst6h ? `
+          <div class="row-between quest-wrap-row">
+            <strong>${L('头矿 6H 剩余', 'First 6H ends in')}</strong>
+            <b class="mono" id="early-window-cd">${earlyCountdown}</b>
+          </div>
+          <div class="num-xs text-sec">${L('未通关时，前 6H 入账的本金退 95%，之后入账退 90%。', 'If the round misses, entries confirmed in the first 6H receive 95% back. Later entries receive 90%.')}</div>
+        ` : `<div class="num-xs text-sec">${L('当前入账适用普通时段规则，未通关退回 90% 本金。', 'Entries confirmed now receive 90% of principal back if the round misses.')}</div>`}
       </div>
-
-      ${config.isDemo ? `
-        <div class="hero-amt-pills" style="margin-bottom:2px;">
-          ${[1000, 5000, 10000].map(v => `
-            <button class="hero-amt-pill ${qAmt === v ? 'active' : ''}" data-hero-amt="${v}" type="button">${formatNum(v)} A9</button>
-          `).join('')}
+      <div class="quest-pool">
+        <div class="num-xs text-sec">${L('本轮奖励预算', 'Round reward budget')}</div>
+        <strong class="mono quest-pool-amount">${poolText}</strong>
+        <div class="row-between quest-wrap-row num-xs text-sec">
+          <span>${L('全轮已锁仓', 'Total locked')} <b class="mono">${stakeText}</b></span>
+          <span>${L('奖金封顶 5×', '5× reward cap')}</span>
         </div>
-      ` : ''}
-
+      </div>
+      <div class="hero-amt-pills quest-amounts" role="group" aria-label="${L('选择预估锁仓金额', 'Choose an amount to estimate')}">
+        ${[minimum, 1000, 5000].map(v => `
+          <button class="hero-amt-pill ${qAmt === v ? 'active' : ''}" data-hero-amt="${v}" type="button" aria-pressed="${qAmt === v}">${formatNum(v)} A9</button>
+        `).join('')}
+      </div>
+      <div class="row-between quest-wrap-row">
+        <span class="num-xs text-sec">${L('通关预估奖金', 'Estimated reward on pass')}</span>
+        <b class="mono" id="hero-est-a9">${estimate === null ? L('待数据同步', 'Awaiting data') : formatRoundA9(estimate)}</b>
+      </div>
+      <div class="num-xs text-muted">${L('按当前全轮锁仓量推演，以链上结算为准。', 'Based on current total locked. On-chain settlement determines the final reward.')}</div>
       ${canStake
-        ? `<a class="btn btn-primary" id="hero-stake-cta" href="#/challenge/confirm">${icon('bolt', 16)} ${config.isDemo ? L(`立即锁仓 ${formatNum(qAmt)} A9`, `Lock ${formatNum(qAmt)} A9`) : L('100 A9 起参与锁仓', 'Lock from 100 A9')}</a>`
+        ? `<a class="btn btn-primary" id="hero-stake-cta" href="#/challenge/confirm?amt=${qAmt}">${icon('bolt', 16)} ${L('去确认锁仓', 'Review Lock')}</a>`
         : `<button class="btn btn-secondary" type="button" disabled>${icon('lock', 15)} ${L('真实只读 · 暂未开放锁仓', 'Live read-only · locking disabled')}</button>`}
       <div id="hero-buy-chest-slot" ${showBuyChestFallback ? '' : 'hidden'}>${showBuyChestFallback ? renderLowBalanceChestCtaHtml() : ''}</div>
-      ${est !== null ? `<div class="num-xs text-muted">${L('预计奖励约', 'Est.')} <b id="hero-est-a9" style="color:var(--ink);">~${formatNum(Math.round(est))} A9</b> · ${L('动态估算非承诺', 'dynamic estimate')}</div>` : ''}
+      ${renderPriceArenaBoard(round, { mode: 'participation' })}
     </section>
   `;
 }
 
-/**
- * 挑战页 12H 冲价 / 等待结算总览：实时价格作战看板 + 紧迫达标进度 + 6×2 印章盘 + 时段明细入口
- */
 export function renderObservation(round) {
   const uiState = deriveRoundUiState({ detail: round, user: store.state.user, serverNowMs: serverNowMs() });
   const isSealed = uiState.stage === 'sealed';
@@ -744,9 +737,6 @@ export function renderObservation(round) {
   const need = !hasQualified ? null : (needMoreVal !== null ? needMoreVal : Math.max(0, required - passed));
   const pct = hasQualified && required ? Math.round(Math.min(100, (passed / required) * 100)) : 0;
   const m = computeRoundPriceMetrics(round);
-  const poolStr = (round.rewardBudgetA9 !== null && round.rewardBudgetA9 !== undefined && Number.isFinite(Number(round.rewardBudgetA9)))
-    ? `${formatNum(round.rewardBudgetA9)} A9`
-    : L('本轮奖池', 'round pool');
   const priceActionHint = isSealed
     ? L('锁仓已封盘 · 禁进禁出，即将进入 12H 冲价', 'Staking sealed · 12H Push starts shortly')
     : isAwaitingSettle
@@ -765,7 +755,7 @@ export function renderObservation(round) {
           ? `<span class="chip chip-blue">${L('已封盘 · 待冲价', 'Sealed · Soon')}</span>`
           : isAwaitingSettle
             ? `<span class="chip chip-gold">${L('等待结算', 'Awaiting Settlement')}</span>`
-            : `<span class="chip ${m.deltaPct !== null && !m.isAbove ? 'chip-red' : 'chip-green'} mono">${passed ?? '—'}/${required} ${L('达标', 'Met')}</span>`}
+            : `<span class="chip ${m.deltaPct !== null && !m.isAbove ? 'chip-red' : 'chip-green'} mono">${passed ?? '—'}/${round.candles?.length || PROTOCOL_SPECS.passTotal} ${L('达标', 'Met')}</span>`}
       </div>
 
       ${renderPriceArenaBoard(round, { mode: 'observation' })}
@@ -776,8 +766,8 @@ export function renderObservation(round) {
             ? L('已封盘禁进禁出 · 即将开启 12H 冲价', 'Sealed · 12H Push Starting')
             : isAwaitingSettle
               ? L('已采集 12/12 · 等待链上结算', '12/12 Finalized · Awaiting Settlement')
-              : (need === null ? L('达标进度同步中', 'Syncing progress') : need === 0 ? L(`已满足达标门槛，等待解锁 ${poolStr}`, `Goal met · unlocking ${poolStr}`) : L(`还差 ${need} 个达标时段解锁 ${poolStr}`, `${need} more slots to unlock ${poolStr}`))}</strong>
-          <span id="obs-passed-num" data-val="${passed ?? ''}" class="mono num-xs text-muted">${passed ?? '—'}/${required}</span>
+              : (need === null ? L('达标进度同步中', 'Syncing progress') : need === 0 ? L('已达通关门槛，等待链上结算', 'Threshold met · awaiting on-chain settlement') : L(`还差 ${need} 个达标时段`, `${need} more qualifying slots needed`))}</strong>
+          <span id="obs-passed-num" data-val="${passed ?? ''}" class="mono num-xs text-muted">${passed ?? '—'}/${round.candles?.length || PROTOCOL_SPECS.passTotal}</span>
         </div>
         <div class="progress-track"><div class="progress-fill" id="obs-progress-fill" style="width:${pct}%"></div></div>
         <div class="num-xs ${m.deltaPct !== null && !isSealed ? (m.isAbove ? 'text-green' : 'text-red') : 'text-sec'}" id="round-price-action-hint" style="font-weight:800;">${priceActionHint}</div>
@@ -935,7 +925,7 @@ export function renderObservationRecords(root) {
         <header class="row-between" style="margin-bottom:10px;">
           <div>
             <small>${L('第', 'Round')} ${round.currentRound ?? '—'}${L(' 轮', '')} · ${L('12H 冲价', '12H Push')}</small>
-            <h1 style="margin:2px 0 0;font-size:18px;font-weight:900;">${L('12H 印章簿', '12H Stamp Log')}</h1>
+            <h1 style="margin:2px 0 0;font-size:18px;font-weight:900;">${L('12H 冲价记录', '12H Push Log')}</h1>
           </div>
           <span class="chip chip-muted mono">${L('通关需', 'Goal')} ${required} ${L('格', 'slots')}</span>
         </header>
@@ -970,7 +960,7 @@ export function renderObservationRecords(root) {
 
       <section class="star-reading stamp-detail-card" aria-live="polite"></section>
 
-      <a class="btn btn-secondary" href="#/round">${icon('arrowLeft', 15)} ${L('返回闯关', 'Back to Quest')}</a>
+      <a class="btn btn-secondary" href="#/round">${icon('arrowLeft', 15)} ${L('返回冲关', 'Back to Quest')}</a>
     </div>
   `;
 
@@ -1043,13 +1033,14 @@ function fmtSettleA9(val) {
   return `${formatNum(n, n % 1 === 0 ? 0 : 2)} A9`;
 }
 
-export function renderSettlementBreakdownRows({ principalA9 = null, rewardA9 = null, lockedA9 = null } = {}) {
+export function renderSettlementBreakdownRows({ principalA9 = null, rewardA9 = null, lockedA9 = null, burnedPrincipalRaw = null } = {}) {
   return `
     <div class="check-list" id="round-settlement-personal">
       <div class="check-row">
         <span class="text-sec">${L('本人可退本金', 'Refundable Principal')}</span>
         <b class="mono" style="white-space:nowrap;">${fmtSettleA9(principalA9)}</b>
       </div>
+      ${burnedPrincipalRaw == null ? '' : `<div class="check-row"><span class="text-sec">${L('本人本金销毁', 'Principal burned')}</span><b class="mono">${formatRoundA9(burnedPrincipalRaw)}</b></div>`}
       <div class="check-row">
         <span class="text-sec">${L('可领奖金', 'Claimable Reward')}</span>
         <b class="mono ${Number(rewardA9) > 0 ? 'text-green' : ''}" style="white-space:nowrap;">${fmtSettleA9(rewardA9)}</b>
@@ -1062,10 +1053,19 @@ export function renderSettlementBreakdownRows({ principalA9 = null, rewardA9 = n
   `;
 }
 
+function renderNextRoundLink(round) {
+  const carry = !round.stale && !round.detailStale && /^\d+$/.test(String(round.nextRoundCarryRaw))
+    ? BigInt(round.nextRoundCarryRaw) : null;
+  return `
+    ${carry !== null && carry > 0n ? `<div class="row-between quest-wrap-row num-xs text-sec"><span>${L('已滚存待下轮开轮', 'Carry available for the next round')}</span><b class="mono">${formatRoundA9(carry)}</b></div>` : ''}
+    <a class="btn btn-secondary" href="#/warmup">${L('查看下轮预热', 'View Next-Round Warm-Up')} ›</a>
+  `;
+}
+
 export function renderSettlementSuccess(round, user, ticket = null) {
   const qual = toFiniteNum(round.qualifiedCandles);
   const req = toFiniteNum(round.minQualifiedCandles) || 8;
-  const principalA9 = ticket ? rawToA9(ticket.claimablePrincipalRaw ?? ticket.amountRaw) : (config.isDemo ? (round.myStakeTon || 5000) : null);
+  const principalA9 = ticket ? rawToA9(ticket.claimablePrincipalRaw) : (config.isDemo ? (round.myStakeTon || 5000) : null);
   const rewardA9 = ticket ? rawToA9(ticket.claimableRewardRaw) : (config.isDemo ? user.a9Claimable : null);
   const lockedA9 = ticket ? rawToA9(ticket.lockedRemainingRaw) : (config.isDemo ? user.a9Locked : null);
   const passHref = ticket?.ticketAddress ? `#/rewards?ticket=${encodeURIComponent(ticket.ticketAddress)}` : '#/rewards';
@@ -1073,10 +1073,11 @@ export function renderSettlementSuccess(round, user, ticket = null) {
     <section class="card card-hero col-gap">
       <div class="row-between">
         ${stagePillTrigger(round, round.currentRound ?? '—')}
-        <span class="chip chip-green">${icon('checkCircle', 11)} ${qual ?? '—'}/${req}</span>
+        <span class="chip chip-green">${icon('checkCircle', 11)} ${L('达标', 'Met')} ${qual ?? '—'}/${round.candleCount || 12} · ${L('需', 'Need')} ${req}</span>
       </div>
       ${renderSettlementBreakdownRows({ principalA9, rewardA9, lockedA9 })}
-      <a class="btn btn-primary" id="round-settlement-cta" href="${passHref}">${icon('bolt', 16)} ${L('前往我的奖励', 'Go to My Rewards')} ›</a>
+      <a class="btn btn-primary" id="round-settlement-cta" href="${passHref}">${icon('bolt', 16)} ${L('前往金库', 'Go to Vault')} ›</a>
+      ${renderNextRoundLink(round)}
     </section>
   `;
 }
@@ -1085,19 +1086,20 @@ export function renderSettlementFailed(round, ticket = null) {
   const qual = toFiniteNum(round.qualifiedCandles);
   const hasQ = qual !== null && Number.isInteger(qual);
   const reqQ = toFiniteNum(round.minQualifiedCandles) || 8;
-  const failPct = hasQ ? Math.round((qual / reqQ) * 100) : 0;
+  const failPct = hasQ ? Math.max(0, Math.min(100, Math.round((qual / reqQ) * 100))) : 0;
   const principalA9 = ticket ? rawToA9(ticket.claimablePrincipalRaw) : (config.isDemo ? Math.round((round.myStakeTon || 5000) * (round.inFirst6h ? 0.95 : 0.90)) : null);
   const passHref = ticket?.ticketAddress ? `#/rewards?ticket=${encodeURIComponent(ticket.ticketAddress)}` : '#/rewards';
   return `
     <section class="card card-glow-red col-gap" id="burn-monument-card">
       <div class="row-between">
         ${stagePillTrigger(round, round?.currentRound ?? '—')}
-        <span class="chip chip-red">${L('未达标 · 自动止损', 'Auto Stop-Loss')} ${hasQ ? qual : '—'}/${reqQ}</span>
+        <span class="chip chip-red">${L('未达标 · 自动止损', 'Auto Stop-Loss')} ${hasQ ? qual : '—'}/${PROTOCOL_SPECS.passTotal}</span>
       </div>
       <div class="progress-track"><div class="progress-fill red no-anim" style="width:${failPct}%"></div></div>
       <div class="num-xs text-sec">${L('永不爆仓 · 自动止损（头矿 6H 退 95% / 普通退 90%），零爆仓风险。', 'No Liquidation · Auto Stop-Loss (95% First 6H / 90% Standard).')}</div>
       ${renderSettlementBreakdownRows({ principalA9, rewardA9: config.isDemo ? 0 : (ticket ? 0 : null), lockedA9: config.isDemo ? 0 : (ticket ? 0 : null) })}
-      <a class="btn btn-primary" id="round-settlement-cta" href="${passHref}">${icon('wallet', 15)} ${L('前往我的奖励退本', 'Claim Refund in My Rewards')} ›</a>
+      <a class="btn btn-primary" id="round-settlement-cta" href="${passHref}">${icon('wallet', 15)} ${L('前往金库退本', 'Claim Refund in Vault')} ›</a>
+      ${renderNextRoundLink(round)}
     </section>
   `;
 }
@@ -1151,7 +1153,7 @@ export function renderAirdropDrawsCard({ loading = false, error = null, items = 
 }
 
 export function renderTechnicalHalt(round, ticket = null) {
-  const principalA9 = ticket ? rawToA9(ticket.claimablePrincipalRaw ?? ticket.amountRaw) : (config.isDemo ? (round.myStakeTon || 5000) : null);
+  const principalA9 = ticket ? rawToA9(ticket.claimablePrincipalRaw) : (config.isDemo ? (round.myStakeTon || 5000) : null);
   const passHref = ticket?.ticketAddress ? `#/rewards?ticket=${encodeURIComponent(ticket.ticketAddress)}` : '#/rewards';
   return `
     <section class="card card-hero col-gap" style="border-color:var(--gold-border);">
@@ -1162,7 +1164,8 @@ export function renderTechnicalHalt(round, ticket = null) {
       <div style="font-size:17px;font-weight:900;">${L('本轮异常中止 · 退回本金', 'Round Aborted · Principal Refunded')}</div>
       <div class="num-xs text-sec">${L('异常中止不扣任何止损，参与本金按规则 100% 原路退回。', 'No stop-loss deducted; principal is 100% refundable.')}</div>
       ${renderSettlementBreakdownRows({ principalA9, rewardA9: config.isDemo ? 0 : (ticket ? 0 : null), lockedA9: config.isDemo ? 0 : (ticket ? 0 : null) })}
-      <a class="btn btn-primary" id="round-settlement-cta" href="${passHref}">${icon('shieldCheck', 15)} ${L('前往我的奖励退本', 'Claim Refund in My Rewards')} ›</a>
+      <a class="btn btn-primary" id="round-settlement-cta" href="${passHref}">${icon('shieldCheck', 15)} ${L('前往金库退本', 'Claim Refund in Vault')} ›</a>
+      ${renderNextRoundLink(round)}
     </section>
   `;
 }

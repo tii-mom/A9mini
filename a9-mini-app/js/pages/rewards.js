@@ -4,7 +4,7 @@
  * 布局与红线：
  * - 资产区：主值「可领取」独占整行（完整数字不缩写、nowrap）；下一行两列「待激活 / 解锁中（14 天）」，旁附服务端激活规则与去向说明。
  * - 统一收口：轮次奖励（14 天逐秒解锁 / 止损退本 / 异常中止退本）与推广奖励（6% 商城 + 8% 通关）均在本页领取。
- * - 首屏零 GRAM 费用行；点击领取后、唤起钱包前弹出 4 项确认层（领取金额 / 需预附 GRAM / 实际网络费 / 退回规则），缺任意一项显示「待确认」并禁用继续。
+ * - 首屏零 GRAM 费用行；点击领取后、唤起钱包前弹出 4 项确认层（领取金额 / 需预附 GRAM / 网络费说明 / 退回规则），缺任意一项显示「待确认」并禁用继续。
  * - 3 折急提收进单条记录的二级折叠入口，明确提示「30% 秒提 + 70% 销毁」。
  * - 零奖励时展示清晰引导与「去闯关」「宝箱商城」入口；只读提示仅保留在领取按钮上，无黄色大框；全页 btn-primary <= 1。
  */
@@ -69,7 +69,7 @@ function isMissingConfirmField(val) {
 
 /**
  * 构造领取前 4 项透明确认模型（纯函数，供单测直接验证缺项禁用守卫）。
- * 必含 4 项：领取金额 / 需预附 GRAM / 实际网络费 / 退回规则。
+ * 必含 4 项：领取金额 / 需预附 GRAM / 网络费说明 / 退回规则。
  * 任意一项缺失则显示「待确认」并禁止继续（canContinue = false）。
  */
 export function buildClaimConfirmModel({
@@ -78,6 +78,7 @@ export function buildClaimConfirmModel({
   attachGramLabel = '',
   attachGramText,
   actualNetworkFeeText,
+  networkFeeLabel = '',
   refundRuleText,
   extraWarning = '',
   confirmText = '',
@@ -98,7 +99,7 @@ export function buildClaimConfirmModel({
     },
     {
       key: 'actualNetworkFee',
-      label: L('实际网络费', 'Estimated Network Fee'),
+      label: networkFeeLabel || L('网络费说明', 'Network Fee Details'),
       value: isMissingConfirmField(actualNetworkFeeText) ? pendingLabel : String(actualNetworkFeeText).trim(),
       missing: isMissingConfirmField(actualNetworkFeeText),
     },
@@ -451,12 +452,15 @@ export function renderMyRewardsPage(root, _navigate, _param, query = {}) {
             </div>
           </div>
 
-          <div class="num-xs text-muted" style="line-height:1.5;">
-            ${L(
-              '通关后本金 100% 退回 + 20% 奖金秒提，余下 80% 分 14 天逐秒解锁（每日 +5.71%，永久累计不倒扣）。具体网络手续费（多退）将在点击领取后的确认层完整展示。',
-              'On pass: 100% principal + 20% reward instant, remaining 80% unlocks per second over 14 days (+5.71%/day, never forfeited). Exact network fees (excess refunded) appear in the confirmation sheet before signing.'
-            )}
-          </div>
+          <details class="rewards-unlock-details">
+            <summary class="num-xs text-muted">${L('领取与解锁说明', 'Claim & Unlock Details')}</summary>
+            <div class="num-xs text-muted" style="line-height:1.5;margin-top:8px;">
+              ${L(
+                '通关后返还本金，20% 奖金可立即领取，80% 分 14 天逐秒解锁。领取前可查看附带金额、网络手续费（多退）及固定领币费的适用规则。',
+                'On pass, principal returns and 20% of rewards can be claimed immediately. The remaining 80% unlocks over 14 days. Review attached GRAM, fee details and refund rules before claiming.'
+              )}
+            </div>
+          </details>
 
           ${hasAnyError ? `
             <div class="sw-menu-error" role="alert">
@@ -639,6 +643,7 @@ export function renderMyRewardsPage(root, _navigate, _param, query = {}) {
             claimAmountText: demoAmt > 0 ? fmtA9Exact(demoAmt) : null,
             attachGramLabel: L('需预附 GRAM（固定领币费）', 'GRAM Attached (Fixed Claim Fee)'),
             attachGramText: '0.06 GRAM',
+            networkFeeLabel: L('固定领币服务费', 'Fixed Claim Service Fee'),
             actualNetworkFeeText: L('0.06 GRAM（固定领币费，演示模拟）', '0.06 GRAM (fixed fee, demo)'),
             refundRuleText: L('固定领币费按单收取，发放后不按实际成本退差；异常未发放时奖励余额原样保留', 'Fixed per-order fee; reward balance stays intact if payout fails'),
             confirmText: L('确认领取（演示）', 'Confirm Claim (Demo)'),
@@ -678,6 +683,7 @@ export function renderMyRewardsPage(root, _navigate, _param, query = {}) {
             claimAmountText: payoutA9 != null && payoutA9 > 0 ? fmtA9Exact(payoutA9) : null,
             attachGramLabel: L('需预附 GRAM（固定领币费）', 'GRAM Attached (Fixed Claim Fee)'),
             attachGramText: feeGram ? `${feeGram} GRAM` : null,
+            networkFeeLabel: L('固定领币服务费', 'Fixed Claim Service Fee'),
             actualNetworkFeeText: feeGram
               ? L(`${feeGram} GRAM（固定领币费，钱包发起费另计）`, `${feeGram} GRAM (fixed claim fee; wallet sending fee separate)`)
               : null,
@@ -749,7 +755,7 @@ export function renderMyRewardsPage(root, _navigate, _param, query = {}) {
           title: L(`确认领取第 ${ticket.roundId ?? '—'} 轮奖励`, `Confirm Round #${ticket.roundId ?? '—'} Claim`),
           claimAmountText: claimableTotalA9 != null && claimableTotalA9 > 0 ? fmtA9Exact(claimableTotalA9) : null,
           attachGramText: '0.22 GRAM',
-          actualNetworkFeeText: L('约 0.03–0.06 GRAM（以链上实际消耗为准，钱包发起费另计）', '~0.03–0.06 GRAM actual chain gas (wallet sending fee separate)'),
+          actualNetworkFeeText: L('待钱包确认，最终以链上实际扣费为准', 'Review in wallet; final fees are recorded on-chain'),
           refundRuleText: L('扣除实际链上费用与必要留存后，剩余 GRAM 自动原路退回钱包（多退）', 'Excess GRAM after actual gas & reserves automatically refunds to your wallet'),
           confirmText: isLive ? L('确认并前往钱包签名', 'Confirm & Sign in Wallet') : L('确认领取（演示）', 'Confirm Claim (Demo)'),
         });
@@ -831,7 +837,7 @@ export function renderMyRewardsPage(root, _navigate, _param, query = {}) {
             ? `${fmtA9Exact(cashA9)}（${L('另销毁', 'Burn')} ${fmtA9Exact(burnA9)}）`
             : null,
           attachGramText: '0.34 GRAM',
-          actualNetworkFeeText: L('约 0.05–0.09 GRAM（覆盖发币与销毁两笔链上操作，钱包发起费另计）', '~0.05–0.09 GRAM covering payout + burn ops (wallet sending fee separate)'),
+          actualNetworkFeeText: L('待钱包确认，最终以链上实际扣费为准', 'Review in wallet; final fees are recorded on-chain'),
           refundRuleText: L('扣除实际链上费用与必要留存后，剩余 GRAM 自动原路退回钱包（多退）', 'Excess GRAM after actual gas & reserves automatically refunds to your wallet'),
           extraWarning: L('30% 秒提 + 70% 销毁：已自然解锁部分仍 100% 实发，仅尚未解锁的未来余额按 30% 实发、70% 永久销毁且不可撤销。', '30% instant + 70% burn: already-vested rewards pay 100%; unvested split 30% instant / 70% permanent burn.'),
           confirmText: isLive ? L('确认并签名 3 折急提', 'Confirm & Sign Instant Cashout') : L('确认 3 折急提（演示）', 'Confirm Instant Cashout (Demo)'),
@@ -877,7 +883,7 @@ export function renderMyRewardsPage(root, _navigate, _param, query = {}) {
           title: L('确认提前解押（退 85% 本金 / 扣 15% 销毁）', 'Confirm Early Exit (85% Refund / 15% Burn)'),
           claimAmountText: refA9 != null && refA9 > 0 && burnA9 != null ? `${fmtA9Exact(refA9)}（${L('扣销毁', 'Burn')} ${fmtA9Exact(burnA9)}）` : null,
           attachGramText: '0.34 GRAM',
-          actualNetworkFeeText: L('约 0.05–0.09 GRAM（覆盖退本与销毁操作，钱包发起费另计）', '~0.05–0.09 GRAM covering refund + burn ops (wallet sending fee separate)'),
+          actualNetworkFeeText: L('待钱包确认，最终以链上实际扣费为准', 'Review in wallet; final fees are recorded on-chain'),
           refundRuleText: L('扣除实际链上费用与必要留存后，剩余 GRAM 自动原路退回钱包（多退）', 'Excess GRAM after actual gas & reserves automatically refunds to your wallet'),
           extraWarning: L('仅限 24H 锁仓期内操作，扣除 15% 本金永久销毁且不可撤销。', 'Only open during 24H lock window; 15% principal is permanently burned.'),
           confirmText: L('确认并签名提前解押', 'Confirm & Sign Early Exit'),

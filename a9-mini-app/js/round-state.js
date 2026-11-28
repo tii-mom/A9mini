@@ -327,9 +327,9 @@ export function deriveTicketRoundStatusLabel(ticket, fallbackRoundDetail = null,
     : deriveRoundUiState({ detail: fallbackRoundDetail, user: { connected: true }, rewards: null, serverNowMs });
   const map = {
     warmup: L('下轮预热中', 'Warm-up'),
-    stake: L('24H 锁仓中', '24H lock open'),
+    stake: L('24 小时锁仓中', '24H lock open'),
     sealed: L('已封盘 · 等待冲价', 'Sealed · awaiting push'),
-    charge: L('12H 冲价中', '12H push live'),
+    charge: L('12 小时冲价中', '12H push live'),
     settling: L('结算中', 'Settling'),
     passed: L('本轮通关', 'Round passed'),
     failed: L('未达标 · 自动止损', 'Missed · auto stop-loss'),
@@ -373,14 +373,14 @@ export function deriveRoundUiState({ detail = null, user = null, rewards = null,
       chipTone = 'chip-gold';
       badgeLabel = L('预热中', 'Warm-Up');
       title = L('下轮开局预热已开放', 'Next round warm-up open');
-      subtitle = L('现在预约并邀请好友，开轮后享头矿 6H 轻止损', 'Reserve now and invite friends ahead of First 6H');
+      subtitle = L('现在预约并邀请好友，开轮后享头矿 6 小时轻止损', 'Reserve now and invite friends ahead of First 6H');
       break;
     case 'stake':
       chipTone = 'chip-green';
-      badgeLabel = inFirst6h ? L('头矿 6H', 'First 6H') : L('24H 锁仓', '24H Lock');
+      badgeLabel = inFirst6h ? L('头矿 6 小时', 'First 6H') : L('24 小时锁仓', '24H Lock');
       title = inFirst6h
-        ? L('头矿 6H 开放 · 5% 轻止损', 'First 6H open · 5% stop-loss')
-        : L('24H 锁仓开放中 · 100 A9 起', '24H lock open · from 100 A9');
+        ? L('头矿 6 小时开放 · 5% 轻止损', 'First 6H open · 5% stop-loss')
+        : L('24 小时锁仓开放中 · 100 A9 起', '24H lock open · from 100 A9');
       subtitle = inFirst6h
         ? L('锁仓期内可提前解押，达标共享本轮奖池', 'Early exit available during lock window; share pool on pass')
         : L('普通时段 10% 自动止损，永不爆仓', 'Standard 10% auto stop-loss, zero liquidation');
@@ -388,19 +388,19 @@ export function deriveRoundUiState({ detail = null, user = null, rewards = null,
     case 'sealed':
       chipTone = 'chip-gold';
       badgeLabel = L('已封盘', 'Sealed');
-      title = L('已封盘 · 等待 12H 冲价开始', 'Entry sealed · awaiting 12H push');
-      subtitle = L('当前禁止新进与解押，即将进入 12H 价格判定', 'Entries and exits locked ahead of 12H price push');
+      title = L('已封盘 · 等待 12 小时冲价开始', 'Entry sealed · awaiting 12H push');
+      subtitle = L('当前禁止新进与解押，即将进入 12 小时价格判定', 'Entries and exits locked ahead of 12H price push');
       break;
     case 'charge': {
       const paused = rawState === 'ORACLE_PAUSED';
       chipTone = paused ? 'chip-amber' : 'chip-blue';
-      badgeLabel = paused ? L('判定暂停', 'Paused') : L('12H 冲价', '12H Push');
+      badgeLabel = paused ? L('判定暂停', 'Paused') : L('12 小时冲价', '12H Push');
       if (paused) {
         title = L('价格判定暂时挂起 · 等待恢复', 'Price check paused · awaiting resume');
-        subtitle = L('预言机恢复后自动继续采集 1H 判定均价', 'Hourly average checks resume automatically');
+        subtitle = L('预言机恢复后自动继续采集 1 小时判定均价', 'Hourly average checks resume automatically');
       } else if (!hasQ) {
-        title = L('12H 冲价进行中 · 等待时段确认', '12H price push live · awaiting slots');
-        subtitle = L(`12 个 1H 时段满足任意 ${minQualified} 格即可分奖`, `Any ${minQualified} of 12 hourly slots qualifies`);
+        title = L('12 小时冲价进行中 · 等待时段确认', '12H price push live · awaiting slots');
+        subtitle = L(`12 个 1 小时时段满足任意 ${minQualified} 格即可分奖`, `Any ${minQualified} of 12 hourly slots qualifies`);
       } else if (qualified >= minQualified) {
         title = L(`已满足 ${qualified}/${minQualified} 格门槛 · 等待结算`, `${qualified}/${minQualified} slots met · awaiting settlement`);
         subtitle = L('达到任意 8/12 达标条件，等待链上最终结算', 'Threshold met; awaiting final on-chain settlement');
@@ -428,7 +428,7 @@ export function deriveRoundUiState({ detail = null, user = null, rewards = null,
       chipTone = 'chip-red';
       badgeLabel = L('未达标', 'Missed');
       title = L('本轮未达标 · 自动止损退本', 'Target missed · auto stop-loss refund');
-      subtitle = L('头矿 6H 退 95% 本金，普通时段退 90% 本金', '95% principal refunded for First 6H, 90% for standard lock');
+      subtitle = L('头矿 6 小时退 95% 本金，普通时段退 90% 本金', '95% principal refunded for First 6H, 90% for standard lock');
       break;
     case 'aborted':
       chipTone = 'chip-amber';

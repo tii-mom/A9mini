@@ -163,21 +163,37 @@ export const A9TMA = {
     if (rawParam === 'leaderboard') return { raw: safeRaw, type: 'leaderboard', id: '', ref: '', route: '/leaderboard', scrollTarget: null, isAttribution: false };
     if (rawParam === 'rules') return { raw: safeRaw, type: 'rules', id: '', ref: '', route: '/rules', scrollTarget: null, isAttribution: false };
 
-    // 1) invite_<teamId>_<referrerId> 或 invite_<referrerId>（与后端 social-store.mjs 规则完全一致，保护含 '_' 的 TON 友好地址）
-    if (/^invite_/i.test(safeRaw)) {
-      const rest = safeRaw.slice('invite_'.length);
+    // 1) invite_<teamId>_<referrerId>、invite_<teamId> 或 invite_<referrerId>（与后端 social-store.mjs / tg-broadcaster.mjs 规则完全一致）
+    if (/^(?:invite|i)_/i.test(safeRaw)) {
+      const rest = safeRaw.slice(safeRaw.indexOf('_') + 1);
       if (!rest) return null;
       const teamMatch = rest.match(/^((?:G|T|TM|TEAM)-[A-Za-z0-9-]+)_(.+)$/i);
       if (teamMatch) {
+        const tid = sanitizeToken(teamMatch[1], 48);
         return {
           raw: safeRaw,
           type: 'invite',
-          id: sanitizeToken(teamMatch[1], 48),
-          teamId: sanitizeToken(teamMatch[1], 48),
+          id: tid,
+          teamId: tid,
           ref: sanitizeToken(teamMatch[2], 64),
-          route: '/team?invite=' + encodeURIComponent(sanitizeToken(teamMatch[1], 48)),
+          route: '/team?invite=' + encodeURIComponent(tid),
           scrollTarget: null,
           isAttribution: true,
+        };
+      }
+      if (/^i_/i.test(safeRaw)) return null;
+      const teamOnlyMatch = rest.match(/^((?:G|T|TM|TEAM)-[A-Za-z0-9-]+)$/i);
+      if (teamOnlyMatch) {
+        const tid = sanitizeToken(teamOnlyMatch[1], 48);
+        return {
+          raw: safeRaw,
+          type: 'invite',
+          id: tid,
+          teamId: tid,
+          ref: '',
+          route: '/team?invite=' + encodeURIComponent(tid),
+          scrollTarget: null,
+          isAttribution: false,
         };
       }
       return {
@@ -225,10 +241,24 @@ export const A9TMA = {
     }
     const id = sanitizeToken(parts[1], 48);
     const ref = sanitizeToken(parts.slice(2).join('_'), 64);
+    const parsedRoundId = /^\d{1,6}$/.test(id) ? id : '';
 
-    if (type === 'bet') return { raw: safeRaw, type, id, ref, route: '/round', scrollTarget: 'prediction', isAttribution: true };
-    if (type === 'round') return { raw: safeRaw, type, id, ref, route: '/round', scrollTarget: 'prediction', isAttribution: true };
-    if (type === 'burn') return { raw: safeRaw, type, id, ref, route: '/round', scrollTarget: 'burn', isAttribution: true };
+    if (type === 'bet' || type === 'round' || type === 'burn') {
+      const qs = new URLSearchParams();
+      qs.set('dl', type);
+      if (parsedRoundId) qs.set('round', parsedRoundId);
+      const scrollTarget = type === 'bet' ? 'prediction' : type === 'burn' ? 'burn' : 'race';
+      return {
+        raw: safeRaw,
+        type,
+        id,
+        roundId: parsedRoundId,
+        ref,
+        route: `/round?${qs.toString()}`,
+        scrollTarget,
+        isAttribution: true,
+      };
+    }
     if (type === 'gallery') return { raw: safeRaw, type, id, ref, route: '/gallery', scrollTarget: null, isAttribution: true };
     if (type === 'proof') {
       const certId = id ? (id.startsWith('A9-STAKE-') ? id : `A9-STAKE-${id}`) : '';

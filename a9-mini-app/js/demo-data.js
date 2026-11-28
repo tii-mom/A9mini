@@ -14,7 +14,7 @@ const FIXTURE_CANDLE_ROWS = [
   ['465345', true], ['444234', false], ['476806', true], ['480008', true]
 ];
 
-export function demoFixture() {
+export function demoFixture(scene) {
   const now = Date.now();
   const candleMs = 3600 * 1000;
   const observationStart = now - 8 * candleMs;
@@ -73,6 +73,12 @@ export function demoFixture() {
     updatedAt: now
   };
 
+  if (scene === 'early') {
+    const open = now - 2 * candleMs;
+    Object.assign(detail, { state: 'STAKING_OPEN', stakeOpenAt: open, earlyCloseAt: open + 6 * candleMs,
+      stakeCloseAt: open + 24 * candleMs, observationStart: open + 24 * candleMs, observationEnd: open + 36 * candleMs,
+      inFirst6h: true, secondsRemaining: 22 * 3600, candlesSeen: 0, qualifiedCandles: 0, candles: [], live: null });
+  }
   const protocolConfig = {
     token: { name: 'A9', symbol: 'A9', decimals: 9 },
     p0UsdE8: '116000',
@@ -125,12 +131,173 @@ export function demoWalletSendResult(action = 'demo_tx') {
   };
 }
 
+const DEMO_A9_SCALE = 1_000_000_000n;
+const DEMO_MIN_STAKE_RAW = 100n * DEMO_A9_SCALE;
+const DEMO_VESTING_SECONDS = 14 * 86400;
+
+/** 将演示金额（BigInt / 数字 / 十进制字符串）精确解析为 9 位最小单位 BigInt。 */
+export function demoParseA9ToRaw(input) {
+  if (typeof input === 'bigint') return input >= 0n ? input : null;
+  if (input === null || input === undefined) return null;
+  if (typeof input === 'number') {
+    if (!Number.isFinite(input) || input < 0) return null;
+    const m = /^(\d+)\.(\d{9})$/.exec(input.toFixed(9));
+    return m ? BigInt(m[1]) * DEMO_A9_SCALE + BigInt(m[2]) : null;
+  }
+  const s = String(input).trim();
+  if (!s) return null;
+  const parts = /^(\d+)(?:\.(\d{1,9}))?$/.exec(s);
+  if (!parts) return null;
+  return BigInt(parts[1]) * DEMO_A9_SCALE + BigInt((parts[2] || '').padEnd(9, '0'));
+}
+
+/** 读取演示账户 9 位最小单位可用余额，兼容仅改写 a9Available 数值的旧调用。 */
+export function demoGetAvailableRaw(user) {
+  if (!user) return 0n;
+  if (typeof user.a9AvailableRaw === 'string' && /^\d+$/.test(user.a9AvailableRaw)) {
+    const rawBi = BigInt(user.a9AvailableRaw);
+    if (typeof user.a9Available === 'number' && Number.isFinite(user.a9Available)) {
+      const expectedNum = Number(rawBi) / 1e9;
+      if (Math.abs(user.a9Available - expectedNum) > 1e-6) {
+        return demoParseA9ToRaw(user.a9Available) ?? 0n;
+      }
+    }
+    return rawBi;
+  }
+  return demoParseA9ToRaw(user.a9Available) ?? 0n;
+}
+
+function setDemoAvailableRaw(user, nextRaw) {
+  if (!user) return;
+  const safe = nextRaw > 0n ? nextRaw : 0n;
+  user.a9AvailableRaw = safe.toString();
+  user.a9Available = Number(safe) / 1e9;
+}
+
+/** 读取演示凭证本金（9 位最小单位），兼容仅有 stakeTon 字段的旧模拟票据。 */
+export function demoCertAmountRaw(cert) {
+  if (!cert) return 0n;
+  if (typeof cert.amountRaw === 'string' && /^\d+$/.test(cert.amountRaw)) return BigInt(cert.amountRaw);
+  return demoParseA9ToRaw(cert.stakeTon) ?? 0n;
+}
+
+function demoRawOrZero(val) {
+  return typeof val === 'string' && /^\d+$/.test(val) ? BigInt(val) : 0n;
+}
+
+/**
+ * 从演示凭证的原始金额、解锁时间与已领记录构造标准金库票据视图，
+ * 供金库主卡、票据列表与急提试算共用同一事实源。
+ */
+export function demoBuildVaultTickets(state, nowSec = Math.floor(Date.now() / 1000)) {
+  const u = state?.user;
+  if (!u || u.profileMode === 'empty') return [];
+  const certs = Array.isArray(state?.certificates) ? state.certificates : [];
+  const settled = certs.filter((c) => c.status === 'settled' || c.status === 'passed' || c.status === 'failed');
+  const curNowSec = Number.isFinite(Number(nowSec)) ? Math.floor(Number(nowSec)) : Math.floor(Date.now() / 1000);
+
+  return settled.map((c, idx) => {
+    const principalRaw = demoCertAmountRaw(c);
+    const totalRewardRaw = typeof c.totalRewardRaw === 'string' && /^\d+$/.test(c.totalRewardRaw)
+      ? BigInt(c.totalRewardRaw)
+      : (demoParseA9ToRaw(c.estRewardA9) ?? 0n);
+    const immediateRewardRaw = typeof c.immediateRewardRaw === 'string' && /^\d+$/.test(c.immediateRewardRaw)
+      ? BigInt(c.immediateRewardRaw)
+      : (totalRewardRaw * 2000n) / 10000n;
+    const vestingPrincipalRaw = typeof c.vestingPrincipalRaw === 'string' && /^\d+$/.test(c.vestingPrincipalRaw)
+      ? BigInt(c.vestingPrincipalRaw)
+      : (totalRewardRaw > immediateRewardRaw ? totalRewardRaw - immediateRewardRaw : 0n);
+    const vestingSeconds = Number.isSafeInteger(c.vestingSeconds) && c.vestingSeconds > 0
+      ? c.vestingSeconds
+      : DEMO_VESTING_SECONDS;
+    const elapsedOffset = Number.isSafeInteger(c.vestingElapsedSec) && c.vestingElapsedSec >= 0 ? c.vestingElapsedSec : 0;
+    const dynamicVesting = Number.isSafeInteger(c.vestingStartAt) && c.vestingStartAt > 0;
+    const vestingStartAt = dynamicVesting
+      ? c.vestingStartAt
+      : (curNowSec - elapsedOffset);
+    const principalDone = c.principalDone !== false;
+    const immediateClaimed = Boolean(c.immediateClaimed);
+    const lockedClaimedRaw = demoRawOrZero(c.lockedClaimedRaw);
+    const forfeited = Boolean(c.forfeited);
+
+    const claimablePrincipalRaw = principalDone ? 0n : principalRaw;
+    let vestedNow = 0n;
+    let lockedRemainingRaw = 0n;
+    let claimableRewardRaw = 0n;
+    let instantCashoutBonusRaw = 0n;
+    let instantCashoutBurnRaw = 0n;
+    let instantCashoutTotalRaw = 0n;
+
+    if (!forfeited) {
+      const elapsed = Math.max(0, Math.min(vestingSeconds, curNowSec - vestingStartAt));
+      vestedNow = vestingPrincipalRaw > 0n
+        ? (vestingPrincipalRaw * BigInt(elapsed)) / BigInt(vestingSeconds)
+        : 0n;
+      lockedRemainingRaw = vestingPrincipalRaw > vestedNow ? (vestingPrincipalRaw - vestedNow) : 0n;
+      const claimableLinearRaw = vestedNow > lockedClaimedRaw ? (vestedNow - lockedClaimedRaw) : 0n;
+      const unclaimedImmediateRaw = immediateClaimed ? 0n : immediateRewardRaw;
+      claimableRewardRaw = unclaimedImmediateRaw + claimableLinearRaw;
+      instantCashoutBonusRaw = (lockedRemainingRaw * 3000n) / 10000n;
+      instantCashoutBurnRaw = lockedRemainingRaw - instantCashoutBonusRaw;
+      instantCashoutTotalRaw = claimablePrincipalRaw + claimableRewardRaw + instantCashoutBonusRaw;
+    }
+
+    const claimableTotalRaw = claimablePrincipalRaw + claimableRewardRaw;
+    const unlockedPctBps = vestingPrincipalRaw > 0n
+      ? Number(((vestingPrincipalRaw - lockedRemainingRaw) * 10000n) / vestingPrincipalRaw)
+      : 0;
+
+    return {
+      ticketAddress: c.id || `demo-ticket-${idx + 1}`,
+      roundId: c.round ?? (idx + 1),
+      roundState: c.status === 'failed' ? 'FAILED_PERMANENT' : 'SUCCEEDED',
+      amountRaw: principalRaw.toString(),
+      totalRewardRaw: totalRewardRaw.toString(),
+      immediateRewardRaw: immediateRewardRaw.toString(),
+      vestingPrincipalRaw: vestingPrincipalRaw.toString(),
+      vestingStartAt: vestingPrincipalRaw > 0n ? vestingStartAt : null,
+      vestingSeconds,
+      dynamicVesting,
+      principalDone,
+      immediateClaimed,
+      lockedClaimedRaw: lockedClaimedRaw.toString(),
+      forfeited,
+      cashoutPaidRaw: typeof c.cashoutPaidRaw === 'string' && /^\d+$/.test(c.cashoutPaidRaw) ? c.cashoutPaidRaw : null,
+      cashoutBurnedRaw: typeof c.cashoutBurnedRaw === 'string' && /^\d+$/.test(c.cashoutBurnedRaw) ? c.cashoutBurnedRaw : null,
+      claimablePrincipalRaw: claimablePrincipalRaw.toString(),
+      claimableRewardRaw: claimableRewardRaw.toString(),
+      claimableTotalRaw: claimableTotalRaw.toString(),
+      lockedRemainingRaw: lockedRemainingRaw.toString(),
+      instantCashoutBonusRaw: instantCashoutBonusRaw.toString(),
+      instantCashoutTotalRaw: instantCashoutTotalRaw.toString(),
+      instantCashoutBurnRaw: instantCashoutBurnRaw.toString(),
+      canClaim: !forfeited && claimableTotalRaw > 0n,
+      canInstantCashout: !forfeited && lockedRemainingRaw > 0n,
+      canEarlyExit: false,
+      unlockedPctBps,
+    };
+  });
+}
+
+function syncDemoVaultSummary(state, nowSec = Math.floor(Date.now() / 1000)) {
+  const tickets = demoBuildVaultTickets(state, nowSec);
+  let claimable = 0n;
+  let locked = 0n;
+  for (const t of tickets) {
+    claimable += demoRawOrZero(t.claimableTotalRaw);
+    locked += demoRawOrZero(t.lockedRemainingRaw);
+  }
+  state.user.a9Claimable = Number(claimable) / 1e9;
+  state.user.a9Locked = Number(locked) / 1e9;
+}
+
 /** 演示模式邀友奖励模拟领取（不发真实网络订单，不触发钱包签名）。 */
 export function demoFundsClaimPromo(state) {
   const amountA9 = state.user.promoClaimableA9;
   if (!(amountA9 > 0)) return { error: state.settings.language === 'en-US' ? 'No claimable rewards' : '暂无可领推广奖励' };
+  const addRaw = demoParseA9ToRaw(amountA9) ?? 0n;
   state.user.promoClaimableA9 = 0;
-  state.user.a9Available += amountA9;
+  setDemoAvailableRaw(state.user, demoGetAvailableRaw(state.user) + addRaw);
   const txHash = demoTxHash('EQP');
   if (state?.ledger) {
     state.ledger.unshift({
@@ -146,15 +313,22 @@ export function demoFundsClaimPromo(state) {
   return { amountA9, txHash, simulated: true };
 }
 
-export function demoFundsStake(state, amount) {
-  const amt = Number(amount);
-  if (!amt || amt < 100 || amt > state.user.a9Available) return null;
+export function demoFundsStake(state, amount, opts = {}) {
+  const amtRaw = (opts?.amountRaw !== undefined && opts?.amountRaw !== null && /^\d+$/.test(String(opts.amountRaw)))
+    ? BigInt(String(opts.amountRaw))
+    : demoParseA9ToRaw(amount);
+  const availRaw = demoGetAvailableRaw(state.user);
+  if (amtRaw === null || amtRaw < DEMO_MIN_STAKE_RAW || amtRaw > availRaw) return null;
+  const amt = Number(amtRaw) / 1e9;
   const certId = `A9-STAKE-R0${state.round.currentRound}-${Math.floor(100000 + Math.random() * 899999)}`;
+  const isFirst6h = typeof opts?.inFirst6h === 'boolean' ? opts.inFirst6h : Boolean(state.round.inFirst6h);
   const cert = {
     id: certId,
     demoEntryConfirmed: true,
     round: state.round.currentRound,
     stakeTon: amt,
+    amountRaw: amtRaw.toString(),
+    isFirst6h,
     multiplier: 1,
     weight: amt,
     estRewardA9: Math.round(amt * 3.5),
@@ -163,39 +337,89 @@ export function demoFundsStake(state, amount) {
     txHash: demoTxHash(),
     timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19) + ' (UTC+8)'
   };
-  state.user.a9Available = Number((state.user.a9Available - amt).toFixed(2));
+  setDemoAvailableRaw(state.user, availRaw - amtRaw);
   state.user.profileMode = 'active';
-  state.round.myStakeTon += amt;
-  state.round.myWeight += amt;
-  state.round.totalStakedTon += amt;
+  state.round.myStakeTon = (Number(state.round.myStakeTon) || 0) + amt;
+  state.round.myWeight = (Number(state.round.myWeight) || 0) + amt;
+  state.round.totalStakedTon = (Number(state.round.totalStakedTon) || 0) + amt;
   state.certificates.unshift(cert);
   return cert;
 }
 
-export function demoFundsClaim(state) {
-  const claimable = state.user.a9Claimable;
-  if (claimable <= 0) return 0;
-  state.user.a9Available += claimable;
-  state.user.a9Claimable = 0;
+export function demoFundsClaim(state, ticketAddress = null, nowSec = Math.floor(Date.now() / 1000)) {
+  const tickets = demoBuildVaultTickets(state, nowSec);
+  const target = ticketAddress
+    ? tickets.find((t) => t.ticketAddress === ticketAddress && t.canClaim)
+    : tickets.find((t) => t.canClaim);
+  if (!target) {
+    const claimable = state.user.a9Claimable;
+    if (!(claimable > 0)) return 0;
+    const addRaw = demoParseA9ToRaw(claimable) ?? 0n;
+    setDemoAvailableRaw(state.user, demoGetAvailableRaw(state.user) + addRaw);
+    state.user.a9Claimable = 0;
+    return claimable;
+  }
+  const cert = (state.certificates || []).find((c) => c.id === target.ticketAddress);
+  const claimTotalRaw = demoRawOrZero(target.claimableTotalRaw);
+  if (claimTotalRaw <= 0n) return 0;
+  if (cert) {
+    cert.principalDone = true;
+    cert.immediateClaimed = true;
+    const vestedNow = demoRawOrZero(target.vestingPrincipalRaw) - demoRawOrZero(target.lockedRemainingRaw);
+    cert.lockedClaimedRaw = vestedNow.toString();
+  }
+  setDemoAvailableRaw(state.user, demoGetAvailableRaw(state.user) + claimTotalRaw);
+  syncDemoVaultSummary(state, nowSec);
+  const claimable = Number(claimTotalRaw) / 1e9;
   state.ledger.unshift({
     id: `LD-${Date.now().toString().slice(-4)}`,
     type: '演示提取 (TGE 20%)',
-    source: `第 ${state.round.currentRound} 轮演示结算`,
-    amount: `+${claimable.toLocaleString()} A9`,
+    source: `第 ${target.roundId} 轮演示结算`,
+    amount: `+${claimable.toLocaleString('en-US')} A9`,
     status: '演示上链',
     time: '刚刚'
   });
   return claimable;
 }
 
-export function demoInstantClaim(state) {
-  const locked = state.user.a9Locked;
-  if (!(locked > 0)) return null;
-  const bonus = Math.floor(locked * 0.3 * 1e9) / 1e9;
-  const payout = state.user.a9Claimable + bonus;
-  state.user.a9Available += payout;
-  state.user.a9Claimable = 0;
-  state.user.a9Locked = 0;
+export function demoInstantClaim(state, ticketAddress = null, nowSec = Math.floor(Date.now() / 1000)) {
+  const tickets = demoBuildVaultTickets(state, nowSec);
+  const target = ticketAddress
+    ? tickets.find((t) => t.ticketAddress === ticketAddress && t.canInstantCashout)
+    : tickets.find((t) => t.canInstantCashout);
+  if (!target) {
+    if (ticketAddress) return null;
+    const lockedRaw = demoParseA9ToRaw(state.user?.a9Locked) ?? 0n;
+    if (lockedRaw <= 0n) return null;
+    const claimableRaw = demoParseA9ToRaw(state.user?.a9Claimable) ?? 0n;
+    const bonusRaw = (lockedRaw * 3000n) / 10000n;
+    const payoutRaw = claimableRaw + bonusRaw;
+    setDemoAvailableRaw(state.user, demoGetAvailableRaw(state.user) + payoutRaw);
+    state.user.a9Claimable = 0;
+    state.user.a9Locked = 0;
+    const payout = Number(payoutRaw) / 1e9;
+    state.ledger.unshift({ id: demoTxHash(), type: '演示急提', amount: `+${payout} A9`,
+      source: '金库', status: '演示完成', time: '刚刚', cat: 'user' });
+    return payout;
+  }
+  const payoutRaw = demoRawOrZero(target.instantCashoutTotalRaw);
+  const burnRaw = demoRawOrZero(target.instantCashoutBurnRaw);
+  if (payoutRaw <= 0n) return null;
+  const cert = (state.certificates || []).find((c) => c.id === target.ticketAddress);
+  if (cert) {
+    const prevImmRaw = cert.immediateClaimed ? demoRawOrZero(target.immediateRewardRaw) : 0n;
+    const prevLinRaw = demoRawOrZero(cert.lockedClaimedRaw);
+    const totalPaidRaw = prevImmRaw + prevLinRaw + payoutRaw - demoRawOrZero(target.claimablePrincipalRaw);
+    cert.principalDone = true;
+    cert.immediateClaimed = true;
+    cert.lockedClaimedRaw = target.vestingPrincipalRaw;
+    cert.forfeited = true;
+    cert.cashoutPaidRaw = totalPaidRaw.toString();
+    cert.cashoutBurnedRaw = burnRaw.toString();
+  }
+  setDemoAvailableRaw(state.user, demoGetAvailableRaw(state.user) + payoutRaw);
+  syncDemoVaultSummary(state, nowSec);
+  const payout = Number(payoutRaw) / 1e9;
   state.ledger.unshift({ id: demoTxHash(), type: '演示急提', amount: `+${payout} A9`,
     source: '金库', status: '演示完成', time: '刚刚', cat: 'user' });
   return payout;
@@ -203,14 +427,16 @@ export function demoInstantClaim(state) {
 
 export function demoEarlyExit(state, roundId) {
   const active = state.certificates.filter(c => c.round === roundId && c.status === 'observation');
-  const amount = active.reduce((sum, c) => sum + c.stakeTon, 0);
-  if (!amount) return null;
-  const refund = Math.floor(amount * 0.85 * 1e9) / 1e9;
+  const totalRaw = active.reduce((sum, c) => sum + demoCertAmountRaw(c), 0n);
+  if (totalRaw <= 0n) return null;
+  const refundRaw = (totalRaw * 8500n) / 10000n;
   active.forEach(c => { c.status = 'exited'; });
-  state.user.a9Available += refund;
-  state.round.myStakeTon = Math.max(0, state.round.myStakeTon - amount);
-  state.round.myWeight = Math.max(0, state.round.myWeight - amount);
-  state.round.totalStakedTon = Math.max(0, state.round.totalStakedTon - amount);
+  setDemoAvailableRaw(state.user, demoGetAvailableRaw(state.user) + refundRaw);
+  const amount = Number(totalRaw) / 1e9;
+  const refund = Number(refundRaw) / 1e9;
+  state.round.myStakeTon = Math.max(0, (Number(state.round.myStakeTon) || 0) - amount);
+  state.round.myWeight = Math.max(0, (Number(state.round.myWeight) || 0) - amount);
+  state.round.totalStakedTon = Math.max(0, (Number(state.round.totalStakedTon) || 0) - amount);
   state.ledger.unshift({ id: demoTxHash(), type: '演示提前解押', amount: `+${refund} A9`,
     source: `第 ${roundId} 关`, status: '演示完成', time: '刚刚', cat: 'user' });
   return refund;
@@ -224,7 +450,7 @@ export function demoFundsBuy(state, tonAmount) {
   if (amt > state.user.tonBalance) return { error: 'GRAM 余额不足' };
   const receivedA9 = Math.round(amt * state.market.rateA9PerTon);
   state.user.tonBalance = Number((state.user.tonBalance - amt).toFixed(2));
-  state.user.a9Available += receivedA9;
+  setDemoAvailableRaw(state.user, demoGetAvailableRaw(state.user) + BigInt(receivedA9) * DEMO_A9_SCALE);
   state.market.usedQuotaTon += amt;
   const orderId = `IM-${Date.now().toString().slice(-4)}`;
   state.market.records.unshift({
@@ -248,30 +474,6 @@ export const DEMO_SOCIAL_FEEDS = [
 ];
 
 /** 仅在 config.isDemo === true 时用于初始化可体验的演示持仓、凭证与收益记录（绝不落盘、绝不进入真实模式） */
-function createInitialCandles() {
-  // v17.0 12H 冲价演示雷达（8 根已收盘、6 根达标，第 9 根进行中）
-  const pattern = [
-    { h: 24, bull: true,  p: 0.1868 },
-    { h: 28, bull: true,  p: 0.1892 },
-    { h: 18, bull: false, p: 0.1821 },
-    { h: 26, bull: true,  p: 0.1880 },
-    { h: 22, bull: true,  p: 0.1874 },
-    { h: 30, bull: true,  p: 0.1912 },
-    { h: 20, bull: false, p: 0.1835 },
-    { h: 25, bull: true,  p: 0.1888 },
-    { h: 26, bull: true,  p: 0.1910, active: true }
-  ];
-  const candles = [];
-  for (let i = 1; i <= 12; i++) {
-    if (i <= 9) {
-      candles.push({ index: i, status: i === 9 ? 'active' : 'closed', confirmed: i < 9, ...pattern[i - 1] });
-    } else {
-      candles.push({ index: i, status: 'pending', confirmed: false, h: 12, bull: true, p: null });
-    }
-  }
-  return candles;
-}
-
 export const DEMO_SQUADS = [
   { id: 'TM-0001', zh: 'A9 冒险战队', en: 'A9 Quest Squad', level: 4, memberCount: 412, capacity: 500, lockedA9: 580000 },
   { id: 'TM-8829', zh: '星航冲锋战队', en: 'Star Voyagers', level: 3, memberCount: 84, capacity: 100 },
@@ -280,11 +482,9 @@ export const DEMO_SQUADS = [
 
 export function applyDemoInitialState(state) {
   state.round.currentRound = 3;
-  state.round.stage = 'observation';
-  state.round.qualifiedCandles = 6;
-  state.round.candlesConfirmed = 8;
-  state.round.needMore = 2;
-  state.round.candles = createInitialCandles();
+  setDemoRoundStage(state.round, 'participation');
+  state.round.priceHistory = Array.from({length: 10}, (_, i) =>
+    Number((0.00479544 - (9 - i) * 0.000004 + Math.sin(i) * 0.000009).toFixed(8)));
   state.round.quickStakeTon = 100;
   state.round.tonUsd = 3.00;
   state.round.poolA9 = 700000000;
@@ -300,7 +500,7 @@ export function applyDemoInitialState(state) {
   state.user.address = 'UQ_9921_A9_TERMINAL_489f';
   state.user.shortAddress = 'UQ...489f';
   state.user.tonBalance = 1250.5;
-  state.user.a9Available = 48200;
+  setDemoAvailableRaw(state.user, 48200n * DEMO_A9_SCALE);
   state.user.promoClaimableA9 = 96500;
   state.user.a9Claimable = 3000;
   state.user.a9Locked = 12000;
@@ -309,24 +509,25 @@ export function applyDemoInitialState(state) {
 
   state.certificates = [
     {
-      id: 'A9-STAKE-R03-882419',
-      round: 3,
-      stakeTon: 5000,
-      multiplier: 1,
-      weight: 5000,
-      estRewardA9: 25000,
-      status: 'observation',
-      autoRenew: true,
-      txHash: 'EQB9A4C72F...81E4',
-      timestamp: '2026-11-20 10:15:00 (UTC+8)'
-    },
-    {
       id: 'A9-STAKE-R02-641205',
       round: 2,
       stakeTon: 3000,
+      amountRaw: '3000000000000',
       multiplier: 1,
       weight: 3000,
       estRewardA9: 15000,
+      totalRewardRaw: '15000000000000',
+      immediateRewardRaw: '3000000000000',
+      vestingPrincipalRaw: '12000000000000',
+      vestingStartAt: null,
+      vestingElapsedSec: 0,
+      vestingSeconds: DEMO_VESTING_SECONDS,
+      principalDone: true,
+      immediateClaimed: false,
+      lockedClaimedRaw: '0',
+      forfeited: false,
+      cashoutPaidRaw: null,
+      cashoutBurnedRaw: null,
       status: 'settled',
       autoRenew: false,
       txHash: 'EQD3F8B19A...4C02',
@@ -636,7 +837,7 @@ export function demoPredictionBet({ roundId, userId, side, guessSlots, referrerI
   };
 }
 
-export function demoPredictionActivate(userId, walletAddress) {
+export function demoPredictionActivate(userId, walletAddress, state = null) {
   const u = ensureDemoPredUser(userId);
   if (!walletAddress) throw new Error('请先连接 TON 钱包');
   const pending = BigInt(u.pendingActivationRaw || '0');
@@ -644,6 +845,10 @@ export function demoPredictionActivate(userId, walletAddress) {
   const nextActivated = BigInt(u.activatedRaw || '0') + pending;
   u.activatedRaw = nextActivated.toString();
   u.pendingActivationRaw = '0';
+  if (state) {
+    state.user.promoClaimableA9 += Number(pending) / 1e9;
+    Object.assign(state.prediction, { pendingActivationRaw: '0', activatedRaw: u.activatedRaw });
+  }
   return {
     userId: u.userId,
     walletAddress,
@@ -698,7 +903,7 @@ export function tickDemoPrice(r) {
   const delta = (Math.random() - 0.48) * 0.00002;
   const nextPrice = Math.max(0.004, Number((base + delta).toFixed(6)));
   r.livePrice = nextPrice;
-  if (!Array.isArray(r.priceHistory) || r.priceHistory.length === 0) r.priceHistory = [nextPrice];
+  if (!Array.isArray(r.priceHistory) || r.priceHistory.length === 0) r.priceHistory = [base];
   r.priceHistory.push(nextPrice);
   if (r.priceHistory.length > 10) r.priceHistory.shift();
   return nextPrice;
@@ -833,14 +1038,12 @@ export function demoBuyChest(state, skuId, _openMode = 'INSTANT', userId = state
   const bonusA9 = Number(rolled.bonusRaw) / 1e9;
   const totalA9 = Number((pack.baseA9 + bonusA9).toFixed(2));
   state.user.tonBalance = Number((state.user.tonBalance - totalPay).toFixed(2));
-  state.user.a9Available = Number((state.user.a9Available + totalA9).toFixed(2));
+  setDemoAvailableRaw(state.user, demoGetAvailableRaw(state.user) + baseRaw + rolled.bonusRaw);
   if (Number(state.prediction?.pendingActivationRaw) > 0 && state.user.address && userId) {
     const reward = ensureDemoPredUser(userId);
     reward.pendingActivationRaw = state.prediction.pendingActivationRaw;
     if (reward.pendingExpiresAt > Date.now()) {
-      const activation = demoPredictionActivate(userId, state.user.address);
-      state.user.promoClaimableA9 += Number(activation.activatedDeltaRaw) / 1e9;
-      Object.assign(state.prediction, activation);
+      demoPredictionActivate(userId, state.user.address, state);
     }
   }
   const orderId = `CM-${Date.now().toString().slice(-4)}`;
@@ -960,7 +1163,7 @@ export function demoOpenChest(state, chestId) {
       const cur = BigInt(state.prediction?.pendingActivationRaw || '0');
       state.prediction.pendingActivationRaw = (cur + BigInt(c.baseA9Raw)).toString();
     } else {
-      state.user.a9Available += rewardA9;
+      setDemoAvailableRaw(state.user, demoGetAvailableRaw(state.user) + BigInt(c.baseA9Raw));
     }
     let nextUnlocked = null;
     if (idx + 1 < s.freeChests.length && s.freeChests[idx + 1].status === 'LOCKED') {
@@ -976,7 +1179,7 @@ export function demoOpenChest(state, chestId) {
   sc.boostA9Raw = rolled.bonusRaw.toString();
   sc.status = 'OPENED';
   const boostA9 = Number(rolled.bonusRaw) / 1e9;
-  state.user.a9Available = Number((state.user.a9Available + boostA9).toFixed(2));
+  setDemoAvailableRaw(state.user, demoGetAvailableRaw(state.user) + rolled.bonusRaw);
   if (rolled.isCrit) {
     demoCritFeedItems.unshift({
       chestId: sc.chestId,

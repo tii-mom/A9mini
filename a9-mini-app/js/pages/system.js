@@ -13,7 +13,7 @@ import { L, LANGUAGES } from '../i18n.js';
 import { openChoiceSheet } from '../components.js';
 import { tonConnect } from '../tonconnect.js';
 import { renderCurrentRoute, getTheme, toggleTheme, applyHapticsPref, applyMotionPref } from '../app.js';
-import { PROTOCOL_SPECS, rawToA9, fetchNotificationPrefs, updateNotificationPrefs } from '../data.js';
+import { PROTOCOL_SPECS, formatRoundA9, fetchNotificationPrefs, updateNotificationPrefs } from '../data.js';
 import { buildTonviewerUrl, shortAddress } from '../tx-ux.js';
 
 let liveNotifCache = { fetched: false, settlementPush: null, error: null, saving: false };
@@ -34,19 +34,19 @@ const RISK_STATES = [
   { id: '06', code: 'ERR_0x7E4F_LOCK_CLOSED_EXIT', cat: 'quota', titleZh: '12H 冲价封盘禁止提前解押', titleEn: '12H Push Locked · Early Exit Blocked', descZh: '已进入 12H 冲价封盘期（Errors.LockClosed），禁进禁出防中途砸盘。', descEn: 'Entered 12H Push window (Errors.LockClosed); both entry and early exit are locked.', actionZh: '追踪当前 12H 冲价', actionEn: 'Track 12H Push' },
   { id: '07', code: 'ERR_0x2207_STAGE_CLOSED_LOCKOUT', cat: 'quota', titleZh: '24H 锁仓已封盘 / 进入 12H 冲价', titleEn: '24H Lock Closed · 12H Push Live', descZh: '本轮锁仓通道关闭，转入连续 12 小时冲价结算（≥ 8/12 通关）。', descEn: 'Lock window closed; now in the 12H Push phase (≥ 8/12 to pass).', actionZh: '追踪当前 12H 冲价', actionEn: 'Track 12H Push' },
   { id: '08', code: 'ERR_0x2208_OBSERVE_FAILED_SL', cat: 'quota', titleZh: '12H 冲价未达标 (< 8/12 格)', titleEn: '12H Push Missed (< 8/12 Slots)', descZh: '永不爆仓：头矿 6H 退 95%（烧 5%）、普通退 90%（烧 10%），另烧半池并滚存另一半。', descEn: 'No liquidation: First 6H refunds 95% (5% burn), late refunds 90% (10% burn) + half-pool burn.', actionZh: '前往领回止损退本', actionEn: 'Claim Stop-Loss Refund' },
-  { id: '09', code: 'ERR_0x2209_ORACLE_CIRCUIT_BREAK', cat: 'quota', titleZh: '预言机喂价异常熔断 (Pyth/RedStone)', titleEn: 'Oracle Deviation Circuit Breaker', descZh: '跨链报价偏差超阈值，系统自动开启安全隔离并 100% 退还本金。', descEn: 'Oracle price feed deviation triggered safety halt; 100% principal refunded.', actionZh: '查看熔断审计报告', actionEn: 'View Audit Report' },
+  { id: '09', code: 'ERR_0x2209_ORACLE_CIRCUIT_BREAK', cat: 'quota', titleZh: '多源 1H TWAP 行情暂停与轮次中止保护', titleEn: '1H TWAP Feed Pause & Round Abort Guard', descZh: '多源加权均价（1H TWAP）覆盖率不足或报价偏差超阈值时自动暂停当前时段判定，绝不误判达标；仅当轮次触发 7 天异常中止保护时，才开放 100% 无损退还本金。', descEn: 'If multi-source 1H TWAP coverage drops or feed deviation exceeds threshold, slot judgment pauses without mis-scoring; 100% principal refund opens only if the round triggers the 7-day abort safeguard.', actionZh: '查看链上验真看板', actionEn: 'View Audit Board' },
   { id: '10', code: 'ERR_0x2210_NO_CLAIMABLE_BAL', cat: 'quota', titleZh: '待领取奖金为空', titleEn: 'No Claimable Rewards', descZh: '当前可提取额度为 0，其余奖金正按 14 天（每日 5.71%）逐秒解锁中，亦可走 3 折急提。', descEn: 'Claimable balance is 0; remaining rewards unlock per second over 14 days (5.71%/day), or use 30% Instant Cashout.', actionZh: '查看解锁节奏', actionEn: 'View Unlock Schedule' },
   { id: '11', code: 'ERR_0x2211_GAS_ESTIMATE_FAIL', cat: 'quota', titleZh: '智能合约领取 Gas 估算失败', titleEn: 'Claim Gas Estimation Failed', descZh: '普通领奖需附带 0.22 GRAM，提前解押/3 折急提需附带 0.34 GRAM，扣除链上费用和必要留存后退回可退余量。', descEn: 'Attach 0.22 GRAM for normal claim or 0.34 GRAM for Early Exit / Instant Cashout (excess refunded).', actionZh: '核对附带 Gas 重试', actionEn: 'Retry with Gas' },
   { id: '12', code: 'ERR_0x3312_TG_AUTH_REQUIRED', cat: 'market', titleZh: '未绑定 TG 账号阻断宝箱商城操作', titleEn: 'Telegram Binding Required for Chest Mall', descZh: '独立外部钱包缺少 Telegram InitData 签名校验。', descEn: 'External wallet session lacks Telegram InitData verification.', actionZh: '绑定 Telegram 账号', actionEn: 'Bind Telegram Account' },
   { id: '13', code: 'ERR_0x3313_PRESALE_SOLD_OUT', cat: 'market', titleZh: '宝箱商城当期额度已售罄 (Sold Out)', titleEn: 'Chest Mall Round Quota Sold Out', descZh: '当期宝箱库存已抢空，后发交易扣除 0.03 GRAM 链上退款 Gas 后原路退还。', descEn: 'Current chest allocation is sold out; late txs are refunded minus 0.03 GRAM gas.', actionZh: '查询自动退款流水', actionEn: 'Check Refund Log' },
-  { id: '14', code: 'ERR_0x3314_USER_CANCELLATION', cat: 'market', titleZh: '用户主动取消宝箱商城订单', titleEn: 'Chest Mall Order Cancelled by User', descZh: '锁仓前主动撤单，扣除固定链上计算损耗后退回余额。', descEn: 'Order cancelled before lock; balance returned minus gas overhead.', actionZh: '确认撤单规则', actionEn: 'Confirm Cancel Rules' },
+  { id: '14', code: 'ERR_0x3314_USER_CANCELLATION', cat: 'market', titleZh: '宝箱订单逾期失效与退款', titleEn: 'Chest Order Expiry & Refund', descZh: '未支付订单到期自动失效；若超时或异常到账，扣除 0.03 GRAM 网络费后原路退回。', descEn: 'Unpaid orders expire automatically; late or invalid transfers refund minus 0.03 GRAM gas.', actionZh: '查看订单与退款规则', actionEn: 'Check Order & Refund Rules' },
   { id: '15', code: 'ERR_0x3315_DUST_NON_REFUNDABLE', cat: 'market', titleZh: '粉尘金额转账 (≤0.1 GRAM 拦截)', titleEn: 'Dust Transfer Blocked (≤ 0.1 GRAM)', descZh: '微小数额低于链上拆单成本，协议直接拦截。', descEn: 'Amount is below minimum on-chain processing threshold.', actionZh: '调整至有效档位', actionEn: 'Select Valid Tier' },
   { id: '16', code: 'ERR_0x4416_CAPTAIN_CANNOT_EXIT', cat: 'team', titleZh: '战队队长试图退队阻断', titleEn: 'Squad Captain Exit Blocked', descZh: '队长绑定分润金库，需先移交队长权限方可离队。', descEn: 'Captain is bound to squad treasury; transfer leadership before leaving.', actionZh: '前往移交队长权限', actionEn: 'Transfer Captaincy' },
-  { id: '17', code: 'ERR_0x4417_TEAM_SWITCH_QUOTA', cat: 'team', titleZh: '赛季内切换战队超过 1 次限制', titleEn: 'Squad Switch Limit Exceeded', descZh: '每个赛季严格限制仅可迁移战队 1 次，防止套利。', descEn: 'Each season allows at most 1 squad transfer.', actionZh: '等待下赛季重置', actionEn: 'Wait for Next Season' },
+  { id: '17', code: 'ERR_0x4417_TEAM_SWITCH_QUOTA', cat: 'team', titleZh: '换队冷却期限制（7 天）', titleEn: 'Squad Switch Cooldown (7 Days)', descZh: '切换或重建战队存在 7 天冷却期，防止频繁切换套利。', descEn: 'Switching or recreating a squad has a 7-day cooldown.', actionZh: '等待冷却期结束后重试', actionEn: 'Wait for Cooldown to End' },
   { id: '18', code: 'ERR_0x4418_PREHEAT_ELIGIBILITY', cat: 'team', titleZh: '开局预热未达到有效直邀门槛', titleEn: 'Pre-Round Invite Threshold Unmet', descZh: '需至少邀请 1 位完成认证的真实伙伴以激活排位资格。', descEn: 'Invite at least 1 verified friend to qualify for pre-round ranking.', actionZh: '分享专属邀请链', actionEn: 'Share Invite Link' },
-  { id: '19', code: 'ERR_0x4419_INVITE_HARDCAP', cat: 'team', titleZh: '邀友奖励达 320,000 A9 单轮硬顶', titleEn: '320,000 A9 Round Invite Cap Reached', descZh: '单地址单轮邀友奖励封顶，多余积分自动转入社区奖池。', descEn: 'Single-address invite reward capped per round; excess goes to community pool.', actionZh: '查看邀友奖励上限', actionEn: 'View Invite Cap' },
-  { id: '20', code: 'ERR_0x5520_TG_BOT_PERM_LOST', cat: 'sys', titleZh: 'TG 群组解绑 / Bot 管理员权限丢失', titleEn: 'TG Group Unlinked / Bot Admin Lost', descZh: '关联群组撤销了官方 Bot (@A9_TonBot) 管理员权限。', descEn: 'Linked group revoked official Bot (@A9_TonBot) admin permissions.', actionZh: '重新授权 Bot Admin', actionEn: 'Re-authorize Bot Admin' },
-  { id: '21', code: 'ERR_0x5521_RENEWAL_TIMEOUT', cat: 'sys', titleZh: '开盘提醒设置锁定 (<30分钟)', titleEn: 'Opening Alert Lockout (< 30 Mins)', descZh: '已进入新轮开盘前 30 分钟锁定缓冲期。', descEn: 'Locked within 30 minutes prior to the next round open.', actionZh: '等待下轮开盘后调整', actionEn: 'Adjust After Open' },
+  { id: '19', code: 'ERR_0x4419_INVITE_HARDCAP', cat: 'team', titleZh: '推广 6 独立额度桶熔断硬顶', titleEn: 'Promo 6-Bucket Hard Cap Reached', descZh: '推广总硬顶 550,000,000 A9 按 6 个独立额度桶分别熔断（商城直推/加赠 48,000,000 A9、好友通关 8% 返佣 200,000,000 A9 等），用完即停绝不超发。', descEn: '550,000,000 A9 total promo cap enforced across 6 independent circuit-breaker buckets; stops automatically when exhausted.', actionZh: '查看 6 桶硬顶配置', actionEn: 'View 6-Bucket Caps' },
+  { id: '20', code: 'ERR_0x5520_TG_BOT_PERM_LOST', cat: 'sys', titleZh: 'TG 群组解绑 / Bot 管理员权限丢失', titleEn: 'TG Group Unlinked / Bot Admin Lost', descZh: '关联群组撤销了官方 Bot 的管理员权限。', descEn: 'Linked group revoked official Bot admin permissions.', actionZh: '重新授权 Bot Admin', actionEn: 'Re-authorize Bot Admin' },
+  { id: '21', code: 'ERR_0x5521_RENEWAL_TIMEOUT', cat: 'sys', titleZh: '轮次封盘与结算切换缓冲', titleEn: 'Round Seal & Settlement Buffer', descZh: '轮次临近 24H 锁仓封盘或 12H 冲价结算切换时，一切状态均以链上区块时间为准。', descEn: 'Near 24H lock close or 12H settlement transitions, on-chain block time is authoritative.', actionZh: '刷新同步最新链上状态', actionEn: 'Refresh On-Chain State' },
   { id: '22', code: 'ERR_0x5522_API_MAINTENANCE', cat: 'sys', titleZh: '接口只读维护窗口', titleEn: 'API Maintenance Window', descZh: 'v17.0 合约永久弃权不可升级；仅维护边缘只读接口，链上资产不受影响。', descEn: 'v17.0 contracts are renounced; edge API maintenance does not affect on-chain assets.', actionZh: '查看链上验真地址', actionEn: 'Verify On-Chain' }
 ];
 
@@ -75,10 +75,10 @@ export function renderSettingsPage(root) {
 
   const liveSettleActive = Boolean(hasInitData && liveNotifCache.fetched && liveNotifCache.settlementPush === true);
   const hourlySubText = isDemo
-    ? L('12H 冲价每小时定盘达标实时提醒', 'Alert on each hourly 12H Push check')
+    ? L('每小时达标结果', 'Hourly price-check results')
     : L('个人整点推送暂未开放', 'Personal hourly push is unavailable');
   const settleSubText = isDemo
-    ? L('轮次结算结果与金库可领通知', 'Notify when rounds settle or rewards unlock')
+    ? L('轮次结算与奖励解锁', 'Round results and reward unlocks')
     : (!hasInitData
         ? L('请在 Telegram 小程序内打开以管理结算私聊提醒', 'Open in Telegram Mini App to manage settlement DM alerts')
         : (liveNotifCache.saving
@@ -170,7 +170,6 @@ export function renderSettingsPage(root) {
             <span class="sw-row-icon is-blue" aria-hidden="true">${icon(soundOn ? 'volumeOn' : 'volumeOff', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('交互音效', 'Sound Effects')}</span>
-              <span class="sw-menu-sub">${L('切页、盖章与确认操作时播放反馈音', 'Crisp chime feedback on tabs, stamps & confirms')}</span>
             </div>
             <div class="sw-menu-right">
               <div class="a9-switch ${soundOn ? 'on' : ''}" id="set-sound-switch" aria-label="${L('交互音效', 'Sound effects')}" role="switch" aria-checked="${soundOn}" tabindex="0"></div>
@@ -180,7 +179,6 @@ export function renderSettingsPage(root) {
             <span class="sw-row-icon is-green" aria-hidden="true">${icon('bolt', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('触感震动', 'Haptic Feedback')}</span>
-              <span class="sw-menu-sub">${L('按键、滑块与结果确认时的轻震反馈', 'Tactile vibration on taps, sliders & results')}</span>
             </div>
             <div class="sw-menu-right">
               <div class="a9-switch ${hapticsOn ? 'on' : ''}" id="set-haptics-switch" aria-label="${L('触感震动', 'Haptic feedback')}" role="switch" aria-checked="${hapticsOn}" tabindex="0"></div>
@@ -244,7 +242,7 @@ export function renderSettingsPage(root) {
             <span class="sw-row-icon is-red" aria-hidden="true">${icon('book', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('规则与透明', 'Rules & Transparency')}</span>
-              <span class="sw-menu-sub">${L('找宝箱、看冲价、领 A9', 'Chests, price checks and claiming A9')}</span>
+              <span class="sw-menu-sub">${L('玩法与费用', 'Gameplay and fees')}</span>
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
@@ -252,7 +250,7 @@ export function renderSettingsPage(root) {
             <span class="sw-row-icon is-green" aria-hidden="true">${icon('shieldCheck', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('查看合约地址', 'Inspect Contracts')}</span>
-              <span class="sw-menu-sub">${L('合约地址、7 天异常无损退本与链上参数', 'Contracts, 7d abort refund & specs')}</span>
+              <span class="sw-menu-sub">${L('链上参数与退本保护', 'On-chain parameters and refund protection')}</span>
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
@@ -260,7 +258,6 @@ export function renderSettingsPage(root) {
             <span class="sw-row-icon is-amber" aria-hidden="true">${icon('shieldAlert', 16)}</span>
             <div class="sw-menu-left">
               <span class="sw-menu-title">${L('22 条异常说明', '22 Guard & Error Codes')}</span>
-              <span class="sw-menu-sub">${L('22 种链上风控与异常保护参考手册', '22-state on-chain protection reference')}</span>
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
@@ -590,7 +587,7 @@ export function renderRiskAudit(root) {
   const network = cfg.network || config.network || 'mainnet';
   const rcAddr = contracts.roundController || null;
   const jettonAddr = contracts.a9JettonMaster || contracts.jettonMaster || null;
-  const poolRemA9 = round?.poolState?.poolRemainingRaw ? rawToA9(round.poolState.poolRemainingRaw) : (round?.rewardPoolA9 ?? null);
+  const poolRemaining = formatRoundA9(round?.poolState?.poolRemainingRaw);
   const codeHash = cfg.roundControllerCodeHash || cfg.codeHash || null;
   const isDemo = config.isDemo;
   const hasContractAddr = Boolean(rcAddr);
@@ -626,12 +623,12 @@ export function renderRiskAudit(root) {
         ? `<span class="mono num-xs text-muted">${L('待链上验真（Tonviewer 查验 addr_none）', 'Pending check (verify addr_none on Tonviewer)')}</span>`
         : `<span class="mono num-xs text-muted">${L('待核验（主网部署后按 addr_none 验真）', 'Pending verification (addr_none after deploy)')}</span>`;
 
-  const hasPoolRem = poolRemA9 !== null && poolRemA9 !== undefined && Number.isFinite(Number(poolRemA9));
+  const hasPoolRem = poolRemaining !== '—';
 
   const invariantsBoardHtml = `
     <section class="card card-hero" id="v16-invariants-board">
       <div class="row-between" style="margin-bottom:8px;">
-        <div class="card-title">${icon('shieldCheck', 16, hasContractAddr || isDemo ? 'text-green' : 'text-gold')} ${L('v17.0 链上防 Rug 安全不变量看板', 'v17.0 On-Chain Security Invariants')}</div>
+        <div class="card-title">${icon('shieldCheck', 16, hasContractAddr || isDemo ? 'text-green' : 'text-gold')} ${L('链上安全参数', 'On-Chain Security')}</div>
         ${badgeHtml}
       </div>
       <div class="check-list">
@@ -645,7 +642,7 @@ export function renderRiskAudit(root) {
         </div>
         <div class="check-row">
           <span class="text-sec">${L('链上剩余奖池（poolRemaining）', 'On-Chain Pool Remaining')}</span>
-          <span class="mono ${hasPoolRem ? 'text-green' : 'text-muted'}" style="font-weight:800;">${hasPoolRem ? `${formatNum(Math.round(Number(poolRemA9)))} A9` : L('待同步', 'Pending sync')}</span>
+          <span class="mono ${hasPoolRem ? 'text-green' : 'text-muted'}" style="font-weight:800;">${hasPoolRem ? poolRemaining : L('待同步', 'Pending sync')}</span>
         </div>
         <div class="check-row">
           <span class="text-sec">${L('全局推广预算熔断硬顶', 'Global Promo Budget Cap')}</span>
@@ -683,7 +680,7 @@ export function renderRiskAudit(root) {
           ? `<a class="btn btn-primary btn-sm" href="${escapeHtml(buildTonviewerUrl(rcAddr, network))}" target="_blank" rel="noopener noreferrer">${icon('external', 13)} ${L('Tonviewer 查主合约', 'Inspect on Tonviewer')}</a>
              <button class="btn btn-secondary btn-sm" id="btn-audit-copy-rc" type="button">${icon('copy', 13)} ${L('复制合约地址', 'Copy Address')}</button>`
           : `<a class="btn btn-secondary btn-sm" href="#/rules">${icon('book', 13)} ${L('规则与透明', 'Rules & Transparency')}</a>
-             <a class="btn btn-secondary btn-sm" href="#/challenge">${icon('arrowLeft', 13)} ${L('返回广场', 'Back to Plaza')}</a>`}
+             <a class="btn btn-secondary btn-sm" href="#/round">${icon('arrowLeft', 13)} ${L('返回冲关', 'Back to Quest')}</a>`}
       </div>
     </section>
   `;
@@ -702,8 +699,8 @@ export function renderRiskAudit(root) {
             : L('主网合约地址尚未注入，上方仅展示 v17.0 协议设计规格；主网部署并注入合约地址后即可直查链上不变量与事件流。', 'Mainnet contract addresses are not yet configured. Above reflects v17.0 protocol specifications; live invariants and event streams activate once contracts are deployed.')}</p>
         </section>
         <div class="sw-menu-group">
-          <a class="sw-menu-row" href="#/challenge">
-            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回广场', 'Back to Plaza')}</span></div>
+          <a class="sw-menu-row" href="#/round">
+            <div class="sw-menu-left"><span class="sw-menu-title">${L('返回冲关', 'Back to Quest')}</span></div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
           <a class="sw-menu-row" href="#/settings">
@@ -718,7 +715,7 @@ export function renderRiskAudit(root) {
   }
 
   const events = [
-    { time: '12:00 UTC', target: L('第 12 时段收盘定盘', 'Slot #12 hourly seal'), detail: 'Pyth + RedStone · 0.12%', result: 'VERIFIED', cls: 'chip-green' },
+    { time: '12:00 UTC', target: L('第 12 时段收盘定盘', 'Slot #12 hourly seal'), detail: L('多源 1H TWAP 加权均价 · 0.12%', 'Multi-Source 1H TWAP · 0.12%'), result: 'VERIFIED', cls: 'chip-green' },
     { time: '08:00 UTC', target: L('奖池合约余额校验', 'Reward pool balance check'), detail: '700,000,000 A9 · 100%', result: 'PASS', cls: 'chip-green' },
     { time: '00:00 UTC', target: L('v17.0 结算逻辑验真', 'v17.0 settlement verification'), detail: 'RoundController · TVM · addr_none', result: 'AUDITED', cls: 'chip-blue' },
   ];
@@ -765,11 +762,11 @@ export function renderNotFoundPage(root) {
         <div class="icon-badge red" style="width:46px;height:46px;border-radius:13px;">${icon('shieldAlert', 22)}</div>
         <div class="num-xl" style="margin-top:4px;">404</div>
         <div class="text-sec" style="font-size:12px;">${L('该页面不存在或路由链接已失效', 'This page was not found or the link has expired')}</div>
-        <button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/challenge">${icon('arrowLeft', 14)} ${L('返回广场', 'Back to Plaza')}</button>
+        <button class="btn btn-primary btn-sm" style="margin-top:8px;" data-nav="/round">${icon('arrowLeft', 14)} ${L('返回冲关', 'Back to Quest')}</button>
       </div>
       <div class="sw-menu-group">
         <a class="sw-menu-row" href="#/round">
-          <div class="sw-menu-left"><span class="sw-menu-title">${L('进入闯关', 'Enter Quest')}</span></div>
+          <div class="sw-menu-left"><span class="sw-menu-title">${L('进入冲关', 'Enter Quest')}</span></div>
           <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
         </a>
         <a class="sw-menu-row" href="#/market">

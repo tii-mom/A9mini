@@ -3,6 +3,9 @@ import { config } from '../config.js';
 import { peekDemoModule } from '../demo-loader.js';
 import {
   estimateRewardA9,
+  estimateRewardRaw,
+  formatRoundA9,
+  PROTOCOL_SPECS,
   fetchPredictionRound,
   fetchPredictionUser,
   submitPredictionBet,
@@ -133,7 +136,8 @@ async function syncMyRoundPositionCard(root, onQualifiedChange = null) {
     if (settleEl && ticket) {
       const wrap = document.createElement('div');
       wrap.innerHTML = renderSettlementBreakdownRows({
-        principalA9: rawToA9(ticket.claimablePrincipalRaw ?? ticket.amountRaw),
+        principalA9: rawToA9(ticket.claimablePrincipalRaw),
+        burnedPrincipalRaw: ticket.roundState === 'FAILED_PERMANENT' ? ticket.burnedPrincipalRaw : null,
         rewardA9: rawToA9(ticket.claimableRewardRaw),
         lockedA9: rawToA9(ticket.lockedRemainingRaw),
       }).trim();
@@ -377,7 +381,7 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
         const inviteLink = config.isDemo
           ? `${window.location.origin}${window.location.pathname}?mode=${config.mode}&startapp=invite_${encodeURIComponent(shareRef)}`
           : buildTmaDeepLink(`invite_${shareRef}`);
-        const copyTextStr = buildBattleRallyCopy(store.state.round, inviteLink, 'push');
+        const copyTextStr = buildBattleRallyCopy(store.state.round, inviteLink, uiState.inFirst6h ? 'first6h' : stage);
         openChoiceSheet({
           title: L('分享本轮战况', 'Share Round Update'),
           options: [
@@ -444,12 +448,16 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
         A9Haptic.light();
         const amt = Number(btn.dataset.heroAmt);
         store.update(s => { s.round.quickStakeA9 = amt; s.round.quickStakeTon = amt; });
-        root.querySelectorAll('[data-hero-amt]').forEach(b => b.classList.toggle('active', Number(b.dataset.heroAmt) === amt));
-        const est = estimateRewardA9(amt);
+        root.querySelectorAll('[data-hero-amt]').forEach((button) => {
+          const selected = Number(button.dataset.heroAmt) === amt;
+          button.classList.toggle('active', selected);
+          button.setAttribute('aria-pressed', String(selected));
+        });
+        const est = estimateRewardRaw(amt, store.state.round);
         const estEl = root.querySelector('#hero-est-a9');
         const ctaEl = root.querySelector('#hero-stake-cta');
-        if (estEl) estEl.textContent = est === null ? '—' : `~${formatNum(Math.round(est))} A9`;
-        if (ctaEl) ctaEl.innerHTML = `${icon('bolt', 16)} ${L(`立即锁仓 ${formatNum(amt)} A9`, `Lock ${formatNum(amt)} A9`)}`;
+        if (estEl) estEl.textContent = est === null ? L('待数据同步', 'Awaiting data') : formatRoundA9(est);
+        if (ctaEl) ctaEl.href = `#/challenge/confirm?amt=${amt}`;
       };
     });
 
@@ -724,7 +732,6 @@ function bindPredictionCardEvents(root, navigate) {
         A9Haptic.success();
         A9Audio.confirm();
         const deltaA9 = rawToA9(res?.activatedDeltaRaw ?? res?.activatedRaw ?? prediction.pendingActivationRaw) || 0;
-        if (config.isDemo) user.promoClaimableA9 += deltaA9;
         showToast(L(`已激活 ${formatNum(deltaA9)} A9 至邀友奖励账户，可走 0.06 GRAM 提现`, `Activated ${formatNum(deltaA9)} A9 to invite reward balance`));
         await syncPredictionState(root, navigate);
       } catch (e) {
@@ -808,10 +815,11 @@ function openTransactionSheet(amount, view, { assetSymbol = 'GRAM', gasNote = ''
 /** v17.0 涨价解锁极简回本推演卡（全员 1:1 平分、5× 封顶、头矿 6H 5% 止损 / 普通 10% 止损、14 天逐秒解锁 + 3 折急提） */
 function computeStakeSummaryMetrics({ amountA9, round }) {
   const amt = Math.max(0, Number(amountA9) || 0);
-  const inFirst6h = Boolean(round?.inFirst6h);
-  const stopLossPct = inFirst6h ? 5 : 10;
-  const failRefundA9 = Math.floor(amt * (100 - stopLossPct) / 100);
-  const failBurnA9 = Math.max(0, amt - failRefundA9);
+  const { inFirst6h } = deriveRoundUiState({ detail: round, serverNowMs: serverNowMs() });
+  const stopLossPct = inFirst6h ? PROTOCOL_SPECS.failEarlyStopLossPct : PROTOCOL_SPECS.failLateStopLossPct;
+  const failRefundA9 = amt * (100 - stopLossPct) / 100;
+  const failBurnA9 = amt * stopLossPct / 100;
+  const earlyExitRefundA9 = amt * (100 - PROTOCOL_SPECS.earlyExitBurnPct) / 100;
   const estTotalRaw = amt > 0 ? estimateRewardA9(amt, round) : null;
   const estTotal = estTotalRaw !== null && Number.isFinite(estTotalRaw) ? Math.round(estTotalRaw) : null;
   const curInstantReward = estTotal !== null ? Math.round(estTotal * 0.2) : null;
@@ -830,6 +838,7 @@ function computeStakeSummaryMetrics({ amountA9, round }) {
     stopLossPct,
     failRefundA9,
     failBurnA9,
+    earlyExitRefundA9,
     estTotal,
     curInstantReward,
     curLockedReward,
@@ -887,8 +896,8 @@ function renderStakeSummaryCardHtml({ amountA9, round, prefix = 'demo', minStake
             <small class="text-red" style="font-weight:800;">${L('未通关 · 自动止损（< 8/12 格）', 'FAIL · Auto Stop-Loss (< 8/12)')}</small>
             <span class="mono num-xs text-red">-${m.stopLossPct}%</span>
           </div>
-          <div class="payback-outcome-main mono text-green" data-field="fail-refund">${L(`退回 ${formatNum(m.failRefundA9)} A9`, `Refund ${formatNum(m.failRefundA9)} A9`)}</div>
-          <div class="num-xs text-sec" data-field="fail-burn-desc">${L(`永不爆仓：仅扣 ${m.stopLossPct}%（${formatNum(m.failBurnA9)} A9）销毁；锁仓期提前解押退 85%`, `No liquidation: only ${m.stopLossPct}% (${formatNum(m.failBurnA9)} A9) burned; lock-window Early Exit refunds 85%`)}</div>
+          <div class="payback-outcome-main mono text-green" data-field="fail-refund">${L(`退回 ${formatNum(m.failRefundA9, m.failRefundA9 % 1 === 0 ? 0 : 2)} A9`, `Refund ${formatNum(m.failRefundA9, m.failRefundA9 % 1 === 0 ? 0 : 2)} A9`)}</div>
+          <div class="num-xs text-sec" data-field="fail-burn-desc">${L(`永不爆仓：仅扣 ${m.stopLossPct}%（${formatNum(m.failBurnA9, m.failBurnA9 % 1 === 0 ? 0 : 2)} A9）销毁；锁仓期提前解押退 85%`, `No liquidation: only ${m.stopLossPct}% (${formatNum(m.failBurnA9, m.failBurnA9 % 1 === 0 ? 0 : 2)} A9) burned; lock-window Early Exit refunds 85%`)}</div>
         </div>
       </div>
 
@@ -908,6 +917,10 @@ function renderStakeSummaryCardHtml({ amountA9, round, prefix = 'demo', minStake
         <div class="check-row">
           <span class="text-sec">${L('3 折急提（第 0 天最高秒拿 44%）', 'Instant Cashout (Day-0 44% Now)')}</span>
           <span class="mono num-xs" data-field="est-cashout">${hasEst ? `~${formatNum(m.day0CashoutReward)} A9 + ${L('本金', 'Principal')}` : '—'}</span>
+        </div>
+        <div class="check-row">
+          <span class="text-sec">${L('封盘前提前解押预计退回', 'Estimated refund if you exit before sealing')}</span>
+          <span class="mono" data-field="exit-refund">${formatNum(m.earlyExitRefundA9, 2)} A9</span>
         </div>
         <div class="check-row">
           <span class="text-sec">${L('附带 Gas / 目标底价 / 冲价线', 'Gas / Target / Push Line')}</span>
@@ -967,8 +980,9 @@ function updateStakeSummaryCardDom(cardEl, { amountA9, round, minStakeA9 = 100 }
   setText('[data-field="pass-breakdown"]', hasEst
     ? L(`100% 退本 ${formatNum(m.amt)} + 20% 秒提 ${formatNum(m.curInstantReward)} A9（余 80% 14 天解锁）`, `100% principal ${formatNum(m.amt)} + 20% instant ${formatNum(m.curInstantReward)} A9 (80% over 14d)`)
     : L(`100% 退本 ${formatNum(m.amt)} A9 + 20% 秒提奖金`, `100% principal ${formatNum(m.amt)} A9 + 20% instant reward`));
-  setText('[data-field="fail-refund"]', L(`退回 ${formatNum(m.failRefundA9)} A9`, `Refund ${formatNum(m.failRefundA9)} A9`));
-  setText('[data-field="fail-burn-desc"]', L(`永不爆仓：仅扣 ${m.stopLossPct}%（${formatNum(m.failBurnA9)} A9）销毁；锁仓期提前解押退 85%`, `No liquidation: only ${m.stopLossPct}% (${formatNum(m.failBurnA9)} A9) burned; lock-window Early Exit refunds 85%`));
+  setText('[data-field="fail-refund"]', L(`退回 ${formatNum(m.failRefundA9, m.failRefundA9 % 1 === 0 ? 0 : 2)} A9`, `Refund ${formatNum(m.failRefundA9, m.failRefundA9 % 1 === 0 ? 0 : 2)} A9`));
+  setText('[data-field="fail-burn-desc"]', L(`永不爆仓：仅扣 ${m.stopLossPct}%（${formatNum(m.failBurnA9, m.failBurnA9 % 1 === 0 ? 0 : 2)} A9）销毁；锁仓期提前解押退 85%`, `No liquidation: only ${m.stopLossPct}% (${formatNum(m.failBurnA9, m.failBurnA9 % 1 === 0 ? 0 : 2)} A9) burned; lock-window Early Exit refunds 85%`));
+  setText('[data-field="exit-refund"]', `${formatNum(m.earlyExitRefundA9, 2)} A9`);
   setText('[data-field="chk-amt"]', `${formatNum(m.amt)} A9 (≥ ${formatNum(minStakeA9)} A9)`);
   setText('[data-field="est-total"]', hasEst ? `~${formatNum(m.estTotal)} A9` : L('待链上奖池同步', 'Awaiting pool'));
   setText('[data-field="est-instant"]', hasEst ? `${formatNum(m.curInstantReward)} A9` : '—');

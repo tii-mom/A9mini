@@ -236,8 +236,8 @@ test('5b: enforces strict 8-level primaryAction priority and conflict combinatio
   }
 
   // 验证仓位状态辅助函数
-  assert.equal(deriveTicketRoundStatusLabel({ roundState: 'OBSERVING' }, null, NOW), '12H 冲价中');
-  assert.equal(deriveTicketRoundStatusLabel({ roundState: 'STAKING_OPEN' }, null, NOW), '24H 锁仓中');
+  assert.equal(deriveTicketRoundStatusLabel({ roundState: 'OBSERVING' }, null, NOW), '12 小时冲价中');
+  assert.equal(deriveTicketRoundStatusLabel({ roundState: 'STAKING_OPEN' }, null, NOW), '24 小时锁仓中');
   assert.equal(deriveTicketRoundStatusLabel({ roundState: 'STAKING_CLOSED' }, null, NOW), '已封盘 · 等待冲价');
 });
 

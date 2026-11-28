@@ -5,6 +5,7 @@
 import { L } from '../i18n.js';
 import { icon } from '../icons.js';
 import { config } from '../config.js';
+import { PROTOCOL_SPECS } from '../data.js';
 import { store } from '../store.js';
 import { renderRiskAudit, renderRiskMatrix } from './system.js';
 
@@ -12,10 +13,10 @@ export function renderUserGuide(root, _navigate, _param = null, query = {}, anch
   const hashAnchor = typeof window !== 'undefined' ? (String(window.location?.hash || '').split('#')[2] || '') : '';
   const activeAnchor = String(anchor || query?._anchor || query?.section || hashAnchor || '').toLowerCase();
   const destinations = [
-    ['/market', 'chest', 'is-red', L('宝箱商城', 'Chest Mall'), L('6 档 · 直发钱包', '6 tiers · wallet delivery')],
-    ['/round', 'navRound', 'is-blue', L('闯关', 'Quest'), L('看进度和仓位', 'See slots and positions')],
-    ['/rewards', 'trophy', 'is-green', L('我的奖励', 'My Rewards'), L('查看可领与解锁', 'Check claimable & unlocking')],
-    ['/profile', 'wallet', 'is-amber', L('我的', 'Me'), L('查凭证与记录', 'Find passes and records')],
+    ['/round', 'navRound', 'is-blue', L('冲关', 'Quest'), L('看进度和仓位', 'See slots and positions')],
+    ['/rewards', 'trophy', 'is-green', L('金库', 'Vault'), L('查看可领与解锁', 'Check claimable & unlocking')],
+    ['/market', 'chest', 'is-red', L('宝箱', 'Chest'), L('6 档 · 直发钱包', '6 tiers · wallet delivery')],
+    ['/team', 'team', 'is-amber', L('战队', 'Squad'), L('邀请返佣与任务箱', 'Referrals & task chests')],
   ];
   const outcomes = [
     ['pass', L('通关', 'Passed'), L('退 100% 本金', '100% principal back'), L('20% 奖金秒提，80% 在 14 天内逐秒解锁。', '20% of rewards available now. The other 80% unlocks over 14 days.')],
@@ -23,22 +24,21 @@ export function renderUserGuide(root, _navigate, _param = null, query = {}, anch
     ['halt', L('异常中止', 'Aborted'), L('可领回 100% 本金', '100% principal refundable'), L('轮次异常 7 天后可无损取回本金。', 'Recover 100% principal if a round aborts for 7 days.')],
   ];
   const attachedFees = [
-    [L('锁仓', 'Lock A9'), '0.30 GRAM'],
-    [L('轮次领奖或退本', 'Round claim or refund'), '0.22 GRAM'],
-    [L('提前解押或 3 折急提', 'Early exit or instant cashout'), '0.34 GRAM'],
+    [L('锁仓', 'Lock A9'), PROTOCOL_SPECS.stakeGasGram],
+    [L('轮次领奖或退本', 'Round claim or refund'), PROTOCOL_SPECS.claimGasGram],
+    [L('提前解押或 3 折急提', 'Early exit or instant cashout'), PROTOCOL_SPECS.dualClaimGasGram],
   ];
   const fixedFees = [
-    [L('商城配送', 'Chest delivery'), '+0.06 GRAM'],
-    [L('推广领币', 'Referral claim'), '0.06 GRAM'],
+    [L('商城配送', 'Chest delivery'), PROTOCOL_SPECS.deliveryFeeGram, '+'],
+    [L('推广领币', 'Referral claim'), PROTOCOL_SPECS.deliveryFeeGram],
   ];
-  const feeRows = rows => rows.map(([label, amount]) =>
-    `<div class="guide-fee-row"><dt>${label}</dt><dd>${amount}</dd></div>`
+  const feeRows = rows => rows.map(([label, amount, prefix = '']) =>
+    `<div class="guide-fee-row"><dt>${label}</dt><dd>${prefix}${amount.toFixed(2)} GRAM</dd></div>`
   ).join('');
 
   root.innerHTML = `<article class="user-guide anim-page-enter">
     <header class="guide-hero">
       <h1>${L('规则与透明', 'Rules & Transparency')}</h1>
-      <p>${L('锁仓 A9，币价涨上去，大家一起分奖池。', 'Lock A9, push price above target, share the pool.')}</p>
       ${config.isDemo || !store.fundsEnabled ? `<small>${config.isDemo
         ? L('演示模式 · 使用模拟数据', 'Demo mode · simulated data')
         : L('实盘只读 · 资金操作暂未开放', 'Live read-only · fund actions unavailable')}</small>` : ''}
@@ -54,11 +54,11 @@ export function renderUserGuide(root, _navigate, _param = null, query = {}, anch
     </nav>
 
     <section class="card guide-panel">
-      <h2>${L('一轮怎么过关？', 'How do I pass a round?')}</h2>
+      <h2>${L('通关条件', 'How to Pass')}</h2>
       <ol class="guide-track">
         <li><strong>24H</strong><span>${L('锁仓', 'Lock')}</span><small>${L('最低 100 A9', 'From 100 A9')}</small></li>
         <li><strong>12H</strong><span>${L('冲价', 'Price push')}</span><small>${L('封盘禁进禁出', 'Positions locked')}</small></li>
-        <li><strong>${L('结算', 'Settle')}</strong><span>${L('查看结果', 'Check results')}</span><small>${L('在我的奖励里', 'In My Rewards')}</small></li>
+        <li><strong>${L('结算', 'Settle')}</strong><span>${L('金库查结果', 'Results in Vault')}</span></li>
       </ol>
       <div class="guide-stamp-board">
         <strong>${L('12 个时段，至少 8 个达标', 'At least 8 of 12 slots must qualify')}</strong>
@@ -72,14 +72,14 @@ export function renderUserGuide(root, _navigate, _param = null, query = {}, anch
     </section>
 
     <section class="card guide-panel">
-      <h2>${L('结算后能领什么？', 'What can I claim?')}</h2>
+      <h2>${L('结算结果', 'Settlement Outcomes')}</h2>
       <div class="guide-outcomes">
         ${outcomes.map(([tone, status, amount, caption]) => `
           <div class="guide-result ${tone}"><span>${status}</span><div><strong>${amount}</strong><small>${caption}</small></div></div>
         `).join('')}
       </div>
       <p>${L('3 折急提只处理尚未解锁的奖金，这部分领 30%，销毁 70%。', 'Instant cashout applies to still-locked rewards. Receive 30% of that portion and burn 70%.')}</p>
-      <a class="btn btn-secondary btn-sm" href="#/rewards">${L('前往我的奖励', 'Open My Rewards')} ›</a>
+      <a class="btn btn-secondary btn-sm" href="#/rewards">${L('前往金库', 'Open Vault')} ›</a>
     </section>
 
     <section class="card guide-panel">
@@ -95,27 +95,23 @@ export function renderUserGuide(root, _navigate, _param = null, query = {}, anch
     <section class="card guide-panel">
       <h2>${L('战队与推广奖励', 'Squad & referral rewards')}</h2>
       <ul class="guide-list">
-        <li>${L('商城直推 6%，好友通关奖金返佣 8%。已入推广余额的奖励在「我的奖励」合并领取。', 'Earn 6% from direct mall referrals and 8% of friends’ passing rewards. Claim credited rewards together in My Rewards.')}</li>
+        <li>${L('商城直推 6%，好友通关奖金返佣 8%。已入推广余额的奖励在「金库」合并领取。', 'Earn 6% from direct mall referrals and 8% of friends’ passing rewards. Claim credited rewards together in Vault.')}</li>
       </ul>
       <a class="btn btn-secondary btn-sm" href="#/team/invite">${L('查看邀请明细', 'View invite details')} ›</a>
     </section>
 
     <details class="card guide-panel" id="rules-section-audit" style="scroll-margin-top:72px;" ${activeAnchor === 'audit' ? 'open' : ''}>
-      <summary style="cursor:pointer;font-weight:800;font-size:14px;list-style:none;">
-        <div class="row-between">
-          <span>${L('查看合约地址与链上透明参数', 'Inspect Contracts & On-Chain Parameters')}</span>
-          <span class="num-xs text-muted">${L('展开 / 收起', 'Toggle')}</span>
-        </div>
+      <summary>
+        <span>${L('合约地址与链上参数', 'Contracts & On-Chain Parameters')}</span>
+        ${icon('chevronDown', 16)}
       </summary>
       <div id="rules-audit-mount" style="margin-top:12px;"></div>
     </details>
 
     <details class="card guide-panel" id="rules-section-matrix" style="scroll-margin-top:72px;" ${activeAnchor === 'matrix' ? 'open' : ''}>
-      <summary style="cursor:pointer;font-weight:800;font-size:14px;list-style:none;">
-        <div class="row-between">
-          <span>${L('22 种链上保护与异常说明', '22 On-Chain Guard States & Error Codes')}</span>
-          <span class="num-xs text-muted">${L('展开 / 收起', 'Toggle')}</span>
-        </div>
+      <summary>
+        <span>${L('22 条保护与异常说明', '22 Safeguards and Errors')}</span>
+        ${icon('chevronDown', 16)}
       </summary>
       <div id="rules-matrix-mount" style="margin-top:12px;"></div>
     </details>

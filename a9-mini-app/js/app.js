@@ -1,3 +1,5 @@
+import { canShowProvisionalPrice, racePriceChart } from './quest/price-chart.js';
+import { finiteOrNull, fmtUsdOrDash } from './quest/quest-ui.js';
 import { paintScene } from './game-scenes.js';
 import { peekDemoModule } from './demo-loader.js';
 /**
@@ -34,6 +36,7 @@ const TABS = [
 let dataReady = false;
 let lastLoadError = null;
 let isSyncing = false;
+let pendingForceSync = false;
 let lastDataKey = '';
 let pendingDeferredRender = false;
 let activeViewTransition = null;
@@ -212,17 +215,18 @@ function renderHeader(route) {
 
   const activeNet = store.state.round?.protocolConfig?.network || config.network || '';
   const modeBadge = config.isDemo
-    ? 'DEMO'
+    ? L('演示', 'DEMO')
     : (activeNet === 'testnet'
         ? (!store.fundsEnabled ? L('测试网 · 只读', 'Testnet · Read-only') : L('测试网', 'TESTNET'))
         : (!store.fundsEnabled ? L('只读', 'READ-ONLY') : ''));
   const round = store.state.round;
-  const stage = deriveRoundUiState({ detail: round, serverNowMs: serverNowMs() });
   const stageLabel = dataReady && round.currentRound != null
-    ? L(`第 ${round.currentRound} 关 · ${stage.badgeLabel}`, `Stage ${round.currentRound} · ${stage.badgeLabel}`)
-    : L('轮次待同步', 'Stage pending');
-  const balanceLabel = config.isDemo && user.connected && user.a9Available != null
-    ? formatNum(user.a9Available, 0) : walletLabel;
+    ? L(`第 ${formatNum(round.currentRound)} 关`, `Stage ${formatNum(round.currentRound)}`)
+    : '';
+  const demoBalance = config.isDemo && user.connected ? finiteOrNull(user.a9Available) : null;
+  const balanceLabel = demoBalance === null ? walletLabel : demoBalance.toLocaleString('en-US', { maximumFractionDigits: 9 });
+  const walletActionLabel = demoBalance === null
+    ? walletLabel : L(`钱包 · ${balanceLabel} A9`, `Wallet · ${balanceLabel} A9`);
   const nextSig = `${isStack ? '1' : '0'}|${stageLabel}|${balanceLabel}|${titleText}|${user.connected ? '1' : '0'}|${walletLabel}|${settings?.language || ''}|${activeNet}|${modeBadge}`;
   if (nextSig === lastHeaderSig && headerEl.innerHTML && !headerEl.hasAttribute?.('data-static-shell')) {
     return;
@@ -234,15 +238,17 @@ function renderHeader(route) {
     <div class="header-left">
       ${isStack ? `<button class="icon-btn" id="hdr-back" type="button" aria-label="${L('返回', 'Back')}">${icon('arrowLeft', 16)}</button>` : ''}
       ${!isStack
-        ? `<a class="quest-brand" href="#/profile" aria-label="${L('我的', 'My profile')}"><span class="quest-brand-mark">A9</span><span class="quest-brand-copy"><b>${L('财富大冒险', 'Wealth Quest')}</b><small>${escapeHtml(stageLabel)}</small></span></a>`
+        ? `<a class="quest-brand" href="#/profile" aria-label="${L('我的', 'My profile')}"><img class="quest-brand-mark" src="./assets/brand/apple-touch-icon.png" width="34" height="34" alt="" /><span class="quest-brand-copy"><b>${L('财富大冒险', 'Wealth Quest')}</b>${stageLabel ? `<small>${escapeHtml(stageLabel)}</small>` : ''}</span></a>`
         : `<div class="header-title"><span class="header-title-text">${titleText}</span></div>`
       }
     </div>
     <div class="header-right">
       ${modeBadge ? `<span class="header-demo-dot">${modeBadge}</span>` : ''}
-      <button class="wallet-pill ${user.connected ? '' : 'disconnected'}" id="btn-wallet-pill" type="button">
-        ${user.connected ? '<img src="./assets/token/a9-token.svg" alt="A9" />' : icon('wallet', 16)}
-        <span>${escapeHtml(balanceLabel)}</span>
+      <button class="wallet-pill${user.connected ? '' : ' disconnected'}${demoBalance === null ? '' : ' wallet-pill-balance'}" id="btn-wallet-pill" type="button" aria-label="${escapeHtml(walletActionLabel)}">
+        ${demoBalance === null ? icon('wallet', 16) : ''}
+        ${demoBalance === null
+          ? `<span>${escapeHtml(balanceLabel)}</span>`
+          : `<span class="wallet-balance-text"><span class="wallet-balance-amount">${escapeHtml(balanceLabel).replaceAll(',', ',<wbr>')}</span> <span class="wallet-balance-unit">A9</span></span>`}
       </button>
       <button class="icon-btn" id="btn-header-more" type="button" aria-label="${L('设置', 'Settings')}">${icon('sliders', 16)}</button>
     </div>
@@ -270,15 +276,14 @@ function openMoreQuickSheet() {
       icon: curTheme === 'dark' ? 'moon' : 'sun',
       tone: 'is-amber',
       label: L('主题', 'Theme'),
-      sub: L('雪白亮色 / 石墨暗夜', 'Crisp Light / Switch Dark'),
       badge: curTheme === 'dark' ? L('石墨暗夜', 'Dark') : L('雪白亮色', 'Light'),
       keepOpen: true,
       onSelect: () => openChoiceSheet({
         title: L('选择界面主题', 'Select Theme'),
         selected: getTheme(),
         options: [
-          { value: 'light', icon: 'sun', tone: 'is-amber', label: L('雪白亮色', 'Crisp Light'), sub: L('任天堂红白日间配色', 'Nintendo light theme') },
-          { value: 'dark', icon: 'moon', tone: 'is-blue', label: L('石墨暗夜', 'Switch Dark'), sub: L('OLED 深石墨夜间配色', 'Switch OLED dark theme') },
+          { value: 'light', icon: 'sun', tone: 'is-amber', label: L('雪白亮色', 'Crisp Light') },
+          { value: 'dark', icon: 'moon', tone: 'is-blue', label: L('石墨暗夜', 'Switch Dark') },
         ],
         onSelect: (mode) => {
           if (mode !== getTheme()) {
@@ -293,7 +298,6 @@ function openMoreQuickSheet() {
       icon: 'globe',
       tone: 'is-blue',
       label: L('语言', 'Language'),
-      sub: L('实时切换中英文', 'Switch Chinese / English'),
       badge: curLangObj.label,
       keepOpen: true,
       onSelect: () => openChoiceSheet({
@@ -311,7 +315,7 @@ function openMoreQuickSheet() {
       icon: 'book',
       tone: 'is-red',
       label: L('规则与透明', 'Rules & Transparency'),
-      sub: L('玩法、费用、合约地址与 22 条异常说明', 'Rules, fees, contracts & error codes'),
+      sub: L('玩法、费用与链上核验', 'Gameplay, fees and on-chain checks'),
       onSelect: () => navigate('/rules'),
     },
   ];
@@ -332,7 +336,6 @@ function openMoreQuickSheet() {
     : [];
   openActionSheet({
     title: L('快捷菜单', 'Quick Menu'),
-    subtitle: L('常用设置与协议入口', 'Preferences & protocol links'),
     items,
     dangerItems,
   });
@@ -340,16 +343,15 @@ function openMoreQuickSheet() {
 
 function renderTicker(show) {
   const r = store.state.round;
-  const hasLivePrice = r.livePrice !== null && r.livePrice !== undefined && Number.isFinite(Number(r.livePrice)) && Number(r.livePrice) > 0;
-  if (!show || r.source !== 'api' || !hasLivePrice) {
+  const livePrice = fmtUsdOrDash(r.livePrice);
+  if (!show || r.source !== 'api' || !canShowProvisionalPrice(r) || livePrice === '—') {
     tickerEl.classList.add('hidden');
     return;
   }
-  const hasTwap = r.twap24h !== null && r.twap24h !== undefined && Number.isFinite(Number(r.twap24h)) && Number(r.twap24h) > 0;
   tickerEl.classList.remove('hidden');
   tickerEl.innerHTML = `
-    <div><b>A9</b> <span class="text-green">$${Number(r.livePrice).toFixed(4)}</span></div>
-    <div><span class="text-muted">TWAP</span> <span class="text-cyan">${hasTwap ? `$${Number(r.twap24h).toFixed(4)}` : '—'}</span></div>
+    <div><b>A9</b> <span class="text-green q-num">${livePrice}</span></div>
+    <div><span class="text-muted">TWAP</span> <span class="text-cyan q-num">${fmtUsdOrDash(r.twap24h)}</span></div>
   `;
 }
 
@@ -753,7 +755,10 @@ function applySnapshotToStore(snapshot, { forceRender = false } = {}) {
 }
 
 async function syncData({ forceRender = false } = {}) {
-  if (isSyncing) return;
+  if (isSyncing) {
+    if (forceRender) pendingForceSync = true;
+    return;
+  }
   isSyncing = true;
   try {
     const snapshot = await loadSnapshot({
@@ -786,6 +791,10 @@ async function syncData({ forceRender = false } = {}) {
     }
   } finally {
     isSyncing = false;
+    if (pendingForceSync) {
+      pendingForceSync = false;
+      void syncData({ forceRender: true });
+    }
   }
 }
 
@@ -1022,9 +1031,13 @@ document.addEventListener('keydown', (e) => {
 });
 
 function syncLivePriceDomInPlace(r) {
-  const validLive = r.priceValid !== false && Number(r.livePrice ?? r.twap24h) > 0 ? Number(r.livePrice ?? r.twap24h) : null;
-  const validTarget = Number(r.targetPrice) > 0 ? Number(r.targetPrice) : null;
-  const liveText = validLive !== null ? `$${validLive.toFixed(4)}` : '—';
+  const race = document.getElementById('q-race-plot');
+  if (race) race.innerHTML = racePriceChart(r, config.isDemo);
+  const live = finiteOrNull(r.livePrice ?? r.twap24h);
+  const target = finiteOrNull(r.targetPrice);
+  const validLive = canShowProvisionalPrice(r) && live !== null && live > 0 ? live : null;
+  const validTarget = target !== null && target > 0 ? target : null;
+  const liveText = fmtUsdOrDash(validLive);
   const deltaPct = (validLive !== null && validTarget !== null) ? (((validLive - validTarget) / validTarget) * 100) : null;
   const isAbove = deltaPct !== null && deltaPct >= 0;
   const deltaText = deltaPct === null
@@ -1162,7 +1175,7 @@ function startDisplayLoop() {
     }
 
     const twapP = document.getElementById('live-twap-val');
-    if (twapP) twapP.textContent = `$${nextPrice.toFixed(4)}`;
+    if (twapP) twapP.textContent = fmtUsdOrDash(nextPrice);
     syncLivePriceDomInPlace(r);
   }, 2600);
 }
@@ -1197,6 +1210,13 @@ if (startParsed?.ref) {
 }
 if (startParsed?.scrollTarget) {
   store.state.referral.pendingScrollTarget = startParsed.scrollTarget;
+}
+if (startParsed && (startParsed.type === 'bet' || startParsed.type === 'round' || startParsed.type === 'burn')) {
+  store.state.referral.pendingDeepLink = {
+    type: startParsed.type,
+    roundId: startParsed.roundId || startParsed.id || '',
+    scrollTarget: startParsed.scrollTarget || null,
+  };
 }
 // 仅对含归因语义（invite / 带 ref / 业务实体分享）的 startapp 提交归因，避免把纯导航词 claim/warmup/market 发给后端触发 400
 if (!config.isDemo && startParsed?.raw && (startParsed.isAttribution || startParsed.ref) && A9TMA.getRawInitData()) {

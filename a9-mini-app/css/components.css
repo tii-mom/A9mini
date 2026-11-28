@@ -1503,7 +1503,7 @@ img {
   transform: translateX(-50%);
   bottom: max(10px, var(--wv-safe-bottom));
   width: min(calc(100% - 24px - var(--wv-safe-left) - var(--wv-safe-right)), 416px);
-  height: 58px;
+  min-height: 58px;
   padding: 4px;
   border-radius: var(--radius-lg, 16px);
   border: 1.5px solid var(--card-border);
@@ -1519,6 +1519,50 @@ img {
 }
 
 .app-tabbar::before { display: none; }
+
+.quest-lock-card,
+.quest-pool,
+.quest-wrap-row > * {
+  min-width: 0;
+}
+
+.quest-wrap-row,
+.quest-amounts {
+  flex-wrap: wrap;
+}
+
+.quest-lock-window,
+.quest-pool {
+  border-radius: var(--radius-md, 12px);
+  padding: 10px 12px;
+  background: var(--paper-tray);
+}
+
+.quest-lock-window > * + *,
+.quest-pool > * + * {
+  margin-top: 4px;
+}
+
+.quest-pool-amount {
+  display: block;
+  font-size: clamp(19px, 5.6vw, 26px);
+  line-height: 1.25;
+}
+
+.quest-pool-amount,
+.quest-wrap-row .mono,
+.payback-outcome-main {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 360px) {
+  .payback-outcome-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .payback-calc-card .check-row {
+    flex-wrap: wrap;
+  }
+}
 
 /* 底栏下方视口级渐隐收口遮罩（避开 .app-tabbar 的 transform 包含块陷阱） */
 .tma-shell:not(:has(.app-main.no-tabbar))::after {
@@ -1544,6 +1588,9 @@ img {
   align-items: center;
   justify-content: center;
   gap: 2px;
+  min-width: 0;
+  min-height: 46px;
+  text-decoration: none;
   border: 0;
   border-radius: var(--radius-md, 12px);
   background: transparent;
@@ -2770,7 +2817,6 @@ img {
   background: #c90011;
 }
 .guide-hero h1 { font-size: clamp(1.55rem, 7vw, 2rem); font-weight: 900; }
-.user-guide .guide-hero p { color: #fff; }
 .guide-hero small { color: #fff; font-size: .72rem; }
 
 .guide-destinations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
@@ -2887,6 +2933,26 @@ img {
 
 .guide-panel { display: grid; gap: 10px; padding: 15px; }
 .guide-panel .btn { justify-self: start; max-width: 100%; white-space: normal; }
+.guide-panel > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 28px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  list-style: none;
+}
+.guide-panel > summary::-webkit-details-marker { display: none; }
+.guide-panel > summary svg { flex: none; color: var(--ink-soft); }
+.guide-panel[open] > summary svg { transform: rotate(180deg); }
+#v16-invariants-board .check-row > :last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .guide-track {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3202,7 +3268,7 @@ img {
   border: 1px solid var(--card-border);
 }
 .plaza-status-cell {
-  flex: 1 1 124px;
+  flex: 1 1 110px;
   min-width: max-content;
   max-width: 100%;
   display: flex;
@@ -3235,6 +3301,7 @@ img {
   white-space: nowrap;
 }
 .plaza-round-card {
+  border-top: 4px solid var(--red, #E60012);
   display: flex;
   flex-direction: column;
   gap: 9px;
@@ -3411,4 +3478,81 @@ img {
 :root[data-reduced-motion="true"] .quick-btn:active,
 :root[data-reduced-motion="true"] .hero-amt-pill:active {
   transform: none !important;
+}
+
+
+/* Plaza round overview keeps timing legible at narrow mobile widths. */
+.plaza-round-heading {
+  flex-wrap: wrap;
+}
+.plaza-countdown {
+  font-size: clamp(16px, 5vw, 22px);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+.plaza-round-heading > .row-start > strong {
+  padding: 4px 8px;
+  border-radius: var(--radius-md, 12px);
+  background: var(--red, #E60012);
+  color: #fff;
+}
+.header-brand {
+  min-width: 0;
+}
+.header-demo-dot {
+  height: auto;
+  min-height: 18px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  white-space: normal;
+  overflow-wrap: normal;
+  max-width: 104px;
+  line-height: 1.25;
+}
+
+/* Price columns move together when translated labels need more space. */
+.sw-price-arena-top {
+  flex-wrap: wrap;
+}
+.sw-price-live-block {
+  flex: 1 1 154px;
+}
+.sw-price-live-block .row-start {
+  flex-wrap: nowrap;
+}
+.sw-price-live-block .num-xs {
+  white-space: nowrap;
+}
+.sw-price-target-block {
+  flex: 1 1 130px;
+  min-width: 0;
+}
+.sw-price-target-val {
+  white-space: nowrap;
+}
+.sw-price-cd {
+  max-width: 100%;
+}
+.sw-price-arena-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+}
+@media (max-width: 380px) {
+  .sw-price-live-block {
+    gap: 5px;
+  }
+  .sw-price-token {
+    width: 28px;
+    height: 28px;
+    padding: 2px;
+  }
+  .sw-price-token img {
+    width: 22px;
+    height: 22px;
+  }
+  .sw-price-target-block {
+    align-items: flex-end;
+    text-align: right;
+  }
 }

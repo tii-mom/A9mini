@@ -506,7 +506,7 @@ export function syncRadarInPlace(round, { batch = false } = {}) {
   const prevPassed = heroNum && heroNum.dataset.val !== '' && heroNum.dataset.val !== '—' ? Number(heroNum.dataset.val) : passed;
   if (heroNum && String(heroNum.dataset.val ?? '') !== passedDisplay) {
     heroNum.dataset.val = passedDisplay;
-    heroNum.innerHTML = `<span class="ratio-cur">${passedDisplay}</span><span class="ratio-sep">/</span><span class="ratio-req">${required}</span>`;
+    heroNum.innerHTML = `<span class="ratio-cur">${passedDisplay}</span><span class="ratio-sep">/</span><span class="ratio-req">${round.candles?.length || 12}</span>`;
   }
 
   const fillEl = document.getElementById('obs-progress-fill');

@@ -106,6 +106,7 @@ test('P3: 4 项领取确认层缺任意一项即显示「待确认」并禁用�
   `);
 
   assert.equal(res.complete.canContinue, true);
+  assert.equal(res.complete.rows.find(r => r.key === 'actualNetworkFee').label, '网络费说明');
   assert.deepEqual(res.complete.missingKeys, []);
 
   assert.equal(res.missingAmount.canContinue, false);

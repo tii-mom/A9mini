@@ -9,6 +9,7 @@ import { peekDemoModule } from '../demo-loader.js';
 import { store } from '../store.js';
 import { config } from '../config.js';
 import {
+  PROTOCOL_SPECS,
   joinTeam,
   bindTeamGroupTg,
   verifyTeamGroupTg,
@@ -16,6 +17,7 @@ import {
   fetchUserPortfolio,
   fetchPromoBalance,
   fetchMyStakeReferrals,
+  formatRoundA9,
   rawToA9,
 } from '../data.js';
 import { tonConnect, canonicalWalletKey } from '../tonconnect.js';
@@ -24,47 +26,59 @@ import { escapeHtml, formatNum, showToast, copyText, openChoiceSheet, openAction
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
 import { renderReferralPoster, renderProofFlexPoster, renderStoryPoster, renderScenarioPoster, downloadPosterPng } from '../poster.js';
-import { triggerStoryShare, buildTmaDeepLink, getShareRef, openXShareSheet } from '../share.js';
+import {
+  triggerStoryShare,
+  buildTmaDeepLink,
+  buildTeamInviteStartParam,
+  buildBotAddGroupUrl,
+  getBotHandle,
+  isBotHandleConfigured,
+  getShareRef,
+  normalizeTeamId,
+  isValidTeamId,
+  openXShareSheet,
+} from '../share.js';
 import { buildBattleRallyCopy } from './round_stages.js';
+import { fmtUsdOrDash } from '../quest/quest-ui.js';
 
 function fmtA9OrDash(val, { loading = false } = {}) {
   if (val === null || val === undefined || !Number.isFinite(Number(val))) {
     return loading ? '…' : '—';
   }
-  const n = Number(val);
-  return `${formatNum(n, n % 1 === 0 ? 0 : 2)} A9`;
+  return `${Number(val).toLocaleString('en-US', { maximumFractionDigits: 9 })} A9`;
 }
 
 function renderTeamStakeReferralCardHtml({ loading = false, error = null, data = null, inInvitePage = false } = {}) {
-  const totalA9 = data && data.totalCommissionRaw != null ? rawToA9(data.totalCommissionRaw) : null;
-  const creditedA9 = data && data.creditedRaw != null ? rawToA9(data.creditedRaw) : null;
-  const pendingA9 = data && data.pendingRaw != null ? rawToA9(data.pendingRaw) : null;
   const items = Array.isArray(data?.items) ? data.items : [];
   const unbound = data && data.bound === false;
 
   let body = '';
   if (loading) {
-    body = `<div class="num-xs text-muted">${L('正在读取好友通关 8% 返佣明细…', 'Loading 8% pass referral credits…')}</div>`;
+    body = `<div class="num-xs text-muted">${L('返佣同步中…', 'Syncing rebates…')}</div>`;
   } else if (error) {
     body = `<div class="row-between" style="gap:8px;"><span class="num-xs text-red">${escapeHtml(error)}</span><button class="sw-retry-link" id="btn-retry-team-ref" type="button">${L('重试', 'Retry')}</button></div>`;
   } else if (!data || unbound) {
-    body = `<div class="num-xs text-muted">${L('在 Telegram 内打开并绑定钱包后，好友通关的 8% 返佣将自动计入推广奖励。', 'Open in Telegram and bind wallet to track 8% pass referral credits.')}</div>`;
+    body = `<div class="num-xs text-muted">${L('在 Telegram 内绑定钱包后查看返佣。', 'Link a wallet in Telegram to view rebates.')}</div>`;
   } else {
     body = `
       <div class="check-list" style="margin:6px 0 8px;">
         <div class="check-row">
           <span class="text-sec">${L('累计返佣', 'Total Credits')}</span>
-          <b class="mono text-green" style="white-space:nowrap;">${fmtA9OrDash(totalA9)}</b>
+          <b class="mono text-green">${formatRoundA9(data.totalCommissionRaw)}</b>
         </div>
         <div class="check-row">
-          <span class="text-sec">${L('已入账 / 待入账', 'Credited / Pending')}</span>
-          <span class="mono" style="white-space:nowrap;">${fmtA9OrDash(creditedA9)} · ${fmtA9OrDash(pendingA9)}</span>
+          <span class="text-sec">${L('已入账', 'Credited')}</span>
+          <b class="mono">${formatRoundA9(data.creditedRaw)}</b>
+        </div>
+        <div class="check-row">
+          <span class="text-sec">${L('待入账', 'Pending')}</span>
+          <b class="mono">${formatRoundA9(data.pendingRaw)}</b>
         </div>
       </div>
       ${items.length === 0
-        ? `<div class="num-xs text-muted">${L('暂无好友通关返佣记录，好友通关后按奖金 8% 独立计入。', 'No 8% pass referral credits yet. Earned separately when invited friends pass a round.')}</div>`
+        ? `<div class="num-xs text-muted">${L('暂无记录', 'No rebates yet')}</div>`
         : `<div class="check-list">${items.slice(0, 5).map((it) => {
-            const commA9 = it.commissionRaw != null ? rawToA9(it.commissionRaw) : null;
+            const commissionText = formatRoundA9(it.commissionRaw);
             const isCred = String(it.status || '').toUpperCase() === 'CREDITED';
             return `
               <div class="check-row">
@@ -72,16 +86,15 @@ function renderTeamStakeReferralCardHtml({ loading = false, error = null, data =
                   <div class="num-xs" style="font-weight:700;">${L(`第 ${escapeHtml(String(it.roundId ?? '—'))} 轮`, `Round #${escapeHtml(String(it.roundId ?? '—'))}`)} · <span class="mono">${escapeHtml(it.refereeWallet || '—')}</span></div>
                   <div class="num-xs text-muted">${isCred ? L('已到账', 'Credited') : L('待入账', 'Pending')}</div>
                 </div>
-                <b class="mono text-green" style="white-space:nowrap;">${commA9 !== null ? `+${fmtA9OrDash(commA9)}` : '—'}</b>
+                <b class="mono text-green">${commissionText === '—' ? '—' : `+${commissionText}`}</b>
               </div>
             `;
           }).join('')}</div>`}
     `;
   }
 
-  // 在 #/team/invite 页内绝不渲染指向 #/team/invite 的自循环链接，改为指向 #/rewards
   const actionLinkHtml = inInvitePage
-    ? `<a class="text-link-btn" href="#/rewards">${L('去我的奖励', 'My Rewards')} ›</a>`
+    ? ''
     : `<a class="text-link-btn" href="#/team/invite">${L('明细', 'Details')} ›</a>`;
 
   return `
@@ -431,13 +444,24 @@ function renderUnjoinedHomeHtml({
 let teamRenderSeq = 0;
 let activeRallyTpl = 'push';
 
+function formatBindTeamError(err, fallback) {
+  const msg = String(err?.message || err || '');
+  if (/NOT_CAPTAIN|403/i.test(msg)) {
+    return L('仅队长本人可操作，或该战队编号已被其他队长占用（如需建队请换一个新编号）', 'Captain only, or this Squad ID is already taken (pick a new ID to create a squad)');
+  }
+  if (/TEAM_SWITCH_COOLDOWN/i.test(msg)) {
+    return L('换队冷却期内（7 天内不可切换或新建战队）', 'Squad switch cooldown active (7 days)');
+  }
+  if (/GROUP_ALREADY_BOUND/i.test(msg)) {
+    return L('该电报群已绑定其他战队', 'This Telegram group is already bound to another squad');
+  }
+  return msg || fallback;
+}
+
 function getTeamInviteLink(teamId) {
   const shareRef = getShareRef();
-  const squadId = typeof teamId === 'string' && /^(?:G|T|TM|TEAM)-[A-Za-z0-9-]+$/i.test(teamId) ? teamId : '';
-  const startParam = squadId ? `invite_${squadId}_${shareRef}` : `invite_${shareRef}`;
-  return config.isDemo
-    ? `${window.location.origin}${window.location.pathname}?mode=${config.mode}&startapp=${encodeURIComponent(startParam)}`
-    : buildTmaDeepLink(startParam);
+  const startParam = buildTeamInviteStartParam(teamId, shareRef);
+  return startParam ? buildTmaDeepLink(startParam) : '';
 }
 
 /** 合并「海报 + 战报」的战队邀请分享面板（取代页面内嵌大喊单卡） */
@@ -995,9 +1019,20 @@ export function renderTeamProfile(root, navigate, id) {
 
 export function renderBindTgGroup(root) {
   const { team } = store.state;
+  const botHandle = getBotHandle();
+  const botConfigured = isBotHandleConfigured();
+  const addGroupUrl = buildBotAddGroupUrl();
   if (!config.isDemo) {
     let liveStatus = 'unbound';
-    let lastMsg = L('填写战队编号与 Telegram 群 @用户名 后先进入核验中，再由服务端核验 Bot 入群状态、群管理员权限与群唯一性。', 'Submit Squad ID and Telegram @group handle to enter verifying state, then run server verification for bot presence, admin role, and group uniqueness.');
+    let lastMsg = botConfigured
+      ? L(
+          `尚未建队时，填写一个全新的战队编号（如 TM-MYTEAM，支持 TM-/TEAM-/G-/T- 开头）和群 @用户名即可自动创建战队并进入核验中；请将 @${botHandle} 拉入群并设为管理员后发起服务端核验。`,
+          `To create a new squad, enter a new Squad ID (e.g. TM-MYTEAM; TM-/TEAM-/G-/T- prefix) and your TG @group handle. Add @${botHandle} as group admin, then run server verification.`
+        )
+      : L(
+          '当前测试网未配置官方 Bot 句柄，暂不可完成建队绑群与服务端核验。',
+          'Testnet Bot handle is not configured; squad creation and TG group verification are currently unavailable.'
+        );
     const statusChip = {
       unbound: ['chip-muted', L('未绑定', 'Unbound')],
       verifying: ['chip-gold', L('核验中', 'Verifying')],
@@ -1011,7 +1046,7 @@ export function renderBindTgGroup(root) {
         <div class="col-gap anim-page-enter">
           <section class="card card-hero col-gap">
             <div class="row-between">
-              <span class="card-title">${icon('send', 15, 'text-gold')} ${L('战队 Telegram 群核验', 'Squad TG Group Verification')}</span>
+              <span class="card-title">${icon('send', 15, 'text-gold')} ${L('创建战队 / Telegram 群核验', 'Create Squad & TG Group Verify')}</span>
               <span class="chip ${cls}" id="live-tg-bind-status">${txt}</span>
             </div>
             <div class="sw-status-steps" aria-label="${L('队长奖励三步状态', 'Captain 3-step status')}">
@@ -1029,36 +1064,42 @@ export function renderBindTgGroup(root) {
               </div>
             </div>
             <div class="num-xs text-sec" id="live-tg-bind-msg" style="line-height:1.5;">${escapeHtml(lastMsg)}</div>
+            ${botConfigured ? `
+              <div class="grid-2" style="margin-top:2px;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-live-copy-bot">${icon('copy', 13)} ${L(`复制 @${botHandle}`, `Copy @${botHandle}`)}</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-live-add-bot">${icon('send', 13)} ${L('拉 Bot 进群', 'Add Bot to Group')}</button>
+              </div>
+            ` : ''}
             <form id="live-tg-bind-form" class="col-gap">
-              <label class="num-xs text-sec">${L('战队编号 (Squad ID)', 'Squad ID')}
-                <input name="teamId" class="input-box" style="width:100%;margin-top:4px;padding:8px 10px;" placeholder="TM-0001" required maxlength="64" value="${escapeHtml(team.id || '')}">
+              <label class="num-xs text-sec">${L('战队编号（填新编号即自动建队，格式：TM-XXXX）', 'Squad ID (enter a new ID to create, e.g. TM-XXXX)')}
+                <input name="teamId" class="input-box" style="width:100%;margin-top:4px;padding:8px 10px;" placeholder="TM-0001" required maxlength="48" value="${escapeHtml(team.id || '')}" ${botConfigured ? '' : 'disabled'}>
               </label>
               <label class="num-xs text-sec">${L('Telegram 群组 @用户名', 'Telegram Group @handle')}
-                <input name="tgGroupHandle" class="input-box" style="width:100%;margin-top:4px;padding:8px 10px;" placeholder="@your_guild_group" required maxlength="64" value="${escapeHtml(team.tgGroupHandle || '')}">
+                <input name="tgGroupHandle" class="input-box" style="width:100%;margin-top:4px;padding:8px 10px;" placeholder="@your_guild_group" required maxlength="64" value="${escapeHtml(team.tgGroupHandle || '')}" ${botConfigured ? '' : 'disabled'}>
               </label>
               <div class="grid-2" style="margin-top:4px;">
-                <button type="submit" class="btn btn-secondary" id="btn-live-submit-tg">${L('1. 提交进入核验中', '1. Submit Handle')}</button>
-                <button type="button" class="btn btn-primary" id="btn-live-verify-tg">${L('2. 发起服务端核验', '2. Verify Now')}</button>
+                <button type="submit" class="btn btn-secondary" id="btn-live-submit-tg" ${botConfigured ? '' : 'disabled'}>${L('1. 提交进入核验中', '1. Submit Handle')}</button>
+                <button type="button" class="btn btn-primary" id="btn-live-verify-tg" ${botConfigured ? '' : 'disabled'}>${L('2. 发起服务端核验', '2. Verify Now')}</button>
               </div>
             </form>
           </section>
           <div class="sw-menu-group">
             <div class="sw-menu-row is-static">
               <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('1. 仅队长本人可提交与核验', '1. Captain-Only Verification')}</span>
-                <span class="sw-menu-sub">${L('需已验签绑定队长钱包，普通成员将被拒绝（403）', 'Verified captain wallet required; members receive 403')}</span>
+                <span class="sw-menu-title">${L('1. 填写新编号建队 · 已有编号仅队长可改', '1. New ID Creates Squad · Existing ID is Captain-Only')}</span>
+                <span class="sw-menu-sub">${L('需已验签绑定钱包；已被占用的编号会拒绝非队长提交（403）', 'Verified wallet required; taken IDs reject non-captains (403)')}</span>
               </div>
             </div>
             <div class="sw-menu-row is-static">
               <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('2. 官方 Bot 入群且队长为管理员', '2. Official Bot + Captain Admin')}</span>
+                <span class="sw-menu-title">${L(`2. ${botConfigured ? `@${botHandle}` : '官方 Bot'} 入群且队长为管理员`, `2. ${botConfigured ? `@${botHandle}` : 'Official Bot'} + Captain Admin`)}</span>
                 <span class="sw-menu-sub">${L('群 ≥50 人且战队 ≥3 成员核验通过后发放 5,000 A9（限 1 次）', '50+ TG members & ≥3 squad members earn 5,000 A9 once')}</span>
               </div>
             </div>
             <div class="sw-menu-row is-static">
               <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('3. 群唯一性防伪校验', '3. Unique Group Binding')}</span>
-                <span class="sw-menu-sub">${L('同一真实群 ID 仅可绑定 1 个战队；仅提交 @群名停留在核验中', 'One tgChatId per squad; submitting handle only sets verifying')}</span>
+                <span class="sw-menu-title">${L('3. 群唯一性与 7 天换队冷却', '3. Unique Group & 7-Day Switch Cooldown')}</span>
+                <span class="sw-menu-sub">${L('同一真实群 ID 仅可绑定 1 个战队；换队冷却期内不可切换或新建战队', 'One tgChatId per squad; switching/creating blocked during 7-day cooldown')}</span>
               </div>
             </div>
             <a class="sw-menu-row" href="#/team">
@@ -1068,29 +1109,41 @@ export function renderBindTgGroup(root) {
           </div>
         </div>
       `;
+      const copyBotBtn = root.querySelector('#btn-live-copy-bot');
+      if (copyBotBtn && botHandle) copyBotBtn.onclick = () => copyText(`@${botHandle}`, L(`已复制 @${botHandle}`, `Copied @${botHandle}`));
+      const addBotBtn = root.querySelector('#btn-live-add-bot');
+      if (addBotBtn && addGroupUrl) addBotBtn.onclick = () => A9TMA.openExternalLink(addGroupUrl);
       const form = root.querySelector('#live-tg-bind-form');
       form.onsubmit = async (ev) => {
         ev.preventDefault();
-        const tid = form.elements.teamId.value.trim();
+        if (!botConfigured) return;
+        const tid = normalizeTeamId(form.elements.teamId.value);
         const handle = form.elements.tgGroupHandle.value.trim();
-        if (!tid || !handle) return;
+        if (!isValidTeamId(tid)) {
+          lastMsg = L('战队编号格式无效，请使用 TM- / TEAM- / G- / T- 开头（如 TM-0001）', 'Invalid Squad ID format; use TM- / TEAM- / G- / T- prefix (e.g. TM-0001)');
+          showToast(lastMsg, 'amber');
+          paintLive();
+          return;
+        }
+        if (!handle) return;
         const submitBtn = root.querySelector('#btn-live-submit-tg');
         submitBtn.disabled = true;
         try {
           const res = await bindTeamGroupTg({ teamId: tid, tgGroupHandle: handle });
           liveStatus = res?.bindStatus || 'verifying';
-          lastMsg = L('已提交群组信息，当前状态为「核验中」。请确保官方 Bot 已入群后点击右侧「发起服务端核验」。', 'Submitted. Status is verifying. Add the official bot to the group and click Verify Now.');
+          lastMsg = L(`已提交群组信息，当前状态为「核验中」。请确保 @${botHandle} 已入群并设为管理员后点击右侧「发起服务端核验」。`, `Submitted. Status is verifying. Add @${botHandle} as admin and click Verify Now.`);
           showToast(L('已进入核验中（verifying）', 'Status: verifying'));
         } catch (e) {
-          lastMsg = e?.message || L('提交失败，请确认已在 Telegram 内打开并已验证绑定队长钱包', 'Submission failed. Verify Telegram session & captain wallet.');
+          lastMsg = formatBindTeamError(e, L('提交失败，请确认已在 Telegram 内打开并已验证绑定队长钱包', 'Submission failed. Verify Telegram session & captain wallet.'));
           showToast(lastMsg, 'error');
         }
         paintLive();
       };
       root.querySelector('#btn-live-verify-tg').onclick = async () => {
-        const tid = form.elements.teamId.value.trim();
-        if (!tid) {
-          showToast(L('请先填写战队编号', 'Enter Squad ID first'), 'amber');
+        if (!botConfigured) return;
+        const tid = normalizeTeamId(form.elements.teamId.value);
+        if (!isValidTeamId(tid)) {
+          showToast(L('请先填写有效的战队编号（如 TM-0001）', 'Enter a valid Squad ID first (e.g. TM-0001)'), 'amber');
           return;
         }
         const verifyBtn = root.querySelector('#btn-live-verify-tg');
@@ -1102,7 +1155,7 @@ export function renderBindTgGroup(root) {
           showToast(L('Telegram 群绑定核验通过', 'Group verification passed'));
         } catch (e) {
           if (liveStatus === 'bound') liveStatus = 'expired';
-          lastMsg = e?.message || L('服务端核验未通过，请检查机器人入群与管理员权限', 'Verification failed. Check bot presence and admin permissions.');
+          lastMsg = formatBindTeamError(e, L('服务端核验未通过，请检查机器人入群与管理员权限', 'Verification failed. Check bot presence and admin permissions.'));
           showToast(lastMsg, 'error');
         }
         paintLive();
@@ -1112,9 +1165,10 @@ export function renderBindTgGroup(root) {
     return;
   }
   let bindState = team.tgGroupBound ? 'bound' : 'unbound';
+  const botLabel = botHandle ? `@${botHandle}` : L('官方 Bot', 'official Bot');
   const stateMeta = {
     bound:     { chip: 'chip-green', label: L('已绑定', 'Bound'),    desc: L('Bot 权限正常，整点收盘自动播报。', 'Bot active. Hourly pushes enabled.'), btn: L('重新校验', 'Re-verify') },
-    unbound:   { chip: 'chip-muted', label: L('未绑定', 'Unbound'),  desc: L('将 @A9_TonBot 设为群管理员即可绑定。', 'Add @A9_TonBot as admin to bind.'), btn: L('一键绑定 TG 群', 'Bind TG Group') },
+    unbound:   { chip: 'chip-muted', label: L('未绑定', 'Unbound'),  desc: L(`将 ${botLabel} 设为群管理员即可绑定。`, `Add ${botLabel} as admin to bind.`), btn: L('一键绑定 TG 群', 'Bind TG Group') },
     verifying: { chip: 'chip-gold',  label: L('验证中', 'Checking'), desc: L('正在校验管理员权限...', 'Verifying admin permissions...'), btn: L('刷新状态', 'Refresh') },
     expired:   { chip: 'chip-red',   label: L('已失效', 'Expired'),  desc: L('Bot 管理员权限已失效，请重新授权。', 'Admin rights revoked. Re-authorize.'), btn: L('恢复授权', 'Restore Access') }
   };
@@ -1180,40 +1234,32 @@ export function renderInviteShare(root) {
   let template = 'push';
   let livePromo = null;
   let livePromoErr = null;
+  let promoLoading = !config.isDemo && Boolean(user.address);
 
   const buildScenarioPitch = (tpl) => {
     const r = store.state.round || {};
-    const roundLabel = r.currentRound ? L(`第 ${r.currentRound} 轮`, `Round #${r.currentRound}`) : L('本轮', 'Current Round');
-    const targetStr = (r.targetPrice !== null && r.targetPrice !== undefined && Number.isFinite(Number(r.targetPrice)) && Number(r.targetPrice) > 0)
-      ? `$${Number(r.targetPrice).toFixed(4)}`
-      : null;
-    const rawCur = r.priceValid !== false ? (r.livePrice ?? r.twap24h) : null;
-    const curNum = (rawCur !== null && rawCur !== undefined && Number.isFinite(Number(rawCur)) && Number(rawCur) > 0) ? Number(rawCur) : null;
-    const gapPct = (targetStr && curNum) ? (((Number(r.targetPrice) - curNum) / curNum) * 100) : null;
-    const gapLineZh = targetStr && gapPct !== null
-      ? (gapPct <= 0 ? `已站上目标价 ${targetStr}（+${Math.abs(gapPct).toFixed(1)}%）` : `目标价 ${targetStr}，距解锁还差 +${gapPct.toFixed(1)}%`)
-      : (targetStr ? `目标价 ${targetStr}` : '链上实时目标价核验中');
-    const gapLineEn = targetStr && gapPct !== null
-      ? (gapPct <= 0 ? `above ${targetStr} target (+${Math.abs(gapPct).toFixed(1)}%)` : `target ${targetStr} (+${gapPct.toFixed(1)}% away)`)
-      : (targetStr ? `target ${targetStr}` : 'on-chain target syncing');
-    const poolStr = (r.rewardBudgetA9 !== null && r.rewardBudgetA9 !== undefined && Number.isFinite(Number(r.rewardBudgetA9)))
-      ? `${formatNum(r.rewardBudgetA9)} A9`
-      : L('700,000,000 A9', '700,000,000 A9');
+    const roundLabel = r.currentRound ? L(`第 ${formatNum(r.currentRound)} 轮`, `Round ${formatNum(r.currentRound)}`) : L('涨价解锁', 'Price-Unlock');
+    const targetText = fmtUsdOrDash(r.targetPrice);
+    const targetLine = targetText === '—' ? '' : L(` 目标价 ${targetText}。`, ` Target ${targetText}.`);
+    const amountText = formatRoundA9(r.rewardBudgetRaw);
+    const poolLine = amountText === '—' ? '' : L(` 本轮奖池 ${amountText}。`, ` Round reward pool ${amountText}.`);
+    const linkLine = inviteLink ? `\n${inviteLink}` : '';
+    const { minStakeA9, passRequired, passTotal, referralPct, immediateUnlockPct, linearVestingDays } = PROTOCOL_SPECS;
     if (tpl === 'chest') {
       return L(
-        `A9 宝箱商城升级「纯随机合并直发钱包」：0.99 GRAM 起保底 1,500 A9、最高开出 2,500 A9（传说箱最高 1,300,000 A9），只收一次 0.06 GRAM Gas，买完直接进头矿 6H（未通关仅 5% 止损）。直推好友购箱实时返佣 6%：${inviteLink}`,
-        `A9 Chest Mall now pays base + random bonus straight to your wallet in one tx (0.06 GRAM gas once): from 0.99 GRAM (1,500–2,500 A9) up to 1,300,000 A9, plus 6% direct referral: ${inviteLink}`
+        `A9 宝箱商城 · 保底与随机加赠合并直发钱包。好友购箱返佣 ${referralPct}%。${linkLine}`,
+        `A9 Chest Mall · Base and random bonus arrive together in your wallet. Earn ${referralPct}% on referred purchases.${linkLine}`
       );
     }
     if (tpl === 'win') {
       return L(
-        `A9 ${roundLabel} 涨价解锁机制：70% 奖池 + 12% 团队全锁价格，100 A9 起锁仓永不爆仓（头矿 6H 仅 5% 止损退 95%），12H 冲价达标 ≥ 8/12 段通关分 ${poolStr}，最高 5 倍币、20% 秒提 + 14 天逐秒解锁：${inviteLink}`,
-        `A9 ${roundLabel} Price-Unlock: 70% pool + 12% team locked on price, lock from 100 A9 with no liquidation (First 6H 5% Stop-Loss / 95% refund), pass 8/12 slots to split ${poolStr} up to 5x: ${inviteLink}`
+        `A9 ${roundLabel} · 通关后 ${immediateUnlockPct}% 奖金秒提，其余 ${linearVestingDays} 天逐秒解锁。${poolLine}${linkLine}`,
+        `A9 ${roundLabel} · A pass unlocks ${immediateUnlockPct}% of rewards immediately. The rest unlocks over ${linearVestingDays} days.${poolLine}${linkLine}`
       );
     }
     return L(
-      `【A9 ${roundLabel} 冲价喊单】${gapLineZh}！70% 奖池（${poolStr}）+ 12% 团队全锁价格，齐心冲上目标价稳住 8/12 小时全员分奖，没过自动退 95%/90% 永不爆仓。0.99 GRAM 开箱或 100 A9 锁仓一起冲：${inviteLink}`,
-      `[A9 ${roundLabel} Price-Push] ${gapLineEn}! 70% pool (${poolStr}) + 12% team locked on price—hold 8/12 hourly slots to split rewards, 95%/90% refund if missed. Join from 0.99 GRAM chest or 100 A9 lock: ${inviteLink}`
+      `A9 ${roundLabel} · ${minStakeA9} A9 起锁仓，${passRequired}/${passTotal} 段达标通关。${targetLine}${poolLine}${linkLine}`,
+      `A9 ${roundLabel} · Lock from ${minStakeA9} A9. Pass with ${passRequired}/${passTotal} qualifying hourly slots.${targetLine}${poolLine}${linkLine}`
     );
   };
 
@@ -1230,56 +1276,50 @@ export function renderInviteShare(root) {
     if (config.isDemo) return;
     const wallet = store.state.user.address;
     if (!wallet) return;
+    promoLoading = true;
     try {
       livePromo = await fetchPromoBalance(wallet);
       livePromoErr = null;
     } catch (e) {
       livePromoErr = e?.message || L('暂无法读取推广余额', 'Promo balance unavailable');
     }
+    promoLoading = false;
     if (root.isConnected) paint();
   };
 
   const paint = () => {
-    const claimableA9 = livePromo && livePromo.claimableRaw != null ? rawToA9(livePromo.claimableRaw) : null;
-    const totalClaimedA9 = livePromo && livePromo.totalClaimedRaw != null ? rawToA9(livePromo.totalClaimedRaw) : null;
-
-    const displayClaimable = config.isDemo ? Number(store.state.user.promoClaimableA9 ?? 0) : claimableA9;
-    const displayClaimed = config.isDemo ? Number(store.state.user.promoClaimedA9 ?? 0) : totalClaimedA9;
+    const displayClaimable = config.isDemo ? fmtA9OrDash(store.state.user.promoClaimableA9) : formatRoundA9(livePromo?.claimableRaw);
+    const displayClaimed = config.isDemo ? fmtA9OrDash(store.state.user.promoClaimedA9) : formatRoundA9(livePromo?.totalClaimedRaw);
 
     root.innerHTML = `
-      <div class="col-gap anim-page-enter">
+      <div class="col-gap anim-page-enter" id="team-invite-page">
         <section class="card card-hero col-gap">
-          <div class="row-between">
-            <span class="num-xs text-muted">${L('推广可领余额', 'Claimable Referral Balance')}</span>
-            <span class="num-xs text-muted">${L('累计已领', 'Total Claimed')} <b class="mono">${fmtA9OrDash(displayClaimed)}</b></span>
-          </div>
-          <div class="sw-asset-main">${displayClaimable === null || displayClaimable === undefined ? (store.state.user.address && !livePromoErr ? '…' : '—') : `${formatNum(displayClaimable, displayClaimable % 1 === 0 ? 0 : 2)} <span class="sw-asset-main-unit">A9</span>`}</div>
+          <span class="num-xs text-muted">${L('推广可领余额', 'Claimable referral balance')}</span>
+          <div class="sw-asset-main">${displayClaimable === '—' ? (promoLoading ? '…' : '—') : `${displayClaimable.slice(0, -3)} <span class="sw-asset-main-unit">A9</span>`}</div>
+          <div class="num-xs text-muted team-invite-paid">${L('累计已领', 'Total claimed')} <b class="mono">${displayClaimed}</b></div>
           ${!config.isDemo && livePromoErr ? `<div class="sw-menu-error" role="alert"><span>${escapeHtml(livePromoErr)}</span><button type="button" class="sw-retry-link" id="btn-promo-retry">${L('重试', 'Retry')}</button></div>` : ''}
           <a class="sw-menu-row" href="#/rewards" style="padding:10px 0 0;border-top:1px solid var(--card-border);">
             <div class="sw-menu-left">
-              <span class="sw-menu-title">${L('前往「我的奖励」统一领取', 'Claim in My Rewards')}</span>
-              <span class="sw-menu-sub">${L('6% 商城直推与 8% 通关返佣均在我的奖励页领取', '6% Chest Mall & 8% Quest referrals are claimed in My Rewards')}</span>
+              <span class="sw-menu-title">${L('去金库领取', 'Claim in Vault')}</span>
             </div>
             <div class="sw-menu-right"><span class="sw-menu-arrow" aria-hidden="true">›</span></div>
           </a>
         </section>
 
         <div>
-          <div class="sw-section-label">${L('两项独立返佣来源', 'Two Independent Referral Sources')}</div>
+          <div class="sw-section-label">${L('返佣来源', 'Rebate sources')}</div>
           <div class="sw-menu-group">
             <div class="sw-menu-row is-static">
               <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('商城直推 6%', '6% Chest Mall Direct')}</span>
-                <span class="sw-menu-sub">${L('好友在宝箱商城购箱后实时按 6% 计入推广余额', 'Credited at 6% when invited friends buy chests in Chest Mall')}</span>
+                <span class="sw-menu-title">${L('好友购箱', 'Chest purchases')}</span>
               </div>
-              <div class="sw-menu-right"><span class="sw-menu-amount is-green">6%</span></div>
+              <div class="sw-menu-right"><span class="sw-menu-amount is-green">${PROTOCOL_SPECS.referralPct}%</span></div>
             </div>
             <div class="sw-menu-row is-static">
               <div class="sw-menu-left">
-                <span class="sw-menu-title">${L('好友通关奖金 8%', '8% Friend Pass Reward')}</span>
-                <span class="sw-menu-sub">${L('好友参与闯关通关后，按其奖金 8% 独立计入', 'Credited separately at 8% of invited friends’ winning round rewards')}</span>
+                <span class="sw-menu-title">${L('好友通关奖金', 'Pass rewards')}</span>
               </div>
-              <div class="sw-menu-right"><span class="sw-menu-amount is-green">8%</span></div>
+              <div class="sw-menu-right"><span class="sw-menu-amount is-green">${PROTOCOL_SPECS.stakeReferralPct}%</span></div>
             </div>
           </div>
         </div>
@@ -1287,9 +1327,9 @@ export function renderInviteShare(root) {
         <div id="team-stake-referral-mount">${renderTeamStakeReferralCardHtml({ loading: true, inInvitePage: true })}</div>
 
         <div class="seg-tabs">
-          <button class="seg-tab ${template === 'push' ? 'active' : ''}" data-tpl="push">${L('冲价喊单卡', 'Push Call')}</button>
-          <button class="seg-tab ${template === 'chest' ? 'active' : ''}" data-tpl="chest">${L('开箱喜报卡', 'Unboxing')}</button>
-          <button class="seg-tab ${template === 'win' ? 'active' : ''}" data-tpl="win">${L('通关盈利卡', 'Pass Card')}</button>
+          <button class="seg-tab ${template === 'push' ? 'active' : ''}" data-tpl="push">${L('冲关', 'Round')}</button>
+          <button class="seg-tab ${template === 'chest' ? 'active' : ''}" data-tpl="chest">${L('宝箱', 'Chests')}</button>
+          <button class="seg-tab ${template === 'win' ? 'active' : ''}" data-tpl="win">${L('通关', 'Pass')}</button>
         </div>
 
         <div class="card">
@@ -1303,7 +1343,7 @@ export function renderInviteShare(root) {
 
         <div class="card">
           <div class="row-between" style="margin-bottom:8px;">
-            <span class="card-title">${icon('copy', 14, 'text-gold')} ${L('一键复制群推话术', '1-Tap Viral Pitch')}</span>
+            <span class="card-title">${icon('copy', 14, 'text-gold')} ${L('分享文案', 'Share text')}</span>
             <button class="pill-trigger" id="btn-copy-pitch" type="button">${L('复制全文', 'Copy')}</button>
           </div>
           <div class="share-copy-box">${escapeHtml(buildScenarioPitch(template))}</div>
