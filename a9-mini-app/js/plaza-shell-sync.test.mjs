@@ -87,18 +87,21 @@ test('5c: index.html 静态首屏入口集合与 plaza.js 渲染入口集合 100
   `;
   const out = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', runner], { encoding: 'utf8' }).trim().split('\n').at(-1));
 
-  // app.js 顶栏广场页提供 #/rules，且其慢网/断网骨架函数的入口集合与 index.html 100% 全等
+  // app.js 顶栏提供 #/rules 与 #/profile，且 index.html 静态四主 Tab 严格为 冲关/金库/宝箱/战队
   const appSrc = readFileSync(join(JS_DIR, 'app.js'), 'utf8');
-  assert.ok(appSrc.includes('href="#/rules"'), 'app.js header must expose #/rules on plaza');
+  assert.ok(appSrc.includes("onSelect: () => navigate('/rules')"), 'app.js header must expose #/rules on Quest stage');
+  assert.ok(appSrc.includes('href="#/profile"'), 'app.js header must expose #/profile entry');
   const bootShellChunk = appSrc.slice(appSrc.indexOf('function renderStaticStatusStripHtml'), appSrc.indexOf('function staleBanner'));
   assert.ok(!bootShellChunk.includes('tab=free'), 'app.js boot/error shell must not render removed Free Chest tile');
-  assert.ok(!bootShellChunk.includes('sw-gate-grid'), 'app.js boot/error shell must use single Chest Mall card instead of legacy 4-tile grid');
-  const appBootEntries = extractStableEntries(`<a href="#/rules">规则</a>${bootShellChunk}`);
-  assert.deepEqual(appBootEntries, staticEntries, 'app.js boot/error shell must expose the exact same entry set as index.html');
+  assert.ok(!bootShellChunk.includes('sw-gate-grid'), 'app.js boot/error shell must not use legacy 4-tile grid');
   const renderedEntries = extractStableEntries(`<a href="#/rules">规则</a>${out.renderedHtml}`);
 
-  assert.deepEqual(staticEntries, ['#/market', '#/rewards', '#/rules']);
-  assert.deepEqual(renderedEntries, staticEntries, 'index.html static shell and plaza.js must expose the exact same entry set');
+  assert.deepEqual(staticEntries, ['#/market', '#/profile', '#/rewards', '#/rules']);
+  assert.deepEqual(renderedEntries, ['#/market', '#/rewards', '#/rules']);
+  assert.ok(indexHtml.includes('href="#/round"') && indexHtml.includes('冲关'), 'index.html dock must expose 冲关');
+  assert.ok(indexHtml.includes('href="#/rewards"') && indexHtml.includes('金库'), 'index.html dock must expose 金库');
+  assert.ok(indexHtml.includes('href="#/market"') && indexHtml.includes('宝箱'), 'index.html dock must expose 宝箱');
+  assert.ok(indexHtml.includes('href="#/team"') && indexHtml.includes('战队'), 'index.html dock must expose 战队');
   assert.ok(out.renderedHtml.includes('style="white-space:nowrap;">700,000,000 A9</span>'), 'pool amount and A9 unit must stay nowrap');
 
   // 确认删除了免费宝箱、12H 预言、下轮预热、战队喊单、判定均价灰盒与 12 格印章

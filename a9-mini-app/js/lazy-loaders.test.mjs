@@ -211,14 +211,13 @@ test('css-loader.js: dedupes concurrent stylesheet loads, cleans up on error for
   __resetCssLoaderForTest();
 });
 
-test('router.js: plaza route requires zero deferred stylesheets while all non-plaza routes declare full cross-file stylesheets', async () => {
+test('router.js: legacy plaza uses Quest\'s deferred stylesheets', async () => {
   createMockBrowserEnv();
   const { ROUTES, matchRoute } = await import('./router.js');
-  const plaza = ROUTES.find((r) => r.path === '/challenge');
-  assert.ok(plaza);
-  assert.deepEqual(plaza.styles, []);
+  assert.equal(matchRoute('#/challenge').route.path, '/round');
+  assert.equal(ROUTES.some((r) => r.path === '/challenge'), false);
 
-  for (const r of ROUTES.filter((item) => item.path !== '/challenge')) {
+  for (const r of ROUTES) {
     const matched = matchRoute('#' + r.path);
     assert.ok(Array.isArray(matched.route.styles), `${r.path} should declare styles array`);
     assert.ok(matched.route.styles.some((s) => s.includes('game.css')), `${r.path} must include game.css`);

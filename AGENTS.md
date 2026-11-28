@@ -9,7 +9,7 @@
 
 ## 设计红线
 - 视觉体系统一为「任天堂第一方红白触感界面」（以双端 `css/tokens.css` 为单源真值：雪白底 `#F4F5F8` + 任天堂正红 `#E60012`，支持暗夜石墨 `#121318` 主题），保留现役生产素材 `assets/boxheads/`（36 张）与 `assets/token/` 官方代币图标，绝不可删除（旧 `assets/paper-craft/` 已由纯矢量图标替代并经业主确认退役清理）。
-- 主导航与命名体系统一为 **广场 / 闯关 / 战队 / 我的**（应用总称 `A9 · 财富大冒险`，宝箱购箱入口 `宝箱商城` / Chest Mall，中英双语同步）；历史路由与深链（`#/internal/market`、`#/market`、`#/claim`、`#/rewards`、`#/warmup`、`#/team/invite`、`#/risk/audit`）必须持续可用。
+- 主导航与命名体系统一为 **冲关 / 金库 / 宝箱 / 战队**（应用总称 `A9 · 财富大冒险`，宝箱购箱入口 `宝箱商城` / Chest Mall，中英双语同步）；历史路由与深链（`#/internal/market`、`#/market`、`#/claim`、`#/rewards`、`#/warmup`、`#/team/invite`、`#/risk/audit`）必须持续可用。
 - 优先复用 `css/tokens.css`、`components.css`、`animations.css`，不新建互相覆盖的样式系统；不迁入 BAM 的 CSS / 组件样式 / 视觉规范。
 - **全站数字完整展示，不缩写**（如 `10,000,000,000 A9`、`700,000,000 A9`、`550,000,000 A9`、`200,000,000 A9`，严禁 `100 亿` / `7 亿` / `200M` / `700M` 等缩写）；金额单位统一；零 Emoji、零原生系统控件。
 

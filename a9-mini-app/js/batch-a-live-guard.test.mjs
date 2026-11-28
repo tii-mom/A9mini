@@ -2008,7 +2008,7 @@ test('C-return-3: SDK loader keeps SRI + crossorigin and funds gates are untouch
   assert.match(src, /if \(!liveFundsReady\(\)\) throw createFundsDisabledError\(\);/);
 });
 
-test('Telegram launch fragment opens the plaza without consuming SDK data or masking invalid routes', () => {
+test('Telegram launch fragment opens Quest without consuming SDK data or masking invalid routes', () => {
   const out = runScenario(
     { href: 'https://candidate.invalid/?mode=live#tgWebAppData=user%3Dfixture&tgWebAppVersion=9.6' },
     `
@@ -2027,7 +2027,7 @@ test('Telegram launch fragment opens the plaza without consuming SDK data or mas
       }));
     `,
   );
-  assert.deepEqual(out.routes, ['/challenge', '/challenge', '/challenge']);
+  assert.deepEqual(out.routes, ['/round', '/round', '/round']);
   assert.equal(out.unchanged, true);
   assert.equal(out.invalid, '/404');
   assert.equal(out.fake, '/404');

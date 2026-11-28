@@ -351,7 +351,14 @@ export function deriveRoundUiState({ detail = null, user = null, rewards = null,
   const nowMs = toFiniteNumber(serverNowMs) ?? Date.now();
   const { stage, countdownMs, countdownLabel } = deriveStageAndCountdown(detail, nowMs);
   const rawState = String(detail?.rawState ?? detail?.state ?? '').trim().toUpperCase();
-  const inFirst6h = Boolean(detail?.inFirst6h);
+  const openAt = toTimestampMs(detail?.stakeOpenAt);
+  const closeAt = toTimestampMs(detail?.stakeCloseAt);
+  const earlyWindowSeconds = toFiniteNumber(detail?.earlyWindowSeconds);
+  const earlyCloseAt = toTimestampMs(detail?.earlyCloseAt) ??
+    (openAt !== null && earlyWindowSeconds > 0 ? openAt + earlyWindowSeconds * 1000 : null);
+  const earlyCountdownMs = stage === 'stake' && earlyCloseAt !== null &&
+    (closeAt === null || earlyCloseAt <= closeAt) && earlyCloseAt > nowMs ? earlyCloseAt - nowMs : null;
+  const inFirst6h = stage === 'stake' && (earlyCloseAt === null ? Boolean(detail?.inFirst6h) : earlyCountdownMs !== null);
   const minQualified = Math.max(1, toFiniteNumber(detail?.minQualifiedCandles) ?? 8);
   const qualified = toFiniteNumber(detail?.qualifiedCandles);
   const hasQ = qualified !== null && Number.isInteger(qualified) && qualified >= 0;
@@ -451,5 +458,6 @@ export function deriveRoundUiState({ detail = null, user = null, rewards = null,
     primaryAction,
     isTerminal,
     inFirst6h,
+    earlyCountdownMs,
   };
 }

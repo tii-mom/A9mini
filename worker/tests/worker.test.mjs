@@ -2600,6 +2600,14 @@ await test('Audit hardening: /api/user/:wallet max 10 rounds (default 8), /api/h
   assert.equal(tooWide.status, 400);
   assert.match(tooWide.body.error.message, /exceed 10 rounds/);
 
+  const outsideContractRange = await router({
+    method: 'GET',
+    pathname: '/api/user/EQ_RANGE_TEST',
+    query: { fromRound: '4294967296', toRound: '4294967296' },
+    nowSec: 1000,
+  });
+  assert.equal(outsideContractRange.status, 400);
+
   const okWide = await router({
     method: 'GET',
     pathname: '/api/user/EQ_RANGE_TEST',
@@ -2747,6 +2755,8 @@ await test('Batch B: claim preview, payout-daemon budget/rebind, Masterchain & p
   assert.equal(pSuccDay7.instantCashoutBurnRaw, '1400000000000');
   assert.equal(pSuccDay7.instantCashoutTotalRaw, '4600000000000');
   assert.equal(pSuccDay7.unlockedPctBps, 6000);
+  assert.equal(pSuccDay7.vestingStartAt, 3000);
+  assert.equal(pSuccDay7.vestingPrincipalRaw, "4000000000000");
 
   // Day 14+ 满期后：100% 解锁，canInstantCashout=false，0 销毁
   const pSuccDay20 = computeTicketClaimPreview(

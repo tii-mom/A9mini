@@ -132,6 +132,8 @@ export function computeTicketClaimPreview(
     burnedLockedRaw: '0',
     vestingSeconds: defaultVestSec,
     unlockedPctBps: 0,
+    vestingStartAt: null,
+    vestingPrincipalRaw: null,
   });
 
   if (!ticket || !round) return empty('UNKNOWN');
@@ -185,6 +187,8 @@ export function computeTicketClaimPreview(
   let payReward = 0n;
   let lockedRemaining = 0n;
   let unlockedPctBps = 0;
+  let vestingPrincipalRaw = null;
+  let vestingStartAt = null;
   let canInstantCashout = false;
   let instantCashoutBonus = 0n;
   let instantCashoutBurn = 0n;
@@ -204,6 +208,10 @@ export function computeTicketClaimPreview(
       }
 
       const settledAt = Number(round.settledAt || 0);
+      if (settledAt > 0 && defaultVestSec > 0 && !ticket.forfeited) {
+        vestingPrincipalRaw = locked.toString();
+        vestingStartAt = settledAt;
+      }
       let unlockedNow = 0n;
       if (locked > 0n && settledAt > 0 && nowSec > settledAt) {
         const elapsed = BigInt(nowSec - settledAt);
@@ -252,6 +260,8 @@ export function computeTicketClaimPreview(
     burnedLockedRaw: '0',
     vestingSeconds: defaultVestSec,
     unlockedPctBps,
+    vestingStartAt,
+    vestingPrincipalRaw,
   };
 }
 

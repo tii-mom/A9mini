@@ -138,12 +138,12 @@ function extractHeader(headers = {}, targetName = '') {
 function resolveTicketRoundRange(query = {}, stateStore = null) {
   const ps = stateStore?.getProtocolState?.() || null;
   let currentRoundId = Number(ps?.currentRoundId || 0);
-  if (!Number.isInteger(currentRoundId) || currentRoundId < 0) currentRoundId = 0;
+  if (!Number.isInteger(currentRoundId) || currentRoundId < 0 || currentRoundId > 0xffffffff) currentRoundId = 0;
   if (currentRoundId === 0) {
     const listed = stateStore?.listRounds?.() || [];
     for (const r of listed) {
       const id = Number(r?.roundId || 0);
-      if (Number.isInteger(id) && id > currentRoundId) currentRoundId = id;
+      if (Number.isInteger(id) && id <= 0xffffffff && id > currentRoundId) currentRoundId = id;
     }
   }
 
@@ -155,8 +155,8 @@ function resolveTicketRoundRange(query = {}, stateStore = null) {
   if (hasFrom || hasTo) {
     fromRound = hasFrom ? Number(query.fromRound) : 1;
     toRound = hasTo ? Number(query.toRound) : (currentRoundId > 0 ? currentRoundId : fromRound);
-    if (!Number.isInteger(fromRound) || fromRound < 1 || !Number.isInteger(toRound) || toRound < 1 || fromRound > toRound) {
-      return { error: 'fromRound and toRound must be positive integers with fromRound <= toRound' };
+    if (!Number.isInteger(fromRound) || fromRound < 1 || !Number.isInteger(toRound) || toRound < 1 || toRound > 0xffffffff || fromRound > toRound) {
+      return { error: 'fromRound and toRound must be positive uint32 integers with fromRound <= toRound' };
     }
     if (toRound - fromRound + 1 > 10) {
       return { error: 'ticket round range cannot exceed 10 rounds per request' };

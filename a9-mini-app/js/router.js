@@ -15,6 +15,7 @@ const CSS_FULL = [CSS_GAME, CSS_WEALTHVERSE, CSS_ANIM];
 
 /** 仅包含旧路由别名（规范路径本身绝不出现于此表，防止重定向自循环）。 */
 export const ROUTE_ALIASES = Object.freeze({
+  '/challenge':           Object.freeze({ target: '/round' }),
   '/claim':               Object.freeze({ target: '/rewards' }),
   '/renew':               Object.freeze({ target: '/settings' }),
   '/ledger':              Object.freeze({ target: '/records', defaultQuery: Object.freeze({ type: 'ledger' }) }),
@@ -32,24 +33,23 @@ export const ROUTE_ALIASES = Object.freeze({
 
 /** 规范路由表：12 个可见一级/二级路由 + 2 个详情/结果二级页（isDetail: true，不计入上限）。 */
 export const ROUTES = [
-  // 4 主 Tab
-  { path: '/challenge',         title: () => L('广场', 'Plaza'),                        shell: 'tab',   tab: 'challenge', ticker: false, styles: [],       load: () => import('./pages/plaza.js').then(m => m.renderCity) },
-  { path: '/round',             title: () => L('闯关', 'Quest'),                        shell: 'tab',   tab: 'round',     ticker: true,  styles: CSS_FULL, load: () => import('./pages/round_hub.js').then(m => m.renderChallengeHome) },
-  { path: '/team',              title: () => L('战队', 'Squad'),                        shell: 'tab',   tab: 'team',      ticker: false, styles: CSS_FULL, load: () => import('./pages/team.js').then(m => m.renderTeamHome) },
-  { path: '/profile',           title: () => L('我的', 'Me'),                           shell: 'tab',   tab: 'profile',   ticker: false, styles: CSS_FULL, load: () => import('./pages/profile.js').then(m => m.renderProfileHome) },
+  // 4 主 Tab（业主定案：冲关 / 金库 / 宝箱 / 战队）
+  { path: '/round',             title: () => L('冲关', 'Quest'),                        shell: 'tab',   tab: 'round',     ticker: false, styles: CSS_FULL, load: () => import('./quest/stage-view.js').then(m => m.renderStageView) },
+  { path: '/rewards',           title: () => L('金库', 'Vault'),                        shell: 'tab',   tab: 'rewards',   ticker: false, styles: CSS_FULL, load: () => import('./quest/vault-view.js').then(m => m.renderVaultView) },
+  { path: '/market',            title: () => L('宝箱', 'Chest'),                        shell: 'tab',   tab: 'market',    ticker: false, styles: CSS_FULL, load: () => import('./quest/chest-view.js').then(m => m.renderInternalMarket) },
+  { path: '/team',              title: () => L('战队', 'Squad'),                        shell: 'tab',   tab: 'team',      ticker: false, styles: CSS_FULL, load: () => import('./quest/team-view.js').then(m => m.renderTeamView) },
 
-  // 8 可见二级规范路由（合计 12 ≤ 12）
-  { path: '/rewards',           title: () => L('我的奖励', 'My Rewards'),                shell: 'stack', tab: 'profile',   ticker: false, styles: CSS_FULL, load: () => import('./pages/wealthverse.js').then(m => m.rewards) },
-  { path: '/records',           title: () => L('记录', 'Records'),                      shell: 'stack', tab: 'profile',   ticker: false, styles: CSS_FULL, load: () => import('./pages/profile.js').then(m => m.renderRecordsPage) },
-  { path: '/rules',             title: () => L('规则与透明', 'Rules & Transparency'),    shell: 'stack', tab: 'profile',   ticker: false, styles: CSS_FULL, load: () => import('./pages/user-guide.js').then(m => m.renderUserGuide) },
-  { path: '/settings',          title: () => L('设置', 'Settings'),                     shell: 'stack', tab: 'profile',   ticker: false, styles: CSS_FULL, load: () => import('./pages/system.js').then(m => m.renderSettingsPage) },
-  { path: '/market',            title: () => L('宝箱商城', 'Chest Mall'),                shell: 'stack', tab: 'challenge', ticker: false, styles: CSS_FULL, load: () => import('./pages/warmup_market.js').then(m => m.renderInternalMarket) },
+  // 可见二级规范路由（原「我的」全部功能由顶栏入口可达且 100% 兼容历史深链）
+  { path: '/profile',           title: () => L('我的', 'Me'),                           shell: 'stack', tab: 'round',     ticker: false, styles: CSS_FULL, load: () => import('./pages/profile.js').then(m => m.renderProfileHome) },
+  { path: '/records',           title: () => L('记录', 'Records'),                      shell: 'stack', tab: 'round',     ticker: false, styles: CSS_FULL, load: () => import('./pages/profile.js').then(m => m.renderRecordsPage) },
+  { path: '/rules',             title: () => L('规则与透明', 'Rules & Transparency'),    shell: 'stack', tab: 'round',     ticker: false, styles: CSS_FULL, load: () => import('./pages/user-guide.js').then(m => m.renderUserGuide) },
+  { path: '/settings',          title: () => L('设置', 'Settings'),                     shell: 'stack', tab: 'round',     ticker: false, styles: CSS_FULL, load: () => import('./pages/system.js').then(m => m.renderSettingsPage) },
   { path: '/team/invite',       title: () => t('rt_invite'),                            shell: 'stack', tab: 'team',      ticker: false, styles: CSS_FULL, load: () => import('./pages/team.js').then(m => m.renderInviteShare) },
   { path: '/team/bind-tg',      title: () => t('rt_bind_tg'),                           shell: 'stack', tab: 'team',      ticker: false, styles: CSS_FULL, load: () => import('./pages/team.js').then(m => m.renderBindTgGroup) },
   { path: '/challenge/confirm', title: () => t('rt_confirm'),                           shell: 'stack', tab: 'round',     ticker: false, styles: CSS_FULL, load: () => import('./pages/round_hub.js').then(m => m.renderParticipateConfirm) },
 
   // 详情 / 结果二级页（不计入可见一级/二级路由上限）
-  { path: '/proof',             title: () => L('闯关凭证', 'Quest Pass'),                shell: 'stack', tab: 'profile',   ticker: false, styles: CSS_FULL, isDetail: true, load: () => import('./pages/profile.js').then(m => m.renderProofDetail) },
+  { path: '/proof',             title: () => L('闯关凭证', 'Quest Pass'),                shell: 'stack', tab: 'round',     ticker: false, styles: CSS_FULL, isDetail: true, load: () => import('./pages/profile.js').then(m => m.renderProofDetail) },
   { path: '/challenge/success', title: () => t('rt_success'),                           shell: 'stack', tab: 'round',     ticker: false, styles: CSS_FULL, isDetail: true, load: () => import('./pages/round_hub.js').then(m => m.renderParticipateSuccess) },
 ];
 
@@ -88,17 +88,17 @@ export function loadRouteHandler(route) {
 }
 
 function splitHashParts(rawPath) {
-  const incoming = String(rawPath || '/challenge').replace(/^#/, '') || '/challenge';
+  const incoming = String(rawPath || '/round').replace(/^#/, '') || '/round';
   const telegramLaunch = incoming.startsWith('tgWebApp')
     && new URLSearchParams(incoming).has('tgWebAppData');
   if (telegramLaunch) {
-    return { telegramLaunch: true, clean: '/challenge', queryStr: '', query: {}, anchor: '' };
+    return { telegramLaunch: true, clean: '/round', queryStr: '', query: {}, anchor: '' };
   }
   const anchorIdx = incoming.indexOf('#');
   const beforeAnchor = anchorIdx >= 0 ? incoming.slice(0, anchorIdx) : incoming;
   const anchor = anchorIdx >= 0 ? incoming.slice(anchorIdx + 1) : '';
   const qIdx = beforeAnchor.indexOf('?');
-  const clean = qIdx >= 0 ? (beforeAnchor.slice(0, qIdx) || '/challenge') : (beforeAnchor || '/challenge');
+  const clean = qIdx >= 0 ? (beforeAnchor.slice(0, qIdx) || '/round') : (beforeAnchor || '/round');
   const queryStr = qIdx >= 0 ? beforeAnchor.slice(qIdx + 1) : '';
   const query = queryStr ? Object.fromEntries(new URLSearchParams(queryStr).entries()) : {};
   return { telegramLaunch: false, clean, queryStr, query, anchor };
@@ -150,7 +150,7 @@ export function resolveRouteAlias(rawPath) {
 
 export function matchRoute(rawPath) {
   // Telegram places its launch envelope in the fragment before an app route exists.
-  // Treat that envelope as the plaza, without rewriting it: the Telegram SDK still
+  // Treat that envelope as the quest home, without rewriting it: the Telegram SDK still
   // needs the original launch data, and unknown application routes must stay 404.
   const parts0 = splitHashParts(rawPath);
   let clean = parts0.clean;
@@ -179,7 +179,7 @@ export function matchRoute(rawPath) {
   }
   if (clean === '/') return { route: ROUTES[0], param: null, query, anchor };
   return {
-    route: { path: '/404', title: () => '404', shell: 'stack', tab: 'challenge', ticker: false, styles: CSS_FULL, load: () => import('./pages/system.js').then(m => m.renderNotFoundPage) },
+    route: { path: '/404', title: () => '404', shell: 'stack', tab: 'round', ticker: false, styles: CSS_FULL, load: () => import('./pages/system.js').then(m => m.renderNotFoundPage) },
     param: null,
     query,
     anchor,

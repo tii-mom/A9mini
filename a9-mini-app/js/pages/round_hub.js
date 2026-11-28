@@ -8,6 +8,7 @@ import {
   submitPredictionBet,
   activatePredictionReward,
   fetchUserPortfolio,
+  stakeTicketAmount,
   fetchRoundAirdropDraws,
   getEffectiveUserId,
   rawToA9,
@@ -1429,25 +1430,32 @@ function renderLiveStakeConfirm(root, navigate) {
           principalText: `${exactAmtText} A9`,
           gasText: `0.30 GRAM (${L('预附 · 钱包发起费另计', 'attached · wallet sending fee separate')})`,
           totalText: `${exactAmtText} A9 + 0.30 GRAM`,
-          note: L(`第 ${round.currentRound} 轮 · 24H 锁仓期可提前解押（扣 15% 销毁）；12H 冲价未达 8/12 时段永不爆仓 · 自动止损（头矿 6H 退 95% / 普通退 90%）。`, `Round #${round.currentRound} · 24H Lock allows Early Exit (-15% Burn); < 8/12 in 12H Push uses No Liquidation · Auto Stop-Loss (95% First 6H / 90% late).`),
+          note: L(`第 ${round.currentRound} 轮 · 未通关时，按链上入账时间判定退回 95%（头矿 6H）或 90%（普通）。封盘前提前解押退 85%。`, `Round #${round.currentRound} · If the round misses, confirmed entry time determines a 95% (first 6H) or 90% (standard) refund. Early exits before sealing return 85%.`),
           insufficientReason,
           confirmText: L('确认并唤起钱包签名', 'Confirm & Sign in Wallet'),
         });
         if (!confirmed) return;
 
-        const prevTicket = portfolio?.tickets?.find((t) => Number(t.roundId) === Number(round.currentRound));
-        const prevTicketAmtRaw = BigInt(prevTicket?.amountRaw || '0');
-
+        const wallet = user.address;
+        const roundId = Number(round.currentRound);
+        const range = { fromRound: roundId, toRound: roundId };
         submitting = true;
         paint();
-        const sheet = openTransactionSheet(amountA9, () => navigate('/profile'), { assetSymbol: 'A9', gasNote: ' (+ 0.30 GRAM Gas)' });
+        let sheet;
         try {
+          const before = await fetchUserPortfolio(wallet, range);
+          const prevTicketAmtRaw = stakeTicketAmount(before, roundId);
+          if (prevTicketAmtRaw === null || wallet !== store.state.user.address ||
+              roundId !== Number(store.state.round.currentRound) || before.jettonWallet !== jw) {
+            throw new Error(L('票据或钱包信息已变化，请刷新后重试', 'Ticket or wallet changed. Refresh and retry.'));
+          }
+          sheet = openTransactionSheet(amountA9, () => navigate('/profile'), { assetSymbol: 'A9', gasNote: ' (+ 0.30 GRAM Gas)' });
           await tonConnect.sendV15StakeA9({
             userJettonWallet: jw,
             roundController,
-            userAddress: user.address,
+            userAddress: wallet,
             amountA9Raw: rawAmt.toString(),
-            roundId: Number(round.currentRound),
+            roundId,
             protocolVersion: protocolVer,
           });
           A9Audio.confirm();
@@ -1470,11 +1478,8 @@ function renderLiveStakeConfirm(root, navigate) {
             intervalMs: 4000,
             maxAttempts: 12,
             checkFn: async () => {
-              const next = await fetchUserPortfolio(user.address);
-              if (!next) return false;
-              const nextTicket = next.tickets?.find((t) => Number(t.roundId) === Number(round.currentRound));
-              const nextTicketAmtRaw = BigInt(nextTicket?.amountRaw || '0');
-              if (nextTicketAmtRaw > prevTicketAmtRaw) {
+              const next = await fetchUserPortfolio(wallet, range);
+              if (stakeTicketAmount(next, roundId) === prevTicketAmtRaw + rawAmt) {
                 portfolio = next;
                 return {
                   confirmed: true,
@@ -1495,7 +1500,8 @@ function renderLiveStakeConfirm(root, navigate) {
           });
         } catch (e) {
           A9Audio.error();
-          sheet.done(L('签名取消或失败 · 未扣款', 'Cancelled or Failed · No Funds Spent'), e?.message || L('请稍后重试', 'Please retry'), 'error');
+          if (!sheet) showToast(e?.message || L('读取票据失败', 'Ticket unavailable'), 'error');
+          else sheet.done(L('签名取消或失败 · 未扣款', 'Cancelled or Failed · No Funds Spent'), e?.message || L('请稍后重试', 'Please retry'), 'error');
         } finally {
           submitting = false;
           if (root.isConnected) paint();

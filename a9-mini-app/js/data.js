@@ -76,6 +76,7 @@ export const ENDPOINTS = Object.freeze({
   warmupRegister: '/api/warmup/register',
   warmupCancel: '/api/warmup/cancel',
   warmupLeaderboard: '/api/warmup/leaderboard',
+  teamByWallet: wallet => `/api/team/${encodeURIComponent(wallet)}`,
   teamJoin: '/api/team/join',
   teamBindTg: '/api/team/bind-tg',
   teamVerifyTg: '/api/team/verify-tg',
@@ -424,7 +425,9 @@ export function mapRoundView(snapshot) {
     candles,
     activeCandleEndAt,
     activeCandleSec: activeCandleEndAt ? Math.max(0, Math.ceil((activeCandleEndAt - serverNowMs()) / 1000)) : null,
-    rewardBudgetRaw: d.rewardBudgetRaw || c.roundRewardRaw || null,
+    rewardBudgetRaw: d.rewardBudgetRaw ?? null,
+    nextRoundCarryRaw: c.poolState?.dataAvailable === true && Number(c.poolState.currentRoundId) === Number(d.roundId)
+      ? (c.poolState.carryRaw ?? null) : null,
     rewardBudgetA9: rawToA9(d.rewardBudgetRaw, decimals),
     totalStakedRaw: d.totalAcceptedStakeRaw ?? null,
     totalWeightRaw: d.totalWeightRaw ?? null,
@@ -723,6 +726,11 @@ export async function cancelWarmup({ roundId = null, walletAddress = null, userI
   });
 }
 
+export async function fetchWalletTeam(wallet) {
+  if (!wallet) return null;
+  return request(ENDPOINTS.teamByWallet(wallet));
+}
+
 /** 加入团队（透传 referrerId） */
 export async function joinTeam({ teamId, walletAddress, userId, referrerId }) {
   return request(ENDPOINTS.teamJoin, {
@@ -780,19 +788,42 @@ export async function fetchUserPortfolio(walletAddress, { fromRound = null, toRo
  * v17 涨价解锁口径奖励估算（非承诺）：
  * 全员 1 A9 = 1 份公平平分，单轮封顶 5x，可分奖励 = min(本轮预算, 全轮总锁仓 × 5)，结算后以链上实际为准。
  */
-export function estimateRewardA9(amountA9Input, view = currentView) {
-  const amountA9 = Number(amountA9Input);
-  if (!view || !Number.isFinite(amountA9) || amountA9 <= 0) return null;
-  const c = view.protocolConfig || {};
-  const decimals = c.token?.decimals ?? 9;
-  const budget = rawToA9(view.rewardBudgetRaw, decimals);
-  if (budget === null || budget <= 0) return null;
+function nonNegativeRaw(value) {
+  return /^\d+$/.test(String(value)) ? BigInt(value) : null;
+}
 
-  const totalStake = rawToA9(view.totalStakedRaw, decimals) || 0;
-  const capMultiplier = Number(c.maxRewardCapMultiplier) || PROTOCOL_SPECS.maxRewardMultiplier;
-  const distributable = Math.min(budget, (totalStake + amountA9) * capMultiplier);
-  const denom = totalStake + amountA9;
-  return denom > 0 ? Math.min(amountA9 * capMultiplier, (distributable * amountA9) / denom) : 0;
+export function stakeTicketAmount(portfolio, roundId) {
+  if (portfolio?.ticketsAvailable !== true || !Array.isArray(portfolio.tickets)) return null;
+  const ticket = portfolio.tickets.find(t => String(t.roundId) === String(roundId));
+  if (!ticket) return 0n;
+  if (ticket.pending || ticket.exited || !/^\d+$/.test(ticket.amountRaw)) return null;
+  return BigInt(ticket.amountRaw);
+}
+
+export function formatRoundA9(raw) {
+  const amount = nonNegativeRaw(raw);
+  if (amount === null) return '—';
+  const whole = (amount / 1_000_000_000n).toLocaleString('en-US');
+  const fraction = String(amount % 1_000_000_000n).padStart(9, '0').replace(/0+$/, '');
+  return `${whole}${fraction ? '.' + fraction : ''} A9`;
+}
+
+export function estimateRewardRaw(amountA9Input, view = currentView) {
+  if (!view || view.stale || view.detailStale || view.detailLoading) return null;
+  const parts = /^(\d+)(?:\.(\d{1,9}))?$/.exec(String(amountA9Input));
+  if (!parts) return null;
+  const amount = BigInt(parts[1]) * 1_000_000_000n + BigInt((parts[2] || '').padEnd(9, '0'));
+  const budget = nonNegativeRaw(view.rewardBudgetRaw);
+  const currentStake = nonNegativeRaw(view.totalStakedRaw);
+  if (amount <= 0n || budget === null || currentStake === null) return null;
+
+  const totalStake = currentStake + amount;
+  const cap = totalStake * BigInt(PROTOCOL_SPECS.maxRewardMultiplier);
+  return ((budget < cap ? budget : cap) * amount / totalStake).toString();
+}
+
+export function estimateRewardA9(amountA9Input, view = currentView) {
+  return rawToA9(estimateRewardRaw(amountA9Input, view));
 }
 
 export function fetchWarmupRank(roundId) {

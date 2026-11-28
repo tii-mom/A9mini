@@ -188,6 +188,34 @@ export function demoFundsClaim(state) {
   return claimable;
 }
 
+export function demoInstantClaim(state) {
+  const locked = state.user.a9Locked;
+  if (!(locked > 0)) return null;
+  const bonus = Math.floor(locked * 0.3 * 1e9) / 1e9;
+  const payout = state.user.a9Claimable + bonus;
+  state.user.a9Available += payout;
+  state.user.a9Claimable = 0;
+  state.user.a9Locked = 0;
+  state.ledger.unshift({ id: demoTxHash(), type: '演示急提', amount: `+${payout} A9`,
+    source: '金库', status: '演示完成', time: '刚刚', cat: 'user' });
+  return payout;
+}
+
+export function demoEarlyExit(state, roundId) {
+  const active = state.certificates.filter(c => c.round === roundId && c.status === 'observation');
+  const amount = active.reduce((sum, c) => sum + c.stakeTon, 0);
+  if (!amount) return null;
+  const refund = Math.floor(amount * 0.85 * 1e9) / 1e9;
+  active.forEach(c => { c.status = 'exited'; });
+  state.user.a9Available += refund;
+  state.round.myStakeTon = Math.max(0, state.round.myStakeTon - amount);
+  state.round.myWeight = Math.max(0, state.round.myWeight - amount);
+  state.round.totalStakedTon = Math.max(0, state.round.totalStakedTon - amount);
+  state.ledger.unshift({ id: demoTxHash(), type: '演示提前解押', amount: `+${refund} A9`,
+    source: `第 ${roundId} 关`, status: '演示完成', time: '刚刚', cat: 'user' });
+  return refund;
+}
+
 export function demoFundsBuy(state, tonAmount) {
   const amt = Number(tonAmount);
   const availQuota = state.market.unlockedQuotaTon - state.market.usedQuotaTon;

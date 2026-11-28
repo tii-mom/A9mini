@@ -25,10 +25,10 @@ const tabbarEl = document.getElementById('app-tabbar');
 const simDrawerEl = document.getElementById('sim-drawer');
 
 const TABS = [
-  { key: 'challenge', path: '/challenge',       ic: 'navCity',  labelKey: 'tab_challenge' },
   { key: 'round',     path: '/round',           ic: 'navRound', labelKey: 'tab_round' },
-  { key: 'team',      path: '/team',            ic: 'navTeam',  labelKey: 'tab_team' },
-  { key: 'profile',   path: '/profile',         ic: 'navVault', labelKey: 'tab_backpack' }
+  { key: 'rewards',   path: '/rewards',         ic: 'navVault', labelKey: 'tab_vault' },
+  { key: 'market',    path: '/market',          ic: 'chest',    labelKey: 'tab_market' },
+  { key: 'team',      path: '/team',            ic: 'navTeam',  labelKey: 'tab_team' }
 ];
 
 let dataReady = false;
@@ -175,7 +175,7 @@ export function navigate(path, { replace = false } = {}) {
 }
 
 function goBack() {
-  const currentHash = window.location.hash || '#/challenge';
+  const currentHash = window.location.hash || '#/round';
   const { route: curRoute } = matchRoute(currentHash);
   A9Haptic.light();
   // 弹出当前页面，回到栈内上一不同基础路径；若无历史栈（如深链/刷新直达）则直返归属主 Tab
@@ -192,7 +192,7 @@ function goBack() {
     navigate(prev.fullPath, { replace: true });
     return;
   }
-  const fallbackTab = curRoute.tab ? `/${curRoute.tab}` : '/challenge';
+  const fallbackTab = curRoute.tab ? `/${curRoute.tab}` : '/round';
   navigate(fallbackTab, { replace: true });
 }
 
@@ -214,10 +214,16 @@ function renderHeader(route) {
   const modeBadge = config.isDemo
     ? 'DEMO'
     : (activeNet === 'testnet'
-        ? (!store.fundsEnabled ? L('测试网 · 只读', 'TESTNET · RO') : L('测试网', 'TESTNET'))
+        ? (!store.fundsEnabled ? L('测试网 · 只读', 'Testnet · Read-only') : L('测试网', 'TESTNET'))
         : (!store.fundsEnabled ? L('只读', 'READ-ONLY') : ''));
-  const isPlaza = route.path === '/challenge';
-  const nextSig = `${isStack ? '1' : '0'}|${isPlaza ? '1' : '0'}|${titleText}|${user.connected ? '1' : '0'}|${walletLabel}|${settings?.language || ''}|${activeNet}|${modeBadge}`;
+  const round = store.state.round;
+  const stage = deriveRoundUiState({ detail: round, serverNowMs: serverNowMs() });
+  const stageLabel = dataReady && round.currentRound != null
+    ? L(`第 ${round.currentRound} 关 · ${stage.badgeLabel}`, `Stage ${round.currentRound} · ${stage.badgeLabel}`)
+    : L('轮次待同步', 'Stage pending');
+  const balanceLabel = config.isDemo && user.connected && user.a9Available != null
+    ? formatNum(user.a9Available, 0) : walletLabel;
+  const nextSig = `${isStack ? '1' : '0'}|${stageLabel}|${balanceLabel}|${titleText}|${user.connected ? '1' : '0'}|${walletLabel}|${settings?.language || ''}|${activeNet}|${modeBadge}`;
   if (nextSig === lastHeaderSig && headerEl.innerHTML && !headerEl.hasAttribute?.('data-static-shell')) {
     return;
   }
@@ -228,18 +234,17 @@ function renderHeader(route) {
     <div class="header-left">
       ${isStack ? `<button class="icon-btn" id="hdr-back" type="button" aria-label="${L('返回', 'Back')}">${icon('arrowLeft', 16)}</button>` : ''}
       ${!isStack
-        ? `<div class="header-brand"><span class="brand-mark" aria-label="A9"><img class="brand-logo" src="./assets/brand/apple-touch-icon.png" alt="A9" width="32" height="32" /></span>${modeBadge ? `<span class="header-demo-dot">${modeBadge}</span>` : ''}</div>`
+        ? `<a class="quest-brand" href="#/profile" aria-label="${L('我的', 'My profile')}"><span class="quest-brand-mark">A9</span><span class="quest-brand-copy"><b>${L('财富大冒险', 'Wealth Quest')}</b><small>${escapeHtml(stageLabel)}</small></span></a>`
         : `<div class="header-title"><span class="header-title-text">${titleText}</span></div>`
       }
     </div>
     <div class="header-right">
-      ${isPlaza ? `<a class="header-rules-link" id="hdr-rules-link" href="#/rules">${L('规则', 'Rules')} ›</a>` : ''}
-      ${config.isDemo ? `<button class="icon-btn has-demo-pip" id="btn-open-sim" type="button" aria-label="${L('演示控制台', 'Demo console')}" title="${L('演示控制台 (DEMO)', 'Demo console (DEMO)')}">${icon('sliders', 14)}</button>` : ''}
-      <button class="icon-btn" id="btn-header-more" type="button" aria-label="${L('更多快捷操作', 'More quick actions')}" title="${L('更多', 'More')}">${icon('more', 16)}</button>
+      ${modeBadge ? `<span class="header-demo-dot">${modeBadge}</span>` : ''}
       <button class="wallet-pill ${user.connected ? '' : 'disconnected'}" id="btn-wallet-pill" type="button">
-        <span class="live-dot ${user.connected ? '' : 'amber'}"></span>
-        <span>${escapeHtml(walletLabel)}</span>
+        ${user.connected ? '<img src="./assets/token/a9-token.svg" alt="A9" />' : icon('wallet', 16)}
+        <span>${escapeHtml(balanceLabel)}</span>
       </button>
+      <button class="icon-btn" id="btn-header-more" type="button" aria-label="${L('设置', 'Settings')}">${icon('sliders', 16)}</button>
     </div>
   `;
 
@@ -253,8 +258,7 @@ function renderHeader(route) {
   const moreBtn = headerEl.querySelector('#btn-header-more');
   if (moreBtn) moreBtn.onclick = openMoreQuickSheet;
 
-  const simBtn = headerEl.querySelector('#btn-open-sim');
-  if (simBtn) simBtn.onclick = openSimDrawer;
+
 }
 
 /** 顶栏「更多」底部快捷面板（精简 3 项：主题 / 语言 / 规则与透明，Demo 重置放危险区） */
@@ -311,6 +315,7 @@ function openMoreQuickSheet() {
       onSelect: () => navigate('/rules'),
     },
   ];
+  if (config.isDemo) items.push({ icon: 'sliders', label: L('演示控制台', 'Demo console'), onSelect: openSimDrawer });
   const dangerItems = config.isDemo
     ? [{
         icon: 'refresh',
@@ -356,26 +361,23 @@ function renderTabBar(route) {
   }
   tabbarEl.classList.remove('hidden');
   mainEl.classList.remove('no-tabbar');
-  const activeIdx = Math.max(0, TABS.findIndex(item => item.key === route.tab));
+  tabbarEl.setAttribute('aria-label', L('主导航', 'Primary navigation'));
 
-  if (tabbarEl.hasAttribute?.('data-static-shell') || !tabbarEl.querySelector('.dock-pill')) {
+  if (tabbarEl.hasAttribute?.('data-static-shell') || !tabbarEl.querySelector('[data-tab-key]')) {
     tabbarEl.removeAttribute?.('data-static-shell');
-    tabbarEl.innerHTML = `<div class="dock-pill" id="dock-pill"></div>` + TABS.map(item => `
-      <button class="tab-item" data-tab-key="${item.key}" data-nav="${item.path}">
+    tabbarEl.innerHTML = TABS.map(item => `
+      <a class="tab-item" data-tab-key="${item.key}" href="#${item.path}">
         ${icon(item.ic, 22)}
         <span class="tab-lbl">${t(item.labelKey)}</span>
-        ${item.key === 'profile' ? '<span class="tab-badge hidden" id="profile-tab-badge"></span>' : ''}
-      </button>
+        ${item.key === 'rewards' ? '<span class="tab-badge hidden" id="vault-tab-badge"></span>' : ''}
+      </a>
     `).join('');
   }
 
-  const pill = tabbarEl.querySelector('#dock-pill');
-  if (pill) pill.style.transform = `translateX(${activeIdx * 100}%)`;
-
   const { user, prediction } = store.state;
   const hasPendingClaim = (Number(user.a9Claimable) || 0) > 0 || (Number(prediction?.pendingActivationRaw) || 0) > 0;
-  const profileBadge = tabbarEl.querySelector('#profile-tab-badge');
-  if (profileBadge) profileBadge.classList.toggle('hidden', !hasPendingClaim);
+  const vaultBadge = tabbarEl.querySelector('#vault-tab-badge');
+  if (vaultBadge) vaultBadge.classList.toggle('hidden', !hasPendingClaim);
 
   tabbarEl.querySelectorAll('.tab-item').forEach((btn, idx) => {
     const item = TABS[idx];
@@ -388,6 +390,7 @@ function renderTabBar(route) {
 
 /** 允许在首屏轮次快照尚未就绪或失败时直接打开的静态 / 独立接口路由。 */
 const ROUTES_ALLOW_WITHOUT_SNAPSHOT = new Set([
+  '/round', '/team', '/rewards',
   '/market',
   '/internal/market',
   '/warmup',
@@ -559,7 +562,7 @@ export async function renderCurrentRoute() {
   if (simDrawerEl && typeof simDrawerEl.classList?.contains === 'function' && !simDrawerEl.classList.contains('hidden')) simDrawerEl.classList.add('hidden');
   cleanupActiveInteractions();
   cleanupKineticSurfaces();
-  let currentHash = window.location.hash || '#/challenge';
+  let currentHash = window.location.hash || '#/round';
   // 仅在解析完成后、加载页面之前对旧路由别名进行规范化（保留 query 与锚点，规范路径不触发重定向，避免自循环）
   const resolvedAlias = resolveRouteAlias(currentHash);
   if (resolvedAlias && resolvedAlias.to !== currentHash) {
@@ -570,7 +573,7 @@ export async function renderCurrentRoute() {
       }
     } catch (_) {}
   }
-  const fullPath = currentHash.replace(/^#/, '') || '/challenge';
+  const fullPath = currentHash.replace(/^#/, '') || '/round';
   const { route, param, query: rawQuery, anchor } = matchRoute(currentHash);
   const query = anchor ? { ...rawQuery, _anchor: anchor } : rawQuery;
   if (route.shell === 'tab') {
@@ -611,6 +614,15 @@ export async function renderCurrentRoute() {
     mainEl.innerHTML = '';
     mainEl.appendChild(viewHost);
     renderTarget = viewHost;
+  }
+  if (!dataReady && lastLoadError && TABS.some(tab => tab.path === route.path) && renderTarget !== mainEl) {
+    const notice = document.createElement('div');
+    notice.className = 'q-notice';
+    notice.setAttribute('role', 'status');
+    notice.innerHTML = `<span class="q-grow">${L('轮次数据暂不可用', 'Round data unavailable')}</span><button type="button" class="q-btn q-btn-ghost q-btn-sm">${L('重试', 'Retry')}</button>`;
+    const retry = notice.querySelector('button');
+    if (retry) retry.onclick = () => syncData({ forceRender: true });
+    mainEl.prepend?.(notice);
   }
   try {
     const cachedRender = getCachedRouteHandler(route);
@@ -687,6 +699,12 @@ function applySnapshotToStore(snapshot, { forceRender = false } = {}) {
     view.twap24h,
     view.priceValid,
     view.successCount,
+    view.rewardBudgetRaw,
+    view.totalStakedRaw,
+    view.nextRoundCarryRaw,
+    view.stakeOpenAt,
+    view.stakeCloseAt,
+    view.earlyCloseAt,
     JSON.stringify(view.unlock),
     JSON.stringify(view.candles)
   ].join('|');
@@ -722,7 +740,7 @@ function applySnapshotToStore(snapshot, { forceRender = false } = {}) {
   if (forceRender || changed) {
     if (!forceRender && shouldDeferRouteRender(document)) {
       pendingDeferredRender = true;
-      const activeRoute = matchRoute(window.location.hash || '#/challenge').route;
+      const activeRoute = matchRoute(window.location.hash || '#/round').route;
       renderHeader(activeRoute);
       renderTicker(activeRoute.ticker);
       renderTabBar(activeRoute);
@@ -749,15 +767,17 @@ async function syncData({ forceRender = false } = {}) {
     if (!dataReady) {
       lastLoadError = error;
       dataReady = false;
-      const activeRoute = matchRoute(window.location.hash || '#/challenge').route;
+      const activeRoute = matchRoute(window.location.hash || '#/round').route;
       if (!ROUTES_ALLOW_WITHOUT_SNAPSHOT.has(activeRoute.path)) {
         renderDataError(error);
+      } else if (TABS.some(tab => tab.path === activeRoute.path) && !shouldDeferRouteRender(document)) {
+        renderCurrentRoute();
       }
     } else {
       store.update(s => { s.round.stale = true; });
       if (shouldDeferRouteRender(document)) {
         pendingDeferredRender = true;
-        const activeRoute = matchRoute(window.location.hash || '#/challenge').route;
+        const activeRoute = matchRoute(window.location.hash || '#/round').route;
         renderHeader(activeRoute);
         renderTicker(activeRoute.ticker);
       } else {
@@ -1069,6 +1089,12 @@ function startDisplayLoop() {
     r.activeCandleSec = r.activeCandleEndAt ? Math.max(0, Math.ceil((r.activeCandleEndAt - serverNowMs()) / 1000)) : null;
 
     const uiState = deriveRoundUiState({ detail: r, user: store.state.user, serverNowMs: serverNowMs() });
+    const stageView = document.getElementById('quest-stage-view');
+    if (stageView && stageView.dataset.stage !== uiState.stage) {
+      if (shouldDeferRouteRender(document)) pendingDeferredRender = true;
+      else renderCurrentRoute();
+      return;
+    }
     const posCdSec = uiState.countdownMs !== null ? Math.ceil(uiState.countdownMs / 1000) : null;
     const cdText = posCdSec !== null && posCdSec > 0
       ? formatTimer(posCdSec)
@@ -1086,27 +1112,16 @@ function startDisplayLoop() {
     const earlyCd = document.getElementById('early-cd');
     if (earlyCd) earlyCd.textContent = r.earlyBirdSec === null || r.earlyBirdSec === undefined ? L('待确认', 'Pending') : formatTimer(r.earlyBirdSec);
     const earlyWinEl = document.getElementById('early-window-cd');
+    const lockCard = document.querySelector('[data-lock-phase]');
+    const liveLockPhase = uiState.stage === 'stake' ? (uiState.inFirst6h ? 'first6h' : 'standard') : null;
+    if (lockCard && (lockCard.dataset.lockPhase || null) !== liveLockPhase) {
+      if (shouldDeferRouteRender(document)) pendingDeferredRender = true;
+      else renderCurrentRoute();
+      return;
+    }
     if (earlyWinEl) {
-      const normSec = (v) => {
-        const n = Number(v || 0);
-        if (!Number.isFinite(n) || n <= 0) return 0;
-        return n > 1e12 ? Math.floor(n / 1000) : Math.floor(n);
-      };
-      const openAt = normSec(r.stakeOpenAt);
-      const closeAt = normSec(r.stakeCloseAt);
-      const explicitEarlyEnd = normSec(r.earlyCloseAt);
-      let left = null;
-      const earlyEnd = explicitEarlyEnd > 0
-        ? explicitEarlyEnd
-        : (openAt > 0 && closeAt > openAt ? openAt + Number(r.earlyWindowSeconds || 21600) : 0);
-      if (earlyEnd > 0) {
-        const diff = earlyEnd - Math.floor(serverNowMs() / 1000);
-        if (diff > 0) left = diff;
-      }
-      if (left === null && config.isDemo && typeof r.earlyBirdSec === 'number') {
-        left = Math.max(0, Math.floor(r.earlyBirdSec));
-      }
-      earlyWinEl.textContent = left === null ? L('待确认', 'Pending') : formatTimer(left);
+      earlyWinEl.textContent = uiState.earlyCountdownMs === null
+        ? L('待确认', 'Pending') : formatTimer(Math.ceil(uiState.earlyCountdownMs / 1000));
     }
     const candleCd = document.getElementById('active-candle-cd');
     if (candleCd) {
@@ -1291,7 +1306,7 @@ renderCurrentRoute();
 if (startParsed?.route) {
   window.location.hash = `#${startParsed.route}`;
 } else if (!window.location.hash) {
-  window.location.hash = '#/challenge';
+  window.location.hash = '#/round';
 }
 
 let lastRuntimeErrAt = 0;
@@ -1306,6 +1321,7 @@ window.addEventListener('unhandledrejection', () => handleRuntimeError());
 
 window.addEventListener('hashchange', renderCurrentRoute);
 window.addEventListener('a9:force-sync', () => syncData({ forceRender: true }));
+store.subscribe(() => renderHeader(matchRoute(window.location.hash).route));
 pendingTxManager.subscribe(() => syncPendingTxBanner());
 window.addEventListener('a9:interaction-idle', flushDeferredRender);
 document.addEventListener('focusout', () => setTimeout(flushDeferredRender, 0));
@@ -1332,7 +1348,7 @@ async function bootApp() {
   } catch (error) {
     lastLoadError = error;
     dataReady = false;
-    const activeRoute = matchRoute(window.location.hash || '#/challenge').route;
+    const activeRoute = matchRoute(window.location.hash || '#/round').route;
     if (!ROUTES_ALLOW_WITHOUT_SNAPSHOT.has(activeRoute.path)) {
       renderDataError(error);
     }

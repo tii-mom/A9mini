@@ -120,24 +120,23 @@ test('5a: unified bilingual titles & retired legacy names removed from user-visi
     return typeof r.title === 'function' ? r.title() : r.title;
   };
 
-  assert.equal(titleByPath('/challenge', 'zh-CN'), '广场');
-  assert.equal(titleByPath('/challenge', 'en-US'), 'Plaza');
-  assert.equal(titleByPath('/round', 'zh-CN'), '闯关');
+  assert.equal(titleByPath('/round', 'zh-CN'), '冲关');
   assert.equal(titleByPath('/round', 'en-US'), 'Quest');
+  assert.deepEqual(ROUTES.filter(r => r.shell === 'tab').map(r => r.path), ['/round', '/rewards', '/market', '/team']);
+  assert.equal(titleByPath('/rewards', 'zh-CN'), '金库');
+  assert.equal(titleByPath('/rewards', 'en-US'), 'Vault');
+  assert.equal(titleByPath('/market', 'zh-CN'), '宝箱');
+  assert.equal(titleByPath('/market', 'en-US'), 'Chest');
   assert.equal(titleByPath('/team', 'zh-CN'), '战队');
   assert.equal(titleByPath('/team', 'en-US'), 'Squad');
   assert.equal(titleByPath('/profile', 'zh-CN'), '我的');
   assert.equal(titleByPath('/profile', 'en-US'), 'Me');
-  assert.equal(titleByPath('/rewards', 'zh-CN'), '我的奖励');
-  assert.equal(titleByPath('/rewards', 'en-US'), 'My Rewards');
   assert.equal(titleByPath('/records', 'zh-CN'), '记录');
   assert.equal(titleByPath('/records', 'en-US'), 'Records');
   assert.equal(titleByPath('/rules', 'zh-CN'), '规则与透明');
   assert.equal(titleByPath('/rules', 'en-US'), 'Rules & Transparency');
   assert.equal(titleByPath('/settings', 'zh-CN'), '设置');
   assert.equal(titleByPath('/settings', 'en-US'), 'Settings');
-  assert.equal(titleByPath('/market', 'zh-CN'), '宝箱商城');
-  assert.equal(titleByPath('/market', 'en-US'), 'Chest Mall');
   assert.equal(titleByPath('/proof', 'zh-CN'), '闯关凭证');
   assert.equal(titleByPath('/proof', 'en-US'), 'Quest Pass');
 

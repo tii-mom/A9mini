@@ -21,95 +21,68 @@
   <script src="./js/theme-init.js"></script>
   <!-- Telegram WebApp SDK（defer：不阻塞首屏解析，严格按文档顺序早于 module app.js 执行） -->
   <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
-  <!-- 首屏关键 ES 模块预加载，消除数据返回后才开始拉取广场页的串行等待 -->
+  <!-- 首屏关键 ES 模块预加载 -->
   <link rel="modulepreload" href="./js/app.js" />
   <link rel="modulepreload" href="./js/data.js" />
-  <link rel="modulepreload" href="./js/pages/plaza.js" />
-  <!-- 本地自托管 Rubik 字体 + 系统原生中文无衬线与等宽数字字体 -->
+  <link rel="modulepreload" href="./js/quest/stage-view.js" />
+  <!-- 双端统一设计变量 + 底层弹窗兼容样式 + Quest 视图层样式 -->
   <link rel="stylesheet" href="./css/tokens.css?v=17.1-rc1" />
   <link rel="stylesheet" href="./css/components.css?v=17.1-rc1" />
+  <link rel="stylesheet" href="./css/quest.css?v=17.1-rc1" />
 </head>
-<body>
+<body class="quest-shell-active">
   <div id="tma-shell" class="tma-shell">
     <div class="liquid-ambient" aria-hidden="true"></div>
 
     <header id="app-header" class="app-header" data-static-shell="1">
       <div class="header-left">
-        <div class="header-brand">
-          <span class="brand-mark" aria-label="A9"><img class="brand-logo" src="./assets/brand/apple-touch-icon.png" alt="A9" width="32" height="32" /></span>
-        </div>
+        <a class="quest-brand" href="#/profile"><span class="quest-brand-mark">A9</span><span class="quest-brand-copy"><b>财富大冒险</b><small>轮次待同步</small></span></a>
       </div>
       <div class="header-right">
-        <a class="header-rules-link" id="hdr-rules-link" href="#/rules">规则 ›</a>
         <button class="wallet-pill disconnected" id="btn-wallet-pill" type="button" disabled>
           <span class="live-dot amber"></span>
           <span>连接钱包</span>
         </button>
+        <a class="icon-btn" href="#/rules" aria-label="规则">?</a>
       </div>
     </header>
     <div id="ticker-bar" class="ticker-bar hidden"></div>
     <section class="realm-banner" id="realm-banner" hidden></section>
     <main id="app-main" class="app-main" role="main">
-      <div class="col-gap nt-static-first-paint">
-        <section class="plaza-status-strip" aria-label="我的状态">
-          <div class="plaza-status-cell">
-            <span class="plaza-status-lbl">钱包</span>
-            <strong class="plaza-status-val mono">未连接</strong>
+      <div class="q-view nt-static-first-paint">
+        <section class="q-hero nt-boot-skeleton" aria-busy="true" aria-label="Loading current stage">
+          <div class="q-hero-top">
+            <span class="q-cart-tag">STAGE --</span>
+            <span class="q-phase-pill">同步中…</span>
           </div>
-          <div class="plaza-status-cell">
-            <span class="plaza-status-lbl">本轮已锁仓</span>
-            <strong class="plaza-status-val mono">—</strong>
-          </div>
-          <a class="plaza-status-cell plaza-status-trigger" href="#/rewards">
-            <span class="plaza-status-lbl">可领取</span>
-            <strong class="plaza-status-val mono">—</strong>
-          </a>
+          <div class="q-hero-label">正在同步最新轮次状态…</div>
+          <div class="q-hero-count q-num">加载中…</div>
+          <div class="q-hero-sub">24H 锁仓 A9 → 12H 冲价 ≥ 8/12 段 → 达标分奖，未达标自动止损退本。</div>
         </section>
-        <section class="card card-hero plaza-round-card nt-boot-skeleton" aria-busy="true" aria-label="Loading current round">
-          <div class="row-between" style="gap:8px;">
-            <div class="row-start" style="gap:6px;">
-              <strong class="num-sm">当前轮次</strong>
-              <span class="chip chip-muted" style="min-height:20px;font-size:11px;padding:0 7px;">加载中…</span>
-            </div>
-            <span class="mono num-sm text-sec">加载中…</span>
+        <section class="q-card">
+          <div class="q-card-h">
+            <h3>快捷入口</h3>
           </div>
-          <div class="plaza-mini-timeline" role="list" aria-label="轮次四阶段进度">
-            <span class="plaza-mini-step" role="listitem"><i></i><b>预热</b></span>
-            <span class="plaza-mini-step" role="listitem"><i></i><b>锁仓</b></span>
-            <span class="plaza-mini-step" role="listitem"><i></i><b>冲价</b></span>
-            <span class="plaza-mini-step" role="listitem"><i></i><b>结算</b></span>
+          <div class="q-grid2">
+            <a class="q-stat" href="#/rewards" style="text-decoration:none;">
+              <small>金库</small>
+              <b>逐秒解锁</b>
+              <span>查看票据与领取</span>
+            </a>
+            <a class="q-stat" href="#/market" style="text-decoration:none;">
+              <small>宝箱商城</small>
+              <b>6 档直发</b>
+              <span>保底 + 随机加赠</span>
+            </a>
           </div>
-          <p class="plaza-one-line-status">正在同步最新轮次状态…</p>
-          <div class="nt-skel-card" style="height:42px;"></div>
-        </section>
-        <section class="card plaza-howto-card">
-          <div class="row-between" style="gap:8px;margin-bottom:4px;">
-            <strong class="num-xs" style="color:var(--ink);font-weight:800;">三步玩法</strong>
-          </div>
-          <div class="num-xs text-sec" style="line-height:1.5;">
-            1. 24H 锁仓 A9 → 2. 12H 冲价满 8/12 段 → 3. 达标分奖，未达标自动止损退本。
-          </div>
-        </section>
-        <section class="plaza-activity-zone" aria-label="精选活动">
-          <a class="card plaza-mall-card" href="#/market">
-            <span class="sw-gate-icon is-red" aria-hidden="true"></span>
-            <div class="plaza-mall-body">
-              <div class="row-start" style="gap:6px;flex-wrap:wrap;">
-                <strong class="num-sm" style="color:var(--ink);">宝箱商城</strong>
-                <span class="chip chip-green" style="min-height:18px;font-size:11px;padding:0 6px;">直发钱包</span>
-              </div>
-              <span class="num-xs text-sec">6 档宝箱保底 + 随机加赠，一笔直发钱包</span>
-            </div>
-            <span class="sw-menu-arrow" aria-hidden="true">›</span>
-          </a>
         </section>
       </div>
     </main>
-    <nav id="app-tabbar" class="app-tabbar" aria-label="Primary Navigation" data-static-shell="1">
-      <a class="tab-item active" href="#/challenge"><span class="tab-lbl">广场</span></a>
-      <a class="tab-item" href="#/round"><span class="tab-lbl">闯关</span></a>
+    <nav id="app-tabbar" class="app-tabbar" aria-label="主导航" data-static-shell="1">
+      <a class="tab-item active" href="#/round" aria-current="page"><span class="tab-lbl">冲关</span></a>
+      <a class="tab-item" href="#/rewards"><span class="tab-lbl">金库</span></a>
+      <a class="tab-item" href="#/market"><span class="tab-lbl">宝箱</span></a>
       <a class="tab-item" href="#/team"><span class="tab-lbl">战队</span></a>
-      <a class="tab-item" href="#/profile"><span class="tab-lbl">我的</span></a>
     </nav>
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
     <div id="modal-root" class="modal-root hidden" role="dialog" aria-modal="true"></div>
