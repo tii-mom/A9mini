@@ -90,13 +90,7 @@ test('quest-ui: stage-view covers all 9 canonical stages, blocks premature 通�
     renderStageView(root, () => {});
     assert.ok(root.innerHTML.includes(`data-stage="${c.expectStage}"`), `expected stage ${c.expectStage}`);
     assert.ok(!root.innerHTML.includes('00:00:00'), `stage ${c.expectStage} must never display 00:00:00`);
-    if (c.expectStage === 'stake') {
-      assert.match(root.innerHTML, /id="q-toggle-prediction"/);
-      assert.match(root.innerHTML, /投票数据待同步/);
-      assert.doesNotMatch(root.innerHTML, /达标 50%/);
-    } else {
-      assert.doesNotMatch(root.innerHTML, /data-q-pred=|id="q-toggle-prediction"/);
-    }
+    assert.doesNotMatch(root.innerHTML, /data-q-pred=|id="q-toggle-prediction"|投票数据待同步/);
     if (c.expectStage === 'charge') {
       assert.ok(root.innerHTML.includes('已达 8/12 门槛 · 等待链上结算'), 'charge with 8/12 must show threshold met awaiting settlement');
       assert.ok(!root.innerHTML.includes('已通关'), 'charge stage must NEVER display 已通关');
@@ -115,8 +109,13 @@ test('quest-ui: vault-view clarifies dual instant-cashout denominators and enfor
   setupBrowserStubs('live', false);
   const { renderVaultView } = await import('./quest/vault-view.js');
   const root = makeRoot();
+  const toggle = {};
+  root.querySelector = (sel) => sel === '#q-toggle-curve' ? toggle : null;
+
   renderVaultView(root, () => {});
 
+  assert.match(root.innerHTML, /data-curve-expanded="0"/);
+  toggle.onclick();
   assert.ok(root.innerHTML.includes('本金 100%'), 'vault must explicitly state 100% principal is intact');
   assert.ok(root.innerHTML.includes('30%') && root.innerHTML.includes('44%'), 'instant cashout curve must clarify both 80% locked (30%->100%) and total reward (44%->100%) denominators');
   assert.ok(root.innerHTML.includes('0.06 GRAM'), 'vault must expose 0.06 GRAM promo claim entry');
@@ -957,8 +956,9 @@ test('docs/18 #2 [P1]: Crossing First-6H cutoff while final confirm modal is ope
     inp.value = '10000';
     inp.oninput();
     assert.equal(winValEl.textContent, '+18,124.85 A9');
-    assert.equal(winSubEl.textContent, '20% 秒提 3,624.97 A9 · 80%（14,499.88 A9）14 天解锁');
-    assert.match(summaryEl.innerHTML, /通关预估奖金.*\+18,124\.85 A9/);
+    assert.equal(winSubEl.textContent, '本金全退；奖金 20% 秒提 3,624.97 A9，其余 14,499.88 A9 在 14 天内解锁。');
+    assert.match(summaryEl.innerHTML, /预计每 1 A9 可分.*1\.81 A9/);
+    assert.equal(summaryEl.innerHTML.match(/class="q-kv"/g)?.length, 3);
     assert.equal(loseValEl.textContent, '退 9,500 A9');
     assert.equal(loseSubEl.textContent, '止损销毁 500 A9');
 
@@ -1743,7 +1743,7 @@ test('ux batch 2 #1: Stake quick chips disable tiers above balance, highlight ac
     assert.equal(chipBtns[4].disabled, false, 'Max chip enabled');
 
     chipBtns[4].onclick();
-    assert.equal(inp.value, '1234.56789', 'Max chip must fill exact fractional precision');
+    assert.equal(inp.value, '1,234.56789', 'Max chip must fill exact fractional precision');
     assert.equal(chipBtns[4]._classes.has('is-active'), true, 'Max chip highlighted');
     assert.equal(chipBtns[0]._classes.has('is-active'), false);
     root.isConnected = false;
@@ -2033,10 +2033,14 @@ test('ux batch 3 #2: Vault cashout simulator computes exact Today / Day 7 / Day 
     { dataset: { qCurvePreset: '14' }, disabled: false },
   ];
   const root = makeRoot();
+  const toggle = {};
+  root.querySelector = (sel) => sel === '#q-toggle-curve' ? toggle : null;
   root.querySelectorAll = (sel) => (sel === '[data-q-curve-preset]' ? presetBtns : []);
   renderVaultView(root, () => {});
   await new Promise((r) => setTimeout(r, 25));
 
+  assert.doesNotMatch(root.innerHTML, /id="q-curve-presets"/);
+  toggle.onclick();
   assert.match(root.innerHTML, /id="q-curve-presets"/);
   assert.match(root.innerHTML, /今天急提实得（扣已领）/);
   assert.match(root.innerHTML, /1,440 A9/);
@@ -2173,14 +2177,17 @@ test('acceptance fix #1: Demo Vault Stage 2 ticket builds from demo-data.js sing
       { dataset: { qCurvePreset: '7' }, disabled: false },
       { dataset: { qCurvePreset: '14' }, disabled: false },
     ];
+    const toggle = {};
     const root = {
       isConnected: true,
       innerHTML: '',
-      querySelector: () => null,
+      querySelector: (sel) => sel === '#q-toggle-curve' ? toggle : null,
       querySelectorAll: (sel) => (sel === '[data-q-curve-preset]' ? presetBtns : []),
     };
     renderVaultView(root, () => {});
     await new Promise((r) => setTimeout(r, 20));
+
+    toggle.onclick();
 
     // Today rendered bill
     assert.match(root.innerHTML, /今天急提实得（扣已领）/);
@@ -2958,6 +2965,7 @@ test('rc1-09: Deep links preserve bet_/round_/burn_ type and roundId, historical
     assert.equal(parsed.route, `/round?dl=${expectType}&round=${expectRound}`);
     assert.equal(parsed.type, expectType);
     assert.equal(parsed.roundId, expectRound);
+    assert.equal(parsed.scrollTarget, expectType === 'burn' ? 'burn' : 'race');
   }
   delete globalThis.window.Telegram;
 
@@ -2975,6 +2983,7 @@ test('rc1-09: Deep links preserve bet_/round_/burn_ type and roundId, historical
   renderStageView(stageRoot, () => {}, '5', { dl: 'bet', round: '5' });
   assert.match(stageRoot.innerHTML, /id="q-deeplink-banner"/);
   assert.match(stageRoot.innerHTML, /data-deeplink-historical="1"/);
+  assert.doesNotMatch(stageRoot.innerHTML, /q-toggle-prediction|q-prediction-panel|data-q-pred/);
   stageRoot.isConnected = false;
 
   // 3. Live #/records renders #live-records-ticket-list directly from fetchUserPortfolio

@@ -6,14 +6,9 @@ import {
   estimateRewardRaw,
   formatRoundA9,
   PROTOCOL_SPECS,
-  fetchPredictionRound,
-  fetchPredictionUser,
-  submitPredictionBet,
-  activatePredictionReward,
   fetchUserPortfolio,
   stakeTicketAmount,
   fetchRoundAirdropDraws,
-  getEffectiveUserId,
   rawToA9,
   serverNowMs,
 } from '../data.js';
@@ -46,50 +41,12 @@ import {
   renderSettlementFailed,
   renderTechnicalHalt,
   renderSettlementBreakdownRows,
-  renderPredictionCard,
   renderEarlyBirdBanner,
   renderSafetyCushionCard,
   renderMyRoundPositionCard,
-  renderAirdropDrawsCard,
   renderRoundRallyCard,
   buildBattleRallyCopy
 } from './round_stages.js';
-
-let activeRoundDeckTab = 'pred';
-
-function renderRoundInteractDeck(round, prediction, user) {
-  return `
-    <section class="round-interact-deck" id="a9-round-interact-deck">
-      <div class="seg-tabs" id="round-deck-tabs">
-        <button type="button" class="seg-tab ${activeRoundDeckTab === 'pred' ? 'active' : ''}" data-round-tab="pred">${L('12H 预言擂台', '12H Arena')}</button>
-        <button type="button" class="seg-tab ${activeRoundDeckTab === 'airdrop' ? 'active' : ''}" data-round-tab="airdrop">${L('每轮 100,000 A9 空投', '100,000 A9 Airdrop')}</button>
-      </div>
-      <div id="round-pane-pred" ${activeRoundDeckTab === 'pred' ? '' : 'hidden'}>
-        ${renderPredictionCard(round, prediction, user)}
-      </div>
-      <div id="round-pane-airdrop" ${activeRoundDeckTab === 'airdrop' ? '' : 'hidden'}>
-        <div id="a9-airdrop-draws-mount">${renderAirdropDrawsCard({ loading: true })}</div>
-      </div>
-    </section>
-  `;
-}
-
-function bindRoundDeckTabs(root) {
-  root.querySelectorAll('[data-round-tab]').forEach((btn) => {
-    btn.onclick = () => {
-      const next = btn.dataset.roundTab === 'airdrop' ? 'airdrop' : 'pred';
-      if (next === activeRoundDeckTab) return;
-      A9Haptic.light();
-      A9Audio.tick();
-      activeRoundDeckTab = next;
-      root.querySelectorAll('[data-round-tab]').forEach((b) => b.classList.toggle('active', b.dataset.roundTab === activeRoundDeckTab));
-      const predPane = root.querySelector('#round-pane-pred');
-      const airPane = root.querySelector('#round-pane-airdrop');
-      if (predPane) predPane.hidden = activeRoundDeckTab !== 'pred';
-      if (airPane) airPane.hidden = activeRoundDeckTab !== 'airdrop';
-    };
-  });
-}
 
 async function syncMyRoundPositionCard(root, onQualifiedChange = null) {
   const mount = root.querySelector('#a9-my-round-position-mount');
@@ -276,7 +233,7 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
   const liveTimelineKey = mapStageToTimelineKey(stage);
 
   // 支持深链定位对应阶段：/round?stage=warmup（原 /warmup）、/round?stage=charge（原 /observation/records）
-  // /round?panel=prediction 落到当前阶段并忽略预言面板
+  // 旧深链仍落到当前阶段
   const requestedRaw = String(query?.stage || '').toLowerCase();
   const initialViewKey = ['warmup', 'stake', 'charge', 'settle'].includes(requestedRaw)
     ? requestedRaw
@@ -350,7 +307,6 @@ export function renderChallengeHome(root, navigate, _param, query = {}) {
     }
 
     // 5d 极简闯关结构：顶部固定 4 段时间轴 + 分享图标 → 主卡 → 我的本轮仓位（紧贴主卡）→ 12 格达标板（冲价/待结算）→ 底部折叠区
-    // 不渲染预言、空投面板与中间插入的喊单卡
     root.innerHTML = `
       <div class="col-gap anim-page-enter" id="round-quest-root">
         ${timelineBarHtml}
@@ -517,251 +473,6 @@ function bindXShareTriggers(root) {
         context: { roundId: round.currentRound, qualified: round.qualifiedCandles, required: round.minQualifiedCandles }
       });
     };
-  });
-}
-
-function repaintPredictionCard(root, navigate) {
-  const cardEl = root.querySelector('#a9-prediction-card');
-  if (!cardEl) return;
-  const { round, prediction, user } = store.state;
-  const wrapper = document.createElement('div');
-  wrapper.innerHTML = renderPredictionCard(round, prediction, user).trim();
-  const nextEl = wrapper.firstElementChild;
-  if (nextEl) {
-    cardEl.replaceWith(nextEl);
-    bindPredictionCardEvents(root, navigate);
-  }
-}
-
-async function syncPredictionState(root, navigate) {
-  const requestedCard = root.querySelector('#a9-prediction-card');
-  if (!requestedCard) return;
-  const { round, user } = store.state;
-  const uiStage = deriveRoundUiState({ detail: round, user, serverNowMs: serverNowMs() }).stage;
-  if (uiStage === 'unknown' || uiStage === 'warmup' || uiStage === 'aborted') return;
-  const roundId = config.isDemo ? (round.currentRound || 1) : round.currentRound;
-  if (!roundId) {
-    requestedCard.textContent = L('轮次数据待核验，暂无法读取预言状态', 'Round data pending verification');
-    return;
-  }
-  const uid = getEffectiveUserId(user);
-  try {
-    const [rData, uData] = await Promise.all([
-      fetchPredictionRound(roundId, uiStage),
-      fetchPredictionUser(uid, roundId)
-    ]);
-    if (!requestedCard.isConnected || store.state.round.currentRound !== roundId) return;
-    store.update(s => {
-      Object.assign(s.prediction, {
-        roundId,
-        passCount: Number(rData?.passCount) || 0,
-        burnCount: Number(rData?.burnCount) || 0,
-        total: Number(rData?.total) || 0,
-        passPct: Number.isFinite(Number(rData?.passPct)) ? Number(rData.passPct) : 50,
-        burnPct: Number.isFinite(Number(rData?.burnPct)) ? Number(rData.burnPct) : 50,
-        settled: Boolean(rData?.settled),
-        winningSide: rData?.winningSide || null,
-        pendingActivationRaw: String(uData?.pendingActivationRaw || '0'),
-        activatedRaw: String(uData?.activatedRaw || '0'),
-        currentBet: uData?.currentBet || null,
-        streak: Number(uData?.streak) || 0,
-        winRate: uData?.winRate !== null && uData?.winRate !== undefined && Number.isFinite(Number(uData.winRate)) ? Number(uData.winRate) : null,
-        inviteBoostCount: Number(uData?.inviteBoostCount ?? uData?.inviteBoost) || 0,
-        pendingExpiresAt: uData?.pendingExpiresAt ?? uData?.expiresAt ?? null,
-        loaded: true
-      });
-    });
-    const badge = document.getElementById('profile-tab-badge');
-    if (badge) {
-      const hasPending = (Number(store.state.user.a9Claimable) || 0) > 0 || (rawToA9(store.state.prediction.pendingActivationRaw) || 0) > 0;
-      badge.classList.toggle('hidden', !hasPending);
-    }
-    repaintPredictionCard(root, navigate);
-  } catch (_) {
-    if (!config.isDemo && requestedCard.isConnected) {
-      requestedCard.textContent=L('预言数据暂不可读取','Prediction data unavailable');
-      const retry=document.createElement('button');retry.className='btn btn-secondary';retry.textContent=L('重试','Retry');
-      retry.onclick=()=>syncPredictionState(root,navigate);requestedCard.append(retry);
-    }
-  }
-}
-
-function bindPredictionCardEvents(root, navigate) {
-  const card = root.querySelector('#a9-prediction-card');
-  if (!card) return;
-  const { round, prediction, user } = store.state;
-  const roundId = round.currentRound || 1;
-  let selectedSide = 'PASS';
-
-  const toggleHead = card.querySelector('#pred-toggle-head');
-  if (toggleHead) {
-    const doToggle = () => {
-      A9Haptic.light();
-      const cur = toggleHead.getAttribute('aria-expanded') === 'true';
-      store.state.prediction.expanded = !cur;
-      repaintPredictionCard(root, navigate);
-      root.querySelector('#pred-toggle-head')?.focus({ preventScroll: true });
-    };
-    toggleHead.onclick = doToggle;
-    toggleHead.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doToggle(); } };
-  }
-
-  const sideBtns = card.querySelectorAll('[data-pred-side]');
-  if (sideBtns.length) {
-    sideBtns.forEach(b => {
-      b.classList.toggle('selected', b.dataset.predSide === selectedSide);
-      b.onclick = () => {
-        A9Haptic.tick();
-        selectedSide = b.dataset.predSide;
-        sideBtns.forEach(x => x.classList.toggle('selected', x.dataset.predSide === selectedSide));
-      };
-    });
-  }
-
-  const slotInputEl = card.querySelector('#pred-guess-slots');
-  const weightEl = card.querySelector('#pred-cur-weight');
-  if (slotInputEl && weightEl) {
-    const inviteBonus = Math.min(0.5, Math.max(0, Number(prediction.inviteBoostCount) || 0) * 0.1);
-    slotInputEl.oninput = () => {
-      const hasSlot = slotInputEl.value.trim() !== '';
-      const nextW = Math.min(2.0, 1.0 + (hasSlot ? 0.5 : 0) + inviteBonus);
-      weightEl.textContent = `${nextW.toFixed(1)}x`;
-    };
-  }
-
-  const submitBtn = card.querySelector('#btn-pred-submit');
-  if (submitBtn) {
-    submitBtn.onclick = async () => {
-      const uid = getEffectiveUserId(user);
-      if (!uid) {
-        showToast(L('请在 Telegram 内打开或先连接 TON 钱包', 'Open in Telegram or connect TON wallet first'), 'amber');
-        return;
-      }
-      const slotInput = card.querySelector('#pred-guess-slots');
-      const rawVal = slotInput ? slotInput.value.trim() : '';
-      let guessSlots = null;
-      if (rawVal !== '') {
-        const n = Number(rawVal);
-        if (!Number.isInteger(n) || n < 0 || n > 12) {
-          showToast(L('精准格数须为 0 至 12 的整数', 'Exact slots must be an integer between 0 and 12'), 'error');
-          return;
-        }
-        guessSlots = n;
-      }
-      submitBtn.disabled = true;
-      try {
-        await submitPredictionBet({
-          roundId,
-          userId: uid,
-          side: selectedSide,
-          guessSlots,
-          referrerId: store.state.referral.referrerId
-        });
-        A9Haptic.success();
-        A9Audio.confirm();
-        showToast(L(`已锁定本轮预言：${selectedSide === 'BURN' ? '押未通关 FAIL' : '押通关 PASS'}`, `Prediction locked: ${selectedSide === 'BURN' ? 'FAIL' : 'PASS'}`));
-        await syncPredictionState(root, navigate);
-      } catch (e) {
-        A9Haptic.error();
-        showToast(e?.message || L('提交预言失败，请重试', 'Prediction submit failed'), 'error');
-        submitBtn.disabled = false;
-      }
-    };
-  }
-
-  const connBtn = card.querySelector('#btn-pred-connect');
-  if (connBtn) {
-    connBtn.onclick = () => tonConnect.openConnectModal(() => {
-      repaintPredictionCard(root, navigate);
-      syncPredictionState(root, navigate);
-    });
-  }
-
-  const tgShareBtn = card.querySelector('#btn-pred-tg-share');
-  if (tgShareBtn && prediction.currentBet) {
-    tgShareBtn.onclick = () => {
-      const bet = prediction.currentBet;
-      const ogUrl = buildOgShareUrl('bet', roundId);
-      const sideText = bet.side === 'BURN' ? L('未通关 FAIL', 'FAIL') : L('通关 PASS', 'PASS');
-      const oppText = bet.side === 'BURN' ? L('通关 PASS', 'PASS') : L('未通关 FAIL', 'FAIL');
-      const text = L(
-        `这轮 A9 第 ${roundId} 轮 12H 冲价我押了【${sideText}】${bet.guessSlots !== null && bet.guessSlots !== undefined ? `（精准 ${bet.guessSlots}/12 段）` : ''}，不服的来押【${oppText}】对赌！0 GRAM 进场，新人首轮猜错还保底领 500 A9：`,
-        `I locked [${sideText}] on A9 Round #${roundId} 12H Push! Think it's [${oppText}]? 0 GRAM entry with a 500 A9 rookie floor:`
-      );
-      A9TMA.shareInvite(ogUrl, text);
-      showToast(L('已调起 Telegram 群分享', 'Opened Telegram group share'));
-    };
-  }
-
-  const xShareBtn = card.querySelector('#btn-pred-x-share');
-  if (xShareBtn && prediction.currentBet) {
-    xShareBtn.onclick = () => {
-      openXShareSheet({
-        type: 'bet',
-        id: roundId,
-        context: {
-          roundId,
-          side: prediction.currentBet.side,
-          guessSlots: prediction.currentBet.guessSlots,
-          qualified: round.qualifiedCandles,
-          required: round.minQualifiedCandles
-        }
-      });
-    };
-  }
-
-  const actBtn = card.querySelector('#btn-pred-activate');
-  if (actBtn) {
-    actBtn.onclick = async () => {
-      if (!store.fundsEnabled) {
-        showToast(L('当前真实模式处于只读验收阶段，奖励激活入账暂未开放', 'Live mode is read-only; reward activation is currently disabled'), 'amber');
-        return;
-      }
-      if (!user.connected || !user.address) {
-        showToast(L('请先连接 TON 钱包以激活奖励', 'Connect TON wallet first to activate'), 'amber');
-        tonConnect.openConnectModal(() => {
-          repaintPredictionCard(root, navigate);
-          syncPredictionState(root, navigate);
-        });
-        return;
-      }
-      const uid = getEffectiveUserId(user);
-      actBtn.disabled = true;
-      try {
-        const res = await activatePredictionReward(uid, user.address);
-        A9Haptic.success();
-        A9Audio.confirm();
-        const deltaA9 = rawToA9(res?.activatedDeltaRaw ?? res?.activatedRaw ?? prediction.pendingActivationRaw) || 0;
-        showToast(L(`已激活 ${formatNum(deltaA9)} A9 至邀友奖励账户，可走 0.06 GRAM 提现`, `Activated ${formatNum(deltaA9)} A9 to invite reward balance`));
-        await syncPredictionState(root, navigate);
-      } catch (e) {
-        A9Haptic.error();
-        if (e?.code === 'ACTIVATION_REQUIREMENT_UNMET') {
-          showToast(L('请先在宝箱商城购任意宝箱（0.99 GRAM 起）、链上锁仓，或直邀 1 位好友购箱后再激活', 'Buy any chest (0.99+ GRAM), lock A9 on-chain, or invite 1 paid friend before activating'), 'amber');
-          actBtn.disabled = false;
-        } else if (e?.code === 'VOUCHER_EXPIRED') {
-          showToast(L('待激活预言券已过期并回流奖池', 'Pending prediction voucher has expired and returned to the pool'), 'amber');
-          await syncPredictionState(root, navigate);
-        } else {
-          showToast(e?.message || L('激活失败，请先购任意宝箱（0.99 GRAM 起）、链上锁仓或直邀 1 位好友购箱', 'Activation failed; buy any chest (0.99+ GRAM), lock A9, or invite 1 paid friend first'), 'error');
-          actBtn.disabled = false;
-        }
-      }
-    };
-  }
-}
-
-function handlePendingDeepLinkScroll(root) {
-  const targetKey = store.state.referral.pendingScrollTarget;
-  if (!targetKey) return;
-  store.state.referral.pendingScrollTarget = null;
-  if (targetKey === 'prediction') {
-    store.state.prediction.expanded = true;
-  }
-  const elId = targetKey === 'burn' ? '#burn-monument-card' : '#a9-prediction-card';
-  requestAnimationFrame(() => {
-    const targetEl = root.querySelector(elId);
-    if (targetEl) targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
 }
 
@@ -1061,7 +772,7 @@ export function renderParticipateConfirm(root, navigate) {
         </section>
         <section class="card" id="live-readonly-stake-notice" style="border-color:var(--gold-border);">
           <div class="row-start" style="font-weight:700;margin-bottom:4px;">${icon('shieldAlert', 15, 'text-gold')} ${L('真实只读模式 · 暂未开放锁仓签名', 'Live Read-Only · Locking Disabled')}</div>
-          <div class="num-xs text-sec" style="line-height:1.5;">${L('当前真实模式仅支持只读核验，不唤起钱包签名或扣款。你可以先返回闯关页参与 0 GRAM 12H 预言擂台。', 'Live mode is read-only; no wallet signature or transfer will be triggered. Join the 0 GRAM 12H Prediction Arena on the Quest page.')}</div>
+          <div class="num-xs text-sec" style="line-height:1.5;">${L('当前真实模式仅支持只读核验，不唤起钱包签名或扣款。', 'Live mode is read-only; no wallet signature or transfer will be triggered.')}</div>
         </section>
         <button class="btn btn-secondary" type="button" disabled>${icon('lock', 15)} ${L('当前只读 · 暂未开放锁仓签名', 'Read-Only · Lock Signing Disabled')}</button>
         <div class="sw-menu-group">
@@ -1348,8 +1059,7 @@ function renderLiveStakeConfirm(root, navigate) {
         ${!store.fundsEnabled ? `
           <div class="card" id="live-readonly-stake-notice" style="border-color:var(--gold-border);">
             <div class="row-start" style="font-weight:600;margin-bottom:4px;">${icon('shieldAlert', 15, 'text-gold')} ${L('真实只读模式 · 暂未开放锁仓签名', 'Live Read-Only · Locking Disabled')}</div>
-            <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:8px;">${L('真实只读模式 · 暂不发起签名或扣款。你可以先参与 0 GRAM 12H 预言擂台。', 'Live read-only · no signature or transfer. Try the 0 GRAM 12H Prediction Arena meantime.')}</div>
-            <a class="btn btn-secondary btn-sm" href="#/round" style="width:100%;">${icon('radar', 13)} ${L('先去 0 GRAM 12H 预言擂台参与本轮', 'Join 0 GRAM 12H Prediction Arena')} ›</a>
+            <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:8px;">${L('真实只读模式 · 暂不发起签名或扣款。', 'Live read-only · no signature or transfer.')}</div>
           </div>
         ` : ''}
 

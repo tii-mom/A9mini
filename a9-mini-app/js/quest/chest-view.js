@@ -542,14 +542,17 @@ export function renderChestView(root, _navigate, _param = null, _query = {}) {
           <div class="q-stat"><small>${L('保底', 'Guaranteed')}</small><b class="q-num">${fmtIntOrDash(baseA9)}</b>${baseA9 === null ? '' : '<span>A9</span>'}</div>
           <div class="q-stat"><small>${L('最高可得', 'Maximum')}</small><b class="q-num">${fmtIntOrDash(maxTotal)}</b>${maxTotal === null ? '' : `<span>A9 · +${fmtIntOrDash(maxBoost)}</span>`}</div>
         </div>
-        ${evStats?.valid ? `
-          <div class="q-kv"><span>${L('平均加赠', 'Avg bonus')}</span><b class="q-num">${L(`约 ${fmtApproxA9(evStats.approxBonusA9)} A9`, `~${fmtApproxA9(evStats.approxBonusA9)} A9`)}</b></div>
-          <div class="q-kv"><span>${L('加赠占比', 'Bonus share')}</span><b class="q-num" style="font-size:11px;">${L(`最大加赠的 ${evStats.pctOfMaxBoost.toFixed(2)}%${evStats.pctOfBase !== null ? ` · 约占保底 ${evStats.pctOfBase.toFixed(2)}%` : ''}`, `${evStats.pctOfMaxBoost.toFixed(2)}% of max bonus${evStats.pctOfBase !== null ? ` · ~${evStats.pctOfBase.toFixed(2)}% of base` : ''}`)}</b></div>
-          <div class="q-kv"><span>${L('平均到手', 'Avg total')}</span><b class="q-num">${L(`约 ${fmtApproxA9(evStats.approxTotalA9)} A9`, `~${fmtApproxA9(evStats.approxTotalA9)} A9`)}</b></div>
-        ` : ''}
         <div class="q-kv"><span>${L('宝箱价格', 'Chest Price')}</span><b class="q-num">${priceText ? `${priceText} GRAM` : '—'}</b></div>
         <div class="q-kv"><span>${L('配送费', 'Delivery Gas')}</span><b class="q-num">${feeText ? `${feeText} GRAM` : '—'}</b></div>
         <div class="q-kv"><span>${L('合计支付', 'Total Payment')}</span><b class="red q-num">${totalText ? `${totalText} GRAM` : '—'}</b></div>
+        ${evStats?.valid ? `
+          <details class="q-details">
+            <summary>${L('平均加赠详情', 'Average bonus details')}</summary>
+          <div class="q-kv"><span>${L('平均加赠', 'Avg bonus')}</span><b class="q-num">${L(`约 ${fmtApproxA9(evStats.approxBonusA9)} A9`, `~${fmtApproxA9(evStats.approxBonusA9)} A9`)}</b></div>
+          <div class="q-kv"><span>${L('加赠占比', 'Bonus share')}</span><b class="q-num" style="font-size:11px;">${L(`最大加赠的 ${evStats.pctOfMaxBoost.toFixed(2)}%${evStats.pctOfBase !== null ? ` · 约占保底 ${evStats.pctOfBase.toFixed(2)}%` : ''}`, `${evStats.pctOfMaxBoost.toFixed(2)}% of max bonus${evStats.pctOfBase !== null ? ` · ~${evStats.pctOfBase.toFixed(2)}% of base` : ''}`)}</b></div>
+          <div class="q-kv"><span>${L('平均到手', 'Avg total')}</span><b class="q-num">${L(`约 ${fmtApproxA9(evStats.approxTotalA9)} A9`, `~${fmtApproxA9(evStats.approxTotalA9)} A9`)}</b></div>
+          </details>
+        ` : ''}
         <div class="q-foot-note">
           ${L('保底与加赠合并直发。异常或逾期退款扣 0.03 GRAM 网络费。', 'Base and bonus arrive together. Failed or expired orders refund minus 0.03 GRAM gas.')}
         </div>
@@ -985,7 +988,7 @@ export function renderChestView(root, _navigate, _param = null, _query = {}) {
         <section class="q-mall-hero">
           <div class="q-art">${chestArtSvg('gold', 92)}</div>
           <h2>${L('宝箱商城', 'Chest Mall')}</h2>
-          <p>${L('保底与加赠合并直发 · 下单时另付 0.06 GRAM 配送费', 'Base and bonus paid together · 0.06 GRAM delivery fee added at checkout')}</p>
+          <p>${L('直发钱包 · 另付 0.06 GRAM 配送费', 'Delivered to wallet · plus 0.06 GRAM delivery')}</p>
           ${freeBannerHtml}
         </section>
 
@@ -1015,56 +1018,6 @@ export function renderChestView(root, _navigate, _param = null, _query = {}) {
         ` : ''}
 
         ${catalogHtml}
-
-        <section class="q-card" id="mall-base-receipt-strip">
-          <div class="q-card-h">
-            <h3>${qIcon('dice', 18)} ${L('随机加赠概率公示', 'Random Bonus Odds')}</h3>
-            <a class="q-chip mall-verify-link" href="#/rules#audit" style="text-decoration:none;">${L('链上核验', 'Verify')} ›</a>
-          </div>
-          ${oddsSummary.valid ? `<p class="q-chest-odds-note">${L(`平均加赠约为最大加赠额的 <b class="q-num">${(oddsSummary.meanMaxRatio * 100).toFixed(2)}%</b>。实发按整枚 A9 向下取整。`, `Mean bonus is ~<b class="q-num">${(oddsSummary.meanMaxRatio * 100).toFixed(2)}%</b> of the maximum. Payouts round down to whole A9.`)}</p>` : ''}
-          ${!oddsRows.length ? L('概率待公布', 'Odds pending') : `
-            ${oddsSummary.invalidWeight ? `<div class="q-notice yellow">${qIcon('info', 16)}<span>${L('概率权重待核验。', 'Odds weights pending verification.')}</span></div>` : ''}
-            <table class="q-chest-odds" aria-label="${L('随机加赠概率', 'Random bonus odds')}">
-              <thead><tr><th scope="col">${L('档位', 'Tier')}</th><th scope="col">${L('概率', 'Chance')}</th><th scope="col">${L('占最大加赠', 'Share of max bonus')}</th></tr></thead>
-              <tbody>${oddsRows.map((o) => {
-                const lo = Math.round(o.minRatio * 10000) / 100;
-                const hi = Math.round(o.maxRatio * 10000) / 100;
-                return `<tr>
-                  <th scope="row">${escapeHtml(L(o.labelZh || '区间', o.labelEn || 'Tier'))}</th>
-                  <td class="q-num"><b>${o.weight}%</b><span class="q-bar red" aria-hidden="true"><i style="width:${o.weight}%"></i></span></td>
-                  <td class="q-num">${lo}%–${hi}%</td>
-                </tr>`;
-              }).join('')}</tbody>
-            </table>
-          `}
-        </section>
-
-        <section class="q-card">
-          <div class="q-card-h">
-            <h3>${qIcon('eye', 18)} ${L('高额加赠记录', 'Top Bonus Feed')}</h3>
-            <span class="q-chip q-chip-red">${isLive ? L('实况', 'Live') : L('演示', 'Demo')}</span>
-          </div>
-          ${state.feed.length === 0 ? `
-            <div class="q-small q-muted">${L('暂无公开记录。', 'No public records yet.')}</div>
-          ` : `
-            <div class="q-feed">
-              ${state.feed.slice(0, 6).map((f) => {
-                const who = f.actor || f.maskedWallet || f.who || '—';
-                const skuName = L(f.labelZh || f.skuZh || f.name || '宝箱', f.labelEn || f.skuEn || f.name || 'Chest');
-                const amount = formatRoundA9(f.boostA9Raw);
-                return `
-                <div class="q-feed-i">
-                  ${chestArtSvg(f.tier || 'gold', 34)}
-                  <div>
-                    <span class="q-who">${escapeHtml(who)}</span>
-                    <small>${escapeHtml(skuName)}</small>
-                  </div>
-                  <span class="q-amt q-num">${amount === '—' ? '—' : `+${escapeHtml(amount)}`}</span>
-                </div>`;
-              }).join('')}
-            </div>
-          `}
-        </section>
 
         <section class="q-card" id="q-chest-orders-card">
           <div class="q-card-h">
@@ -1098,6 +1051,57 @@ export function renderChestView(root, _navigate, _param = null, _query = {}) {
             </div>
           `}
         </section>
+
+        <details class="q-card q-history" id="mall-base-receipt-strip" ${root.querySelector('#mall-base-receipt-strip')?.open ? 'open' : ''}>
+          <summary class="q-history-summary">
+            <span class="q-history-title">${qIcon('dice', 18)} ${L('随机加赠概率', 'Random Bonus Odds')}</span>
+            <span class="q-history-chevron" aria-hidden="true">${qIcon('chevR', 15)}</span>
+          </summary>
+          <a class="q-chip mall-verify-link" href="#/rules#audit">${L('链上核验', 'Verify')} ›</a>
+          ${oddsSummary.valid ? `<p class="q-chest-odds-note">${L(`平均加赠约为最大加赠额的 <b class="q-num">${(oddsSummary.meanMaxRatio * 100).toFixed(2)}%</b>。实发按整枚 A9 向下取整。`, `Mean bonus is ~<b class="q-num">${(oddsSummary.meanMaxRatio * 100).toFixed(2)}%</b> of the maximum. Payouts round down to whole A9.`)}</p>` : ''}
+          ${!oddsRows.length ? L('概率待公布', 'Odds pending') : `
+            ${oddsSummary.invalidWeight ? `<div class="q-notice yellow">${qIcon('info', 16)}<span>${L('概率权重待核验。', 'Odds weights pending verification.')}</span></div>` : ''}
+            <table class="q-chest-odds" aria-label="${L('随机加赠概率', 'Random bonus odds')}">
+              <thead><tr><th scope="col">${L('档位', 'Tier')}</th><th scope="col">${L('概率', 'Chance')}</th><th scope="col">${L('占最大加赠', 'Share of max bonus')}</th></tr></thead>
+              <tbody>${oddsRows.map((o) => {
+                const lo = Math.round(o.minRatio * 10000) / 100;
+                const hi = Math.round(o.maxRatio * 10000) / 100;
+                return `<tr>
+                  <th scope="row">${escapeHtml(L(o.labelZh || '区间', o.labelEn || 'Tier'))}</th>
+                  <td class="q-num"><b>${o.weight}%</b><span class="q-bar red" aria-hidden="true"><i style="width:${o.weight}%"></i></span></td>
+                  <td class="q-num">${lo}%–${hi}%</td>
+                </tr>`;
+              }).join('')}</tbody>
+            </table>
+          `}
+        </details>
+
+        <details class="q-card q-history" id="q-bonus-feed-card" ${root.querySelector('#q-bonus-feed-card')?.open ? 'open' : ''}>
+          <summary class="q-history-summary">
+            <span class="q-history-title">${qIcon('eye', 18)} ${L('高额加赠记录', 'Top Bonus Feed')}</span>
+            <span class="q-history-chevron" aria-hidden="true">${qIcon('chevR', 15)}</span>
+          </summary>
+          ${state.feed.length === 0 ? `
+            <div class="q-small q-muted">${L('暂无公开记录。', 'No public records yet.')}</div>
+          ` : `
+            <div class="q-feed">
+              ${state.feed.slice(0, 6).map((f) => {
+                const who = f.actor || f.maskedWallet || f.who || '—';
+                const skuName = L(f.labelZh || f.skuZh || f.name || '宝箱', f.labelEn || f.skuEn || f.name || 'Chest');
+                const amount = formatRoundA9(f.boostA9Raw);
+                return `
+                <div class="q-feed-i">
+                  ${chestArtSvg(f.tier || 'gold', 34)}
+                  <div>
+                    <span class="q-who">${escapeHtml(who)}</span>
+                    <small>${escapeHtml(skuName)}</small>
+                  </div>
+                  <span class="q-amt q-num">${amount === '—' ? '—' : `+${escapeHtml(amount)}`}</span>
+                </div>`;
+              }).join('')}
+            </div>
+          `}
+        </details>
       </div>
     `;
 

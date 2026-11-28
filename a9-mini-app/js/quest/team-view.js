@@ -58,7 +58,7 @@ let teamViewSeq = 0;
 const STATIC_PROMO_BUCKETS = Object.freeze([
   { zh: '商城直推返佣 / 加赠', en: 'Chest Mall Referral & Bonus', capA9: 48_000_000 },
   { zh: '免费任务宝箱', en: 'Free Task Chests', capA9: 100_000_000 },
-  { zh: '12 小时预言擂台', en: '12H Prediction Arena', capA9: 100_000_000 },
+  { zh: '历史活动额度', en: 'Legacy activity allocation', capA9: 100_000_000 },
   { zh: '下轮预热宝箱', en: 'Warm-Up Chests', capA9: 52_000_000 },
   { zh: '好友通关返佣 8%', en: 'Friend Pass 8% Rebate', capA9: 200_000_000 },
   { zh: '每关等权空投（100,000 A9 / 关）', en: 'Per-Stage Equal Airdrop', capA9: 50_000_000 },
@@ -419,11 +419,12 @@ export function renderTeamView(root, _navigate, _param = null, query = {}) {
           `}
         </section>
 
-        <section class="q-card" id="q-airdrop-draws-card">
-          <div class="q-card-h">
-            <h3>${qIcon('dice', 18)} ${L('每关等权空投', 'Stage airdrops')}</h3>
+        <details class="q-card q-history" id="q-airdrop-draws-card" ${root.querySelector('#q-airdrop-draws-card')?.open ? 'open' : ''}>
+          <summary class="q-history-summary">
+            <span class="q-history-title">${qIcon('dice', 18)} ${L('每关等权空投', 'Stage airdrops')}</span>
             <span class="q-chip q-chip-blue q-num">100,000 A9</span>
-          </div>
+            <span class="q-history-chevron" aria-hidden="true">${qIcon('chevR', 15)}</span>
+          </summary>
           <p class="q-team-group-note q-small q-muted">${L(`锁仓满 ${PROTOCOL_SPECS.minStakeA9} A9 即入池，结算后等权开奖。`, `Lock ${PROTOCOL_SPECS.minStakeA9} A9 to enter. Equal odds after settlement.`)}</p>
           ${state.airdrops.length === 0 ? `
             <div class="q-small q-muted">${state.loading ? L('开奖结果同步中…', 'Syncing draws…') : state.airdropError ? L('开奖结果读取失败', 'Draws unavailable') : L('暂无开奖记录', 'No draws yet')}</div>
@@ -439,7 +440,7 @@ export function renderTeamView(root, _navigate, _param = null, query = {}) {
               `).join('')}
             </div>
           `}
-        </section>
+        </details>
 
         <section class="q-card" id="q-promo-cap-card">
           <div class="q-card-h">
@@ -448,7 +449,7 @@ export function renderTeamView(root, _navigate, _param = null, query = {}) {
           <strong class="q-team-cap-total q-num">${formatNum(PROTOCOL_SPECS.promoCapA9)} A9</strong>
           <details class="q-details" id="q-promo-buckets-details">
             <summary>${L('6 独立额度桶', '6 independent caps')}</summary>
-            <p class="q-small q-muted q-team-group-note">${L('各项占总预算的比例，用完即停。', 'Share of the total budget. Each cap applies independently.')}</p>
+            <p class="q-small q-muted q-team-group-note">${L('各项用完即停。', 'Each allocation has its own cap.')}</p>
             <div class="q-team-cap-chart">
               ${STATIC_PROMO_BUCKETS.map((b) => {
                 const share = b.capA9 / PROTOCOL_SPECS.promoCapA9 * 100;

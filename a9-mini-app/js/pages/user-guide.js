@@ -62,11 +62,7 @@ export function renderUserGuide(root, _navigate, _param = null, query = {}, anch
       </ol>
       <div class="guide-stamp-board">
         <strong>${L('12 个时段，至少 8 个达标', 'At least 8 of 12 slots must qualify')}</strong>
-        <div class="guide-stamps" aria-hidden="true">
-          ${[true,true,false,true,true,false,true,true,true,false,true,false].map(met =>
-            `<span class="${met ? 'is-met' : ''}">${met ? '✓' : '×'}</span>`).join('')}
-        </div>
-        <small>${L('示例 · 按每个时段的 1H 均价判定。', 'Example · Each slot uses its 1H average.')}</small>
+        <small>${L('每段按 1 小时均价判定。', 'Each slot uses its hourly average.')}</small>
       </div>
       <p>${L('每 1 A9 算 1 份，单轮奖金封顶 5×。锁仓期提前解押退 85% 本金，销毁 15%。', 'Each A9 counts equally. Rewards cap at 5× principal. Early exit returns 85% of principal and burns 15%.')}</p>
     </section>

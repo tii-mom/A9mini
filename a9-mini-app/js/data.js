@@ -56,8 +56,6 @@ export const ENDPOINTS = Object.freeze({
   promoIntent: '/api/promo/intent',
   promoClaim: (id) => `/api/promo/claim/${id}`,
   promoBalance: (addr) => `/api/promo/balance/${encodeURIComponent(addr)}`,
-  predictionBet: '/api/prediction/bet',
-  predictionRound: (id) => `/api/prediction/round/${encodeURIComponent(id)}`,
   predictionUser: (userId, roundId) => `/api/prediction/user/${encodeURIComponent(userId)}${roundId !== undefined && roundId !== null ? `?roundId=${encodeURIComponent(roundId)}` : ''}`,
   predictionActivate: '/api/prediction/activate',
   progressionMe: (roundId) => `/api/progression/me${roundId !== undefined && roundId !== null ? `?roundId=${encodeURIComponent(roundId)}` : ''}`,
@@ -561,16 +559,7 @@ export async function submitTonProof({ address, network, publicKey, walletStateI
   return request(ENDPOINTS.tonProofVerify, { method: 'POST', body: { address, network, publicKey, walletStateInit, proof, purpose } });
 }
 
-/** 12H 预言擂台：读取本轮多空实时比例 */
-export async function fetchPredictionRound(roundId, stage = 'observation') {
-  if (config.isDemo) {
-    const demo = await loadDemoModule();
-    return demo.demoPredictionRound(roundId, stage);
-  }
-  return request(ENDPOINTS.predictionRound(roundId));
-}
-
-/** 12H 预言擂台：读取当前用户本轮下注与待激活奖励 */
+/** 读取旧活动账户及通用待激活奖励余额（保留历史履约）。 */
 export async function fetchPredictionUser(userId, roundId) {
   if (!userId) return { userId: null, pendingActivationRaw: '0', activatedRaw: '0', currentBet: null };
   if (config.isDemo) {
@@ -578,25 +567,6 @@ export async function fetchPredictionUser(userId, roundId) {
     return demo.demoPredictionUser(userId, roundId);
   }
   return request(ENDPOINTS.predictionUser(userId, roundId));
-}
-
-/** 12H 预言擂台：提交单轮多空预言（0 GRAM 参战） */
-export async function submitPredictionBet({ roundId, userId, side, guessSlots, referrerId }) {
-  if (!userId) throw new ApiError('IDENTITY_REQUIRED', L('请在 Telegram 内打开或先连接 TON 钱包后再提交预言', 'Open inside Telegram or connect a TON wallet before predicting'));
-  if (config.isDemo) {
-    const demo = await loadDemoModule();
-    try {
-      return demo.demoPredictionBet({ roundId, userId, side, guessSlots, referrerId });
-    } catch (e) {
-      throw new ApiError('DEMO_BET_ERR', e.message);
-    }
-  }
-  const payload = { roundId: Number(roundId), userId: String(userId), side };
-  if (guessSlots !== null && guessSlots !== undefined && guessSlots !== '') {
-    payload.guessSlots = Math.max(0, Math.min(12, Math.floor(Number(guessSlots))));
-  }
-  if (referrerId) payload.referrerId = String(referrerId);
-  return request(ENDPOINTS.predictionBet, { method: 'POST', body: payload });
 }
 
 /** 12H 预言擂台：激活待激活预言奖励到 promo_balances（live 只读阶段拦截，实盘态附带幂等键） */

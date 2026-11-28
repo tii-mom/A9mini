@@ -247,7 +247,7 @@ export const A9TMA = {
       const qs = new URLSearchParams();
       qs.set('dl', type);
       if (parsedRoundId) qs.set('round', parsedRoundId);
-      const scrollTarget = type === 'bet' ? 'prediction' : type === 'burn' ? 'burn' : 'race';
+      const scrollTarget = type === 'burn' ? 'burn' : 'race';
       return {
         raw: safeRaw,
         type,

@@ -8,7 +8,7 @@ import { A9Haptic } from '../tma.js';
 import { A9Audio } from '../audio.js';
 import { icon } from '../icons.js';
 import { L } from '../i18n.js';
-import { estimateRewardRaw, formatRoundA9, PROTOCOL_SPECS, rawToA9, getEffectiveUserId, serverNowMs } from '../data.js';
+import { estimateRewardRaw, formatRoundA9, PROTOCOL_SPECS, rawToA9, serverNowMs } from '../data.js';
 import { deriveRoundUiState } from '../round-state.js';
 
 function stagePillTrigger(roundOrStage, roundNum) {
@@ -161,8 +161,8 @@ export function buildBattleRallyCopy(round, inviteLink, tpl = 'push') {
   }
   if (tpl === 'free') {
     return L(
-      `【A9 新人 0 GRAM 上车】免费秒开新手青铜箱领 200 A9，再进 0 GRAM 12H 预言擂台猜涨跌！宝箱商城 0.99 GRAM 起保底 + 随机直发钱包：${inviteLink}`,
-      `[A9 0 GRAM Free Start] Open your free 200 A9 Starter Bronze Chest and join the 0 GRAM 12H Prediction Arena! Chest Mall starts at 0.99 GRAM with direct wallet payout: ${inviteLink}`
+      `【A9 新人 0 GRAM 上车】免费秒开新手青铜箱领 200 A9。宝箱商城 0.99 GRAM 起保底 + 随机直发钱包：${inviteLink}`,
+      `[A9 0 GRAM Free Start] Open your free 200 A9 Starter Bronze Chest.  Chest Mall starts at 0.99 GRAM with direct wallet payout: ${inviteLink}`
     );
   }
   const priceLineZh = m.deltaPct !== null
@@ -463,176 +463,6 @@ export function renderEarlyBirdBanner(round) {
  */
 export function renderVeteranShieldCard() {
   return '';
-}
-
-/**
- * 12H 预言擂台嵌入式卡片（0 GRAM 参战 + 新人首轮保底 + 防薅激活闭环）
- */
-export function renderPredictionCard(round, pred, user) {
-  const derivedUi = deriveRoundUiState({ detail: round, user, serverNowMs: serverNowMs() });
-  const derivedStage = derivedUi.stage;
-  if (derivedStage === 'unknown' || derivedStage === 'warmup' || derivedStage === 'aborted') {
-    return `<section class="card col-gap" id="a9-prediction-card"><strong>${L('12H 预言擂台', '12H Prediction Arena')}</strong><span>${derivedStage === 'aborted' ? L('本轮已中止', 'Round aborted') : L('本轮预言暂未开放', 'Predictions are closed for now')}</span></section>`;
-  }
-  if (!config.isDemo && (!pred?.loaded || pred.roundId !== round.currentRound)) {
-    return `<div class="card" id="a9-prediction-card"><div class="card-title">${L('12H 预言擂台', '12H Prediction Arena')}</div><p class="num-xs text-muted" style="margin:6px 0 0;">${L('正在读取预言数据…', 'Reading prediction data…')}</p></div>`;
-  }
-  const p = pred || {};
-  const roundNum = round?.currentRound || 1;
-  const myStakeNum = toFiniteNum(round?.myStakeTon);
-  const hasStaked = (myStakeNum !== null && myStakeNum > 0) || store.state.certificates.some(c => Number(c.round) === Number(roundNum));
-  const isExpanded = p.expanded !== null && p.expanded !== undefined ? Boolean(p.expanded) : !hasStaked;
-  const passPct = toFiniteNum(p.passPct) ?? 50;
-  const burnPct = toFiniteNum(p.burnPct) ?? 50;
-  const total = toFiniteNum(p.total) ?? 0;
-  const bet = p.currentBet || null;
-  const settled = Boolean(p.settled || derivedStage === 'passed' || derivedStage === 'failed');
-  const winningSide = p.winningSide || (derivedStage === 'passed' ? 'PASS' : derivedStage === 'failed' ? 'BURN' : null);
-  const pendingA9 = rawToA9(p.pendingActivationRaw) || 0;
-  const effectiveUid = getEffectiveUserId(user);
-  const needsIdentity = !effectiveUid;
-
-  const refPrice = (round?.priceValid !== false) ? (toFiniteNum(round?.livePrice ?? round?.twap24h) ?? 0) : 0;
-  const usdEst = (pendingA9 > 0 && refPrice > 0) ? pendingA9 * refPrice : null;
-  const expAt = toFiniteNum(p.pendingExpiresAt);
-  const expRemSec = (expAt !== null && expAt > Date.now()) ? Math.floor((expAt - Date.now()) / 1000) : null;
-
-  const inviteCnt = Math.max(0, toFiniteNum(p.inviteBoostCount) ?? 0);
-  const inviteBonus = Math.min(0.5, inviteCnt * 0.1);
-  const hasExactSlot = bet && bet.guessSlots !== null && bet.guessSlots !== undefined;
-  const curWeight = Math.min(2.0, 1.0 + (hasExactSlot ? 0.5 : 0) + inviteBonus);
-  const streak = toFiniteNum(p.streak) ?? 0;
-  const winRate = toFiniteNum(p.winRate);
-  const rankMeta = streak >= 2
-    ? `${L(`${streak} 连胜`, `${streak}W`)}${winRate !== null ? ` · ${L(`胜率 ${winRate}%`, `${winRate}% WR`)}` : ''}`
-    : (winRate !== null ? L(`胜率 ${winRate}%`, `${winRate}% WR`) : '');
-
-  const weightHintHtml = `
-    <div class="row-between num-xs" style="margin-top:8px;padding:7px 10px;border-radius:10px;background:var(--paper-tray);">
-      <span class="text-sec">${L('分配权重', 'Weight')} <b id="pred-cur-weight" class="mono text-green">${curWeight.toFixed(1)}x</b>${rankMeta ? ` <span class="text-muted">· ${rankMeta}</span>` : ''}</span>
-      <span class="text-muted">${L('邀友 +0.1x · 顶 2.0x', '+0.1x/inv · 2.0x cap')}</span>
-    </div>
-  `;
-
-  const qualNow = toFiniteNum(round?.qualifiedCandles);
-  const cdSecNow = derivedUi.countdownMs !== null ? Math.ceil(derivedUi.countdownMs / 1000) : null;
-  const isSprint4h = derivedStage === 'charge' && cdSecNow !== null && cdSecNow > 0 && cdSecNow <= 14400;
-  const isRedAlert = (isSprint4h && qualNow !== null && qualNow >= 6 && qualNow <= 7) || derivedStage === 'failed';
-  const headerTag = isRedAlert
-    ? `<span class="chip chip-red">${derivedStage === 'failed' ? L('止损警报 FAIL', 'STOP-LOSS ALERT') : L('最后 4H 红警', '4H RED ALERT')}</span>`
-    : isSprint4h
-      ? `<span class="chip chip-red">${L('最后 4H 冲刺', 'Last 4H')}</span>`
-      : settled
-        ? `<span class="chip chip-muted">${L('已结算', 'Settled')}</span>`
-        : bet
-          ? `<span class="chip ${bet.side === 'BURN' ? 'chip-red' : 'chip-green'}">${bet.side === 'BURN' ? L('已押未通关', 'FAIL') : L('已押通关', 'PASS')}</span>`
-          : `<span class="chip chip-green">${L('0 GRAM 免费猜', '0 GRAM Free')}</span>`;
-
-  const pendingBlock = pendingA9 > 0 ? `
-    <div class="sub-tile" style="border-color:var(--green-border);margin-top:12px;">
-      <div class="row-between" style="margin-bottom:4px;">
-        <span class="num-xs text-green" style="font-weight:800;">${L('待激活奖励余额', 'Pending Activation Balance')}</span>
-        <span class="num-md text-green mono">${formatNum(pendingA9)} A9${usdEst !== null ? ` <span class="num-xs text-sec">(${L('约', '~')} $${formatNum(usdEst, 2)})</span>` : ''}</span>
-      </div>
-      <div class="num-xs text-muted" style="margin-bottom:6px;">${expRemSec !== null ? `<span id="pred-exp-cd" class="mono text-red">${L('距过期', 'Expires')} ${formatTimer(expRemSec)}</span>` : L('48 小时内未激活将自动作废回流奖池', 'Expires in 48H if unactivated')}</div>
-      <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('购任意宝箱（0.99 GRAM 起）、链上锁仓或邀 1 友购箱即可自动激活，合并 0.06 GRAM 领取。', 'Buy any chest (0.99+ GRAM), lock A9, or invite 1 paid friend to auto-activate (0.06 GRAM claim gas).')}</div>
-      <div class="col-gap" style="gap:8px;">
-        <button class="btn btn-primary btn-sm" id="btn-pred-activate" type="button" style="width:100%;min-height:40px;">${icon('bolt', 14)} ${L('立即激活奖励', 'Activate Reward')}</button>
-        <div class="grid-2">
-          <button class="btn btn-secondary btn-sm" data-nav="/internal/market" type="button" style="width:100%;">${icon('swap', 13)} ${L('去宝箱商城 (0.99 GRAM 起)', 'Chest Mall (0.99+)')}</button>
-          <button class="btn btn-secondary btn-sm" data-nav="/challenge/confirm" type="button" style="width:100%;">${icon('shieldCheck', 13)} ${L('链上锁仓', 'Lock A9')}</button>
-        </div>
-      </div>
-    </div>
-  ` : '';
-
-  let bodyHtml = '';
-  if (settled) {
-    const won = bet && winningSide && bet.side === winningSide;
-    const isRookieBonus = bet && bet.status === 'LOST_FIRST_BONUS';
-    const outcomeText = winningSide === 'BURN' ? L('本轮结果：未通关 · 自动止损', 'Outcome: Auto Stop-Loss') : L('本轮结果：达标通关 (PASS)', 'Outcome: PASS');
-    bodyHtml = `
-      <div class="sub-tile" style="margin-top:12px;">
-        <div class="row-between">
-          <span class="num-sm" style="font-weight:700;">${outcomeText}</span>
-          ${bet ? `<span class="chip ${won ? 'chip-green' : isRookieBonus ? 'chip-gold' : 'chip-red'}">${won ? L('预言命中', 'Won') : isRookieBonus ? L('首轮保底 +500 A9', 'Rookie +500 A9') : L('未命中', 'Missed')}</span>` : `<span class="chip chip-muted">${L('未参战', 'No Entry')}</span>`}
-        </div>
-        ${bet ? `<div class="num-xs text-sec" style="margin-top:6px;">${L('我的立场', 'My Call')}: <b>${bet.side === 'BURN' ? L('未通关 FAIL', 'FAIL') : 'PASS'}</b>${bet.guessSlots !== null && bet.guessSlots !== undefined ? ` · ${L(`精准 ${bet.guessSlots} 段`, `${bet.guessSlots} slots`)}` : ''}${isRookieBonus ? ` · ${L('新人首轮保底已入待解锁金库', 'First-round rookie floor credited to vault')}` : ''}</div>` : ''}
-      </div>
-    `;
-  } else if (bet) {
-    bodyHtml = `
-      <div class="sub-tile" style="margin-top:12px;border-color:${bet.side === 'BURN' ? 'var(--red-border)' : 'var(--emerald-border)'};">
-        <div class="row-between">
-          <div class="num-sm" style="font-weight:700;">
-            <span class="${bet.side === 'BURN' ? 'text-red' : 'text-green'}">${bet.side === 'BURN' ? L('已押未通关 FAIL', 'FAIL') : L('已押通关 PASS', 'PASS')}</span>
-            ${bet.guessSlots !== null && bet.guessSlots !== undefined ? `<span class="text-sec"> · ${L(`精准 ${bet.guessSlots}/12`, `${bet.guessSlots}/12`)}</span>` : ''}
-          </div>
-          <span class="num-xs text-muted">${icon('lock', 11)} ${L('每轮限 1 次', 'Locked')}</span>
-        </div>
-        ${weightHintHtml}
-        <div class="grid-2" style="margin-top:10px;">
-          <button class="btn btn-primary btn-sm" id="btn-pred-tg-share" type="button" style="width:100%;min-height:40px;">${icon('send', 13)} ${L('分享至战队群', 'Share Squad')}</button>
-          <button class="btn btn-secondary btn-sm" id="btn-pred-x-share" type="button" style="width:100%;min-height:40px;">${icon('xBrand', 13)} ${L('发 X 晒立场', 'Post on X')}</button>
-        </div>
-      </div>
-    `;
-  } else if (needsIdentity) {
-    bodyHtml = `
-      <div class="sub-tile" style="margin-top:12px;border-color:var(--gold-border);">
-        <div class="num-xs text-sec" style="line-height:1.5;margin-bottom:10px;">${L('请在 Telegram 内打开或先连接 TON 钱包，即可 0 GRAM 免费参与 12H 预言擂台（新人首轮参与保底 500 A9 待解锁体验金）。', 'Open in Telegram or connect a TON wallet to join the 0 GRAM 12H Prediction Arena (500 A9 first-round rookie floor).')}</div>
-        <button class="btn btn-primary btn-sm" id="btn-pred-connect" type="button" style="width:100%;min-height:40px;">${icon('wallet', 14)} ${L('连接钱包参与', 'Connect Wallet')}</button>
-      </div>
-    `;
-  } else {
-    bodyHtml = `
-      <div class="grid-2" style="margin-top:12px;">
-        <button class="pred-side-btn pass" data-pred-side="PASS" type="button">${icon('checkCircle', 15)} ${L('猜通关 PASS', 'Guess PASS')}</button>
-        <button class="pred-side-btn burn" data-pred-side="BURN" type="button">${icon('flame', 15)} ${L('猜未通关 FAIL', 'Guess FAIL')}</button>
-      </div>
-      <div class="row-between" style="margin-top:10px;">
-        <div>
-          <div class="num-xs" style="font-weight:700;">${L('精准格数（选填 0–12）', 'Exact Slots (0-12)')}</div>
-          <div class="num-xs text-muted">${L('猜中达标时段数享 +0.5x 权重 · 首轮保底 500 A9', 'Exact match +0.5x · 500 A9 first-round floor')}</div>
-        </div>
-        <input id="pred-guess-slots" class="pred-slot-input" type="number" min="0" max="12" placeholder="0-12" aria-label="${L('精准达标格数', 'Exact qualified slots')}" />
-      </div>
-      ${weightHintHtml}
-      <button class="btn btn-primary" id="btn-pred-submit" type="button" style="margin-top:12px;min-height:46px;">${icon('bolt', 15)} ${L('0 GRAM 锁定本轮预言', 'Lock 0 GRAM Prediction')}</button>
-    `;
-  }
-
-  return `
-    <div class="card${isRedAlert ? ' alert-red-mode' : ''}" id="a9-prediction-card">
-      <div class="pred-card-head" id="pred-toggle-head" role="button" tabindex="0" aria-expanded="${isExpanded}">
-        <div class="row-start" style="gap:8px;">
-          <span class="card-title">${icon('radar', 15, 'text-cyan')} ${L('12H 预言擂台', '12H Prediction Arena')}</span>
-          ${headerTag}
-        </div>
-        <div class="row-start num-xs text-muted">
-          ${!isExpanded ? `<span class="mono">${passPct}% / ${burnPct}%</span>` : ''}
-          ${icon(isExpanded ? 'chevronDown' : 'chevronRight', 14)}
-        </div>
-      </div>
-      <div class="pred-expand-wrap ${isExpanded ? 'open' : ''}" ${isExpanded ? '' : 'hidden inert'}>
-        <div class="pred-expand-inner">
-          <div style="margin-top:12px;">
-            <div class="row-between num-xs" style="margin-bottom:6px;">
-              <span style="color:var(--emerald);font-weight:800;">${L('通关多军 PASS', 'PASS')} ${passPct}%</span>
-              <span class="text-muted mono">${L(`共 ${formatNum(total)} 人对决`, `${formatNum(total)} entries`)}</span>
-              <span class="text-red" style="font-weight:800;">${L('未通关空军 FAIL', 'FAIL')} ${burnPct}%</span>
-            </div>
-            <div class="pred-split-bar pred-versus-bar">
-              <div class="pred-split-pass" style="width:${passPct}%;"></div>
-              <div class="pred-split-burn" style="width:${burnPct}%;"></div>
-            </div>
-            ${bodyHtml}
-            ${pendingBlock}
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
 }
 
 export function renderWarmupStage(round, user) {

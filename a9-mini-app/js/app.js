@@ -1105,6 +1105,15 @@ function startDisplayLoop() {
     r.activeCandleSec = r.activeCandleEndAt ? Math.max(0, Math.ceil((r.activeCandleEndAt - serverNowMs()) / 1000)) : null;
 
     const uiState = deriveRoundUiState({ detail: r, user: store.state.user, serverNowMs: serverNowMs() });
+    const stakeDeadline = document.getElementById('q-stake-phase-text');
+    if (stakeDeadline) {
+      const timestamp = Number(r.stakeCloseAt);
+      const deadlineMs = timestamp < 1e12 ? timestamp * 1000 : timestamp;
+      const secondsLeft = Math.ceil((deadlineMs - serverNowMs()) / 1000);
+      stakeDeadline.textContent = secondsLeft > 0
+        ? L(`距封盘 ${formatTimer(secondsLeft)} · 封盘后禁进禁出`, `Closes in ${formatTimer(secondsLeft)} · No entry or exit after close`)
+        : L('封盘后禁进禁出', 'No entry or exit after close');
+    }
     const stageView = document.getElementById('quest-stage-view');
     if (stageView && stageView.dataset.stage !== uiState.stage) {
       if (shouldDeferRouteRender(document)) pendingDeferredRender = true;

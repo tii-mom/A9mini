@@ -56,13 +56,12 @@ function handbookLevelTitle(lv) {
 
 /**
  * 阶段三：广场每日集章卡（Daily Stamp Card）
- * - 每日 4 枚通关印章（打卡 / 0 GRAM 预言 / 12H 巡视 / 战报分享）+ 满章加赠 + 成长等级与成就徽章
+ * - 通关印章与历史成就
  * - 显式标明：非链上代币资产，不可交易或直接兑换 A9 / GRAM
  */
 export function renderHandbookStampCard() {
   const prog = store.state.progression || {};
   const r = store.state.round;
-  const pred = store.state.prediction;
   const hasTgAuth = config.isDemo || Boolean(A9TMA.getRawInitData());
 
   if (!config.isDemo && !hasTgAuth) {
@@ -92,7 +91,6 @@ export function renderHandbookStampCard() {
   const todaySet = new Set(Array.isArray(prog.todayClaims) ? prog.todayClaims : []);
   const achClaimed = new Set(Array.isArray(prog.achievementsClaimed) ? prog.achievementsClaimed : []);
   const unlockableAch = Array.isArray(prog.unlockableAchievements) ? prog.unlockableAchievements : [];
-  const hasPredBet = Boolean(pred?.currentBet);
 
   const dailyTasks = [
     {
@@ -103,15 +101,6 @@ export function renderHandbookStampCard() {
       done: todaySet.has('daily_checkin'),
       actionZh: '盖打卡章',
       actionEn: 'Stamp',
-    },
-    {
-      key: 'daily_prediction',
-      zh: '达标竞猜',
-      en: '12H Guess',
-      exp: 50,
-      done: todaySet.has('daily_prediction'),
-      actionZh: hasPredBet ? '盖竞猜章' : '先去竞猜',
-      actionEn: hasPredBet ? 'Stamp' : 'Go Guess',
     },
     {
       key: 'daily_observe',
@@ -136,7 +125,7 @@ export function renderHandbookStampCard() {
   const achLabels = {
     ach_first_stamp: [L('初枚印章', 'First Stamp'), 50],
     ach_streak_3:    [L('三日连签', '3d Streak'), 120],
-    ach_pred_pioneer:[L('竞猜观星', 'Predictor'), 100],
+    ach_pred_pioneer:[L('历史成就', 'Legacy Achievement'), 100],
     ach_stamp_10:    [L('十章典藏', '10 Stamps'), 200],
   };
 
@@ -175,7 +164,7 @@ export function renderHandbookStampCard() {
 
       ${fullBonusReady ? `
         <button type="button" class="btn btn-primary btn-sm" data-stamp-task="daily_full_bonus" style="width:100%;margin-top:10px;min-height:38px;">
-          ${icon('checkCircle', 14)} ${L('今日 4 章集齐 · 领取满章加赠 (+80 EXP)', 'All 4 Stamps Done · Claim +80 EXP Bonus')}
+          ${icon('checkCircle', 14)} ${L('领取印章奖励 (+80 EXP)', 'Claim +80 EXP Bonus')}
         </button>
       ` : nextAchKey && achLabels[nextAchKey] ? `
         <button type="button" class="btn btn-secondary btn-sm" data-stamp-task="${nextAchKey}" style="width:100%;margin-top:10px;min-height:38px;border-color:var(--nt-gold-edge);background:var(--nt-gold-soft);">
@@ -252,16 +241,6 @@ function bindHandbookStampEvents(root, navigate) {
       if (todaySet.has(taskKey) || achSet.has(taskKey)) {
         A9Haptic.light();
         showToast(L('该印章已盖章领取', 'Stamp already claimed'));
-        return;
-      }
-
-      if (taskKey === 'daily_prediction' && !store.state.prediction?.currentBet) {
-        A9Haptic.light();
-        A9Audio.tick();
-        store.state.referral.pendingScrollTarget = 'prediction';
-        showToast(L('请先完成本轮 0 GRAM 12H 预言擂台后盖章', 'Complete your 0 GRAM 12H prediction first'));
-        if (navigate) navigate('/round');
-        else window.location.hash = '#/round';
         return;
       }
 

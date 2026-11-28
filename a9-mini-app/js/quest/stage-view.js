@@ -30,10 +30,6 @@ import {
   fetchWarmupCurrent,
   registerWarmup,
   cancelWarmup,
-  fetchPredictionRound,
-  fetchPredictionUser,
-  submitPredictionBet,
-  getEffectiveUserId,
 } from '../data.js';
 import {
   qIcon,
@@ -45,7 +41,6 @@ import {
 } from './quest-ui.js';
 
 let stageViewSeq = 0;
-let expandedPredictionKey = null;
 
 function pad2(n) {
   const v = finiteOrNull(n);
@@ -204,9 +199,6 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
     warmupLoading: false,
     warmupError: null,
     warmupBusy: false,
-    predRound: null,
-    predUser: null,
-    predBusy: false,
     selectedFlagIdx: null,
     dlType: (rawDlType === 'bet' || rawDlType === 'round' || rawDlType === 'burn') ? rawDlType : '',
     dlRoundId,
@@ -276,79 +268,73 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
       ? Math.min(10000, Math.floor(availWhole))
       : PROTOCOL_SPECS.minStakeA9);
 
+    const readAmount = (value) => {
+      const text = String(value ?? '').trim();
+      const grouped = /^\d{1,3}(,\d{3})+(\.\d{1,9})?$/.test(text);
+      return parseA9InputToRaw(grouped ? text.replace(/,/g, '') : text);
+    };
+    const formatAmount = (raw) => formatRoundA9(raw).replace(/ A9$/, '');
+
     const renderBillHtml = (calc) => {
       const hasExisting = BigInt(calc.existing.principalRaw) > 0n;
-      const addRaw = BigInt(calc.addition.principalRaw);
-      const isReady = calc.status === 'ok';
-      const statusNote = calc.status === 'stale'
-        ? L('数据待刷新，奖金估算暂不可用', 'Data stale; reward estimate paused')
-        : calc.status === 'unready'
-          ? L('本轮数据待同步，奖金估算暂不可用', 'Round data syncing; estimate pending')
-          : calc.status === 'zero_denominator'
-            ? L('当前全轮锁仓为 0，输入金额后显示估算', 'Enter amount to compute pool share')
-            : '';
-      const activeWinRaw = hasExisting ? calc.combined.winRewardRaw : calc.addition.newShareRewardRaw;
-      const activeImmRaw = hasExisting ? calc.combined.winImmediateRaw : calc.addition.winImmediateRaw;
-      const activeLinRaw = hasExisting ? calc.combined.winLinearRaw : calc.addition.winLinearRaw;
-      const activeFailRefRaw = hasExisting ? calc.combined.failRefundRaw : calc.addition.failRefundRaw;
-      const activeFailBurnRaw = hasExisting ? calc.combined.failBurnRaw : calc.addition.failBurnRaw;
-      const activeExitRefRaw = hasExisting ? calc.combined.earlyExitRefundRaw : calc.addition.earlyExitRefundRaw;
-      const activeExitBurnRaw = hasExisting ? calc.combined.earlyExitBurnRaw : calc.addition.earlyExitBurnRaw;
-      const winValText = isReady && activeWinRaw !== null ? formatEstimatedA9(activeWinRaw, { gain: true }) : '—';
-      const winSubText = isReady && activeWinRaw !== null
+      const amounts = hasExisting ? calc.combined : calc.addition;
+      const rewardRaw = hasExisting ? amounts.winRewardRaw : amounts.newShareRewardRaw;
+      const ready = calc.status === 'ok' && rewardRaw !== null;
+      const principal = BigInt(amounts.principalRaw);
+      const rewardPerA9 = ready && principal > 0n ? BigInt(rewardRaw) * 1_000_000_000n / principal : null;
+      const winValText = ready ? formatEstimatedA9(rewardRaw, { gain: true }) : '—';
+      const winSubText = ready
         ? L(
-            `20% 秒提 ${formatEstimatedA9(activeImmRaw)} · 80%（${formatEstimatedA9(activeLinRaw)}）14 天解锁`,
-            `20% instant (${formatEstimatedA9(activeImmRaw)}) · 80% (${formatEstimatedA9(activeLinRaw)}) 14D vest`
+            `本金全退；奖金 20% 秒提 ${formatEstimatedA9(amounts.winImmediateRaw)}，其余 ${formatEstimatedA9(amounts.winLinearRaw)} 在 14 天内解锁。`,
+            `Full principal back. Get 20% of rewards now (${formatEstimatedA9(amounts.winImmediateRaw)}); ${formatEstimatedA9(amounts.winLinearRaw)} vests over 14 days.`
           )
-        : (statusNote || L('输入锁仓数量后实时计算', 'Enter amount for live preview'));
-      const loseValText = addRaw > 0n || hasExisting ? L(`退 ${formatEstimatedA9(activeFailRefRaw)}`, `Refund ${formatEstimatedA9(activeFailRefRaw)}`) : '—';
-      const loseSubText = addRaw > 0n || hasExisting
-        ? L(`止损销毁 ${formatEstimatedA9(activeFailBurnRaw)}`, `Stop-loss burn ${formatEstimatedA9(activeFailBurnRaw)}`)
+        : calc.status === 'stale' || calc.status === 'unready'
+          ? L('奖金估算待同步', 'Reward estimate pending')
+          : L('输入数量查看预估', 'Enter an amount to estimate');
+      const loseValText = principal > 0n ? L(`退 ${formatEstimatedA9(amounts.failRefundRaw)}`, `Refund ${formatEstimatedA9(amounts.failRefundRaw)}`) : '—';
+      const loseSubText = principal > 0n
+        ? L(`止损销毁 ${formatEstimatedA9(amounts.failBurnRaw)}`, `Stop-loss burn ${formatEstimatedA9(amounts.failBurnRaw)}`)
         : '—';
-
       const summaryRows = `
-        <div class="q-kv"><span>${L('本次锁入', 'This Lock')}</span><b class="q-num">${addRaw > 0n ? formatRoundA9(calc.addition.principalRaw) : '—'}</b></div>
-        ${hasExisting ? `
-          <div class="q-kv"><span>${L('已有仓位 → 追加后总仓', 'Existing → Combined')}</span><b class="q-num">${formatRoundA9(calc.existing.principalRaw)} → ${formatRoundA9(calc.combined.principalRaw)}</b></div>
-          <div class="q-kv"><span>${L('本次新增份额奖金', 'New Share Reward')}</span><b class="q-num">${isReady && calc.addition.newShareRewardRaw !== null ? escapeHtml(formatEstimatedA9(calc.addition.newShareRewardRaw, { gain: true })) : '—'}</b></div>
-          <div class="q-kv"><span>${L('追加后总奖金（较现有净增）', 'Combined Reward (Net Delta)')}</span><b class="q-num green">${isReady && calc.combined.winRewardRaw !== null ? `${escapeHtml(formatEstimatedA9(calc.combined.winRewardRaw, { gain: true }))}（${calc.combined.netRewardDeltaRaw !== null ? escapeHtml(formatEstimatedA9(calc.combined.netRewardDeltaRaw, { gain: true })) : '—'}）` : '—'}</b></div>
-        ` : `
-          <div class="q-kv"><span>${L('通关预估奖金', 'Est. Pass Reward')}</span><b class="q-num green">${isReady && calc.addition.newShareRewardRaw !== null ? escapeHtml(formatEstimatedA9(calc.addition.newShareRewardRaw, { gain: true })) : '—'}</b></div>
-        `}
-        <div class="q-kv"><span>${L('通关退回本金（100%）', 'Pass Principal Return (100%)')}</span><b class="q-num">${formatRoundA9(hasExisting ? calc.combined.principalRaw : calc.addition.principalRaw)}</b></div>
-        <div class="q-kv"><span>${hasExisting ? L('未通关总退款 / 总销毁', 'Miss Total Refund / Burn') : L('未通关退款 / 销毁', 'Miss Refund / Burn')}</span><b class="q-num">${escapeHtml(formatEstimatedA9(activeFailRefRaw))} / <span style="color:var(--q-red-ink);">${escapeHtml(formatEstimatedA9(activeFailBurnRaw))}</span></b></div>
-        <div class="q-kv"><span>${hasExisting ? L('提前解押总仓退回（85% / 烧 15%）', 'Early Exit Combined (85% / 15% Burn)') : L('提前解押退回（85% / 烧 15%）', 'Early Exit (85% / 15% Burn)')}</span><b class="q-num">${escapeHtml(formatEstimatedA9(activeExitRefRaw))}（${L('烧', 'Burn')} ${escapeHtml(formatEstimatedA9(activeExitBurnRaw))}）</b></div>
-        <div class="q-kv"><span>${L('预付网络费', 'Attached Gas')}</span><b class="q-num">${PROTOCOL_SPECS.stakeGasGram.toFixed(2)} GRAM</b></div>
+        <div class="q-kv"><span>${L('预计每 1 A9 可分', 'Est. reward per 1 A9')}</span><b class="q-num">${escapeHtml(formatEstimatedA9(rewardPerA9))}</b></div>
+        <div class="q-kv"><span>${L('提前解押', 'Early exit')}</span><b>${L('封盘前可退 85%', '85% back before close')}</b></div>
+        <div class="q-kv"><span>${L('网络 Gas', 'Network gas')}</span><b class="q-num">${PROTOCOL_SPECS.stakeGasGram.toFixed(2)} GRAM</b></div>
       `;
-      return { winValText, winSubText, loseValText, loseSubText, summaryRows, hasExisting, statusNote };
+      return { winValText, winSubText, loseValText, loseSubText, summaryRows, hasExisting };
     };
 
     const initCalc = calculateStakePreview({
       view: r,
       existingTicket: getCurrentRoundTicket(),
-      addAmountRaw: parseA9InputToRaw(defaultVal) ?? 0n,
+      addAmountRaw: readAmount(defaultVal) ?? 0n,
       inFirst6h: activeFirst6h,
     });
     const initBill = renderBillHtml(initCalc);
     const canFunds = store.fundsEnabled;
 
+    const stakeDeadlineText = () => {
+      const remaining = toMs(r.stakeCloseAt) - serverNowMs();
+      return remaining > 0
+        ? L(`距封盘 ${fmtStageCountdown(remaining)} · 封盘后禁进禁出`, `Closes in ${fmtStageCountdown(remaining)} · No entry or exit after close`)
+        : L('封盘后禁进禁出', 'No entry or exit after close');
+    };
+
     openQuestSheet(
       L(`锁仓参赛 · 第 ${r.currentRound ?? '—'} 关`, `Lock A9 · Stage ${r.currentRound ?? '—'}`),
       `
-        <div class="q-notice ${activeFirst6h ? 'red' : 'gray'}" id="q-stake-phase-notice" style="margin-bottom:12px;">
+        <div class="q-stake-content">
+        <div class="q-notice ${activeFirst6h ? 'red' : 'gray'}" id="q-stake-phase-notice">
           ${qIcon('clock', 16)}
-          <span id="q-stake-phase-text">${activeFirst6h
-            ? L('头矿 6 小时窗口：本次锁入未达标仅 5% 止损（退 95%），窗口结束后变为 10%', 'First 6H window: 5% stop-loss (95% refund) if missed; 10% after window')
-            : L('头矿已结束 · 本次锁入未达标退 90%（10% 止损），封盘后禁进禁出', 'First 6H ended · 90% refund (10% stop-loss) if missed; sealed during 12H push')}</span>
+          <span id="q-stake-phase-text">${escapeHtml(stakeDeadlineText())}</span>
         </div>
 
         <div class="q-amt-box">
-          <input id="q-stake-input" inputmode="decimal" autocomplete="off" value="${escapeHtml(String(defaultVal))}" aria-label="${L('锁仓数量 A9', 'Lock amount A9')}" />
+          <input id="q-stake-input" inputmode="decimal" autocomplete="off" value="${escapeHtml(readAmount(defaultVal) === null ? String(defaultVal) : formatAmount(readAmount(defaultVal)))}" aria-label="${L('锁仓数量 A9', 'Lock amount A9')}" />
           <span>A9</span>
         </div>
 
-        <div class="q-row q-between q-small q-muted" style="margin:6px 2px 4px;">
-          <span>${L('可用余额', 'Available')}: <b id="q-stake-avail" class="q-num" style="color:var(--q-ink);">${availRaw !== null ? formatRoundA9(availRaw.toString()) : '—'}</b></span>
+        <div class="q-row q-between q-small q-muted" style="margin-inline:2px;">
+          <span>${L('可用', 'Available')}: <b id="q-stake-avail" class="q-num" style="color:var(--q-ink);">${availRaw !== null ? formatRoundA9(availRaw.toString()) : '—'}</b></span>
           <span id="q-stake-err" style="color:var(--q-red-ink);font-weight:700;"></span>
         </div>
 
@@ -360,30 +346,35 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
           <button type="button" data-q-chip="${availRaw !== null ? escapeHtml(rawToPlainDecimal(availRaw)) : ''}" data-q-chip-max="1" ${availRaw === null || availRaw < minRaw ? 'disabled' : ''}>${L('全部', 'Max')}</button>
         </div>
 
-        <div class="q-ocs" style="margin-top:10px;">
+        <input class="q-stake-slider" id="q-stake-slider" type="range" min="0" max="1000" value="0"
+          aria-label="${L('调整锁仓数量', 'Adjust lock amount')}" ${availRaw === null || availRaw <= minRaw ? 'disabled' : ''} />
+
+        <div class="q-ocs">
           <div class="q-oc q-oc-win">
-            <small>${qIcon('trophy', 14)} ${initBill.hasExisting ? L('追加后若达标（≥ 8/12）', 'Combined If Passed (≥ 8/12)') : L('若达标（≥ 8/12）', 'If Passed (≥ 8/12)')}</small>
+            <small id="q-oc-win-label">${qIcon('trophy', 14)} ${initBill.hasExisting ? L('通关 · 追加后总计', 'Pass · Combined') : L('若通关 · 8/12 达标', 'If passed · 8/12 met')}</small>
             <b id="q-oc-win-val" class="q-num">${escapeHtml(initBill.winValText)}</b>
             <span id="q-oc-win-sub">${escapeHtml(initBill.winSubText)}</span>
           </div>
           <div class="q-oc q-oc-lose">
-            <small>${qIcon('shield', 14)} ${initBill.hasExisting ? L('追加后若未达标', 'Combined If Missed') : L('若未达标', 'If Missed')}</small>
+            <small id="q-oc-lose-label">${qIcon('shield', 14)} ${initBill.hasExisting ? L('未通关 · 追加后总计', 'Miss · Combined') : L('若未通关', 'If missed')}</small>
             <b id="q-oc-lose-val" class="q-num">${escapeHtml(initBill.loseValText)}</b>
             <span id="q-oc-lose-sub">${escapeHtml(initBill.loseSubText)}</span>
           </div>
         </div>
 
-        <div id="q-stake-summary" style="margin-top:10px;">${initBill.summaryRows}</div>
-        <div class="q-foot-note">${L('按当前全轮锁仓量估算，最终以结算为准；最低锁仓 100 A9，单人奖励封顶 5×。', 'Estimated from current round stake; final payout settled on-chain. Min lock 100 A9, 5× cap per wallet.')}</div>
-        ${!canFunds ? `<div class="q-notice yellow" style="margin-top:10px;">${qIcon('info', 16)}<span>${escapeHtml(LIVE_READONLY_REASON)}</span></div>` : ''}
+        <div id="q-stake-summary">${initBill.summaryRows}</div>
+        <div class="q-foot-note">${L('最低锁仓 100 A9。奖金随总锁仓量变化，最高为本金的 5×。', 'Minimum 100 A9. Rewards vary with total stake and are capped at 5× principal.')}</div>
+        ${!canFunds ? `<div class="q-notice yellow">${qIcon('info', 16)}<span>${escapeHtml(LIVE_READONLY_REASON)}</span></div>` : ''}
+        </div>
       `,
       {
         badgeHtml: `<span class="q-chip ${activeFirst6h ? 'q-chip-red' : ''}" id="q-stake-phase-badge">${activeFirst6h ? L('头矿 5% 止损', 'First 6H · 5%') : L('普通 10% 止损', 'Standard · 10%')}</span>`,
-        footHtml: `<button class="q-btn q-btn-red q-btn-block" id="q-stake-submit" type="button" ${!canFunds ? 'disabled' : ''}>${qIcon('lock', 18)} ${canFunds ? L('确认锁仓并前往签名', 'Confirm Lock & Sign') : L('当前只读 · 暂未开放锁仓', 'Read-Only · Locking Disabled')}</button>`,
+        footHtml: `<button class="q-btn q-btn-red q-btn-block" id="q-stake-submit" type="button" ${!canFunds ? 'disabled' : ''}>${qIcon('lock', 18)} ${canFunds ? L('确认锁仓', 'Confirm Lock') : L('当前只读 · 暂未开放锁仓', 'Read-Only · Locking Disabled')}</button>`,
       }
     );
 
     const inp = document.getElementById('q-stake-input');
+    const slider = document.getElementById('q-stake-slider');
     const errEl = document.getElementById('q-stake-err');
     const submitBtn = document.getElementById('q-stake-submit');
     const winValEl = document.getElementById('q-oc-win-val');
@@ -395,36 +386,47 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
     const phaseTextEl = document.getElementById('q-stake-phase-text');
     const phaseBadgeEl = document.getElementById('q-stake-phase-badge');
 
-    let lastCalc = initCalc;
     const syncPhaseUi = (nowFirst6h) => {
       activeFirst6h = Boolean(nowFirst6h);
       if (phaseNoticeEl) {
         phaseNoticeEl.className = `q-notice ${activeFirst6h ? 'red' : 'gray'}`;
       }
-      if (phaseTextEl) {
-        phaseTextEl.textContent = activeFirst6h
-          ? L('头矿 6 小时窗口：本次锁入未达标仅 5% 止损（退 95%），窗口结束后变为 10%', 'First 6H window: 5% stop-loss (95% refund) if missed; 10% after window')
-          : L('头矿已结束 · 本次锁入未达标退 90%（10% 止损），封盘后禁进禁出', 'First 6H ended · 90% refund (10% stop-loss) if missed; sealed during 12H push');
-      }
+      if (phaseTextEl) phaseTextEl.textContent = stakeDeadlineText();
       if (phaseBadgeEl) {
         phaseBadgeEl.className = `q-chip ${activeFirst6h ? 'q-chip-red' : ''}`;
         phaseBadgeEl.textContent = activeFirst6h ? L('头矿 5% 止损', 'First 6H · 5%') : L('普通 10% 止损', 'Standard · 10%');
       }
     };
 
-    const syncPreview = () => {
+    const syncPreview = (fromSlider = false) => {
       const curPhase = deriveRoundUiState({ detail: store.state.round, serverNowMs: serverNowMs() });
       if (curPhase.stage === 'stake' && Boolean(curPhase.inFirst6h) !== activeFirst6h) {
         syncPhaseUi(curPhase.inFirst6h);
       }
-      const addRaw = parseA9InputToRaw(inp?.value ?? '');
-      lastCalc = calculateStakePreview({
+      const addRaw = readAmount(inp?.value);
+      const calc = calculateStakePreview({
         view: store.state.round,
         existingTicket: getCurrentRoundTicket(),
         addAmountRaw: addRaw ?? 0n,
         inFirst6h: activeFirst6h,
       });
-      const bill = renderBillHtml(lastCalc);
+      const bill = renderBillHtml(calc);
+      for (const [id, icon, label] of [
+        ['q-oc-win-label', 'trophy', bill.hasExisting ? L('通关 · 追加后总计', 'Pass · Combined') : L('若通关 · 8/12 达标', 'If passed · 8/12 met')],
+        ['q-oc-lose-label', 'shield', bill.hasExisting ? L('未通关 · 追加后总计', 'Miss · Combined') : L('若未通关', 'If missed')],
+      ]) {
+        const title = document.getElementById(id);
+        if (title) title.innerHTML = `${qIcon(icon, 14)} ${label}`;
+      }
+      if (slider) {
+        const span = availRaw === null ? 0n : availRaw - minRaw;
+        const raw = addRaw ?? minRaw;
+        const position = span <= 0n || raw <= minRaw ? 0n : raw >= availRaw ? 1000n : (raw - minRaw) * 1000n / span;
+        slider.disabled = span <= 0n;
+        if (!fromSlider) slider.value = String(position);
+        slider.style.setProperty('--q-slider-fill', `${Number(slider.value) / 10}%`);
+        slider.setAttribute('aria-valuetext', formatRoundA9(addRaw));
+      }
       if (winValEl) winValEl.textContent = bill.winValText;
       if (winSubEl) winSubEl.textContent = bill.winSubText;
       if (loseValEl) loseValEl.textContent = bill.loseValText;
@@ -458,11 +460,24 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
       }
     };
 
-    if (inp) inp.oninput = syncPreview;
+    if (inp) {
+      inp.oninput = () => syncPreview();
+      inp.onblur = () => {
+        const raw = readAmount(inp.value);
+        if (raw !== null) inp.value = formatAmount(raw);
+      };
+    }
+    if (slider) slider.oninput = () => {
+      if (slider.disabled || !inp || availRaw === null) return;
+      const step = BigInt(slider.value);
+      const raw = minRaw + (availRaw - minRaw) * step / 1000n;
+      inp.value = formatAmount(step === 1000n ? availRaw : raw / 1_000_000_000n * 1_000_000_000n);
+      syncPreview(true);
+    };
     document.querySelectorAll('[data-q-chip]').forEach((btn) => {
       btn.onclick = () => {
         if (btn.disabled) return;
-        if (inp) inp.value = btn.dataset.qChip;
+        if (inp) inp.value = formatAmount(parseA9InputToRaw(btn.dataset.qChip));
         syncPreview();
       };
     });
@@ -488,7 +503,7 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
     if (submitBtn) {
       submitBtn.onclick = async () => {
         const submittedAmount = inp?.value ?? '';
-        const addRaw = parseA9InputToRaw(submittedAmount);
+        const addRaw = readAmount(submittedAmount);
         if (addRaw === null || addRaw < minRaw) return;
         const livePhaseBefore = deriveRoundUiState({ detail: store.state.round, serverNowMs: serverNowMs() });
         if (livePhaseBefore.stage !== 'stake') {
@@ -998,40 +1013,20 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
       </section>
     ` : '';
 
-    const curBet = local.predUser?.currentBet;
-    const predictionOpen = ui.stage === 'stake' && nowMs < toMs(r.stakeCloseAt);
-    const poll = local.predRound;
-    const validVotes = finiteOrNull(poll?.total) > 0 &&
-      [poll.passPct, poll.burnPct].every(p => Number.isFinite(p) && p >= 0 && p <= 100) &&
-      Math.abs(poll.passPct + poll.burnPct - 100) <= 1;
-    const voteShareHtml = validVotes ? `
-        <div class="q-pred-votes">
-          <div class="q-pred-votes-label">
-            <span>${L('达标', 'Pass')} <b class="q-num">${poll.passPct}%</b></span>
-            <span>${L('未达标', 'Miss')} <b class="q-num">${poll.burnPct}%</b></span>
-          </div>
-          <div class="q-pred-votes-bar" aria-hidden="true">
-            <i style="flex-grow:${poll.passPct}"></i><i style="flex-grow:${poll.burnPct}"></i>
-          </div>
-        </div>` : `<div class="q-foot-note">${poll?.total === 0 ? L('暂无投票', 'No votes yet') : L('投票数据待同步', 'Vote data pending')}</div>`;
-    const winner = poll?.settled && poll.winningSide;
     const isHistoricalDl = Boolean(local.dlType && local.dlRoundId !== null && roundId !== null && local.dlRoundId !== roundId);
-    const predictionKey = JSON.stringify([config.isDemo, roundId, u.address, getEffectiveUserId(u)]);
     let pendingScrollSelector = null;
     if (!local.deepLinkApplied && local.dlType) {
       local.deepLinkApplied = true;
       if (isHistoricalDl) {
         pendingScrollSelector = '#q-stage-history-card';
       } else if (local.dlType === 'bet') {
-        if (predictionOpen) expandedPredictionKey = predictionKey;
-        pendingScrollSelector = '#q-toggle-prediction';
+        pendingScrollSelector = '#q-race-card';
       } else if (local.dlType === 'burn') {
         pendingScrollSelector = '#q-flag-status';
       } else if (local.dlType === 'round') {
         pendingScrollSelector = '#q-race-card';
       }
     }
-    const predictionExpanded = expandedPredictionKey === predictionKey;
     const matchedHistRound = isHistoricalDl && Array.isArray(r.rounds)
       ? r.rounds.find((item) => finiteOrNull(item.roundId) === local.dlRoundId)
       : null;
@@ -1047,12 +1042,7 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
     const deepLinkBannerHtml = !local.dlType ? '' : isHistoricalDl ? `
       <div class="q-notice yellow" id="q-deeplink-banner" data-deeplink-type="${escapeHtml(local.dlType)}" data-deeplink-round="${escapeHtml(String(local.dlRoundId))}" data-deeplink-historical="1">
         ${qIcon('clock', 16)}
-        <span>${L(`链接指向历史第 ${local.dlRoundId} 关（${histStatusText}），当前展示第 ${roundId ?? '—'} 关；历史链接不会自动展开本轮预测下注。`, `Link targets historical Stage ${local.dlRoundId} (${histStatusText}); showing current Stage ${roundId ?? '—'} without auto-opening betting.`)}</span>
-      </div>
-    ` : (local.dlType === 'bet' && !predictionOpen) ? `
-      <div class="q-notice blue" id="q-deeplink-banner" data-deeplink-type="bet" data-deeplink-round="${escapeHtml(String(local.dlRoundId ?? roundId ?? ''))}" data-deeplink-historical="0">
-        ${qIcon('lock', 16)}
-        <span>${L(`第 ${roundId ?? '—'} 关预测已封盘，当前展示 12H 冲价与结算进度。`, `Stage ${roundId ?? '—'} prediction is closed; showing 12H push & settlement progress.`)}</span>
+        <span>${L(`链接指向历史第 ${local.dlRoundId} 关（${histStatusText}），当前展示第 ${roundId ?? '—'} 关。`, `Link targets historical Stage ${local.dlRoundId} (${histStatusText}); showing current Stage ${roundId ?? '—'}.`)}</span>
       </div>
     ` : (local.dlType === 'burn' && ui.stage !== 'failed') ? `
       <div class="q-notice blue" id="q-deeplink-banner" data-deeplink-type="burn" data-deeplink-round="${escapeHtml(String(local.dlRoundId ?? roundId ?? ''))}" data-deeplink-historical="0">
@@ -1060,22 +1050,6 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
         <span>${L(`当前第 ${roundId ?? '—'} 关处于「${ui.badgeLabel}」阶段，下方为 12H 冲价与结算进度。`, `Stage ${roundId ?? '—'} is currently in ${ui.badgeLabel}; see 12H push & settlement below.`)}</span>
       </div>
     ` : '';
-    const predictionHtml = predictionOpen || curBet ? `
-      <button class="q-btn q-btn-ghost q-btn-block q-btn-sm" id="q-toggle-prediction" type="button"
-        aria-expanded="${predictionExpanded}" aria-controls="q-prediction-panel">
-        ${qIcon('eye', 16)} ${curBet ? L('已预测 · 查看我的选择', 'My prediction') : L('免费预测本轮结果', 'Predict this round for free')}
-      </button>
-      <div id="q-prediction-panel" ${predictionExpanded ? '' : 'hidden'}>
-        ${curBet ? `<p class="q-small">${curBet.side === 'PASS' ? L('我的选择：达标', 'My pick: pass') : L('我的选择：未达标', 'My pick: miss')} ·
-          ${winner === 'PASS' || winner === 'BURN' ? (winner === curBet.side ? L('预测正确', 'Correct prediction') : L('未猜中', 'Incorrect prediction')) :
-            ui.stage === 'aborted' ? L('本轮已中止', 'Round aborted') : L('等待结算', 'Awaiting settlement')}</p>` : `
-          <div class="q-pred">
-            <button type="button" class="yes" data-q-pred="PASS" ${local.predBusy ? 'disabled' : ''}><b>${L('能达标', 'Will pass')}</b></button>
-            <button type="button" class="no" data-q-pred="BURN" ${local.predBusy ? 'disabled' : ''}><b>${L('未达标', 'Will miss')}</b></button>
-          </div>`}
-        ${voteShareHtml}
-      </div>` : '';
-
     // 当前关卡已有主卡。历史只展示有结算结果的轮次。
     const settledRounds = (Array.isArray(r.rounds) ? r.rounds : [])
       .filter((item) => Number.isSafeInteger(item?.roundId) && item.roundId > 0 &&
@@ -1132,7 +1106,6 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
             <span>${escapeHtml(flagStatus.text)}</span>
           </div>
         </section>
-        ${predictionHtml ? `<section class="q-card">${predictionHtml}</section>` : ''}
     `;
 
     const estimateText = estPer1A9 === null ? '—'
@@ -1308,8 +1281,7 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
         local.warmupBusy = true;
         paint();
         try {
-          const uid = getEffectiveUserId(u);
-          if (local.warmup?.isReserved) {
+                if (local.warmup?.isReserved) {
             await cancelWarmup({ roundId: local.warmup.roundId, walletAddress: u.address, userId: uid });
             store.update((s) => { s.user.warmupRegistered = false; });
             showToast(L('已取消本轮预约', 'Warm-up reservation cancelled'));
@@ -1328,51 +1300,6 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
       };
     }
 
-    const togglePrediction = root.querySelector('#q-toggle-prediction');
-    if (togglePrediction) togglePrediction.onclick = () => {
-      expandedPredictionKey = predictionExpanded ? null : predictionKey;
-      paint();
-      root.querySelector('#q-toggle-prediction')?.focus();
-    };
-    root.querySelectorAll('[data-q-pred]').forEach((btn) => {
-      btn.onclick = async () => {
-        const current = store.state.round;
-        const now = serverNowMs();
-        if (local.predBusy || curBet || !roundId || Number(current.currentRound) !== roundId ||
-            deriveRoundUiState({ detail: current, serverNowMs: now }).stage !== 'stake' || !(now < toMs(current.stakeCloseAt))) {
-          paint();
-          return;
-        }
-        const side = btn.dataset.qPred;
-        const uid = getEffectiveUserId(u);
-        if (!uid) {
-          showToast(L('请在 Telegram 小程序内打开后参与预言', 'Open inside Telegram Mini App to predict'), 'amber');
-          return;
-        }
-        local.predBusy = true;
-        paint();
-        try {
-          const result = await submitPredictionBet({
-            roundId,
-            userId: uid,
-            side,
-            referrerId: store.state.referral.referrerId,
-          });
-          A9Haptic.success();
-          local.predUser = { ...local.predUser, currentBet: result?.bet || { side } };
-          showToast(L('预测已提交', 'Prediction submitted'));
-          await loadAuxData();
-        } catch (e) {
-          A9Haptic.error();
-          showToast(e?.message || L('提交预言失败', 'Prediction failed'), 'error');
-        } finally {
-          local.predBusy = false;
-          paint();
-        }
-      };
-    });
-
-
   };
 
   const loadAuxData = async () => {
@@ -1381,17 +1308,14 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
     const u = store.state.user;
     const reqWallet = u.connected ? u.address : null;
     const reqRound = r.currentRound;
-    const uid = getEffectiveUserId(u);
     const ui = deriveRoundUiState({ detail: r, user: u, serverNowMs: serverNowMs() });
     const needWarmup = ui.stage === 'warmup' || query?.stage === 'warmup';
 
     const tasks = [
       (isLive && reqWallet) ? fetchUserPortfolio(reqWallet) : Promise.resolve(null),
       needWarmup ? fetchWarmupCurrent(null) : Promise.resolve(null),
-      reqRound ? fetchPredictionRound(reqRound, ui.stage) : Promise.resolve(null),
-      (reqRound && uid) ? fetchPredictionUser(uid, reqRound) : Promise.resolve(null),
     ];
-    const [pfRes, wuRes, prRes, puRes] = await Promise.allSettled(tasks);
+    const [pfRes, wuRes] = await Promise.allSettled(tasks);
     const curWallet = store.state.user.connected ? store.state.user.address : null;
     if (seq !== stageViewSeq || reqAuxSeq !== auxSeq || !root.isConnected) return;
     if (isLive && reqWallet !== curWallet) return;
@@ -1406,8 +1330,6 @@ export function renderStageView(root, navigate, _param = null, query = {}) {
         local.warmupError = wuRes.reason?.message || L('预热数据暂不可用', 'Warm-up data unavailable');
       }
     }
-    local.predRound = prRes.status === 'fulfilled' ? prRes.value : null;
-    if (puRes.status === 'fulfilled' && puRes.value) local.predUser = puRes.value;
     paint();
   };
 

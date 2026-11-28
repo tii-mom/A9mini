@@ -780,29 +780,6 @@ body.quest-shell-active {
 
 /* 预言擂台 */
 #q-toggle-prediction { margin-top: 10px; }
-#q-prediction-panel { margin-top: 8px; }
-.q-pred {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.q-pred button {
-  border-radius: var(--q-r-md);
-  padding: 13px 12px;
-  text-align: left;
-  background: var(--q-surface-2);
-  border: 1px solid var(--q-line);
-  box-shadow: 0 3px 0 var(--q-line);
-  cursor: pointer;
-}
-
-.q-pred button b { display: block; font-size: 14px; font-weight: 800; }
-.q-pred button span { font: 700 12px var(--font-sans); color: var(--q-ink-3); }
-.q-pred .yes b { color: var(--q-green-ink); }
-.q-pred .no b { color: var(--q-red-ink); }
-.q-pred .picked { box-shadow: inset 0 0 0 2px currentColor, 0 3px 0 var(--q-line); }
-
 .q-history-summary {
   display: flex;
   align-items: center;
@@ -821,7 +798,7 @@ body.quest-shell-active {
   margin-inline-end: auto;
 }
 .q-history-chevron { display: flex; flex: none; }
-.q-history[open] .q-history-chevron { transform: rotate(90deg); }
+.q-history[open] > .q-history-summary .q-history-chevron { transform: rotate(90deg); }
 .q-history-list { list-style: none; padding: 6px 0 0; margin: 0; }
 .q-history-list li {
   display: flex;
@@ -1105,6 +1082,43 @@ body.quest-shell-active {
 }
 .q-sheet-body > * { flex-shrink: 0; }
 .q-sheet-foot { border-top: 1px solid var(--q-line); padding-top: 10px; }
+
+.q-stake-content { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; }
+.q-stake-content .q-qchips { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.q-stake-content .q-qchips button { min-width: 0; padding-inline: 1px; }
+.q-stake-content .q-ocs { margin: 0; }
+.q-stake-content .q-amt-box input { font-size: clamp(23px, 7vw, 30px); }
+.q-stake-content .q-foot-note { margin: 2px 0 0; }
+/* Compact stake amount control. Native range semantics with the app's visual tokens. */
+.q-stake-slider {
+  appearance: none;
+  width: 100%;
+  min-height: 30px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--q-red);
+}
+.q-stake-slider:disabled { opacity: .45; cursor: default; }
+.q-stake-slider:focus-visible { outline: 2px solid var(--q-blue); outline-offset: 1px; border-radius: 20px; }
+.q-stake-slider::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 20px;
+  background: linear-gradient(to right, currentColor var(--q-slider-fill, 0%), var(--q-surface-3) var(--q-slider-fill, 0%));
+}
+.q-stake-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  margin-top: -10px;
+  border: 3px solid currentColor;
+  border-radius: 50%;
+  background: var(--q-surface);
+}
+.q-stake-slider::-moz-range-track { height: 8px; border-radius: 20px; background: var(--q-surface-3); }
+.q-stake-slider::-moz-range-progress { height: 8px; border-radius: 20px; background: currentColor; }
+.q-stake-slider::-moz-range-thumb { width: 22px; height: 22px; border: 3px solid currentColor; border-radius: 50%; background: var(--q-surface); }
+#q-stake-summary .q-kv { padding-block: 9px; }
 
 .q-amt-box {
   display: flex;
@@ -1407,13 +1421,6 @@ button.q-race-point { cursor: pointer; }
 #q-race-card .q-flag.missing { border: 1px dashed var(--q-ink-3); background: transparent; }
 #q-race-card .q-fd-badge.missing { background: var(--q-yellow-soft); color: var(--q-yellow-ink); }
 
-.q-pred-votes { margin-top: 10px; }
-.q-pred-votes-label { display: flex; justify-content: space-between; gap: 8px; color: var(--q-ink-2); font-size: 12px; }
-.q-pred-votes-label b { color: var(--q-ink); }
-.q-pred-votes-bar { display: flex; height: 6px; margin-top: 5px; overflow: hidden; border-radius: 999px; }
-.q-pred-votes-bar i { flex-basis: 0; background: var(--q-green); }
-.q-pred-votes-bar i + i { background: var(--q-red); }
-
 .q-race-pool-balances .q-kv b { min-width: 0; overflow-wrap: anywhere; }
 
 .q-tk-meta {
@@ -1543,7 +1550,6 @@ button.q-race-point { cursor: pointer; }
 }
 .q-btn:focus-visible,
 .q-chest-card:focus-visible,
-.q-pred button:focus-visible,
 .quest-shell-active .app-tabbar .tab-item:focus-visible {
   outline: 2px solid var(--q-blue);
   outline-offset: 2px;

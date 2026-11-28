@@ -738,9 +738,8 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
         if (total > 0n && remaining <= total) currentCurveDay = Number((total - remaining) * 14000n / total) / 1000;
       }
     }
-    const todayTotalPct = currentCurveDay !== null ? (44 + 56 * currentCurveDay / 14) : null;
 
-    const showCurveBody = vestingTickets.length > 0 || state.curveExpanded;
+    const showCurveBody = state.curveExpanded;
 
     root.innerHTML = `
       <div class="q-view" id="quest-vault-view">
@@ -920,9 +919,6 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
               </button>
             </div>
           ` : ''}
-          <div class="q-small q-muted" style="line-height:1.45;margin-bottom:10px;">
-            ${L('含 6% 购箱返佣、8% 通关返佣及已激活奖励。', 'Includes 6% chest rebates, 8% pass rebates and activated rewards.')}
-          </div>
           ${(() => {
             const promoTxLocked = pendingTxManager.isLocked();
             const promoDisabled = isReadOnlyLive || !d.hasWallet || state.promoBusy || promoTxLocked || Boolean(state.promoError) || !(finiteOrNull(d.promoClaimable) > 0);
@@ -949,17 +945,9 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
         <section class="q-card" id="q-instant-curve-card" data-curve-ticket="${escapeHtml(curveTicket?.ticketAddress || '')}" data-curve-round="${escapeHtml(String(curveTicket?.roundId ?? ''))}" data-curve-expanded="${showCurveBody ? '1' : '0'}">
           <div class="q-card-h">
             <h3>${qIcon('bolt', 18)} ${curveTicket ? L(`急提价值曲线 · 第 ${curveTicket.roundId ?? '—'} 关`, `Cashout Curve · Stage ${curveTicket.roundId ?? '—'}`) : L('急提价值曲线', 'Instant Cashout Curve')}</h3>
-            ${vestingTickets.length === 0 ? `
-              <button type="button" class="q-chip" id="q-toggle-curve" style="border:0;cursor:pointer;">${showCurveBody ? L('收起', 'Hide') : L('展开试算 ›', 'Expand ›')}</button>
-            ` : `
-              <span class="q-chip q-chip-yellow">${todayTotalPct !== null ? L(`理论累计 ${todayTotalPct.toFixed(1)}%`, `Theoretical ${todayTotalPct.toFixed(1)}%`) : L('第 14 天全额解锁', 'Fully vested Day 14')}</span>
-            `}
+            <button type="button" class="q-chip" id="q-toggle-curve" aria-expanded="${showCurveBody}">${showCurveBody ? L('收起', 'Hide') : L('展开试算 ›', 'Expand ›')}</button>
           </div>
-          ${!showCurveBody ? `
-            <div class="q-small q-muted" style="line-height:1.45;">
-              ${L('通关本金 100% 退回。第 0 天急提可得锁定奖金的 30%，相当于整笔奖金的 44%。', 'Passing returns 100% of principal. Day 0 cashout pays 30% of locked rewards, equivalent to 44% of total rewards.')}
-            </div>
-          ` : `
+          ${showCurveBody ? `
             ${d.tickets.length > 1 ? `
               <div class="q-row" style="flex-wrap:wrap;gap:6px;margin-bottom:8px;">
                 ${d.tickets.map((tk) => `<button type="button" class="q-chip ${curveTicket?.ticketAddress === tk.ticketAddress ? 'q-chip-blue' : ''}" data-q-select-curve="${escapeHtml(tk.ticketAddress)}" style="border:0;cursor:pointer;">${L(`第 ${tk.roundId ?? '—'} 关`, `Stage ${tk.roundId ?? '—'}`)}</button>`).join('')}
@@ -1013,7 +1001,7 @@ export function renderVaultView(root, _navigate, _param = null, query = {}) {
               <summary>${L('急提规则与双口径说明 ›', 'Cashout rules & denominators ›')}</summary>
               <div class="q-foot-note" style="margin-top:6px;">${L('通关本金 100% 退回。试算扣除已领金额，尚未解锁的奖金按 30% 秒提、70% 销毁。', 'Passing returns 100% of principal. Estimates deduct past claims. Unvested rewards pay 30% and burn 70%.')}</div>
             </details>
-          `}
+          ` : ''}
         </section>
       </div>
     `;

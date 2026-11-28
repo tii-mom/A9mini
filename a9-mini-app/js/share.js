@@ -85,7 +85,7 @@ export function getShareRef() {
 /** Worker 动态 OG 短链：/c/:type/:id?ref=<uid> */
 export function buildOgShareUrl(type, id, userRef = getShareRef()) {
   const apiOrigin = config.apiBase || window.location.origin;
-  const base = `${apiOrigin}/c/${encodeURIComponent(type)}/${encodeURIComponent(String(id ?? '1'))}`;
+  const base = `${apiOrigin}/c/${encodeURIComponent(type === 'bet' ? 'round' : type)}/${encodeURIComponent(String(id ?? '1'))}`;
   return userRef ? `${base}?ref=${encodeURIComponent(userRef)}` : base;
 }
 
@@ -95,7 +95,7 @@ export function buildStartAppLink(type, id, userRef = getShareRef()) {
     const param = buildTeamInviteStartParam(id, userRef);
     return param ? buildTmaDeepLink(param) : '';
   }
-  const safeType = String(type || 'round').replace(/[^a-zA-Z0-9_-]/g, '');
+  const safeType = String(type === 'bet' ? 'round' : type || 'round').replace(/[^a-zA-Z0-9_-]/g, '');
   const safeId = String(id ?? '1').replace(/^A9-STAKE-/, '').replace(/[^a-zA-Z0-9_-]/g, '');
   const safeRef = String(userRef || '').replace(/[^a-zA-Z0-9_-]/g, '');
   const candidate = safeRef ? `${safeType}_${safeId}_${safeRef}` : `${safeType}_${safeId}`;
@@ -105,7 +105,6 @@ export function buildStartAppLink(type, id, userRef = getShareRef()) {
 
 export function buildShareAngles(type, id, ctx = {}) {
   const r = store.state.round;
-  const pred = store.state.prediction || {};
   const ui = deriveRoundUiState({ detail: r, user: store.state.user, serverNowMs: serverNowMs() });
   const demoPrefix = config.isDemo ? L('[演示模式] ', '[Demo] ') : '';
   const rawRound = ctx.roundId ?? r.currentRound;
@@ -145,12 +144,6 @@ export function buildShareAngles(type, id, ctx = {}) {
             : ui.stage === 'aborted'
               ? 'Aborted, 100% principal refund open'
               : 'Syncing';
-  const streak = Number(ctx.streak ?? pred.streak) || 0;
-  const rawWr = ctx.winRate ?? pred.winRate;
-  const winRate = rawWr !== null && rawWr !== undefined && Number.isFinite(Number(rawWr)) ? Number(rawWr) : null;
-  const rankTag = streak >= 2
-    ? L(`（当前 ${streak} 连胜${winRate !== null ? ` · ${winRate}% 胜率` : ''}）`, ` (${streak}-win streak${winRate !== null ? ` · ${winRate}% win rate` : ''})`)
-    : (winRate !== null ? L(`（预言胜率 ${winRate}%）`, ` (${winRate}% win rate)`) : '');
   const tagDemo = (arr) => demoPrefix ? arr.map((a) => ({ ...a, text: `${demoPrefix}${a.text}` })) : arr;
 
   if (type === 'proof') {
@@ -264,47 +257,14 @@ export function buildShareAngles(type, id, ctx = {}) {
     ]);
   }
 
-  if (type === 'bet') {
-    const sideLabel = ctx.side === 'BURN' ? L('未通关空军 FAIL', 'FAIL') : L('通关多军 PASS', 'PASS');
-    const slotNote = (ctx.guessSlots !== null && ctx.guessSlots !== undefined)
-      ? L(`，精准卡位 ${ctx.guessSlots}/12 段`, `, exact call ${ctx.guessSlots}/12`)
-      : '';
-    return tagDemo([
-      {
-        key: 'data',
-        label: L('数据派', 'Data'),
-        text: L(
-          `达标 ≥ 8/12 派奖还是自动止损？我在 A9 第 ${roundNum} 轮 12H 预言擂台押了【${sideLabel}】${slotNote}${rankTag}。当前${phaseZh}，目标底价 ${target}。`,
-          `Pass ≥ 8/12 or auto stop-loss? I locked [${sideLabel}]${slotNote}${rankTag} in A9 Round #${roundNum} 12H Prediction Arena (${phaseEn}, target ${target}).`
-        )
-      },
-      {
-        key: 'bull',
-        label: L('看多派', 'Bullish'),
-        text: L(
-          `0 GRAM 免费上车 A9 第 ${roundNum} 轮 12H 预言擂台！我已锁定【${sideLabel}】${slotNote}，新人首轮参与即保底 500 A9 待解锁体验金，敢不敢来对赌判断？`,
-          `0 GRAM free entry in A9 Round #${roundNum} 12H Prediction Arena! Locked [${sideLabel}]${slotNote}. First-round rookies get a 500 A9 vault floor—come test your call.`
-        )
-      },
-      {
-        key: 'casual',
-        label: L('吃瓜自嘲派', 'Banter'),
-        text: L(
-          `0 成本先站个队：A9 第 ${roundNum} 轮我选【${sideLabel}】${slotNote}。当前${phaseZh}，猜对瓜分奖池、首轮猜错也保底 500 A9 赠金，看戏站队不亏。`,
-          `Zero-cost stand on A9 Round #${roundNum}: [${sideLabel}]${slotNote}. ${phaseEn}—500 A9 rookie floor even on a first miss.`
-        )
-      }
-    ]);
-  }
-
   // Default: 'round' / 'invite'
   return tagDemo([
     {
       key: 'data',
       label: L('数据派', 'Data'),
       text: L(
-        `A9 第 ${roundNum} 轮实时进度：${phaseZh}${rankTag}，目标底价 ${target}${poolClause}（全员 1:1 封顶 5x · 永不爆仓，未达标退 95%/90% 本金）。`,
-        `A9 Round #${roundNum} status: ${phaseEn}${rankTag}, target ${target}${poolClause} (1:1 up to 5x · no liquidation, 95%/90% refund on miss).`
+        `A9 第 ${roundNum} 轮实时进度：${phaseZh}，目标底价 ${target}${poolClause}（全员 1:1 封顶 5x · 永不爆仓，未达标退 95%/90% 本金）。`,
+        `A9 Round #${roundNum} status: ${phaseEn}, target ${target}${poolClause} (1:1 up to 5x · no liquidation, 95%/90% refund on miss).`
       )
     },
     {
@@ -319,8 +279,8 @@ export function buildShareAngles(type, id, ctx = {}) {
       key: 'casual',
       label: L('吃瓜自嘲派', 'Banter'),
       text: L(
-        `A9 第 ${roundNum} 轮（${phaseZh}）${poolClause}：达标 ≥ 8/12 分奖，未达标自动止损退本，0 GRAM 免费进 12H 预言擂台先站队！`,
-        `A9 Round #${roundNum} (${phaseEn})${poolClause}: pass ≥ 8/12 to split the pool or auto stop-loss refund—pick a side for 0 GRAM in the 12H Prediction Arena.`
+        `A9 第 ${roundNum} 轮（${phaseZh}）${poolClause}：达标 ≥ 8/12 分奖，未达标自动止损退本。`,
+        `A9 Round #${roundNum} (${phaseEn})${poolClause}: pass ≥ 8/12 to split the pool or auto stop-loss refund.`
       )
     }
   ]);
