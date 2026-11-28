@@ -1989,7 +1989,7 @@ export function createApiRouter({
       if (e instanceof GrowthError && e.code === 'MIGRATION_0017_REQUIRED') {
         return err(e.code, e.message, 503);
       }
-      if (e instanceof PresaleError && ['HOT_WALLET_LOW_INVENTORY', 'PROMO_WALLET_LOW_INVENTORY', 'INVENTORY_SNAPSHOT_UNAVAILABLE', 'INVENTORY_SNAPSHOT_STALE', 'INVENTORY_SNAPSHOT_MISMATCH', 'MIGRATION_0017_REQUIRED'].includes(e.code)) {
+      if (e instanceof PresaleError && ['HOT_WALLET_LOW_INVENTORY', 'PROMO_WALLET_LOW_INVENTORY', 'INVENTORY_SNAPSHOT_UNAVAILABLE', 'INVENTORY_SNAPSHOT_STALE', 'INVENTORY_SNAPSHOT_MISMATCH', 'MIGRATION_0017_REQUIRED', 'MIGRATION_0018_REQUIRED'].includes(e.code)) {
         return err(e.code, e.message, 503);
       }
       if (e instanceof PromoError || e instanceof PresaleError || e instanceof GrowthError || e instanceof V17RewardError) {

@@ -35,6 +35,7 @@ import { TEST_BOT_TOKEN, tgHeaders, createSqliteD1, createMiniflareD1, MIGRATION
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKER_DIR = path.resolve(__dirname, '..');
+const MIGRATION_0018_SQL = fs.readFileSync(path.join(WORKER_DIR, 'migrations', '0018_hot_wallet_payout_debits.sql'), 'utf8');
 
 let passed = 0;
 async function test(name, fn) {
@@ -72,7 +73,7 @@ function makeSnap(nowSec, { presaleA9Raw, promoA9Raw, network = 'testnet', jetto
   };
 }
 
-function buildD1Stack({ migrations = MIGRATIONS, budgetOverrides = null, requireInventorySnapshot = false, randomFn = null, envExtra = {}, dbOverride = null } = {}) {
+function buildD1Stack({ migrations = MIGRATIONS, budgetOverrides = null, requireInventorySnapshot = false, randomFn = null, envExtra = {}, dbOverride = null, runnerHeartbeatReader = null } = {}) {
   const db = dbOverride ?? createSqliteD1(migrations);
   if (budgetOverrides) {
     for (const [bucket, cap] of Object.entries(budgetOverrides)) {
@@ -130,6 +131,7 @@ function buildD1Stack({ migrations = MIGRATIONS, budgetOverrides = null, require
     v17RewardEngine,
     identityStore,
     walletStateResolver: async () => ({ state: 'active' }),
+    runnerHeartbeatReader,
   });
   return { db, router, round1, budgetLedger, promoEngine, presaleEngine, socialStore, predictionEngine, chestEngine, identityStore, v17RewardEngine };
 }
@@ -940,9 +942,10 @@ await test('Blocker P1 #4: after 0016 -> 0017 backfill, new orders cannot crowd 
     .bind(W('91'), W('91'), tNow + 1800, tNow - 30, tNow - 10)
     .run();
 
-  // Upgrade 0016 -> 0017 and run reconcileLegacyPresaleOrders
+  // Apply both migrations required by the current mall before testing new orders.
   const mig0017 = fs.readFileSync(path.join(WORKER_DIR, 'migrations', '0017_actuarial_reservations_and_vouchers.sql'), 'utf8');
   pre.db.exec(mig0017);
+  pre.db.exec(MIGRATION_0018_SQL);
   const rec = await reconcileLegacyPresaleOrders(pre.db, tNow, { budgetLedger: pre.budgetLedger });
   assert.equal(rec.backfilled, 1);
   assert.equal(rec.reservedBudgetCount, 1);
@@ -1214,9 +1217,10 @@ await test('Blocker P1 #6: legacy CREDITING & NEEDS_REVIEW referral credits do n
     .bind(W_REF1, String(90n * A9), tNow - 100, tNow - 100, W_REF2, String(90n * A9), tNow - 90, tNow - 90)
     .run();
 
-  // Upgrade 0016 -> 0017 and run reconcileLegacyPresaleOrders
+  // Apply both migrations required by the current mall before testing new orders.
   const mig0017 = fs.readFileSync(path.join(WORKER_DIR, 'migrations', '0017_actuarial_reservations_and_vouchers.sql'), 'utf8');
   pre.db.exec(mig0017);
+  pre.db.exec(MIGRATION_0018_SQL);
   const rec1 = await reconcileLegacyPresaleOrders(pre.db, tNow, { budgetLedger: pre.budgetLedger });
   assert.equal(rec1.backfilled, 2);
   assert.equal(rec1.reservedBudgetCount, 0, 'CREDITING / NEEDS_REVIEW referrals must NOT auto-deduct budget');
@@ -1256,9 +1260,9 @@ await test('Blocker P1 #6: legacy CREDITING & NEEDS_REVIEW referral credits do n
 
 // ---------------------------------------------------------------------------
 // 14. Public /api/config & getQuota remove legacy 2002 / PROTOCOL_FIXED_QUOTE;
-//     schema.sql includes 0016 & 0018 parity; missing 0018 fails closed.
+//     schema.sql includes 0016 & 0018 parity.
 // ---------------------------------------------------------------------------
-await test('Public /api/config & getQuota remove legacy 2002/PROTOCOL_FIXED_QUOTE, schema.sql matches 0001..0018, and missing 0018 fails closed', async () => {
+await test('Public /api/config & getQuota remove legacy 2002/PROTOCOL_FIXED_QUOTE, schema.sql includes the actuarial and finality tables', async () => {
   for (const open of [false, true]) {
     const stack = buildD1Stack();
     stack.presaleEngine.open = open;
@@ -1288,14 +1292,64 @@ await test('Public /api/config & getQuota remove legacy 2002/PROTOCOL_FIXED_QUOT
   }
   const idx0016 = await freshDb.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name = 'idx_v17_finality_snapshots_net_rc'").first();
   assert.equal(idx0016?.name, 'idx_v17_finality_snapshots_net_rc');
+});
 
-  // Verify missing 0018 table fails closed when querying hot_wallet_payout_debits
-  const pre0018Migs = MIGRATIONS.filter((m) => !m.includes('0018_'));
-  const pre0018Db = createSqliteD1(pre0018Migs);
-  await assert.rejects(
-    async () => pre0018Db.prepare('SELECT debit_lt FROM hot_wallet_payout_debits LIMIT 1').first(),
-    /no such table: hot_wallet_payout_debits/i,
-  );
+await test('Missing 0018 blocks the authenticated mall endpoint before any order, reservation or budget write', async () => {
+  const pre0018Migrations = MIGRATIONS.slice(0, 17);
+  const nowSec = 10_000;
+  const tgUserId = 1801;
+  const wallet = W('81');
+  const inventory = makeSnap(nowSec, { presaleA9Raw: 5_000n * A9, promoA9Raw: 500n * A9 });
+  const backends = [
+    ['SQLite', async () => ({ db: createSqliteD1(pre0018Migrations) })],
+    ['Miniflare', () => createMiniflareD1(pre0018Migrations)],
+  ];
+  for (const [name, openDb] of backends) {
+    const database = await openDb();
+    if (!database) {
+      console.log('  SKIP  ' + name + ' mall 0018 regression (runtime unavailable)');
+      continue;
+    }
+    const { db } = database;
+    try {
+      const stack = buildD1Stack({
+        dbOverride: db,
+        requireInventorySnapshot: true,
+        envExtra: { A9_REQUIRE_RUNNER_HEARTBEAT: '1' },
+        runnerHeartbeatReader: async () => [{
+          role: 'payout_daemon', network: 'testnet', status: 'ok', lastSeenAt: nowSec,
+          meta: { executeLive: true, inventory },
+        }],
+      });
+      await stack.identityStore.bindWallet(String(tgUserId), wallet, nowSec - 1);
+      const request = {
+        method: 'POST', pathname: '/api/presale/intent',
+        headers: await tgHeaders(tgUserId, { nowSec }),
+        body: { skuId: 'chest_bronze' }, nowSec,
+      };
+      const countOrders = () => db.prepare('SELECT COUNT(*) AS count FROM presale_orders').first();
+      const countReservations = () => db.prepare('SELECT COUNT(*) AS count FROM presale_order_reservations').first();
+      const readBudget = () => db.prepare('SELECT bucket_key, spent_raw FROM promo_budget_ledger ORDER BY bucket_key').all();
+      const before = await readBudget();
+
+      const rejected = await stack.router(request);
+      assert.equal(rejected.status, 503, name);
+      assert.equal(rejected.body.error.code, 'MIGRATION_0018_REQUIRED', name);
+      assert.equal((await countOrders()).count, 0, name);
+      assert.equal((await countReservations()).count, 0, name);
+      assert.deepEqual((await readBudget()).results, before.results, name);
+
+      await db.prepare(MIGRATION_0018_SQL).run();
+      const accepted = await stack.router(request);
+      assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+      assert.equal((await countOrders()).count, 1, name);
+      assert.equal((await countReservations()).count, 1, name);
+      assert.equal((await stack.budgetLedger.getBucket('presale_promo')).spentRaw, String(1_000n * A9), name);
+      console.log('  PASS  [' + name + '] 0017 rejects intent with 503 and zero writes; same router accepts after 0018');
+    } finally {
+      await database.dispose?.();
+    }
+  }
 });
 
 console.log(`All ${passed} A9 v17 Actuarial Remediation tests passed.`);

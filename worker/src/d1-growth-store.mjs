@@ -2972,17 +2972,23 @@ export class D1PresaleRepo {
       .run();
   }
 
-  async _assertMigration0017() {
-    try {
-      await this.db.prepare('SELECT 1 FROM presale_order_reservations LIMIT 1').first();
-    } catch (e) {
-      if (isMissingTableErr(e)) {
-        throw new PresaleError(
-          'MIGRATION_0017_REQUIRED',
-          'presale_order_reservations 表缺失，请先执行 0017_actuarial_reservations_and_vouchers.sql 迁移',
-        );
-      }
-      throw e;
+  async _assertOrderSchema() {
+    const schema = await this.db.prepare(`
+      SELECT
+        EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'presale_order_reservations') AS has_reservations,
+        EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'hot_wallet_payout_debits') AS has_payout_debits
+    `).first();
+    if (!schema?.has_reservations) {
+      throw new PresaleError(
+        'MIGRATION_0017_REQUIRED',
+        'presale_order_reservations 表缺失，请先执行 0017_actuarial_reservations_and_vouchers.sql 迁移',
+      );
+    }
+    if (!schema.has_payout_debits) {
+      throw new PresaleError(
+        'MIGRATION_0018_REQUIRED',
+        'hot_wallet_payout_debits 表缺失，请先执行 0018_hot_wallet_payout_debits.sql 迁移',
+      );
     }
   }
 
@@ -3109,10 +3115,10 @@ export class D1PresaleRepo {
    * - Enforces pool cap, optional personal quota, presale hot-wallet inventory, promo hot-wallet inventory,
    *   and presale_promo (48,000,000 A9) budget reservation atomically (protecting open legacy obligations).
    * - Any 0-row SQL update or concurrent conflict triggers a NOT NULL rollback of the ENTIRE batch.
-   * - Fails closed with MIGRATION_0017_REQUIRED if migration 0017 has not been applied.
+   * - Requires the order reservation and payout debit tables before accepting any new order.
    */
   async createOrderAtomic(o, resv, { capA9Raw, userQuotaNano, nowSec, budgetLedger = null, inventorySnapshot = null } = {}) {
-    await this._assertMigration0017();
+    await this._assertOrderSchema();
 
     const addA9 = split9(o.a9AmountRaw);
     const capA9 = split9(capA9Raw);
