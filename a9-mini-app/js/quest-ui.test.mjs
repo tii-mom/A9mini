@@ -887,8 +887,8 @@ test('docs/18 #2 [P1]: Crossing First-6H cutoff while final confirm modal is ope
       s.round.earlyCloseAt = nowSec + 120;
       s.round.stakeCloseAt = nowSec + 60000;
       s.round.inFirst6h = true;
-      s.round.rewardBudgetRaw = String(100000n * 1_000_000_000n);
-      s.round.totalStakedRaw = String(100000n * 1_000_000_000n);
+      s.round.rewardBudgetRaw = '36249708707696';
+      s.round.totalStakedRaw = '10000000000000';
       s.round.stakingEnabled = true;
       s.round.stale = false;
       s.round.detailStale = false;
@@ -936,6 +936,9 @@ test('docs/18 #2 [P1]: Crossing First-6H cutoff while final confirm modal is ope
     openBtn.onclick();
     inp.value = '10000';
     inp.oninput();
+    assert.equal(winValEl.textContent, '+18,124.85 A9');
+    assert.equal(winSubEl.textContent, '20% 秒提 3,624.97 A9 · 80%（14,499.88 A9）14 天解锁');
+    assert.match(summaryEl.innerHTML, /通关预估奖金.*\+18,124\.85 A9/);
     assert.equal(loseValEl.textContent, '退 9,500 A9');
     assert.equal(loseSubEl.textContent, '止损销毁 500 A9');
 
